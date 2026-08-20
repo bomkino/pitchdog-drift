@@ -1,4 +1,4 @@
-name: Source snapshot
+name: Validation workspace
 
 on:
   pull_request:
@@ -8,22 +8,29 @@ permissions:
   contents: read
 
 jobs:
-  snapshot:
+  workspace:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Pack clean checkout
-        run: |
-          rm .github/workflows/source-snapshot.yml
-          tar --exclude=.git -czf /tmp/pitchdog-drift-main.tar.gz .
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
 
-      - name: Upload source snapshot
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Pack dependencies
+        run: tar -czf /tmp/pitchdog-drift-node-modules.tar.gz node_modules
+
+      - name: Upload dependencies
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: pitchdog-drift-main-source
-          path: /tmp/pitchdog-drift-main.tar.gz
+          name: pitchdog-drift-node-modules
+          path: /tmp/pitchdog-drift-node-modules.tar.gz
           if-no-files-found: error
           retention-days: 1
