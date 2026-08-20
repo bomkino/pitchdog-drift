@@ -1,28 +1,28 @@
 import type { SonicPalette } from "../model";
 
-import bookClose from "./assets/recordings/book-close.wav?inline";
-import bookFlip1 from "./assets/recordings/book-flip-1.wav?inline";
-import bookFlip2 from "./assets/recordings/book-flip-2.wav?inline";
-import bookPlace1 from "./assets/recordings/book-place-1.wav?inline";
-import bookPlace3 from "./assets/recordings/book-place-3.wav?inline";
-import cardPlace2 from "./assets/recordings/card-place-2.wav?inline";
-import cardPlace3 from "./assets/recordings/card-place-3.wav?inline";
-import cardShove1 from "./assets/recordings/card-shove-1.wav?inline";
-import cardShove2 from "./assets/recordings/card-shove-2.wav?inline";
-import cardSlide1 from "./assets/recordings/card-slide-1.wav?inline";
-import cardSlide2 from "./assets/recordings/card-slide-2.wav?inline";
-import cloth2 from "./assets/recordings/cloth-2.wav?inline";
-import cloth4 from "./assets/recordings/cloth-4.wav?inline";
-import genericImpact1 from "./assets/recordings/generic-impact-1.wav?inline";
-import genericImpact2 from "./assets/recordings/generic-impact-2.wav?inline";
-import leatherDrop from "./assets/recordings/leather-drop.wav?inline";
-import leatherHandle1 from "./assets/recordings/leather-handle-1.wav?inline";
-import leatherHandle2 from "./assets/recordings/leather-handle-2.wav?inline";
-import metalClick from "./assets/recordings/metal-click.wav?inline";
-import metalLatch from "./assets/recordings/metal-latch.wav?inline";
-import softImpact1 from "./assets/recordings/soft-impact-1.wav?inline";
-import softImpact2 from "./assets/recordings/soft-impact-2.wav?inline";
-import woodImpact1 from "./assets/recordings/wood-impact-1.wav?inline";
+import bookClose from "./assets/recordings/book-close.wav?no-inline";
+import bookFlip1 from "./assets/recordings/book-flip-1.wav?no-inline";
+import bookFlip2 from "./assets/recordings/book-flip-2.wav?no-inline";
+import bookPlace1 from "./assets/recordings/book-place-1.wav?no-inline";
+import bookPlace3 from "./assets/recordings/book-place-3.wav?no-inline";
+import cardPlace2 from "./assets/recordings/card-place-2.wav?no-inline";
+import cardPlace3 from "./assets/recordings/card-place-3.wav?no-inline";
+import cardShove1 from "./assets/recordings/card-shove-1.wav?no-inline";
+import cardShove2 from "./assets/recordings/card-shove-2.wav?no-inline";
+import cardSlide1 from "./assets/recordings/card-slide-1.wav?no-inline";
+import cardSlide2 from "./assets/recordings/card-slide-2.wav?no-inline";
+import cloth2 from "./assets/recordings/cloth-2.wav?no-inline";
+import cloth4 from "./assets/recordings/cloth-4.wav?no-inline";
+import genericImpact1 from "./assets/recordings/generic-impact-1.wav?no-inline";
+import genericImpact2 from "./assets/recordings/generic-impact-2.wav?no-inline";
+import leatherDrop from "./assets/recordings/leather-drop.wav?no-inline";
+import leatherHandle1 from "./assets/recordings/leather-handle-1.wav?no-inline";
+import leatherHandle2 from "./assets/recordings/leather-handle-2.wav?no-inline";
+import metalClick from "./assets/recordings/metal-click.wav?no-inline";
+import metalLatch from "./assets/recordings/metal-latch.wav?no-inline";
+import softImpact1 from "./assets/recordings/soft-impact-1.wav?no-inline";
+import softImpact2 from "./assets/recordings/soft-impact-2.wav?no-inline";
+import woodImpact1 from "./assets/recordings/wood-impact-1.wav?no-inline";
 
 export type SonicCue =
   | "passage"
@@ -96,6 +96,8 @@ const CATALOG: Readonly<Record<
   },
 };
 
+const byteLoads = new Map<string, Promise<ArrayBuffer>>();
+
 function variantIndex(length: number, variant: number): number {
   if (!Number.isFinite(variant) || length <= 1) return 0;
   return ((Math.trunc(variant) % length) + length) % length;
@@ -115,31 +117,35 @@ export function getSonicAssetUri(
 }
 
 /**
- * Vite compiles these committed WAV recordings into data URIs. A non-inline
- * value is rejected rather than fetched: Drift has no production sound CDN or
- * runtime third-party request path.
+ * Loads a committed, build-hashed WAV from Drift's own origin. Bytes are
+ * cached once per asset, but each caller receives a copy because Web Audio
+ * implementations may detach an ArrayBuffer while decoding it.
  */
-export function getSonicAssetBytes(
+export async function getSonicAssetBytes(
   palette: SonicPalette,
   cue: SonicCue,
   variant = 0,
-): ArrayBuffer {
+): Promise<ArrayBuffer> {
   const uri = getSonicAssetUri(palette, cue, variant);
-  const comma = uri.indexOf(",");
-  if (!uri.startsWith("data:") || comma < 0) {
-    throw new Error(`Sonic asset ${palette}/${cue}/${variant} was not compiled inline.`);
+  let load = byteLoads.get(uri);
+  if (!load) {
+    load = fetch(uri, {
+      cache: "force-cache",
+      credentials: "same-origin",
+    }).then(async (response) => {
+      if (!response.ok) {
+        throw new Error(
+          `Tactile asset ${palette}/${cue}/${variant} returned HTTP ${response.status}.`,
+        );
+      }
+      return await response.arrayBuffer();
+    });
+    byteLoads.set(uri, load);
+    void load.catch(() => {
+      if (byteLoads.get(uri) === load) byteLoads.delete(uri);
+    });
   }
 
-  const metadata = uri.slice(0, comma);
-  const payload = uri.slice(comma + 1);
-  if (metadata.endsWith(";base64")) {
-    const decoded = atob(payload);
-    const bytes = new Uint8Array(decoded.length);
-    for (let index = 0; index < decoded.length; index += 1) {
-      bytes[index] = decoded.charCodeAt(index);
-    }
-    return bytes.buffer;
-  }
-
-  return new TextEncoder().encode(decodeURIComponent(payload)).buffer;
+  const bytes = await load;
+  return bytes.slice(0);
 }
