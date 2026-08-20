@@ -10,14 +10,16 @@ function finiteAttribute(attribute: THREE.BufferAttribute): boolean {
   return Array.from(attribute.array).every(Number.isFinite);
 }
 
+const DIMENSIONS: ReadonlyArray<readonly [number, number]> = [
+  [1600, 900],
+  [900, 1600],
+  [1080, 1080],
+  [256, 8192],
+];
+
 describe("continuous-corner slide shell", () => {
   it("builds finite indexed geometry with a bounded vertex budget", () => {
-    for (const [width, height] of [
-      [1600, 900],
-      [900, 1600],
-      [1080, 1080],
-      [256, 8192],
-    ]) {
+    for (const [width, height] of DIMENSIONS) {
       for (const smoothing of [0, 0.6, 1]) {
         const geometry = createRoundedSlideShellGeometry(
           width,
