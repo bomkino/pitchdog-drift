@@ -14,6 +14,7 @@ on:
       - .github/workflows/source-snapshot.yml
       - scripts/vendor-sonic-assets.py
       - scripts/apply-authentic-sonic.py
+      - scripts/fix-sonic-hit-target.py
 
 permissions:
   contents: write
@@ -87,6 +88,9 @@ jobs:
 
       - name: Apply the user-journey and supply-chain hardening pass
         run: python3 scripts/apply-authentic-sonic.py
+
+      - name: Make every material card a real radio hit target
+        run: python3 scripts/fix-sonic-hit-target.py
 
       - name: Keep the asset test outside the browser TypeScript project
         shell: bash
@@ -180,7 +184,8 @@ jobs:
             scripts/sonic-builder.mjs \
             scripts/sonic-export-builder.mjs \
             scripts/repair-sonic-export-builder.py \
-            scripts/fix-generated-sonic.py
+            scripts/fix-generated-sonic.py \
+            scripts/fix-sonic-hit-target.py
           git diff --check
 
       - name: Commit the reviewable sound branch
