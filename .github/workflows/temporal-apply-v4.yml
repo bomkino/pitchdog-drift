@@ -1,0 +1,94 @@
+name: Apply temporal direction source v4
+
+on:
+  push:
+    branches:
+      - gauntlet/temporal-feel-direction
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporal-source-v4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out latest branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/temporal-feel-direction
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Materialize every temporal pass
+        shell: bash
+        run: |
+          if [[ ! -f src/engine/temporalDirection.ts ]]; then
+            python scripts/apply_temporal_feel.py
+            python scripts/refine_temporal_feel.py
+          fi
+          if ! grep -q 'runway: number' src/model.ts; then
+            python scripts/refine_temporal_master.py
+          fi
+          python scripts/refine_temporal_fingerprint.py
+          git diff --check
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck, unit-test, and build
+        run: npm run check
+
+      - name: Install Chromium runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run real-browser gauntlet
+        run: npm run test:e2e
+
+      - name: Remove every recovery scaffold
+        shell: bash
+        run: |
+          rm -rf .github/temporal-payload
+          rm -f .github/temporal-payload.ready
+          rm -f scripts/apply_temporal_feel.py
+          rm -f scripts/refine_temporal_feel.py
+          rm -f scripts/refine_temporal_master.py
+          rm -f scripts/refine_temporal_fingerprint.py
+          rm -f .github/workflows/temporal-source-snapshot.yml
+          rm -f .github/workflows/temporal-apply-v2.yml
+          rm -f .github/workflows/temporal-apply-v3.yml
+          rm -f .github/workflows/temporal-apply-v4.yml
+          git fetch origin main --depth=1
+          git checkout origin/main -- .github/workflows/ci.yml
+          git diff --check
+
+      - name: Commit verified source
+        shell: bash
+        run: |
+          git config user.name "pitch.dog temporal gauntlet"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: direct cinematic temporal feel"
+          git pull --rebase origin gauntlet/temporal-feel-direction
+          git push origin HEAD:gauntlet/temporal-feel-direction
+
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: temporal-direction-v4-failure-evidence
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
