@@ -20,8 +20,7 @@ final class DriftAppDelegate: NSObject,
     private var pendingProjectURLs: [URL] = []
     private var approvedClose = false
     private var revealLastSavedFileItem: NSMenuItem?
-    private var lastWebContentTerminationAt: Date?
-    private let webContentRecoveryWindow: TimeInterval = 60
+    private var webContentRecoveryPolicy = WebContentRecoveryPolicy()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = nil
@@ -102,7 +101,7 @@ final class DriftAppDelegate: NSObject,
         nativeBridge = nil
         window = nil
         approvedClose = false
-        lastWebContentTerminationAt = nil
+        webContentRecoveryPolicy.reset()
     }
 
     private func removeNativeMessageHandler() {
@@ -290,17 +289,12 @@ final class DriftAppDelegate: NSObject,
         nativeBridge?.abortAllWrites()
         webRuntimeReady = false
 
-        let now = Date()
-        let repeatedTermination = lastWebContentTerminationAt.map {
-            now.timeIntervalSince($0) < webContentRecoveryWindow
-        } ?? false
-        lastWebContentTerminationAt = now
-
+        let mayOfferRecovery = webContentRecoveryPolicy.consumeAttempt()
         let alert = NSAlert()
         alert.alertStyle = .critical
-        if repeatedTermination {
+        if !mayOfferRecovery {
             alert.messageText = "The visual engine stopped twice"
-            alert.informativeText = "Drift stopped the automatic recovery loop. Incomplete native writes were rolled back. Quit, reopen the app, and use the autosaved project or a portable .pitched backup."
+            alert.informativeText = "Drift stopped the recovery loop. Incomplete native writes were rolled back. Quit, reopen the app, and use the autosaved project or a portable .pitched backup."
             alert.addButton(withTitle: "Quit Drift")
             alert.runModal()
             approvedClose = true
@@ -690,6 +684,7 @@ final class DriftAppDelegate: NSObject,
         Project operation active: \(state.projectBusy)
         Local save state: \(state.saveState)
         Recent notice signal: \(state.lastNotice ?? "none")
+        Web content recovery remaining: \(webContentRecoveryPolicy.hasRemainingAttempt)
         """
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(diagnostics, forType: .string)

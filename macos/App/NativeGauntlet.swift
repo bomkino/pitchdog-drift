@@ -2,6 +2,17 @@ import Foundation
 
 enum NativeGauntlet {
     static func run() throws {
+        // Exactly one renderer-process recovery may be consumed during one
+        // studio-window lifetime. A second termination must stop the loop; a
+        // genuinely new window starts with a fresh policy.
+        var recoveryPolicy = WebContentRecoveryPolicy()
+        try require(recoveryPolicy.hasRemainingAttempt, "fresh WebKit recovery policy had no attempt")
+        try require(recoveryPolicy.consumeAttempt(), "first WebKit termination was denied its one recovery attempt")
+        try require(!recoveryPolicy.hasRemainingAttempt, "consumed WebKit recovery attempt remained available")
+        try require(!recoveryPolicy.consumeAttempt(), "second WebKit termination reopened an automatic recovery loop")
+        recoveryPolicy.reset()
+        try require(recoveryPolicy.consumeAttempt(), "new studio-window lifetime did not restore one recovery attempt")
+
         // Renderer notices can contain confidential project names. The native
         // process needs a state signal, not the notice body.
         var diagnosticState = ClientState()

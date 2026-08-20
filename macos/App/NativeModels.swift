@@ -38,6 +38,24 @@ enum GrantMode {
     case readWrite
 }
 
+struct WebContentRecoveryPolicy {
+    private(set) var consumedAttempts = 0
+
+    var hasRemainingAttempt: Bool {
+        consumedAttempts == 0
+    }
+
+    mutating func consumeAttempt() -> Bool {
+        guard hasRemainingAttempt else { return false }
+        consumedAttempts = 1
+        return true
+    }
+
+    mutating func reset() {
+        consumedAttempts = 0
+    }
+}
+
 struct ClientState {
     var exportInProgress = false
     // Native menus and protected-exit logic must remain locked until React has
