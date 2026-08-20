@@ -22,11 +22,14 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check:mac-source": "node scripts/check-macos-source.mjs && bash -n scripts/build-macos-app.sh && bash -n scripts/verify-macos-app.sh && bash -n scripts/package-macos-dmg.sh && python3 -m py_compile scripts/generate-macos-icon.py",
+    "check:mac-source": "node scripts/check-macos-source.mjs && bash -n scripts/build-macos-app.sh && bash -n scripts/verify-macos-app.sh && bash -n scripts/package-macos-dmg.sh && bash -n scripts/verify-macos-dmg.sh && bash -n scripts/release-macos-app.sh && bash -n scripts/verify-macos-release.sh && python3 -m py_compile scripts/generate-macos-icon.py",
     "build:mac": "bash scripts/build-macos-app.sh",
     "verify:mac": "bash scripts/verify-macos-app.sh",
     "package:mac:dmg": "bash scripts/package-macos-dmg.sh",
     "package:mac": "npm run package:mac:dmg",
+    "verify:mac:dmg": "bash scripts/verify-macos-dmg.sh",
+    "verify:mac-release": "bash scripts/verify-macos-release.sh",
+    "release:mac": "bash scripts/release-macos-app.sh",
     "check": "npm run typecheck && npm run test && npm run check:mac-source && npm run build"
   },
   "dependencies": {
