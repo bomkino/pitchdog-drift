@@ -37,6 +37,17 @@ def main() -> None:
     source = source.replace(r"\.uPhase\.value)", r"\.uPhase!?\.value)")
     source = source.replace(r"\.uTime\.value)", r"\.uTime!?\.value)")
 
+    # `desiredVelocity` begins with the semantic prefix. The old matcher put a
+    # greedy identifier before that prefix and could never see it.
+    source = source.replace(
+        r"r'\b(?:const|let)\s+([A-Za-z_$][\w$]*(?:target|desired)[A-Za-z_$]*Velocity[A-Za-z_$]*)\s*='",
+        r"r'\b(?:const|let)\s+((?:target|desired)[A-Za-z_$]*Velocity[A-Za-z_$]*)\s*='",
+    )
+    source = source.replace(
+        r"r'\b([A-Za-z_$][\w$]*(?:target|desired)Velocity[A-Za-z_$]*)\b'",
+        r"r'\b((?:target|desired)[A-Za-z_$]*Velocity[A-Za-z_$]*)\b'",
+    )
+
     # updatePoolItem reads the instance settings; no local `settings` binding
     # exists in Drift's renderer. Correct the generated shell/material code at
     # the migration source before TypeScript ever sees it.
