@@ -32,6 +32,7 @@ jobs:
 
       - name: Vendor pinned CC0 audio and integrate source
         run: |
+          printf '\nNo third-party image, font, video, or audio asset is included in the repository.\n' >> ASSET-LICENSE.md
           node scripts/sonic-builder.mjs
           node scripts/sonic-export-builder.mjs
 
