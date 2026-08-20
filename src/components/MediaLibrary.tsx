@@ -1,4 +1,5 @@
 import { useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
+import { buildMediaDiagnostic } from "../mediaDiagnostics";
 import type { StudioAsset } from "../model";
 
 interface MediaLibraryProps {
@@ -31,6 +32,7 @@ export function MediaLibrary({
   const presenterInput = useRef<HTMLInputElement>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [fileDropActive, setFileDropActive] = useState(false);
+  const diagnostic = buildMediaDiagnostic(assets);
 
   const addImages = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.currentTarget.files ?? []);
@@ -110,6 +112,11 @@ export function MediaLibrary({
         </button>
       </div>
       <p className="media-note">Drag to sequence. Alt + ↑/↓ also reorders. One optional image or video can stay pinned. Files remain on this device.</p>
+      <div className="media-diagnostic" data-level={diagnostic.level} role="note" aria-label="Deck media diagnostic">
+        <span aria-hidden="true" />
+        <strong>{diagnostic.label}</strong>
+        <small>{diagnostic.detail}</small>
+      </div>
 
       {fileDropActive ? (
         <div className="media-drop-target" aria-hidden="true">
