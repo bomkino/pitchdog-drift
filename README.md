@@ -10,12 +10,13 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 
 ## What is here
 
-- Horizontal and vertical infinite tracks with straight, arc, ribbon, cylinder, and tunnel paths.
+- Horizontal and vertical infinite tracks with straight, arc, ribbon, cylinder, tunnel, helix, cascade, and orbit paths.
 - Drag, wheel, keyboard, autoplay, pause, reverse, inertia, and seamless-output lock.
 - Custom stage, output, slide, and pinned-frame ratios.
-- Cover/contain fit, focal point, scale, spacing, depth, tilt, velocity bend, continuous corners, borders, and shadows.
-- Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL.
-- Six authored motion worlds: Editorial Drift, Road Memory, Dread, Noir Contact, Tender Light, and Chrome Dream.
+- Cover/contain fit, focal point, scale, spacing, depth, tilt, continuous corners, borders, shadows, focus lift, edge falloff, and drag weight.
+- A bounded lens-response system: velocity-linked directional smear, chromatic separation, soft focus, halation, saturation drift, gate weave, and mesh deformation. Motion settles cleanly at rest.
+- Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL, with four seeded procedural compositions inside the gradient, aura, paper, and void families.
+- Eighteen authored motion worlds spanning editorial, travel, horror, documentary, romance, music, classic cinema, thriller, holiday, fantasy, comedy, history, western, science fiction, crime, experimental horror, and human drama.
 - One optional pinned image or presenter video, off by default.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
 - AAC presenter audio at 48 kHz stereo with an explicit A/V-sync gate.
@@ -41,6 +42,12 @@ npm run check      # TypeScript, deterministic tests, production build
 npm run test:e2e   # Real-browser media, WebGL, fallback, and portability checks
 ```
 
+## Directing the image
+
+`Lens response` is deliberately one coherent master rather than six unrelated effect sliders. At zero, slides remain optically clean. As it rises, speed produces a trailing directional smear, a small RGB split, warmer highlight spread, slight desaturation, gate weave, and mesh flex. High settings are still bounded so typography remains readable and a paused composition does not keep wobbling.
+
+`World variation` changes the deterministic background seed. It alters the procedural composition—projector cone, prism wash, emulsion cloud, paper fold, eclipse, night streak, and related structures—without changing the selected colours. The same seed and time always render the same frame.
+
 ## Export truth
 
 The default master is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque H.264 at 16 Mbit/s. When the pinned video has audio, Drift uses AAC at 48 kHz stereo and 192 kbit/s.
@@ -51,7 +58,7 @@ The default master is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque 
 - File export writes through a rollback-aware target. Cancelled work is aborted or neutralised instead of being presented as a valid master.
 - MP4 completion includes container readback, dimensions, frame count, duration, codec, colour, decoded probe frames, and audio timing checks.
 
-See [the architecture](docs/ARCHITECTURE.md), [research notes](docs/RESEARCH.md), [product contract](docs/PRODUCT_CONTRACT.md), and [QA receipt](docs/QA_REPORT.md) for the boundaries behind those claims.
+See [the architecture](docs/ARCHITECTURE.md), [research notes](docs/RESEARCH.md), [product contract](docs/PRODUCT_CONTRACT.md), [cinematic gauntlet](docs/CINEMATIC_GAUNTLET.md), and [QA receipt](docs/QA_REPORT.md) for the boundaries behind those claims.
 
 ## Browser support
 
@@ -68,7 +75,7 @@ Media never leaves the browser. IndexedDB holds the current project; a `.pitched
 
 Drift studies the pacing, spatial confidence, and material restraint of excellent film and WebGL work without cloning anyone’s composition. Siena Film Foundation was an art-direction reference; Codrops’ WebGL carousel work was a technical conversation starter. The implementation and demo artwork here are original.
 
-The default is authored on purpose. Controls can bend the scene, but presets are coherent parameter bundles rather than palette swaps. Distortion is bounded so a deck remains readable.
+The default is authored on purpose. Controls can bend the scene, but presets are coherent parameter bundles rather than palette swaps. Optical effects are velocity-linked and bounded so a deck remains legible. Background variation comes from deterministic procedural structure, not a pile of interchangeable gradient images.
 
 ## Contributing
 
