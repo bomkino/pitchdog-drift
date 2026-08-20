@@ -2,6 +2,7 @@ import {
   exportMp4,
   exportPngStill,
   type DecodedPresenterFrame,
+  type ExportProgress,
   type RenderAtContext,
 } from "../src/lib/exportStudio";
 
@@ -31,7 +32,56 @@ const context = (() => {
   return value;
 })();
 
+const startedAt = performance.now();
 let mode: ProbeMode = "mp4";
+let lastProgressKey = "";
+let heartbeatPhase = "boot";
+let heartbeatDetails: Record<string, unknown> = {};
+
+function elapsedMs(): number {
+  return Math.round((performance.now() - startedAt) * 100) / 100;
+}
+
+function postMessage(value: unknown): void {
+  const handler = window.webkit?.messageHandlers?.driftExportProbe;
+  if (handler) {
+    handler.postMessage(value);
+    return;
+  }
+  const pre = document.querySelector<HTMLPreElement>("#drift-export-probe-result")
+    ?? document.body.appendChild(document.createElement("pre"));
+  pre.id = "drift-export-probe-result";
+  pre.textContent = JSON.stringify(value, null, 2);
+}
+
+function postProgress(phase: string, details: Record<string, unknown> = {}): void {
+  heartbeatPhase = phase;
+  heartbeatDetails = details;
+  document.title = `Drift export probe · ${phase}`;
+  postMessage({
+    kind: "progress",
+    schemaVersion: 1,
+    phase,
+    elapsedMs: elapsedMs(),
+    visibilityState: document.visibilityState,
+    hasFocus: document.hasFocus(),
+    canvas: { width: canvas.width, height: canvas.height },
+    ...details,
+  });
+}
+
+function reportEncoderProgress(scope: string, progress: ExportProgress): void {
+  const bucket = Math.min(20, Math.max(0, Math.floor(progress.ratio * 20)));
+  const key = `${scope}:${progress.phase}:${bucket}`;
+  if (key === lastProgressKey) return;
+  lastProgressKey = key;
+  postProgress(`${scope}:${progress.phase}`, {
+    completed: progress.completed,
+    total: progress.total,
+    ratio: Math.round(progress.ratio * 10_000) / 10_000,
+    frameIndex: progress.frameIndex ?? null,
+  });
+}
 
 function drawFrame(timeSeconds: number): void {
   const width = canvas.width;
@@ -106,33 +156,47 @@ function serializeError(error: unknown): Record<string, unknown> {
   return { name: "Error", message: String(error) };
 }
 
-function postResult(result: unknown): void {
-  const handler = window.webkit?.messageHandlers?.driftExportProbe;
-  if (handler) {
-    handler.postMessage(result);
-    return;
-  }
-  const pre = document.createElement("pre");
-  pre.id = "drift-export-probe-result";
-  pre.textContent = JSON.stringify(result, null, 2);
-  document.body.append(pre);
+async function nextCompositedFrame(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
 }
 
 async function run(): Promise<void> {
-  const started = performance.now();
   const settings = { width: 320, height: 568, fps: 30, duration: 3 } as const;
+  postProgress("boot", {
+    userAgent: navigator.userAgent,
+    readyState: document.readyState,
+    videoEncoder: typeof VideoEncoder,
+    videoDecoder: typeof VideoDecoder,
+    offscreenCanvas: typeof OffscreenCanvas,
+    createImageBitmap: typeof createImageBitmap,
+  });
+
+  await nextCompositedFrame();
+  postProgress("compositor-ready");
+
   mode = "mp4";
+  postProgress("mp4:calling-export");
   const mp4 = await exportMp4({
     canvas,
     renderAt,
     settings,
+    onProgress: (progress) => reportEncoderProgress("mp4", progress),
+  });
+  postProgress("mp4:returned", {
+    bytes: mp4.blob?.size ?? 0,
+    frameCount: mp4.frameCount,
+    decodedProbeFrames: mp4.verification.decodedProbeFrames,
   });
   if (!mp4.blob || mp4.blob.size <= 0) {
     throw new Error("Buffer-backed MP4 export returned no bytes.");
   }
   const mp4Prefix = Array.from(new Uint8Array(await mp4.blob.slice(0, 16).arrayBuffer()));
+  postProgress("mp4:prefix-read", { prefix: mp4Prefix });
 
   mode = "png";
+  postProgress("png:calling-export");
   const png = await exportPngStill({
     canvas,
     renderAt,
@@ -140,15 +204,22 @@ async function run(): Promise<void> {
     time: 1.5,
     requireAlpha: true,
     requireTransparentPixels: true,
+    onProgress: (progress) => reportEncoderProgress("png", progress),
+  });
+  postProgress("png:returned", {
+    bytes: png.blob.size,
+    hasAlphaChannel: png.hasAlphaChannel,
+    hasTransparentPixels: png.hasTransparentPixels,
   });
   if (png.blob.size <= 0) throw new Error("PNG export returned no bytes.");
   const pngPrefix = Array.from(new Uint8Array(await png.blob.slice(0, 8).arrayBuffer()));
 
-  const result = {
+  postMessage({
     schemaVersion: 1,
     ok: true,
-    elapsedMs: Math.round((performance.now() - started) * 100) / 100,
+    elapsedMs: elapsedMs(),
     userAgent: navigator.userAgent,
+    visibilityState: document.visibilityState,
     mp4: {
       bytes: mp4.blob.size,
       prefix: mp4Prefix,
@@ -169,34 +240,46 @@ async function run(): Promise<void> {
       hasAlphaChannel: png.hasAlphaChannel,
       hasTransparentPixels: png.hasTransparentPixels,
     },
-  };
-  postResult(result);
+  });
 }
 
+const heartbeat = window.setInterval(() => {
+  postProgress(`heartbeat:${heartbeatPhase}`, heartbeatDetails);
+}, 15_000);
+
 window.addEventListener("error", (event) => {
-  postResult({
+  window.clearInterval(heartbeat);
+  postMessage({
     schemaVersion: 1,
     ok: false,
     phase: "window-error",
+    elapsedMs: elapsedMs(),
     error: serializeError(event.error ?? event.message),
   });
 }, { once: true });
 
 window.addEventListener("unhandledrejection", (event) => {
   event.preventDefault();
-  postResult({
+  window.clearInterval(heartbeat);
+  postMessage({
     schemaVersion: 1,
     ok: false,
     phase: "unhandled-rejection",
+    elapsedMs: elapsedMs(),
     error: serializeError(event.reason),
   });
 }, { once: true });
 
-void run().catch((error: unknown) => {
-  postResult({
-    schemaVersion: 1,
-    ok: false,
-    phase: "export",
-    error: serializeError(error),
-  });
-});
+void run().then(
+  () => window.clearInterval(heartbeat),
+  (error: unknown) => {
+    window.clearInterval(heartbeat);
+    postMessage({
+      schemaVersion: 1,
+      ok: false,
+      phase: heartbeatPhase,
+      elapsedMs: elapsedMs(),
+      error: serializeError(error),
+    });
+  },
+);
