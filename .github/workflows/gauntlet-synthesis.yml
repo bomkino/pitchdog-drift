@@ -7,6 +7,7 @@ on:
       - .github/workflows/gauntlet-synthesis.yml
       - scripts/gauntlet-synthesis.mjs
       - scripts/gauntlet-fix-generated.mjs
+      - scripts/gauntlet-fix-semantics.mjs
 
 permissions:
   contents: write
@@ -41,6 +42,9 @@ jobs:
 
       - name: Complete the generated media journey
         run: node scripts/gauntlet-fix-generated.mjs
+
+      - name: Make saved slide motion and temporary preview pause truthful
+        run: node scripts/gauntlet-fix-semantics.mjs
 
       - name: Install locked dependencies
         run: npm ci
