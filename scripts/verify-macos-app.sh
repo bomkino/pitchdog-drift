@@ -49,9 +49,10 @@ plutil -lint "${INFO_PLIST}" >/dev/null
   || fail "Info.plist and bridge version disagree."
 [[ "$(plutil -extract LSMinimumSystemVersion raw -o - "${INFO_PLIST}")" == "13.3" ]] \
   || fail "the packaged minimum macOS version is not 13.3."
-plutil -p "${INFO_PLIST}" | grep -Fq 'dog.pitch.pitched-project' \
+INFO_DUMP="$(plutil -p "${INFO_PLIST}")"
+grep -F 'dog.pitch.pitched-project' <<<"${INFO_DUMP}" >/dev/null \
   || fail "the .pitched document type is missing."
-plutil -p "${INFO_PLIST}" | grep -Fq 'UTExportedTypeDeclarations' \
+grep -F 'UTExportedTypeDeclarations' <<<"${INFO_DUMP}" >/dev/null \
   || fail "the app does not export its .pitched type declaration."
 
 codesign --verify --deep --strict --all-architectures --verbose=2 "${APP_BUNDLE}"
@@ -68,10 +69,11 @@ plutil -lint "${ENTITLEMENTS}" >/dev/null
   || fail "App Sandbox entitlement is missing."
 [[ "$(plutil -extract com.apple.security.files.user-selected.read-write raw -o - "${ENTITLEMENTS}")" == "true" ]] \
   || fail "user-selected read/write entitlement is missing."
-if plutil -p "${ENTITLEMENTS}" | grep -Eq 'com\.apple\.security\.network\.(client|server)'; then
+ENTITLEMENTS_DUMP="$(plutil -p "${ENTITLEMENTS}")"
+if grep -E 'com\.apple\.security\.network\.(client|server)' <<<"${ENTITLEMENTS_DUMP}" >/dev/null; then
   fail "network entitlements are forbidden for Drift’s local-only app."
 fi
-if plutil -p "${ENTITLEMENTS}" | grep -Eq 'disable-library-validation|allow-unsigned-executable-memory|allow-jit'; then
+if grep -E 'disable-library-validation|allow-unsigned-executable-memory|allow-jit' <<<"${ENTITLEMENTS_DUMP}" >/dev/null; then
   fail "the app carries an unnecessary hardened-runtime exception."
 fi
 
@@ -90,14 +92,15 @@ done < <(otool -L "${EXECUTABLE}" | tail -n +2 | awk '{print $1}')
 if grep -Eq '(src|href)="/assets/' "${RESOURCES}/Web/index.html"; then
   fail "bundled HTML contains root-absolute Vite assets."
 fi
-grep -q 'DRIFT_NATIVE_BRIDGE_VERSION = 2' "${RESOURCES}/NativeBridge.js" \
+grep -F 'DRIFT_NATIVE_BRIDGE_VERSION = 2' "${RESOURCES}/NativeBridge.js" >/dev/null \
   || fail "native bridge version marker is missing."
 node --check "${RESOURCES}/NativeBridge.js"
-if find "${RESOURCES}/Web" -type f \( -name '*.wasm' -o -name '*.map' \) -print -quit | grep -q .; then
+if [[ -n "$(find "${RESOURCES}/Web" -type f \( -name '*.wasm' -o -name '*.map' \) -print -quit)" ]]; then
   fail "the standalone web bundle contains a WASM binary or source map."
 fi
-if grep -RIlE 'libavcodec|ffmpeg-core|@mediabunny/aac-encoder' "${RESOURCES}/Web" --include='*.js' | grep -q .; then
-  fail "the standalone web bundle still contains a software AAC/FFmpeg marker."
+web_codec_markers="$(grep -RIlE 'libavcodec|ffmpeg-core|@mediabunny/aac-encoder' "${RESOURCES}/Web" --include='*.js' || true)"
+if [[ -n "${web_codec_markers}" ]]; then
+  fail "the standalone web bundle still contains a software AAC/FFmpeg marker: ${web_codec_markers}"
 fi
 
 python3 - "${RESOURCES}" <<'PY'
@@ -137,12 +140,12 @@ for relative, expected in observed.items():
         raise SystemExit(f"resource digest mismatch: {relative}")
 PY
 
-grep -Fxq "app_name=Drift" "${RESOURCES}/BuildReceipt.txt" || fail "build receipt has no app identity."
-grep -Fxq "minimum_macos=13.3" "${RESOURCES}/BuildReceipt.txt" || fail "build receipt has the wrong deployment target."
-grep -Fxq "codec_policy=system-codecs-only" "${RESOURCES}/BuildReceipt.txt" || fail "build receipt has the wrong codec policy."
-grep -Fxq "network_entitlement=none" "${RESOURCES}/BuildReceipt.txt" || fail "build receipt has the wrong network policy."
+grep -Fx "app_name=Drift" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has no app identity."
+grep -Fx "minimum_macos=13.3" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong deployment target."
+grep -Fx "codec_policy=system-codecs-only" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong codec policy."
+grep -Fx "network_entitlement=none" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong network policy."
 
-if find "${APP_BUNDLE}" -type f -perm -0002 -print -quit | grep -q .; then
+if [[ -n "$(find "${APP_BUNDLE}" -type f -perm -0002 -print -quit)" ]]; then
   fail "the app bundle contains a world-writable file."
 fi
 

@@ -59,12 +59,14 @@ if grep -Eq '(src|href)="/assets/' dist/index.html; then
   echo "The Vite bundle contains root-absolute assets and cannot run inside Drift.app." >&2
   exit 1
 fi
-if find dist -type f \( -name '*.wasm' -o -name '*.map' \) -print -quit | grep -q .; then
+if [[ -n "$(find dist -type f \( -name '*.wasm' -o -name '*.map' \) -print -quit)" ]]; then
   echo "The standalone Mac web bundle contains a forbidden WASM binary or source map." >&2
   exit 1
 fi
-if grep -RIlE 'libavcodec|ffmpeg-core|@mediabunny/aac-encoder' dist --include='*.js' | grep -q .; then
-  echo "The standalone Mac web bundle still contains a software AAC/FFmpeg marker." >&2
+codec_markers="$(grep -RIlE 'libavcodec|ffmpeg-core|@mediabunny/aac-encoder' dist --include='*.js' || true)"
+if [[ -n "${codec_markers}" ]]; then
+  echo "The standalone Mac web bundle still contains a software AAC/FFmpeg marker:" >&2
+  printf '%s\n' "${codec_markers}" >&2
   exit 1
 fi
 
