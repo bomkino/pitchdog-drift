@@ -22,3 +22,11 @@ exec(
     compile(source.decode("utf-8"), __file__ + "<payload>", "exec"),
     {"__file__": __file__, "__name__": "__main__"},
 )
+
+test_path = HERE.parent / "tests" / "engineShader.test.ts"
+test_source = test_path.read_text(encoding="utf-8")
+old_import = 'import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader } from "../src/engine/shaders";'
+new_import = 'import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader, slideVertexShader } from "../src/engine/shaders";'
+if test_source.count(old_import) != 1:
+    raise RuntimeError("Expected one shader test import to upgrade")
+test_path.write_text(test_source.replace(old_import, new_import, 1), encoding="utf-8")
