@@ -1,0 +1,129 @@
+name: Finalize tactile sound PR
+
+on:
+  push:
+    branches:
+      - gauntlet/tactile-foley-sound
+
+concurrency:
+  group: finalize-tactile-sound
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  gauntlet:
+    if: github.actor != 'pitchdog-sound-bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out isolated branch
+        uses: actions/checkout@v4
+        with:
+          ref: gauntlet/tactile-foley-sound
+          fetch-depth: 0
+
+      - name: Require completed integration
+        run: |
+          grep -q "SoundControls" src/components/ControlPanel.tsx
+          grep -q "sound" src/model.ts
+          test -f src/sound/render.ts
+          test -f docs/SOUND-DESIGN.md
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Reject borrowed audio assets
+        run: |
+          if find src/sound public -type f \( -iname '*.wav' -o -iname '*.mp3' -o -iname '*.ogg' -o -iname '*.m4a' -o -iname '*.aac' -o -iname '*.flac' \) -print | grep -q .; then
+            echo "Bundled sound asset found; this branch must remain fully procedural."
+            exit 1
+          fi
+
+      - name: Typecheck, deterministic unit tests and production build
+        run: npm run check
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser gauntlet
+        run: npm run test:e2e
+
+      - name: Check patch hygiene
+        run: |
+          git diff origin/main...HEAD --check
+          test -z "$(git status --porcelain)"
+
+      - name: Write verified implementation note
+        run: |
+          cat > docs/SOUND-GAUNTLET.md <<'EOF'
+          # Sound gauntlet
+
+          This branch is accepted only after the following gates pass on the exact PR head:
+
+          - strict TypeScript checking;
+          - deterministic Foley unit tests;
+          - exact-length and peak-bound PCM checks;
+          - 24-bit stereo WAV header validation;
+          - production Vite build;
+          - full Chromium Playwright suite;
+          - rejection of bundled audio assets;
+          - whitespace and patch-integrity checks.
+
+          The live preview uses Web Audio only after a user gesture. The downloadable master is rendered independently from a seeded fixed-rate PCM engine, so wall-clock scheduling cannot alter the file.
+          EOF
+
+      - name: Remove one-shot finalizer and commit evidence
+        run: |
+          rm -f .github/workflows/finalize-tactile-sound.yml
+          git config user.name "pitchdog-sound-bot"
+          git config user.email "pitchdog-sound-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "docs(sound): record passing gauntlet"
+          git push origin HEAD:gauntlet/tactile-foley-sound
+
+      - name: Publish reviewed PR description
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > /tmp/pr-body.md <<'EOF'
+          ## What this branch does
+
+          Adds a narrow, original tactile sound system to Drift. It does not add music and does not bundle a sample pack.
+
+          - Six procedural material characters: Paper, Air, Celluloid, Glass, Felt and Mechanism.
+          - Seeded 48 kHz stereo synthesis built from noise, resonators, transients and low-frequency weight.
+          - Live, bounded Web Audio cues for stage drag, wheel travel, controls and release/settle gestures.
+          - Exact-duration, loop-aware 24-bit WAV master export.
+          - Controls for level, air, accent, texture, density, stereo width, voice headroom and seed.
+          - Saved sound settings with compatibility defaults for older projects.
+          - Reduced-motion policy, autoplay-safe audio unlock and capped polyphony.
+          - No third-party audio files. All audible material is generated from repository source.
+
+          ## Deliberate boundary
+
+          This PR stays sound-only. It does not alter carousel physics, backgrounds, lighting, shaders or cinematic motion. The WAV master is designed for exact editorial placement beside the MP4; muxing it into the existing presenter-audio pipeline is left out rather than weakening the repository's verified single-track export contract.
+
+          ## Verification
+
+          - `npm run check`
+          - `npm run test:e2e`
+          - deterministic PCM and seed-variation tests
+          - exact frame-count, finite-sample and peak-bound tests
+          - 24-bit WAV structure test
+          - borrowed-audio rejection gate
+          - `git diff --check`
+
+          See `docs/SOUND-DESIGN.md` and `docs/SOUND-GAUNTLET.md`.
+          EOF
+          gh pr edit 10 --title "Add deterministic tactile procedural Foley" --body-file /tmp/pr-body.md
+          gh pr ready 10 || true
