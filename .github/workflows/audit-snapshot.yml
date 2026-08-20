@@ -1,12 +1,11 @@
 name: Temporary audit snapshot
 
 on:
-  pull_request:
   push:
     branches: [gauntlet/directors-cut-optical-pipeline]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: audit-snapshot-${{ github.ref }}
@@ -14,12 +13,14 @@ concurrency:
 
 jobs:
   snapshot:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Check out exact branch head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: gauntlet/directors-cut-optical-pipeline
           fetch-depth: 0
 
       - name: Use Node.js 22
@@ -54,3 +55,14 @@ jobs:
           name: directors-cut-audit-dependencies
           path: drift-node-modules.tgz
           retention-days: 2
+
+      - name: Publish audit receipt for retrieval
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'run_id=%s\nsource_commit=%s\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > .github/audit-run-id.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/audit-run-id.txt
+          git commit -m "chore: publish temporary audit artifact receipt"
+          git push origin HEAD:gauntlet/directors-cut-optical-pipeline
