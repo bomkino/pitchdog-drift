@@ -1,15 +1,14 @@
 name: Apply Director's Cut product pass
 
 on:
-  push:
-    branches: [gauntlet/directors-cut-optical-pipeline]
+  pull_request:
 
 permissions:
   contents: write
 
 concurrency:
-  group: apply-director-pass2
-  cancel-in-progress: false
+  group: apply-director-pass2-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   apply:
