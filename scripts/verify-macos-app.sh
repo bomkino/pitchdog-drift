@@ -31,12 +31,16 @@ for path in \
   "${RESOURCES}/BuildReceipt.txt" \
   "${RESOURCES}/BuildManifest.txt" \
   "${RESOURCES}/Legal/LICENSE" \
+  "${RESOURCES}/Legal/NOTICE" \
+  "${RESOURCES}/Legal/ASSET-LICENSE.md" \
   "${RESOURCES}/Legal/THIRD_PARTY_NOTICES.md" \
+  "${RESOURCES}/Legal/TRADEMARKS.md" \
   "${RESOURCES}/Documentation/MACOS_APP.md" \
   "${RESOURCES}/Documentation/MACOS_PRODUCT_CONTRACT.md" \
   "${RESOURCES}/Documentation/MACOS_USER_GUIDE.md" \
   "${RESOURCES}/Documentation/MACOS_QA.md" \
   "${RESOURCES}/Documentation/MACOS_THREAT_MODEL.md" \
+  "${RESOURCES}/Documentation/MACOS_RELEASE.md" \
   "${RESOURCES}/Documentation/MACOS_RELEASE_CHECKLIST.md"; do
   [[ -f "${path}" ]] || fail "missing app-bundle file ${path}."
 done
@@ -111,12 +115,18 @@ expected_archs="$(printf '%s\n' ${DRIFT_EXPECT_ARCHS:-arm64 x86_64} | sort | tr 
 # Universal binaries produce one unindented header per architecture. Only
 # indented rows are dependencies; parsing every first field mistakes the second
 # architecture header for a dylib path.
+LINKED_LIBRARIES="${TEMP_DIR}/linked-libraries.txt"
+otool -L "${EXECUTABLE}" | awk '/^[[:space:]]/ {print $1}' | sort -u >"${LINKED_LIBRARIES}"
 while IFS= read -r library; do
   case "${library}" in
     /System/Library/*|/usr/lib/*) ;;
     *) fail "non-system dynamic library linked into Drift: ${library}" ;;
   esac
-done < <(otool -L "${EXECUTABLE}" | awk '/^[[:space:]]/ {print $1}')
+done <"${LINKED_LIBRARIES}"
+grep -F '/System/Library/Frameworks/AudioToolbox.framework/' "${LINKED_LIBRARIES}" >/dev/null \
+  || fail "native AAC source is present but AudioToolbox is not linked into the executable."
+grep -F '/System/Library/Frameworks/WebKit.framework/' "${LINKED_LIBRARIES}" >/dev/null \
+  || fail "the packaged application is not linked against WebKit."
 
 if grep -Eq '(src|href)="/assets/' "${RESOURCES}/Web/index.html"; then
   fail "bundled HTML contains root-absolute Vite assets."
@@ -171,7 +181,9 @@ PY
 
 grep -Fx "app_name=Drift" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has no app identity."
 grep -Fx "minimum_macos=13.3" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong deployment target."
-grep -Fx "codec_policy=system-codecs-only" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong codec policy."
+grep -Fx "codec_policy=system-frameworks-only" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong codec policy."
+grep -Fx "video_codec=WKWebView-H264-capability-gated" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt misstates the video path."
+grep -Fx "audio_codec=AudioToolbox-Apple-software-AAC-LC" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt misstates the presenter-audio path."
 grep -Fx "network_entitlement=none" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong network policy."
 
 if [[ -n "$(find "${APP_BUNDLE}" -type f -perm -0002 -print -quit)" ]]; then
@@ -292,4 +304,5 @@ printf 'Verified %s\n' "${APP_BUNDLE}"
 printf 'Bundle size: %s\n' "$(du -sh "${APP_BUNDLE}" | awk '{print $1}')"
 printf 'Architectures: %s\n' "${actual_archs}"
 printf 'Sandbox: enabled; user-selected read/write only; no network entitlement\n'
-printf 'Codecs: system-only Mac bundle; no FFmpeg WASM or source maps\n'
+printf 'Video: WKWebView H.264, capability-gated and output-verified\n'
+printf 'Audio: Apple software AAC-LC through AudioToolbox; no FFmpeg WASM\n'
