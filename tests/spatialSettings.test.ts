@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import controlSource from "../src/components/ControlPanel.tsx?raw";
 import {
   cloneSettings,
   DEFAULT_SETTINGS,
@@ -58,7 +58,6 @@ describe("spatial settings trust boundary", () => {
       expect(error).toMatchObject({ path: "settings.slide.thickness" });
     }
 
-    const controlSource = readFileSync("src/components/ControlPanel.tsx", "utf8");
     expect(controlSource).toContain("max={MAX_SLIDE_THICKNESS}");
   });
 
