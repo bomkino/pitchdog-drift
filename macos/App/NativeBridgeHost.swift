@@ -159,20 +159,44 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     func importExternalFile(_ url: URL, kind: DriftImportKind) {
+        if kind == .project {
+            guard clientState.reserveExternalProjectImport() else {
+                presentError(
+                    BridgeFailure(
+                        "InvalidStateError",
+                        "Finish the protected studio operation before opening another project. \(clientState.protectionReason)"
+                    ),
+                    title: "Project is still busy"
+                )
+                return
+            }
+            clientStateDidChange?(clientState)
+        }
+
         brokerQueue.async { [weak self] in
             guard let self else { return }
             do {
                 let validated = try self.validateOpenPanelSelection([url], kind: kind)
-                guard let selected = validated.first else { return }
+                guard let selected = validated.first else {
+                    DispatchQueue.main.async { self.releaseExternalProjectReservationIfNeeded(kind) }
+                    return
+                }
                 let descriptor = try self.broker.registerFile(selected, mode: .readOnly)
                 DispatchQueue.main.async {
                     self.invokeJavaScript(
                         function: "window.__driftNativeImportGranted",
                         arguments: [descriptor, kind.rawValue]
-                    )
+                    ) { [weak self] error in
+                        guard let self, let error else { return }
+                        self.releaseExternalProjectReservationIfNeeded(kind)
+                        self.presentError(error, title: "Project could not be delivered")
+                    }
                 }
             } catch {
-                DispatchQueue.main.async { self.presentError(error, title: "Project could not be opened") }
+                DispatchQueue.main.async {
+                    self.releaseExternalProjectReservationIfNeeded(kind)
+                    self.presentError(error, title: "Project could not be opened")
+                }
             }
         }
     }
@@ -191,6 +215,12 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func releaseExternalProjectReservationIfNeeded(_ kind: DriftImportKind) {
+        guard kind == .project else { return }
+        clientState.releaseExternalProjectImportReservation()
+        clientStateDidChange?(clientState)
     }
 
     private func resetCapabilitiesForDocumentBoot() {
@@ -461,16 +491,27 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         UserDefaults.standard.set(url.standardizedFileURL.path, forKey: key)
     }
 
-    private func invokeJavaScript(function: String, arguments: [Any]) {
-        guard let webView else { return }
+    private func invokeJavaScript(
+        function: String,
+        arguments: [Any],
+        completion: ((Error?) -> Void)? = nil
+    ) {
+        guard let webView else {
+            completion?(BridgeFailure("InvalidStateError", "The local studio document is not available."))
+            return
+        }
         do {
             let data = try JSONSerialization.data(withJSONObject: arguments, options: [.fragmentsAllowed])
-            guard let json = String(data: data, encoding: .utf8) else { return }
+            guard let json = String(data: data, encoding: .utf8) else {
+                throw BridgeFailure("DataError", "The native import callback could not be serialized.")
+            }
             webView.evaluateJavaScript("\(function).apply(window, \(json));") { _, error in
                 if let error { NSLog("Drift native JavaScript callback failed: %@", error.localizedDescription) }
+                completion?(error)
             }
         } catch {
             NSLog("Drift could not serialize a native JavaScript callback: %@", error.localizedDescription)
+            completion?(error)
         }
     }
 
