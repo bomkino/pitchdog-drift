@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: lighting-deep-gauntlet
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deepen:
@@ -46,15 +46,19 @@ jobs:
       - name: Typecheck, unit test, and build
         run: npm run check
 
-      - name: Commit reviewable product source
+      - name: Commit reviewable product source when changed
         run: |
           git config user.name "pitch.dog lighting gauntlet"
           git config user.email "111725271+bomkino@users.noreply.github.com"
           git add -A
           git diff --cached --check
-          git commit -m "feat: deepen cinematic lighting direction"
-          git pull --rebase origin feat/cinematic-lighting-rig
-          git push origin HEAD:feat/cinematic-lighting-rig
+          if git diff --cached --quiet; then
+            echo "Source already matches this gauntlet stage."
+          else
+            git commit -m "feat: deepen cinematic lighting direction"
+            git pull --rebase origin feat/cinematic-lighting-rig
+            git push origin HEAD:feat/cinematic-lighting-rig
+          fi
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
