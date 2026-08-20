@@ -42,3 +42,5 @@ jobs:
           git add -A
           git commit -m "feat: spatial gauntlet applied" || exit 0
           git push origin HEAD:gauntlet/spatial-fabric-dynamics
+
+# Audit retrigger: product code must land before this branch is considered reviewable.
