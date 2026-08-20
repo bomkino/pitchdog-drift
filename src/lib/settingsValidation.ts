@@ -1,7 +1,9 @@
 import {
   ENGINE_VERSION,
+  FLOW_IDS,
   SCHEMA_VERSION,
   SHADER_VERSION,
+  THEME_IDS,
   type StudioSettings,
 } from "../model";
 
@@ -107,17 +109,8 @@ function assetId(value: unknown, path: string): string | null {
 
 const AXES = ["horizontal", "vertical"] as const;
 const DIRECTIONS = [-1, 1] as const;
-const FLOWS = ["straight", "arc", "ribbon", "cylinder", "tunnel"] as const;
 const IMAGE_FITS = ["cover", "contain"] as const;
 const BACKGROUNDS = ["transparent", "solid", "gradient", "aura", "paper", "void"] as const;
-const THEMES = [
-  "editorial-drift",
-  "road-memory",
-  "dread",
-  "noir-contact",
-  "tender-light",
-  "chrome-dream",
-] as const;
 const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
 
 /**
@@ -176,7 +169,7 @@ export function validateStudioSettings(value: unknown): StudioSettings {
     schemaVersion: SCHEMA_VERSION,
     engineVersion: ENGINE_VERSION,
     shaderVersion: SHADER_VERSION,
-    themeId: oneOf(source.themeId, "settings.themeId", THEMES),
+    themeId: oneOf(source.themeId, "settings.themeId", THEME_IDS),
     stage: {
       width: stageWidth,
       height: stageHeight,
@@ -187,7 +180,7 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       direction: oneOf(motion.direction, "settings.motion.direction", DIRECTIONS),
       autoplay: boolean(motion.autoplay, "settings.motion.autoplay"),
       speed: number(motion.speed, "settings.motion.speed", { min: 0, max: 1.5 }),
-      flow: oneOf(motion.flow, "settings.motion.flow", FLOWS),
+      flow: oneOf(motion.flow, "settings.motion.flow", FLOW_IDS),
       gap: number(motion.gap, "settings.motion.gap", { min: 0, max: 1.2 }),
       curvature: number(motion.curvature, "settings.motion.curvature", { min: 0, max: 1 }),
       depth: number(motion.depth, "settings.motion.depth", { min: 0, max: 0.8 }),
