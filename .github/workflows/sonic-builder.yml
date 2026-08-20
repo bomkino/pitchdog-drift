@@ -1,4 +1,4 @@
-name: Sonic source recording collector
+name: Sonic HQ recording collector
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sonic-source-recordings
+  group: sonic-hq-recordings
   cancel-in-progress: true
 
 jobs:
@@ -24,54 +24,47 @@ jobs:
         with:
           ref: feat/editorial-sonic-system
 
-      - name: Download exact public previews from verified CC0 sound pages
+      - name: Download high-quality public previews from verified CC0 pages
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/sonic-recordings
-          cd /tmp/sonic-recordings
+          root=/tmp/sonic-hq-recordings
+          mkdir -p "$root"
+          cd "$root"
 
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/100/100413_336074-lq.ogg --output 100413-cloth-01.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/555/555307_9250976-lq.ogg --output 555307-jacket-movement.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/481/481856_2524442-lq.ogg --output 481856-coat-movement.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/669/669671_14100561-lq.ogg --output 669671-light-bodyfall.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/352/352914_1766783-lq.ogg --output 352914-paper-slide.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/730/730078_15107455-lq.ogg --output 730078-gentle-paper-slide.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/382/382651_4297074-lq.ogg --output 382651-page-turn.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/164/164421_2320755-lq.ogg --output 164421-paper-movement.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/458/458569_887851-lq.ogg --output 458569-35mm-projector.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/843/843786_15096086-lq.ogg --output 843786-mouse-spacebar.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/858/858919_18964775-lq.ogg --output 858919-button-click.ogg
-          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/431/431818_5340249-lq.ogg --output 431818-button-wheel.ogg
-
-          cat > SOURCES.json <<'JSON'
-          {
-            "retrievedAt": "2026-08-20",
-            "notice": "Public Freesound preview encodes of exact CC0 source recordings. Licence and descriptive metadata must be verified against each canonical sound page before selection.",
-            "sounds": [
-              {"id":100413,"author":"pushkin","title":"cloth 01.wav","page":"https://freesound.org/people/pushkin/sounds/100413/","preview":"https://cdn.freesound.org/previews/100/100413_336074-lq.ogg","license":"CC0-1.0"},
-              {"id":555307,"author":"Nox_Sound","title":"Foley_Cloth_Movement_Jacket_96khz.wav","page":"https://freesound.org/people/Nox_Sound/sounds/555307/","preview":"https://cdn.freesound.org/previews/555/555307_9250976-lq.ogg","license":"CC0-1.0"},
-              {"id":481856,"author":"craigsmith","title":"R18-05-Put On and Take Off Coat.wav","page":"https://freesound.org/people/craigsmith/sounds/481856/","preview":"https://cdn.freesound.org/previews/481/481856_2524442-lq.ogg","license":"CC0-1.0"},
-              {"id":669671,"author":"vestibule-door","title":"light bodyfall.wav","page":"https://freesound.org/people/vestibule-door/sounds/669671/","preview":"https://cdn.freesound.org/previews/669/669671_14100561-lq.ogg","license":"CC0-1.0"},
-              {"id":352914,"author":"Kingofgamers_cz","title":"Paper slide","page":"https://freesound.org/people/Kingofgamers_cz/sounds/352914/","preview":"https://cdn.freesound.org/previews/352/352914_1766783-lq.ogg","license":"CC0-1.0"},
-              {"id":730078,"author":"brokenmachinery","title":"paper-slide","page":"https://freesound.org/people/brokenmachinery/sounds/730078/","preview":"https://cdn.freesound.org/previews/730/730078_15107455-lq.ogg","license":"CC0-1.0"},
-              {"id":382651,"author":"bbrocer","title":"Paper Page Turn.wav","page":"https://freesound.org/people/bbrocer/sounds/382651/","preview":"https://cdn.freesound.org/previews/382/382651_4297074-lq.ogg","license":"CC0-1.0"},
-              {"id":164421,"author":"martinimeniscus","title":"Box Up Paper Movement FF395.aif","page":"https://freesound.org/people/martinimeniscus/sounds/164421/","preview":"https://cdn.freesound.org/previews/164/164421_2320755-lq.ogg","license":"CC0-1.0"},
-              {"id":458569,"author":"imagery2","title":"35mm-film-projector-start.mp3","page":"https://freesound.org/people/imagery2/sounds/458569/","preview":"https://cdn.freesound.org/previews/458/458569_887851-lq.ogg","license":"CC0-1.0"},
-              {"id":843786,"author":"ManDaKi","title":"Computer Mouse Clicks & Space Bar Press – Raw Mechanical Sound","page":"https://freesound.org/people/ManDaKi/sounds/843786/","preview":"https://cdn.freesound.org/previews/843/843786_15096086-lq.ogg","license":"CC0-1.0"},
-              {"id":858919,"author":"DeWildAshDev","title":"Button Click","page":"https://freesound.org/people/DeWildAshDev/sounds/858919/","preview":"https://cdn.freesound.org/previews/858/858919_18964775-lq.ogg","license":"CC0-1.0"},
-              {"id":431818,"author":"Audy_Leonard","title":"Button click wheel.wav","page":"https://freesound.org/people/Audy_Leonard/sounds/431818/","preview":"https://cdn.freesound.org/previews/431/431818_5340249-lq.ogg","license":"CC0-1.0"}
-            ]
+          download() {
+            local stem="$1"
+            local filename="$2"
+            local hq="https://cdn.freesound.org/previews/${stem}-hq.ogg"
+            local lq="https://cdn.freesound.org/previews/${stem}-lq.ogg"
+            if curl --fail --location --retry 3 --silent --show-error "$hq" --output "$filename"; then
+              printf '%s\t%s\n' "$filename" "$hq" >> PREVIEW_URLS.tsv
+            else
+              curl --fail --location --retry 3 --silent --show-error "$lq" --output "$filename"
+              printf '%s\t%s\n' "$filename" "$lq" >> PREVIEW_URLS.tsv
+            fi
           }
-          JSON
+
+          download 100/100413_336074 100413-cloth-01.ogg
+          download 555/555307_9250976 555307-jacket-movement.ogg
+          download 481/481856_2524442 481856-coat-movement.ogg
+          download 669/669671_14100561 669671-light-bodyfall.ogg
+          download 352/352914_1766783 352914-paper-slide.ogg
+          download 730/730078_15107455 730078-gentle-paper-slide.ogg
+          download 382/382651_4297074 382651-page-turn.ogg
+          download 164/164421_2320755 164421-paper-movement.ogg
+          download 458/458569_887851 458569-35mm-projector.ogg
+          download 843/843786_15096086 843786-mouse-spacebar.ogg
+          download 858/858919_18964775 858919-button-click.ogg
+          download 431/431818_5340249 431818-button-wheel.ogg
 
           sha256sum *.ogg > SHA256SUMS
           file *.ogg > FILES.txt
 
-      - name: Upload candidate recordings for listening and forensic selection
+      - name: Upload source recordings for forensic selection
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sonic-cc0-recording-candidates
-          path: /tmp/sonic-recordings
+          name: sonic-cc0-hq-recordings
+          path: /tmp/sonic-hq-recordings
           if-no-files-found: error
           retention-days: 2
