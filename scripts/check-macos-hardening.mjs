@@ -76,6 +76,7 @@ requireMarkers("macos/NativeBridge.js", [
 requireMarkers("src/components/NativeFileInputBridge.tsx", [
   "nativeImportKindForInput",
   "assignFilesAndDispatchChange",
+  "document.documentElement.dataset.driftNativeFileInputBridge = \"ready\"",
   "document.addEventListener(\"click\", onClick, true)",
   "event.preventDefault()",
   "event.stopImmediatePropagation()",
@@ -93,7 +94,16 @@ requireMarkers("tests/nativeFileInputBridge.test.ts", [
   "routes every supported presenter spelling",
   "routes image and unknown file contracts",
 ]);
+requireMarkers("e2e/native-menu-import.e2e.ts", [
+  "File-menu Add Slides uses one explicit native picker and releases its grant",
+  "data-drift-native-file-input-bridge",
+  "await state.appBridge.command(\"add-slides\")",
+  "callCount: 1",
+  "releaseCount: 1",
+  "File-menu picker failure remains visible and operable",
+  "Dismiss native file error",
+]);
 
 console.log(
-  "macOS hardening contract passed: PNG sequence commits are exclusive and crash-clean, document boots revoke stale capabilities, and File-menu imports use explicit typed native pickers.",
+  "macOS hardening contract passed: PNG sequence commits are exclusive and crash-clean, document boots revoke stale capabilities, and File-menu imports have static, unit, and real-browser evidence.",
 );
