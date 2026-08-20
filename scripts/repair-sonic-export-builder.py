@@ -2,6 +2,14 @@ from pathlib import Path
 
 path = Path("scripts/sonic-export-builder.mjs")
 source = path.read_text()
+boundary_before = r'''    "async function encodePresenterAudio(\n",
+    "async function canvasToPngBlob(\n",'''
+boundary_after = '''    "async function encodePresenterAudio(",
+    "async function canvasToPngBlob(",'''
+if source.count(boundary_before) != 1:
+    raise RuntimeError("Could not normalize the presenter audio replacement boundaries.")
+source = source.replace(boundary_before, boundary_after)
+
 marker = '''  await replaceOnce(
     "src/App.tsx",
     `      announce('''
