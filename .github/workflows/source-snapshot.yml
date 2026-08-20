@@ -3,6 +3,8 @@ name: Source snapshot
 on:
   push:
     branches: [gauntlet/original-tactile-sound]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
