@@ -108,12 +108,15 @@ expected_archs="$(printf '%s\n' ${DRIFT_EXPECT_ARCHS:-arm64 x86_64} | sort | tr 
 [[ "${actual_archs}" == "${expected_archs}" ]] \
   || fail "architectures are ${actual_archs}; expected ${expected_archs}."
 
+# Universal binaries produce one unindented header per architecture. Only
+# indented rows are dependencies; parsing every first field mistakes the second
+# architecture header for a dylib path.
 while IFS= read -r library; do
   case "${library}" in
     /System/Library/*|/usr/lib/*) ;;
     *) fail "non-system dynamic library linked into Drift: ${library}" ;;
   esac
-done < <(otool -L "${EXECUTABLE}" | tail -n +2 | awk '{print $1}')
+done < <(otool -L "${EXECUTABLE}" | awk '/^[[:space:]]/ {print $1}')
 
 if grep -Eq '(src|href)="/assets/' "${RESOURCES}/Web/index.html"; then
   fail "bundled HTML contains root-absolute Vite assets."
