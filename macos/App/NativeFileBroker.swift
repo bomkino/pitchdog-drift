@@ -164,10 +164,17 @@ final class NativeFileBroker {
         let parent = destinationURL.deletingLastPathComponent().standardizedFileURL
         try requireDirectory(parent)
 
+        // Foundation can derive a same-volume replacement directory from an
+        // existing item. A brand-new save target has no item yet, so anchor the
+        // request to its verified parent instead. This keeps first exports and
+        // replacement exports on the same atomic commit path.
+        let replacementAnchor = fileManager.fileExists(atPath: destinationURL.path)
+            ? destinationURL
+            : parent
         let replacementDirectory = try fileManager.url(
             for: .itemReplacementDirectory,
             in: .userDomainMask,
-            appropriateFor: destinationURL,
+            appropriateFor: replacementAnchor,
             create: true
         )
         var stagingURL = replacementDirectory.appendingPathComponent(UUID().uuidString, isDirectory: false)
@@ -519,6 +526,23 @@ final class NativeFileBroker {
         _ = try broker.closeWriteSession(["session": session])
         guard try String(contentsOf: destination, encoding: .utf8) == "new-master" else {
             throw BridgeFailure("DataError", "Atomic replacement self-test produced the wrong bytes.")
+        }
+
+        // A save panel normally returns a path that does not exist yet. Prove
+        // the same staged/atomic path works without an existing destination.
+        let freshDestination = root.appendingPathComponent("first-master.bin")
+        let freshDescriptor = try broker.registerFile(freshDestination, mode: .readWrite)
+        let freshToken = freshDescriptor["token"] as! String
+        let freshOpened = try broker.openWriteSession(["token": freshToken, "keepExistingData": false])
+        let freshSession = freshOpened["session"] as! String
+        _ = try broker.writeChunk([
+            "session": freshSession,
+            "position": 0,
+            "data": Data("first-master".utf8).base64EncodedString(),
+        ])
+        _ = try broker.closeWriteSession(["session": freshSession])
+        guard try String(contentsOf: freshDestination, encoding: .utf8) == "first-master" else {
+            throw BridgeFailure("DataError", "First-write self-test did not commit the selected new destination.")
         }
 
         let abortOpen = try broker.openWriteSession(["token": token, "keepExistingData": false])
