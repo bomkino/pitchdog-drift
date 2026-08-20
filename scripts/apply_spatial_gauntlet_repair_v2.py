@@ -31,6 +31,12 @@ def main() -> None:
         "slide pool return property",
     )
 
+    # Three's uniform map is accessed with TypeScript non-null assertions in
+    # Drift (`uPhase!.value`). Accept that exact syntax while still requiring
+    # a direct deterministic assignment.
+    source = source.replace(r"\.uPhase\.value)", r"\.uPhase!?\.value)")
+    source = source.replace(r"\.uTime\.value)", r"\.uTime!?\.value)")
+
     # updatePoolItem reads the instance settings; no local `settings` binding
     # exists in Drift's renderer. Correct the generated shell/material code at
     # the migration source before TypeScript ever sees it.
