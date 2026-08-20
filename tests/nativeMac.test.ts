@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   installNativeMacAppBridge,
   isNativeMacRuntime,
+  pickNativeMacFiles,
   reportNativeMacClientState,
   saveNativeMacBlob,
   type NativeMacAppBridge,
@@ -15,6 +16,14 @@ function setWindow(value: Record<string, unknown>): void {
     writable: true,
     value,
   });
+}
+
+function nativeMarker(): Record<string, unknown> {
+  return {
+    bridgeVersion: 2,
+    platform: "macOS",
+    systemCodecsOnly: true,
+  };
 }
 
 afterEach(() => {
@@ -38,6 +47,7 @@ describe("native macOS app contract", () => {
       saveState: "saved",
       lastNotice: null,
     })).not.toThrow();
+    await expect(pickNativeMacFiles("slides")).resolves.toBeNull();
     await expect(saveNativeMacBlob(new Blob(["browser"]), "browser.txt")).resolves.toBe(false);
   });
 
@@ -45,11 +55,7 @@ describe("native macOS app contract", () => {
     const cleanup = vi.fn();
     const installer = vi.fn(() => cleanup);
     setWindow({
-      __DRIFT_NATIVE_MAC__: {
-        bridgeVersion: 2,
-        platform: "macOS",
-        systemCodecsOnly: true,
-      },
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
       __driftNativeInstallAppBridge: installer,
     });
     const bridge: NativeMacAppBridge = {
@@ -69,11 +75,7 @@ describe("native macOS app contract", () => {
   it("reports authoritative state without carrying confidential notice text into AppKit", () => {
     const report = vi.fn();
     setWindow({
-      __DRIFT_NATIVE_MAC__: {
-        bridgeVersion: 2,
-        platform: "macOS",
-        systemCodecsOnly: true,
-      },
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
       __driftNativeReportClientState: report,
     });
 
@@ -97,11 +99,7 @@ describe("native macOS app contract", () => {
   it("clears the native notice signal when the renderer has no active notice", () => {
     const report = vi.fn();
     setWindow({
-      __DRIFT_NATIVE_MAC__: {
-        bridgeVersion: 2,
-        platform: "macOS",
-        systemCodecsOnly: true,
-      },
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
       __driftNativeReportClientState: report,
     });
 
@@ -120,15 +118,80 @@ describe("native macOS app contract", () => {
     });
   });
 
+  it("opens the explicit native slide picker and releases every opaque grant", async () => {
+    const first = new File(["one"], "one.png", { type: "image/png" });
+    const second = new File(["two"], "two.jpg", { type: "image/jpeg" });
+    const releases = [vi.fn(async () => undefined), vi.fn(async () => undefined)];
+    const handles = [first, second].map((file, index) => ({
+      getFile: vi.fn(async () => file),
+      _release: releases[index],
+    }));
+    const picker = vi.fn(async () => handles);
+    setWindow({
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
+      showOpenFilePicker: picker,
+    });
+
+    await expect(pickNativeMacFiles("slides")).resolves.toEqual([first, second]);
+    expect(picker).toHaveBeenCalledWith({
+      multiple: true,
+      types: [{
+        description: "Pitch-deck images",
+        accept: {
+          "image/png": [".png"],
+          "image/jpeg": [".jpg", ".jpeg"],
+          "image/webp": [".webp"],
+          "image/avif": [".avif"],
+        },
+      }],
+    });
+    expect(releases[0]).toHaveBeenCalledOnce();
+    expect(releases[1]).toHaveBeenCalledOnce();
+  });
+
+  it("treats native picker cancellation as a handled empty selection", async () => {
+    const picker = vi.fn(async () => {
+      throw new DOMException("cancelled", "AbortError");
+    });
+    setWindow({
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
+      showOpenFilePicker: picker,
+    });
+
+    await expect(pickNativeMacFiles("presenter", false)).resolves.toEqual([]);
+    expect(picker).toHaveBeenCalledWith({
+      multiple: false,
+      types: [{
+        description: "Presenter video",
+        accept: {
+          "video/mp4": [".mp4"],
+          "video/quicktime": [".mov"],
+          "video/webm": [".webm"],
+        },
+      }],
+    });
+  });
+
+  it("releases native grants even when one selected file cannot be read", async () => {
+    const release = vi.fn(async () => undefined);
+    const picker = vi.fn(async () => [{
+      getFile: vi.fn(async () => { throw new Error("read failed"); }),
+      _release: release,
+    }]);
+    setWindow({
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
+      showOpenFilePicker: picker,
+    });
+
+    await expect(pickNativeMacFiles("project", false)).rejects.toThrow("read failed");
+    expect(release).toHaveBeenCalledOnce();
+  });
+
   it("does not report export success until the native staged save resolves", async () => {
     let resolveSave: (() => void) | undefined;
     const save = vi.fn(() => new Promise<void>((resolve) => { resolveSave = resolve; }));
     setWindow({
-      __DRIFT_NATIVE_MAC__: {
-        bridgeVersion: 2,
-        platform: "macOS",
-        systemCodecsOnly: true,
-      },
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
       __driftNativeSaveBlob: save,
     });
     const blob = new Blob(["master"], { type: "application/octet-stream" });
