@@ -1,9 +1,11 @@
+import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
 let driftBridgeName = "driftNative"
 let driftBridgeVersion = 2
 let driftBundleIdentifier = "dog.pitch.drift"
+let driftExportDockBadge = "EXPORT"
 let driftMaximumReadChunkBytes = 1 * 1024 * 1024
 let driftMaximumWriteChunkBytes = 512 * 1024
 // MP4 verification currently reopens the completed native file as one Blob.
@@ -330,16 +332,25 @@ enum TrustedWebRuntime {
 }
 
 /// Brackets only the user-requested export window. This keeps WebKit rendering
-/// out of App Nap and prevents idle system sleep without forcing the display to
-/// remain lit. Every terminal path calls `end()`; deinitialisation is the final
-/// safety net against a stranded power assertion.
+/// out of App Nap, prevents idle system sleep, and gives a hidden or minimized
+/// studio a privacy-safe Dock signal. Every terminal path calls `end()`;
+/// deinitialisation is the final safety net against a stranded assertion or
+/// stale badge.
 final class ExportActivityGuard {
+    typealias DockBadgeWriter = (String?) -> Void
+
     private let processInfo: ProcessInfo
+    private let dockBadgeWriter: DockBadgeWriter
     private var activity: NSObjectProtocol?
     private(set) var isActive = false
+    private(set) var dockBadgeLabel: String?
 
-    init(processInfo: ProcessInfo = .processInfo) {
+    init(
+        processInfo: ProcessInfo = .processInfo,
+        dockBadgeWriter: @escaping DockBadgeWriter = ExportActivityGuard.writeSystemDockBadge
+    ) {
         self.processInfo = processInfo
+        self.dockBadgeWriter = dockBadgeWriter
     }
 
     deinit {
@@ -349,36 +360,46 @@ final class ExportActivityGuard {
     func update(isExporting: Bool) {
         if isExporting {
             beginIfNeeded()
+            setDockBadge(driftExportDockBadge)
         } else {
             end()
         }
     }
 
     func end() {
-        guard let activity else {
-            isActive = false
-            return
+        if let activity {
+            processInfo.endActivity(activity)
+            self.activity = nil
         }
-        processInfo.endActivity(activity)
-        self.activity = nil
         isActive = false
+        setDockBadge(nil)
     }
 
     static func runSelfTest() throws {
-        let activityGuard = ExportActivityGuard()
+        var badgeWrites: [String?] = []
+        let activityGuard = ExportActivityGuard(
+            dockBadgeWriter: { badgeWrites.append($0) }
+        )
         try require(!activityGuard.isActive, "export activity started before an export")
+        try require(activityGuard.dockBadgeLabel == nil, "Dock export badge appeared before an export")
 
         activityGuard.update(isExporting: true)
         try require(activityGuard.isActive, "export activity did not start")
+        try require(activityGuard.dockBadgeLabel == driftExportDockBadge, "Dock export badge did not appear")
         activityGuard.update(isExporting: true)
         try require(activityGuard.isActive, "duplicate export state ended the activity")
+        try require(badgeWrites.count == 1, "duplicate export state rewrote the Dock badge")
 
         activityGuard.update(isExporting: false)
         try require(!activityGuard.isActive, "export activity survived completion")
+        try require(activityGuard.dockBadgeLabel == nil, "Dock export badge survived completion")
         activityGuard.update(isExporting: false)
         try require(!activityGuard.isActive, "idempotent export cleanup restarted the activity")
+        try require(badgeWrites.count == 2, "idempotent export cleanup rewrote the Dock badge")
+        try require(badgeWrites[0] == driftExportDockBadge, "Dock badge writer did not receive the export signal")
+        try require(badgeWrites[1] == nil, "Dock badge writer did not receive the cleanup signal")
 
-        print("Drift export power-activity self-test passed.")
+        print("Drift export power and Dock-presence self-test passed.")
     }
 
     private func beginIfNeeded() {
@@ -396,6 +417,23 @@ final class ExportActivityGuard {
             reason: "Drift is rendering a user-requested export."
         )
         isActive = true
+    }
+
+    private func setDockBadge(_ label: String?) {
+        guard dockBadgeLabel != label else { return }
+        dockBadgeLabel = label
+        dockBadgeWriter(label)
+    }
+
+    private static func writeSystemDockBadge(_ label: String?) {
+        let apply = {
+            NSApplication.shared.dockTile.badgeLabel = label
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
