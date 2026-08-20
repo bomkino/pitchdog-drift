@@ -1,4 +1,5 @@
 import { useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
+import { orderImportedImageFiles } from "../lib/importOrder";
 import { buildMediaDiagnostic } from "../mediaDiagnostics";
 import type { StudioAsset } from "../model";
 
@@ -35,7 +36,7 @@ export function MediaLibrary({
   const diagnostic = buildMediaDiagnostic(assets);
 
   const addImages = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.currentTarget.files ?? []);
+    const files = orderImportedImageFiles(Array.from(event.currentTarget.files ?? []));
     if (files.length) onAddImages(files);
     event.currentTarget.value = "";
   };
@@ -88,7 +89,7 @@ export function MediaLibrary({
         setFileDropActive(false);
         if (busy || !event.dataTransfer.files.length) return;
         event.preventDefault();
-        const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+        const files = orderImportedImageFiles(Array.from(event.dataTransfer.files));
         if (files.length) onAddImages(files);
       }}
     >
@@ -111,7 +112,7 @@ export function MediaLibrary({
           Presenter
         </button>
       </div>
-      <p className="media-note">Drag to sequence. Alt + ↑/↓ also reorders. One optional image or video can stay pinned. Files remain on this device.</p>
+      <p className="media-note">Batch imports use natural filename order. Drag to resequence; Alt + ↑/↓ also works. One image or video can stay pinned. Files remain local.</p>
       <div className="media-diagnostic" data-level={diagnostic.level} role="note" aria-label="Deck media diagnostic">
         <span aria-hidden="true" />
         <strong>{diagnostic.label}</strong>
