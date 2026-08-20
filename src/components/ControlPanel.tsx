@@ -1,4 +1,20 @@
 import type { CSSProperties } from "react";
+import {
+  BACKGROUND_COMPOSITION_COUNT,
+  BACKGROUND_COMPOSITIONS,
+  BACKGROUND_FAMILY_LABELS,
+  BACKGROUND_PALETTES,
+  BACKGROUND_STUDIES,
+  BACKGROUND_VARIATION_COUNT,
+  applyBackgroundStudy,
+  backgroundCompositionIndex,
+  backgroundVariation,
+  matchingBackgroundPalette,
+  matchingBackgroundStudy,
+  withBackgroundComposition,
+  withBackgroundPalette,
+  withBackgroundVariation,
+} from "../backgrounds";
 import type { StudioSettings, ThemeId } from "../model";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
@@ -40,6 +56,12 @@ export function ControlPanel({
     });
   };
   const stageLabel = `${settings.stage.width}:${settings.stage.height}`;
+  const selectedBackgroundStudy = matchingBackgroundStudy(settings.background);
+  const selectedBackgroundPalette = matchingBackgroundPalette(settings.background);
+  const backgroundCompositions = settings.background.style === "transparent"
+    ? []
+    : BACKGROUND_COMPOSITIONS[settings.background.style];
+  const activeBackgroundComposition = backgroundCompositions[backgroundCompositionIndex(settings.background.seed)];
 
   return (
     <aside className="inspector" aria-label="Director controls" aria-busy={exporting} inert={exporting}>
@@ -54,7 +76,7 @@ export function ControlPanel({
       <section className="theme-section" aria-labelledby="themes-title">
         <div className="section-heading-row">
           <h3 id="themes-title">Film worlds</h3>
-          <span>6</span>
+          <span>{THEMES.length}</span>
         </div>
         <div className="theme-grid">
           {THEMES.map((theme) => (
@@ -174,27 +196,95 @@ export function ControlPanel({
         <RangeField label="Shadow softness" value={settings.slide.shadowSoftness} min={4} max={96} step={1} unit=" px" onChange={(shadowSoftness) => patch("slide", { shadowSoftness })} />
       </InspectorGroup>
 
-      <InspectorGroup title="Atmosphere" eyebrow={settings.background.style}>
+      <InspectorGroup
+        title="Atmosphere"
+        eyebrow={settings.background.style === "transparent" ? "transparent" : selectedBackgroundStudy?.name ?? selectedBackgroundPalette?.name ?? settings.background.style}
+      >
+        <div className="output-spec">
+          <span>BACKGROUND ATLAS</span>
+          <strong>{BACKGROUND_COMPOSITION_COUNT} compositions · {BACKGROUND_STUDIES.length} studies · {BACKGROUND_PALETTES.length} palettes</strong>
+          <small>Seeded, deterministic and seamless-safe. Old project seeds keep their original composition.</small>
+        </div>
+        <SelectField
+          label="Authored study"
+          value={selectedBackgroundStudy?.id ?? "custom"}
+          options={[
+            { value: "custom", label: "Custom field" },
+            ...BACKGROUND_STUDIES.map((study) => ({
+              value: study.id,
+              label: `${BACKGROUND_FAMILY_LABELS[study.family]} · ${study.name}`,
+            })),
+          ]}
+          onChange={(id) => {
+            const study = BACKGROUND_STUDIES.find((entry) => entry.id === id);
+            if (study) onSettings(applyBackgroundStudy(settings, study));
+          }}
+        />
         <SelectField
           label="Background"
           value={settings.background.style}
           options={[
             { value: "transparent", label: "Transparent" },
-            { value: "solid", label: "Solid" },
-            { value: "gradient", label: "Gradient" },
-            { value: "aura", label: "Soft aura" },
-            { value: "paper", label: "Paper field" },
-            { value: "void", label: "Breathing void" },
+            { value: "solid", label: "Solid field" },
+            { value: "gradient", label: "Gradient weather" },
+            { value: "aura", label: "Luminous aura" },
+            { value: "paper", label: "Printed matter" },
+            { value: "void", label: "Darkroom void" },
           ]}
           onChange={(style) => onSettings({ ...settings, stage: { ...settings.stage, transparent: style === "transparent" }, background: { ...settings.background, style } })}
         />
-        <ColorField label="Ground" value={settings.background.colorA} onChange={(colorA) => patch("background", { colorA })} />
-        <ColorField label="Field" value={settings.background.colorB} onChange={(colorB) => patch("background", { colorB })} />
-        <ColorField label="Light" value={settings.background.accent} onChange={(accent) => patch("background", { accent })} />
-        <RangeField label="Intensity" value={settings.background.intensity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { intensity: value / 100 })} />
-        <RangeField label="Background breath" value={settings.background.motion * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { motion: value / 100 })} />
-        <RangeField label="Grain" value={settings.background.grain * 100} min={0} max={60} step={1} unit="%" onChange={(value) => patch("background", { grain: value / 100 })} />
-        <RangeField label="Vignette" value={settings.background.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { vignette: value / 100 })} />
+        {settings.background.style !== "transparent" ? (
+          <>
+            <SelectField
+              label="Composition"
+              value={backgroundCompositionIndex(settings.background.seed)}
+              options={backgroundCompositions.map((composition, index) => ({ value: index, label: composition.name }))}
+              onChange={(composition) => patch("background", withBackgroundComposition(settings.background, composition))}
+            />
+            <RangeField
+              label="Variation"
+              value={backgroundVariation(settings.background.seed)}
+              min={0}
+              max={BACKGROUND_VARIATION_COUNT - 1}
+              step={1}
+              hint={activeBackgroundComposition?.description}
+              onChange={(variation) => patch("background", withBackgroundVariation(settings.background, variation))}
+            />
+            <SelectField
+              label="Palette"
+              value={selectedBackgroundPalette?.id ?? "custom"}
+              options={[
+                { value: "custom", label: "Custom colours" },
+                ...BACKGROUND_PALETTES.map((palette) => ({ value: palette.id, label: palette.name })),
+              ]}
+              onChange={(id) => {
+                const palette = BACKGROUND_PALETTES.find((entry) => entry.id === id);
+                if (palette) patch("background", withBackgroundPalette(settings.background, palette));
+              }}
+            />
+            <div className="action-stack">
+              <button
+                type="button"
+                onClick={() => patch(
+                  "background",
+                  withBackgroundVariation(
+                    settings.background,
+                    (backgroundVariation(settings.background.seed) + 1) % BACKGROUND_VARIATION_COUNT,
+                  ),
+                )}
+              >
+                Recut atmosphere
+              </button>
+            </div>
+            <ColorField label="Ground" value={settings.background.colorA} onChange={(colorA) => patch("background", { colorA })} />
+            <ColorField label="Field" value={settings.background.colorB} onChange={(colorB) => patch("background", { colorB })} />
+            <ColorField label="Light" value={settings.background.accent} onChange={(accent) => patch("background", { accent })} />
+            <RangeField label="Intensity" value={settings.background.intensity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { intensity: value / 100 })} />
+            <RangeField label="Background breath" value={settings.background.motion * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { motion: value / 100 })} />
+            <RangeField label="Grain" value={settings.background.grain * 100} min={0} max={60} step={1} unit="%" onChange={(value) => patch("background", { grain: value / 100 })} />
+            <RangeField label="Vignette" value={settings.background.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { vignette: value / 100 })} />
+          </>
+        ) : null}
       </InspectorGroup>
 
       <InspectorGroup title="Pinned frame" eyebrow={settings.presenter.enabled ? "ON" : "OFF"}>
