@@ -52,9 +52,10 @@ it arrives through a quarantining download. Public distribution requires a
 Developer ID signature, Apple notarization, stapling, Gatekeeper assessment,
 and physical-Mac release QA.
 
-The standalone app contains no FFmpeg WebAssembly encoder. Presenter audio is
-available only when the installed macOS/WebKit runtime exposes a compatible
-system AAC encoder. Drift fails visibly rather than silently removing audio.
+The standalone app contains no FFmpeg WebAssembly encoder. Presenter audio uses
+Drift’s bounded native bridge to Apple’s software AAC-LC encoder in AudioToolbox.
+H.264 video remains capability-gated through the installed WKWebView runtime.
+Either path fails visibly; Drift never silently removes requested audio.
 
 Source, licence, privacy, architecture, and release documentation are embedded
 inside Drift.app/Contents/Resources/.
@@ -93,6 +94,8 @@ MOUNTED=0
   cd "$(dirname "${DMG_OUTPUT}")"
   shasum -a 256 "$(basename "${DMG_OUTPUT}")"
 ) > "${CHECKSUM_OUTPUT}"
+
+bash scripts/verify-macos-dmg.sh "${DMG_OUTPUT}" "${CHECKSUM_OUTPUT}"
 
 printf 'Packaged %s\n' "${DMG_OUTPUT}"
 printf 'Checksum %s\n' "${CHECKSUM_OUTPUT}"
