@@ -35,6 +35,7 @@ const requiredFiles = [
   "macos/Drift.entitlements",
   "macos/Probes/CodecProbe.swift",
   "macos/Probes/ExportProbe.swift",
+  "macos/Probes/NativeGauntletMain.swift",
   "scripts/build-macos-app.sh",
   "scripts/build-macos-export-probe.mjs",
   "scripts/check-macos-source.mjs",
@@ -49,7 +50,6 @@ const requiredFiles = [
   "scripts/verify-macos-release.sh",
   "src/lib/macosAacEncoder.ts",
   "src/lib/nativeMac.ts",
-  "tests/macos-export-probe.html",
   "tests/macosAacEncoder.test.ts",
   "tests/macosExportProbe.ts",
   "tests/nativeMac.test.ts",
@@ -79,6 +79,7 @@ for (const path of [
   "macos/NativeBridge-0.inc.js",
   "macos/NativeBridge-1.inc.js",
   "macos/NativeBridge-2.inc.js",
+  "macos/NativeGauntletMain.swift",
 ]) {
   if (existsSync(at(path))) fail(`stale competing implementation remains at ${path}`);
 }
@@ -93,6 +94,8 @@ const nativeMac = read("src/lib/nativeMac.ts");
 const nativeAacSwift = read("macos/App/NativeAacEncoder.swift");
 const nativeAac = read("src/lib/macosAacEncoder.ts");
 const nativeAacTests = read("tests/macosAacEncoder.test.ts");
+const nativeGauntlet = read("macos/App/NativeGauntlet.swift");
+const nativeGauntletProbe = read("macos/Probes/NativeGauntletMain.swift");
 const exportProbe = read("tests/macosExportProbe.ts");
 const exportProbeHost = read("macos/Probes/ExportProbe.swift");
 const build = read("scripts/build-macos-app.sh");
@@ -156,8 +159,14 @@ for (const forbidden of [
 requireEvery(swift, [
   "NativeGauntlet.run()", "NativeAacEncoderBroker.runSelfTest()", "--webview-self-test",
   "itemReplacementDirectory", "Darwin.rename", "driftMaximumNativeOutputBytes: UInt64 = 512 * 1024 * 1024",
-  "Cancel Export", "candidate.path.hasPrefix(rootPath)",
+  "Cancel Export", "candidate.path.hasPrefix(rootPath)", "present (content withheld)",
 ], "Swift safety invariant");
+requireEvery(nativeGauntlet, [
+  "commit destination changed to a directory", "idempotent abort", "confidential renderer notice text",
+], "native rollback and privacy gauntlet");
+requireEvery(nativeGauntletProbe, [
+  "NativeFileBroker.runSelfTest()", "NativeGauntlet.run()", "NativeAacEncoderBroker.runSelfTest()",
+], "native gauntlet executable");
 requireText(bridge, "MAX_READBACK_BYTES = 512 * 1024 * 1024", "JavaScript readback ceiling");
 
 requireEvery(nativeAacSwift, [
@@ -227,7 +236,7 @@ forbidText(entitlements, "com.apple.security.network", "network entitlement poli
 requireEvery(macWorkflow, [
   "Build and falsify universal signed app", "probe-macos-packaged-webview.sh",
   "drift-packaged-webview-evidence", "Require the production sandboxed lifecycle",
-  "Prove release guard rejects non-Developer-ID signing",
+  "Prove release guard rejects non-Developer-ID signing", "macos/Probes/NativeGauntletMain.swift",
 ], "standalone Mac workflow");
 requireEvery(runtimeWorkflow, [
   "Prove WebGL, PNG, and AVC inside WKWebView",
@@ -239,5 +248,5 @@ requireEvery(runtimeWorkflow, [
 requireEvery(releaseWorkflow, ["workflow_dispatch", "macos-release-candidate"], "Mac release workflow");
 
 console.log(
-  `macOS source contract passed: ${swiftFiles.length} canonical Swift files, one typed React↔AppKit bridge, staged native writes, AudioToolbox AAC, receipt-verified WKWebView exports, and explicit unsigned/release gates.`,
+  `macOS source contract passed: ${swiftFiles.length} canonical Swift files, one typed React↔AppKit bridge, staged native writes, privacy-redacted diagnostics, AudioToolbox AAC, receipt-verified WKWebView exports, and explicit unsigned/release gates.`,
 );
