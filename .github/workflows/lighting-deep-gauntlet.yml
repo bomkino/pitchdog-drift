@@ -32,10 +32,15 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Apply one atomic lighting gauntlet stage
+      - name: Apply the lighting foundation only when absent
         run: |
-          python .gauntlet/lighting-next.py
-          python .gauntlet/lighting-seam-fix.py
+          if grep -q 'export const LIGHTING_VERSION = 2 as const' src/model.ts \
+            && grep -q 'if (mode === "static" || amount <= 0)' src/lighting.ts; then
+            echo "Version-2 lighting foundation already present."
+          else
+            python .gauntlet/lighting-next.py
+            python .gauntlet/lighting-seam-fix.py
+          fi
 
       - name: Reject malformed diffs
         run: git diff --check
