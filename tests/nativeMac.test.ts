@@ -66,7 +66,7 @@ describe("native macOS app contract", () => {
     expect(cleanup).toHaveBeenCalledOnce();
   });
 
-  it("reports bounded authoritative app state instead of scraping rendered copy", () => {
+  it("reports authoritative state without carrying confidential notice text into AppKit", () => {
     const report = vi.fn();
     setWindow({
       __DRIFT_NATIVE_MAC__: {
@@ -81,14 +81,42 @@ describe("native macOS app contract", () => {
       exportInProgress: true,
       projectBusy: true,
       saveState: "failed",
-      lastNotice: "x".repeat(2_100),
+      lastNotice: "/Users/example/Clients/Unannounced Film/Secret Deck.pitched could not open",
     });
 
     expect(report).toHaveBeenCalledWith({
       exportInProgress: true,
       projectBusy: true,
       saveState: "failed",
-      lastNotice: "x".repeat(2_000),
+      lastNotice: "present",
+    });
+    expect(JSON.stringify(report.mock.calls)).not.toContain("Secret Deck");
+    expect(JSON.stringify(report.mock.calls)).not.toContain("/Users/");
+  });
+
+  it("clears the native notice signal when the renderer has no active notice", () => {
+    const report = vi.fn();
+    setWindow({
+      __DRIFT_NATIVE_MAC__: {
+        bridgeVersion: 2,
+        platform: "macOS",
+        systemCodecsOnly: true,
+      },
+      __driftNativeReportClientState: report,
+    });
+
+    reportNativeMacClientState({
+      exportInProgress: false,
+      projectBusy: false,
+      saveState: "saved",
+      lastNotice: null,
+    });
+
+    expect(report).toHaveBeenCalledWith({
+      exportInProgress: false,
+      projectBusy: false,
+      saveState: "saved",
+      lastNotice: null,
     });
   });
 
