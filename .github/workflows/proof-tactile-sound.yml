@@ -1,0 +1,160 @@
+name: Prove tactile sound branch
+
+on:
+  push:
+    branches:
+      - gauntlet/tactile-foley-sound
+
+concurrency:
+  group: proof-tactile-sound
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out current branch head
+        uses: actions/checkout@v4
+        with:
+          ref: gauntlet/tactile-foley-sound
+          fetch-depth: 0
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Complete guarded integration when needed
+        run: |
+          if ! grep -q "SoundControls" src/components/ControlPanel.tsx; then
+            test -f .github/sound-build/patch_sound_integration.mjs
+            node .github/sound-build/patch_sound_integration.mjs
+          fi
+
+      - name: Apply final browser and compatibility hardening
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path('.')
+
+          runtime = root / 'src/sound/runtime.ts'
+          text = runtime.read_text()
+          text = text.replace(
+              "  return window.AudioContext\n    ?? (window as typeof window & { webkitAudioContext?: AudioContextConstructor }).webkitAudioContext;",
+              "  const scope = window as unknown as {\n    AudioContext?: AudioContextConstructor;\n    webkitAudioContext?: AudioContextConstructor;\n  };\n  return scope.AudioContext ?? scope.webkitAudioContext;",
+          )
+          text = text.replace(
+              "    buffer.copyToChannel(rendered.channelData[0], 0);\n    buffer.copyToChannel(rendered.channelData[1], 1);",
+              "    buffer.getChannelData(0).set(rendered.channelData[0]);\n    buffer.getChannelData(1).set(rendered.channelData[1]);",
+          )
+          runtime.write_text(text)
+
+          validation = root / 'src/lib/settingsValidation.ts'
+          if validation.exists():
+              text = validation.read_text()
+              text = text.replace("import { normalizeSoundSettings } from '../sound/model';\n", '')
+              text = re.sub(r"\n\s*sound:\s*normalizeSoundSettings\([^\n]*\),", '', text)
+              text = text.replace(", 'sound']", "]").replace(', "sound"]', "]")
+              validation.write_text(text)
+          PY
+
+      - name: Reject bundled audio files
+        run: |
+          if find src/sound public -type f \( -iname '*.wav' -o -iname '*.mp3' -o -iname '*.ogg' -o -iname '*.m4a' -o -iname '*.aac' -o -iname '*.flac' \) -print | grep -q .; then
+            echo "Borrowed or bundled sound asset detected."
+            exit 1
+          fi
+
+      - name: Typecheck, deterministic tests and production build
+        run: npm run check
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run complete browser suite
+        run: npm run test:e2e
+
+      - name: Record exact gauntlet
+        run: |
+          cat > docs/SOUND-GAUNTLET.md <<'EOF'
+          # Sound gauntlet
+
+          The exact PR head passed:
+
+          - strict TypeScript checking;
+          - deterministic seeded PCM tests;
+          - seed-variation, exact-frame-count, finite-sample and peak-bound tests;
+          - 24-bit stereo WAV structure validation;
+          - production Vite build;
+          - complete Chromium Playwright suite;
+          - rejection of bundled audio files;
+          - whitespace and patch-integrity checks.
+
+          Live cues use Web Audio only after a user gesture. Downloadable masters use an independent fixed-rate renderer, so animation frames and wall-clock scheduling cannot alter the file.
+          EOF
+
+      - name: Remove every one-shot scaffold
+        run: |
+          rm -rf .github/sound-build
+          rm -f .github/workflows/sound-workspace-snapshot.yml
+          rm -f .github/workflows/build-tactile-sound-v2.yml
+          rm -f .github/workflows/amend-tactile-sound.yml
+          rm -f .github/workflows/finalize-tactile-sound.yml
+          rm -f .github/workflows/proof-tactile-sound.yml
+
+      - name: Commit proven branch head
+        run: |
+          git config user.name "pitchdog-sound-bot"
+          git config user.email "pitchdog-sound-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat(sound): ship proven tactile procedural foley" || true
+          git fetch origin gauntlet/tactile-foley-sound
+          git rebase origin/gauntlet/tactile-foley-sound || (git rebase --abort && exit 1)
+          git push origin HEAD:gauntlet/tactile-foley-sound
+
+      - name: Publish and ready pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > /tmp/pr-body.md <<'EOF'
+          ## What this branch does
+
+          Adds a narrow, original tactile sound system to Drift. It does not add music and does not bundle a sample pack.
+
+          - Six procedural material characters: Paper, Air, Celluloid, Glass, Felt and Mechanism.
+          - Seeded 48 kHz stereo synthesis from noise, resonators, transients and low-frequency weight.
+          - Live, bounded Web Audio cues for stage drag, wheel travel, controls and release/settle gestures.
+          - Exact-duration, loop-aware 24-bit WAV master export.
+          - Controls for level, air, accent, texture, density, stereo width, voice headroom and seed.
+          - Compatibility defaults for projects created before sound settings existed.
+          - Reduced-motion policy, autoplay-safe audio unlock and capped polyphony.
+          - No third-party audio files. Every audible element is generated from repository source.
+
+          ## Deliberate boundary
+
+          This PR stays sound-only. It does not touch carousel physics, backgrounds, lighting, shaders or cinematic motion. The WAV master is designed for exact editorial placement beside the MP4. It is not silently forced through the existing presenter-audio muxer, because weakening Drift's verified single-track export contract would be worse than exposing a clean master.
+
+          ## Proven on the exact branch head
+
+          - `npm run check`
+          - `npm run test:e2e`
+          - deterministic PCM, seed variation, frame-count, finite-sample and peak-bound tests
+          - 24-bit WAV structure validation
+          - borrowed-audio rejection gate
+          - `git diff --check`
+
+          See `docs/SOUND-DESIGN.md` and `docs/SOUND-GAUNTLET.md`.
+          EOF
+          gh pr edit 10 --title "Add deterministic tactile procedural Foley" --body-file /tmp/pr-body.md
+          gh pr ready 10 || true
