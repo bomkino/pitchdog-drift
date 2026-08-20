@@ -1,0 +1,91 @@
+name: Sonic branch gauntlet
+
+on:
+  push:
+    branches: [feat/editorial-sonic-system]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sonic-builder-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out sound branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: feat/editorial-sonic-system
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Vendor pinned CC0 audio and integrate source
+        run: |
+          node scripts/sonic-builder.mjs
+          node scripts/sonic-export-builder.mjs
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck, unit test, and production build
+        run: npm run check
+
+      - name: Install Chromium runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run real-browser gauntlet
+        run: npm run test:e2e
+
+      - name: Verify vendored sound hashes and runtime isolation
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFile } from 'node:fs/promises';
+          const manifest = JSON.parse(await readFile('src/sonic/assets/manifest.json', 'utf8'));
+          if (manifest.files.length !== 21) throw new Error(`Expected 21 sound files, found ${manifest.files.length}.`);
+          for (const entry of manifest.files) {
+            const bytes = await readFile(entry.localPath);
+            const digest = createHash('sha256').update(bytes).digest('hex');
+            if (digest !== entry.sha256) throw new Error(`${entry.localPath}: SHA-256 mismatch.`);
+          }
+          const productionFiles = [
+            'src/sonic/catalog.ts',
+            'src/sonic/SonicEngine.ts',
+            'src/sonic/renderSoundtrack.ts',
+            'src/sonic/plan.ts',
+          ];
+          for (const file of productionFiles) {
+            const source = await readFile(file, 'utf8');
+            if (/https?:\/\//.test(source)) throw new Error(`${file}: runtime URL found in sonic production source.`);
+          }
+          NODE
+
+      - name: Commit verified implementation only
+        run: |
+          rm scripts/sonic-builder.mjs scripts/sonic-export-builder.mjs .github/workflows/sonic-builder.yml
+          git config user.name "pitch.dog sonic gauntlet"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: add tactile editorial sound system"
+          git push origin HEAD:feat/editorial-sonic-system
+
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sonic-gauntlet-failure-evidence
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
