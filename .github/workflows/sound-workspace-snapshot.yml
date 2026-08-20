@@ -3,6 +3,8 @@ name: Sound workspace snapshot
 on:
   push:
     branches: [gauntlet/tactile-foley-sound]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
