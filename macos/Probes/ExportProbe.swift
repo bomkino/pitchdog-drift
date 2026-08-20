@@ -4,13 +4,16 @@ import WebKit
 
 private let environment = ProcessInfo.processInfo.environment
 private let htmlPath = environment["DRIFT_EXPORT_PROBE_HTML"] ?? ""
+private let bundleRootPath = environment["DRIFT_EXPORT_PROBE_ROOT"] ?? ""
 private let reportPath = environment["DRIFT_EXPORT_PROBE_REPORT"]
 private let timeoutSeconds = Double(environment["DRIFT_EXPORT_PROBE_TIMEOUT"] ?? "240") ?? 240
+private let bootstrapTimeoutSeconds = 12.0
 
 private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var window: NSWindow!
     private var webView: WKWebView!
     private var timeoutTimer: Timer?
+    private var bootstrapTimer: Timer?
     private var completed = false
     private var startedNavigation = false
     private var committedNavigation = false
@@ -18,6 +21,8 @@ private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationD
     private var contentProcessTerminationCount = 0
     private var progressEventCount = 0
     private var latestProgress: [String: Any]?
+    private var htmlURL: URL?
+    private var readAccessRootURL: URL?
     private let launchedAt = Date()
 
     func run() throws {
@@ -26,12 +31,38 @@ private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationD
                 NSLocalizedDescriptionKey: "DRIFT_EXPORT_PROBE_HTML is missing.",
             ])
         }
-        let htmlURL = URL(fileURLWithPath: htmlPath).standardizedFileURL
-        guard FileManager.default.fileExists(atPath: htmlURL.path) else {
+        guard !bundleRootPath.isEmpty else {
             throw NSError(domain: "DriftExportProbe", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "Probe HTML does not exist at \(htmlURL.path).",
+                NSLocalizedDescriptionKey: "DRIFT_EXPORT_PROBE_ROOT is missing.",
             ])
         }
+
+        let rootURL = URL(fileURLWithPath: bundleRootPath, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let candidateHTML = URL(fileURLWithPath: htmlPath)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        var rootIsDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: rootURL.path, isDirectory: &rootIsDirectory),
+              rootIsDirectory.boolValue else {
+            throw NSError(domain: "DriftExportProbe", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Probe bundle root does not exist at \(rootURL.path).",
+            ])
+        }
+        let rootPrefix = rootURL.path.hasSuffix("/") ? rootURL.path : rootURL.path + "/"
+        guard candidateHTML.path.hasPrefix(rootPrefix) else {
+            throw NSError(domain: "DriftExportProbe", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "Probe HTML escaped its verified bundle root.",
+            ])
+        }
+        guard FileManager.default.fileExists(atPath: candidateHTML.path) else {
+            throw NSError(domain: "DriftExportProbe", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "Probe HTML does not exist at \(candidateHTML.path).",
+            ])
+        }
+        htmlURL = candidateHTML
+        readAccessRootURL = rootURL
 
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -46,10 +77,9 @@ private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationD
         webView.underPageBackgroundColor = NSColor(calibratedWhite: 0.025, alpha: 1)
 
         // VideoEncoder and the WebKit GPU process are lifecycle-sensitive on
-        // hosted Macs. A prohibited, hidden, 10,000-point-off-screen window made
-        // the old test wait forever even though the same runtime encoded AVC in
-        // the visible codec probe. Use the compositor lifecycle users actually
-        // receive; CI has no human viewer to disturb.
+        // hosted Macs. A hidden or far-off-screen window can keep the compositor
+        // dormant even when one-frame codec probes pass. Exercise the visible
+        // lifecycle a real Drift user receives.
         window = NSWindow(
             contentRect: NSRect(x: 90, y: 70, width: 640, height: 900),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -62,7 +92,10 @@ private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationD
         window.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
 
-        webView.loadFileURL(htmlURL, allowingReadAccessTo: htmlURL.deletingLastPathComponent())
+        // Vite emits the HTML in tests/ and executable modules in sibling
+        // assets/. Grant the verified bundle root—not merely the HTML parent—so
+        // every receipt-checked module can load while unrelated files stay out.
+        webView.loadFileURL(candidateHTML, allowingReadAccessTo: rootURL)
         timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutSeconds, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.finish(self.failureReport(
@@ -87,6 +120,8 @@ private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationD
         if dictionary["kind"] as? String == "progress" {
             progressEventCount += 1
             latestProgress = dictionary
+            bootstrapTimer?.invalidate()
+            bootstrapTimer = nil
             emitProgress(dictionary)
             return
         }
@@ -115,6 +150,7 @@ private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationD
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         finishedNavigation = true
+        scheduleJavaScriptBootstrapCheck()
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -134,6 +170,48 @@ private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationD
         ), exitCode: 2)
     }
 
+    private func scheduleJavaScriptBootstrapCheck() {
+        bootstrapTimer?.invalidate()
+        bootstrapTimer = Timer.scheduledTimer(withTimeInterval: bootstrapTimeoutSeconds, repeats: false) { [weak self] _ in
+            self?.inspectJavaScriptBootstrap()
+        }
+        if let bootstrapTimer { RunLoop.current.add(bootstrapTimer, forMode: .common) }
+    }
+
+    private func inspectJavaScriptBootstrap() {
+        guard !completed, progressEventCount == 0 else { return }
+        let inspection = """
+        (() => ({
+          title: document.title,
+          readyState: document.readyState,
+          bodyText: (document.body?.innerText || '').slice(0, 500),
+          scripts: Array.from(document.scripts).map((script) => ({
+            src: script.src,
+            type: script.type,
+            noModule: script.noModule
+          }))
+        }))()
+        """
+        webView.evaluateJavaScript(inspection) { [weak self] value, error in
+            guard let self, !self.completed, self.progressEventCount == 0 else { return }
+            var details = value as? [String: Any] ?? [:]
+            if let error { details["evaluationError"] = error.localizedDescription }
+            details["readAccessRoot"] = self.readAccessRootURL?.path ?? NSNull()
+            details["html"] = self.htmlURL?.path ?? NSNull()
+            let title = details["title"] as? String ?? ""
+            let moduleAppearsStarted = title.hasPrefix("Drift export probe ·")
+            let message = moduleAppearsStarted
+                ? "The export module started but could not reach its native progress bridge."
+                : "The probe HTML loaded, but its bundled JavaScript module did not start. Verify the receipt-checked asset graph and WebKit read-access root."
+            self.finish(self.failureReport(
+                phase: "javascript-bootstrap",
+                name: "InvalidStateError",
+                message: message,
+                details: details
+            ), exitCode: 2)
+        }
+    }
+
     private func failNavigation(_ phase: String, _ error: Error) {
         finish(failureReport(
             phase: phase,
@@ -142,12 +220,19 @@ private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationD
         ), exitCode: 2)
     }
 
-    private func failureReport(phase: String, name: String, message: String) -> [String: Any] {
-        [
+    private func failureReport(
+        phase: String,
+        name: String,
+        message: String,
+        details: [String: Any] = [:]
+    ) -> [String: Any] {
+        var error: [String: Any] = ["name": name, "message": message]
+        if !details.isEmpty { error["details"] = details }
+        return [
             "schemaVersion": 1,
             "ok": false,
             "phase": phase,
-            "error": ["name": name, "message": message],
+            "error": error,
             "nativeHarness": harnessDiagnostics(),
         ]
     }
@@ -162,7 +247,11 @@ private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationD
             "progressEventCount": progressEventCount,
             "latestProgress": latestProgress ?? NSNull(),
             "isLoading": webView?.isLoading ?? false,
+            "estimatedProgress": webView?.estimatedProgress ?? 0,
+            "title": webView?.title ?? NSNull(),
             "url": webView?.url?.absoluteString ?? NSNull(),
+            "html": htmlURL?.path ?? NSNull(),
+            "readAccessRoot": readAccessRootURL?.path ?? NSNull(),
             "windowVisible": window?.isVisible ?? false,
             "activationPolicy": NSApplication.shared.activationPolicy().rawValue,
         ]
@@ -179,6 +268,8 @@ private final class ExportProbe: NSObject, WKScriptMessageHandler, WKNavigationD
         completed = true
         timeoutTimer?.invalidate()
         timeoutTimer = nil
+        bootstrapTimer?.invalidate()
+        bootstrapTimer = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "driftExportProbe")
 
         do {

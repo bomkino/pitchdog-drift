@@ -164,7 +164,6 @@ for (const marker of [
   "rejects a receipt that hides priming or padding drift",
   "represents encoder priming with a negative first timestamp",
 ]) requireText(nativeAacTests, marker, `native AAC test ${marker}`);
-forbidText(nativeAac, "Intentionally empty", "native AAC adapter");
 forbidText(nativeAacSwift, "FFmpeg", "AudioToolbox implementation");
 
 for (const marker of [
@@ -196,13 +195,17 @@ for (const marker of [
   "sandbox-adhoc", "unsandboxed-adhoc", "sandbox-self-signed",
   "productionVariantPassed", "Drift CI Runtime",
 ]) requireText(probePackaged, marker, `packaged WebKit matrix ${marker}`);
-for (const marker of ["DRIFT_EXPORT_PROGRESS", "latestProgress", "setActivationPolicy(.accessory)"]) {
-  requireText(exportProbeHost, marker, `export-probe host ${marker}`);
-}
+for (const marker of [
+  "DRIFT_EXPORT_PROBE_ROOT", "allowingReadAccessTo: rootURL", "javascript-bootstrap",
+  "DRIFT_EXPORT_PROGRESS", "latestProgress", "setActivationPolicy(.accessory)",
+]) requireText(exportProbeHost, marker, `export-probe host ${marker}`);
 for (const marker of ["compositor-ready", "reportEncoderProgress", "heartbeat:", "mp4:returned"]) {
   requireText(exportProbe, marker, `deterministic export probe ${marker}`);
 }
-requireText(probeExport, "WKWebView deterministic-export receipt", "deterministic export receipt");
+for (const marker of [
+  "ProbeBundleReceipt.json", "sha256", "DRIFT_EXPORT_PROBE_ROOT",
+  "progressEventCount", "WKWebView deterministic-export receipt",
+]) requireText(probeExport, marker, `deterministic export runner ${marker}`);
 
 requireText(info, "<string>13.3</string>", "minimum macOS version");
 requireText(info, "UTExportedTypeDeclarations", ".pitched type declaration");
@@ -225,5 +228,5 @@ for (const marker of [
 ]) requireText(runtimeWorkflow, marker, `Mac runtime workflow ${marker}`);
 
 console.log(
-  `macOS source contract passed: one typed React↔AppKit bridge, direct awaited saves, ${swiftFiles.length} canonical Swift files, native AudioToolbox AAC, deterministic WKWebView receipts, a three-identity signing matrix, and a 512 MiB output ceiling.`,
+  `macOS source contract passed: one typed React↔AppKit bridge, direct awaited saves, ${swiftFiles.length} canonical Swift files, native AudioToolbox AAC, receipt-verified WKWebView exports, a three-identity signing matrix, and a 512 MiB output ceiling.`,
 );

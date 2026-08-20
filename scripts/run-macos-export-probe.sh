@@ -19,7 +19,74 @@ command -v node >/dev/null 2>&1 || fail "Node.js is unavailable"
 node "$ROOT/scripts/build-macos-export-probe.mjs"
 RECEIPT="$BUNDLE_ROOT/ProbeBundleReceipt.json"
 [[ -s "$RECEIPT" ]] || fail "probe bundle receipt is missing"
-HTML_RELATIVE="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).html" "$RECEIPT")"
+
+HTML_RELATIVE="$(node - "$RECEIPT" "$BUNDLE_ROOT" <<'NODE'
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const [receiptPath, rootPath] = process.argv.slice(2);
+const fail = (message) => {
+  console.error(`export-probe(bundle): ${message}`);
+  process.exit(1);
+};
+
+let receipt;
+try {
+  receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+} catch (error) {
+  fail(`receipt is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+}
+if (receipt.schemaVersion !== 1 || !Array.isArray(receipt.files)) {
+  fail('receipt schema is not supported');
+}
+if (typeof receipt.html !== 'string' || receipt.html.length === 0) {
+  fail('receipt has no HTML entry');
+}
+
+const root = fs.realpathSync(rootPath);
+const rootPrefix = `${root}${path.sep}`;
+const isWithinRoot = (candidate) => candidate === root || candidate.startsWith(rootPrefix);
+const seen = new Set();
+
+for (const [index, entry] of receipt.files.entries()) {
+  if (!entry || typeof entry !== 'object') fail(`file entry ${index + 1} is malformed`);
+  const relativePath = entry.path;
+  if (
+    typeof relativePath !== 'string'
+    || relativePath.length === 0
+    || path.isAbsolute(relativePath)
+    || relativePath.split(/[\\/]+/).includes('..')
+    || seen.has(relativePath)
+  ) {
+    fail(`file entry ${index + 1} has an unsafe or duplicate path`);
+  }
+  seen.add(relativePath);
+  const candidate = path.resolve(root, relativePath);
+  if (!isWithinRoot(candidate)) fail(`${relativePath} escapes the bundle root`);
+  let realCandidate;
+  try {
+    realCandidate = fs.realpathSync(candidate);
+  } catch {
+    fail(`${relativePath} is missing`);
+  }
+  if (!isWithinRoot(realCandidate)) fail(`${relativePath} resolves outside the bundle root`);
+  const metadata = fs.statSync(realCandidate);
+  if (!metadata.isFile()) fail(`${relativePath} is not a regular file`);
+  if (!Number.isSafeInteger(entry.bytes) || metadata.size !== entry.bytes) {
+    fail(`${relativePath} changed size after its receipt was written`);
+  }
+  if (typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256)) {
+    fail(`${relativePath} has no valid SHA-256 receipt`);
+  }
+  const observed = crypto.createHash('sha256').update(fs.readFileSync(realCandidate)).digest('hex');
+  if (observed !== entry.sha256) fail(`${relativePath} changed bytes after its receipt was written`);
+}
+
+if (!seen.has(receipt.html)) fail('HTML entry is not covered by the file receipt');
+process.stdout.write(receipt.html);
+NODE
+)"
 HTML_PATH="$BUNDLE_ROOT/$HTML_RELATIVE"
 [[ -s "$HTML_PATH" ]] || fail "probe HTML is missing: $HTML_PATH"
 
@@ -42,6 +109,7 @@ xcrun swiftc \
 rm -f "$REPORT"
 set +e
 DRIFT_EXPORT_PROBE_HTML="$HTML_PATH" \
+DRIFT_EXPORT_PROBE_ROOT="$BUNDLE_ROOT" \
 DRIFT_EXPORT_PROBE_REPORT="$REPORT" \
 DRIFT_EXPORT_PROBE_TIMEOUT="$TIMEOUT_SECONDS" \
   "$TEMP_ROOT/DriftExportProbe"
@@ -55,12 +123,26 @@ const fs = require('node:fs');
 const [reportPath, exitRaw] = process.argv.slice(2);
 const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
 const exitCode = Number(exitRaw);
+
+if (report.schemaVersion !== 1 || report.ok !== true || exitCode !== 0) {
+  console.error(
+    `WKWebView deterministic export failed in ${report.phase ?? 'unknown phase'}: `
+    + `${report.error?.message ?? `process exited with ${exitCode}`}`,
+  );
+  console.error(JSON.stringify({
+    phase: report.phase ?? null,
+    error: report.error ?? null,
+    nativeHarness: report.nativeHarness ?? null,
+  }, null, 2));
+  process.exit(1);
+}
+
 const failures = [];
 const expect = (condition, message) => { if (!condition) failures.push(message); };
 
-expect(report.schemaVersion === 1, 'unknown report schema');
-expect(report.ok === true, `probe reported failure in ${report.phase ?? 'unknown phase'}: ${report.error?.message ?? 'unknown error'}`);
-expect(exitCode === 0, `probe process exited with ${exitCode}`);
+expect(report.nativeHarness?.finishedNavigation === true, 'WKWebView never finished the probe navigation');
+expect(report.nativeHarness?.progressEventCount > 0, 'probe emitted no native progress events');
+expect(typeof report.nativeHarness?.readAccessRoot === 'string', 'probe did not record its WebKit read-access root');
 
 expect(report.mp4?.bytes > 1_000, 'MP4 is empty or implausibly small');
 const mp4Prefix = report.mp4?.prefix ?? [];
@@ -90,6 +172,7 @@ console.log('Drift WKWebView deterministic-export receipt');
 console.log(`  MP4: ${report.mp4?.bytes ?? 0} bytes, ${report.mp4?.frameCount ?? 0} frames`);
 console.log(`  MP4 decode probes: ${report.mp4?.verification?.decodedProbeFrames ?? 0}`);
 console.log(`  PNG: ${report.png?.bytes ?? 0} bytes, alpha=${report.png?.hasTransparentPixels === true}`);
+console.log(`  Native progress events: ${report.nativeHarness?.progressEventCount ?? 0}`);
 console.log(`  Runtime: ${report.userAgent ?? 'unknown'}`);
 console.log(`  Elapsed: ${report.elapsedMs ?? 'unknown'} ms`);
 console.log(`  Report: ${reportPath}`);
