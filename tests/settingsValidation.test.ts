@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SETTINGS,
   ENGINE_VERSION,
+  FLOW_IDS,
   SCHEMA_VERSION,
   SHADER_VERSION,
+  THEME_IDS,
   clearPinnedAssetIfRemoved,
   cloneSettings,
   type StudioSettings,
@@ -66,8 +68,8 @@ describe("validateStudioSettings", () => {
     expect(source.motion.speed).toBe(DEFAULT_SETTINGS.motion.speed);
   });
 
-  it("accepts all six current film-world themes", () => {
-    expect(THEMES).toHaveLength(6);
+  it("accepts every authored film world", () => {
+    expect(THEMES).toHaveLength(THEME_IDS.length);
     for (const theme of THEMES) {
       expect(validateStudioSettings(theme.settings)).toEqual(theme.settings);
     }
@@ -75,10 +77,10 @@ describe("validateStudioSettings", () => {
 
   it("accepts every current enum and frame-rate choice", () => {
     const choices: Array<[string, readonly (string | number)[]]> = [
-      ["themeId", ["editorial-drift", "road-memory", "dread", "noir-contact", "tender-light", "chrome-dream"]],
+      ["themeId", THEME_IDS],
       ["motion.axis", ["horizontal", "vertical"]],
       ["motion.direction", [-1, 1]],
-      ["motion.flow", ["straight", "arc", "ribbon", "cylinder", "tunnel"]],
+      ["motion.flow", FLOW_IDS],
       ["slide.fit", ["cover", "contain"]],
       ["background.style", ["transparent", "solid", "gradient", "aura", "paper", "void"]],
       ["presenter.fit", ["cover", "contain"]],
@@ -343,7 +345,7 @@ describe("validateStudioSettings", () => {
     expectInvalid(mismatch, "output");
   });
 
-  it("rejects contradictory transparent-stage and background states", () => {
+  it("rejects contradictory transparency and pinned-media states", () => {
     const opaqueStyleOnTransparentStage = settings();
     opaqueStyleOnTransparentStage.stage.transparent = true;
     expectInvalid(opaqueStyleOnTransparentStage, "stage.transparent");
@@ -351,9 +353,7 @@ describe("validateStudioSettings", () => {
     const transparentStyleOnOpaqueStage = settings();
     transparentStyleOnOpaqueStage.background.style = "transparent";
     expectInvalid(transparentStyleOnOpaqueStage, "stage.transparent");
-  });
 
-  it("rejects contradictory pinned-frame enabled and asset states", () => {
     const enabledWithoutMedia = settings();
     enabledWithoutMedia.presenter.enabled = true;
     expectInvalid(enabledWithoutMedia, "presenter.enabled");
