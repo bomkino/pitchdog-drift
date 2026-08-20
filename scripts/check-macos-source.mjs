@@ -48,6 +48,7 @@ const requiredFiles = [
   "scripts/release-macos-app.sh",
   "scripts/run-macos-export-probe.sh",
   "scripts/verify-macos-app.sh",
+  "scripts/verify-macos-dmg.sh",
   "scripts/verify-macos-release.sh",
   "src/lib/macosAacEncoder.ts",
   "src/lib/nativeMac.ts",
@@ -113,6 +114,7 @@ const exportProbeHost = read("macos/Probes/ExportProbe.swift");
 const build = read("scripts/build-macos-app.sh");
 const verify = read("scripts/verify-macos-app.sh");
 const packageDmg = read("scripts/package-macos-dmg.sh");
+const verifyDmg = read("scripts/verify-macos-dmg.sh");
 const probeAac = read("scripts/probe-macos-aac.sh");
 const probeCodecs = read("scripts/probe-macos-codecs.sh");
 const probePackaged = read("scripts/probe-macos-packaged-webview.sh");
@@ -219,6 +221,9 @@ const expectedScripts = {
   "build:mac": "bash scripts/build-macos-app.sh",
   "verify:mac": "bash scripts/verify-macos-app.sh",
   "package:mac:dmg": "bash scripts/package-macos-dmg.sh",
+  "verify:mac:dmg": "bash scripts/verify-macos-dmg.sh",
+  "verify:mac-release": "bash scripts/verify-macos-release.sh",
+  "release:mac": "bash scripts/release-macos-app.sh",
 };
 for (const [name, command] of Object.entries(expectedScripts)) {
   requireText(packageJson.scripts?.[name] ?? "", command, `package script ${name}`);
@@ -236,7 +241,14 @@ requireEvery(verify, [
   "--smoke-test", "--native-self-test", "--webview-self-test", "BuildManifest.txt",
   "system-codecs-only", "otool -L", "flags=.*runtime", "LaunchServices",
 ], "Mac verifier");
-requireEvery(packageDmg, ["Install Drift.txt", "-readonly", "verify-macos-app.sh", ".sha256"], "DMG packager");
+requireEvery(packageDmg, [
+  "Install Drift.txt", "-readonly", "verify-macos-app.sh", "verify-macos-dmg.sh", ".sha256",
+  "AudioToolbox", "WKWebView",
+], "DMG packager");
+requireEvery(verifyDmg, [
+  "shasum -a 256 -c", "hdiutil verify", "AudioToolbox", "WKWebView",
+  "verify-macos-app.sh", "not notarized or published",
+], "detached local DMG verifier");
 requireEvery(release, ["Developer ID Application", "notarytool", "stapler", "verify-macos-release.sh"], "release builder");
 requireEvery(verifyRelease, ["spctl", "stapler", "Developer ID Application"], "release verifier");
 
@@ -265,6 +277,7 @@ requireEvery(macWorkflow, [
   "Build and falsify universal signed app", "probe-macos-packaged-webview.sh",
   "drift-packaged-webview-evidence", "Require the production sandboxed lifecycle",
   "Prove release guard rejects non-Developer-ID signing", "macos/Probes/NativeGauntletMain.swift",
+  "verify:mac:dmg",
 ], "standalone Mac workflow");
 requireEvery(runtimeWorkflow, [
   "Prove WebGL, PNG, and AVC inside WKWebView",
@@ -273,8 +286,15 @@ requireEvery(runtimeWorkflow, [
   "Render and verify real deterministic outputs inside WKWebView",
   "drift-wkwebview-runtime",
 ], "Mac runtime workflow");
-requireEvery(releaseWorkflow, ["workflow_dispatch", "macos-release-candidate"], "Mac release workflow");
+requireEvery(releaseWorkflow, [
+  "workflow_dispatch", "source_commit", "git merge-base --is-ancestor",
+  "environment:", "name: macos-release", "Retain text receipts only",
+  "binary_uploaded=no", "github_release_created=no", "Remove signing material and every compiled binary",
+  "drift-macos-signed-receipts",
+], "privileged Mac release-evidence workflow");
+forbidText(releaseWorkflow, "build/release/Drift-macOS.zip\n            build/release/Drift-macOS.dmg", "release artifact upload");
+forbidText(releaseWorkflow, "ref: ${{ inputs.source_ref }}", "untrusted release checkout");
 
 console.log(
-  `macOS source contract passed: ${swiftFiles.length} canonical Swift files, one typed React↔AppKit bridge, exact directory capabilities, staged rollback after failed close, privacy-redacted diagnostics, bounded crash recovery, AudioToolbox AAC, receipt-verified WKWebView exports, and explicit unsigned/release gates.`,
+  `macOS source contract passed: ${swiftFiles.length} canonical Swift files, one typed React↔AppKit bridge, exact directory capabilities, staged rollback after failed close, privacy-redacted diagnostics, bounded crash recovery, AudioToolbox AAC, receipt-verified WKWebView exports, detached local-DMG verification, and a main-only text-receipt release lane.`,
 );
