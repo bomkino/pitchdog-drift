@@ -77,7 +77,7 @@ if ((host.match(/exportActivityGuard\.end\(\)/g) ?? []).length < 3) {
 }
 
 requireMarkers("docs/MACOS_EXPORT_PRESENCE.md", [
-  "The badge reads **EXPORT** only while Drift reports an authoritative active export.",
+  "The Dock badge reads **EXPORT** only while Drift reports an authoritative active export.",
   "The badge is presence, not progress.",
   "No new renderer message, timer, DOM observer, polling loop, or high-frequency bridge event was added.",
   "Completion, cancellation, native abort, document reload, WebKit content-process termination, window teardown, and app termination",
