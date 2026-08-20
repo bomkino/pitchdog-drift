@@ -17,10 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Check out exact branch head
+      - name: Check out the triggering branch head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: gauntlet/directors-cut-optical-pipeline
           fetch-depth: 0
 
       - name: Verify the complete numbered manifest
@@ -54,7 +53,9 @@ jobs:
           fi
           tar -xzf /tmp/director-desk-product.tgz
           rm -rf "$root"
-          rm .github/workflows/apply-director-desk-manifest.yml
+          rm -f \
+            .github/workflows/apply-director-desk-manifest.yml \
+            .github/workflows/audit-snapshot.yml
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -108,6 +109,10 @@ jobs:
           git reset --hard origin/gauntlet/directors-cut-optical-pipeline
           git rm -rf --ignore-unmatch \
             .github/director-desk-payload \
-            .github/workflows/apply-director-desk-manifest.yml
+            .github/workflows/apply-director-desk-manifest.yml \
+            .github/workflows/audit-snapshot.yml
+          if git diff --cached --quiet; then
+            exit 0
+          fi
           git commit -m "chore: remove failed Director Desk transport (run ${GITHUB_RUN_ID})"
           git push origin HEAD:gauntlet/directors-cut-optical-pipeline
