@@ -43,7 +43,7 @@ export function Stage({
     <section className="stage-column" aria-label="Cinematic preview" aria-busy={busy}>
       <div className="stage-topline">
         <span>{settings.themeId.replaceAll("-", " ")}</span>
-        <span>{settings.motion.axis} · {settings.motion.flow}</span>
+        <span>{settings.motion.axis} · {settings.motion.flow} · {settings.optics.enabled ? settings.optics.profile : "clean bypass"}</span>
       </div>
       <div className="stage-well">
         <div

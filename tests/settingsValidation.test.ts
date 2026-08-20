@@ -61,13 +61,14 @@ describe("validateStudioSettings", () => {
     expect(result).not.toBe(source);
     expect(result.motion).not.toBe(source.motion);
     expect(result.slide).not.toBe(source.slide);
+    expect(result.optics).not.toBe(source.optics);
 
     result.motion.speed = 0;
     expect(source.motion.speed).toBe(DEFAULT_SETTINGS.motion.speed);
   });
 
-  it("accepts all six current film-world themes", () => {
-    expect(THEMES).toHaveLength(6);
+  it("accepts all twelve current film-world themes", () => {
+    expect(THEMES).toHaveLength(12);
     for (const theme of THEMES) {
       expect(validateStudioSettings(theme.settings)).toEqual(theme.settings);
     }
@@ -75,12 +76,13 @@ describe("validateStudioSettings", () => {
 
   it("accepts every current enum and frame-rate choice", () => {
     const choices: Array<[string, readonly (string | number)[]]> = [
-      ["themeId", ["editorial-drift", "road-memory", "dread", "noir-contact", "tender-light", "chrome-dream"]],
+      ["themeId", ["editorial-drift", "road-memory", "dread", "noir-contact", "tender-light", "chrome-dream", "sunstruck-atlas", "blue-hour", "velvet-fever", "celluloid-archive", "night-run", "eclipse-ritual"]],
       ["motion.axis", ["horizontal", "vertical"]],
       ["motion.direction", [-1, 1]],
       ["motion.flow", ["straight", "arc", "ribbon", "cylinder", "tunnel"]],
       ["slide.fit", ["cover", "contain"]],
-      ["background.style", ["transparent", "solid", "gradient", "aura", "paper", "void"]],
+      ["background.style", ["transparent", "solid", "gradient", "aura", "paper", "void", "horizon", "fog", "prism", "velvet", "emulsion", "night-drive", "tidal", "ember", "projector"]],
+      ["optics.profile", ["clean-gate", "soft-print", "anamorphic-night", "dream-glass", "bleach-bypass", "night-terror", "custom"]],
       ["presenter.fit", ["cover", "contain"]],
       ["output.fps", [24, 25, 30, 50, 60]],
     ];
@@ -136,7 +138,25 @@ describe("validateStudioSettings", () => {
       motion: 0,
       grain: 0,
       vignette: 0,
+      scale: 0.25,
+      softness: 0,
+      complexity: 0,
+      parallax: 0,
       seed: 0,
+    });
+    Object.assign(source.optics, {
+      softFocus: 0,
+      edgeSoftness: 0,
+      motionBlur: 0,
+      chromaticAberration: 0,
+      bloom: 0,
+      halation: 0,
+      flare: 0,
+      barrelDistortion: -1,
+      vignette: 0,
+      grain: 0,
+      gateWeave: 0,
+      breathing: 0,
     });
     Object.assign(source.presenter, {
       x: 0,
@@ -198,7 +218,25 @@ describe("validateStudioSettings", () => {
       motion: 1,
       grain: 0.6,
       vignette: 1,
+      scale: 2.5,
+      softness: 1,
+      complexity: 1,
+      parallax: 1,
       seed: 1_000_000,
+    });
+    Object.assign(source.optics, {
+      softFocus: 1,
+      edgeSoftness: 1,
+      motionBlur: 1,
+      chromaticAberration: 1,
+      bloom: 1,
+      halation: 1,
+      flare: 1,
+      barrelDistortion: 1,
+      vignette: 1,
+      grain: 0.5,
+      gateWeave: 1,
+      breathing: 1,
     });
     Object.assign(source.presenter, {
       x: 1,
@@ -217,6 +255,28 @@ describe("validateStudioSettings", () => {
     });
 
     expect(validateStudioSettings(source)).toEqual(source);
+  });
+
+  it("enriches pre-optics version-1 projects without weakening current fields", () => {
+    const legacy = settings();
+    delete legacy.optics;
+    delete legacy.background.scale;
+    delete legacy.background.softness;
+    delete legacy.background.complexity;
+    delete legacy.background.parallax;
+
+    const migrated = validateStudioSettings(legacy);
+    expect(migrated.optics).toEqual(DEFAULT_SETTINGS.optics);
+    expect(migrated.background).toMatchObject({
+      scale: DEFAULT_SETTINGS.background.scale,
+      softness: DEFAULT_SETTINGS.background.softness,
+      complexity: DEFAULT_SETTINGS.background.complexity,
+      parallax: DEFAULT_SETTINGS.background.parallax,
+    });
+
+    const malformedCurrent = settings();
+    delete malformedCurrent.optics.softFocus;
+    expectInvalid(malformedCurrent, "optics.softFocus");
   });
 
   it("rejects unsupported schema, engine, and shader versions", () => {
@@ -238,6 +298,7 @@ describe("validateStudioSettings", () => {
       "motion.flow",
       "slide.fit",
       "background.style",
+      "optics.profile",
       "presenter.fit",
     ]) {
       const source = settings();
@@ -260,7 +321,11 @@ describe("validateStudioSettings", () => {
       "slide.radius", "slide.smoothing", "slide.borderWidth", "slide.borderOpacity",
       "slide.shadowOpacity", "slide.shadowSoftness",
       "background.intensity", "background.motion", "background.grain", "background.vignette",
+      "background.scale", "background.softness", "background.complexity", "background.parallax",
       "background.seed",
+      "optics.softFocus", "optics.edgeSoftness", "optics.motionBlur", "optics.chromaticAberration",
+      "optics.bloom", "optics.halation", "optics.flare", "optics.barrelDistortion",
+      "optics.vignette", "optics.grain", "optics.gateWeave", "optics.breathing",
       "presenter.x", "presenter.y", "presenter.width", "presenter.aspectWidth",
       "presenter.aspectHeight", "presenter.radius", "presenter.smoothing", "presenter.borderWidth",
       "presenter.borderOpacity", "presenter.shadowOpacity", "presenter.gain", "presenter.trimStart",
@@ -302,7 +367,23 @@ describe("validateStudioSettings", () => {
       ["background.motion", -0.001],
       ["background.grain", 0.601],
       ["background.vignette", 1.001],
+      ["background.scale", 2.501],
+      ["background.softness", 1.001],
+      ["background.complexity", -0.001],
+      ["background.parallax", 1.001],
       ["background.seed", 1_000_001],
+      ["optics.softFocus", 1.001],
+      ["optics.edgeSoftness", -0.001],
+      ["optics.motionBlur", 1.001],
+      ["optics.chromaticAberration", 1.001],
+      ["optics.bloom", -0.001],
+      ["optics.halation", 1.001],
+      ["optics.flare", 1.001],
+      ["optics.barrelDistortion", -1.001],
+      ["optics.vignette", 1.001],
+      ["optics.grain", 0.501],
+      ["optics.gateWeave", 1.001],
+      ["optics.breathing", -0.001],
       ["presenter.x", -0.001],
       ["presenter.y", 1.001],
       ["presenter.width", 0.139],
@@ -391,6 +472,8 @@ describe("validateStudioSettings", () => {
       ["motion.autoplay", "true"],
       ["presenter.enabled", 1],
       ["presenter.muted", null],
+      ["optics.enabled", "true"],
+      ["optics.protectPresenter", 1],
       ["presenter.assetId", "bad\u0000id"],
       ["presenter.assetId", "x".repeat(STUDIO_SETTINGS_LIMITS.presenterAssetIdLength + 1)],
       ["slide", []],

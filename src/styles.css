@@ -1409,3 +1409,13 @@ a:focus-visible {
     animation-iteration-count: 1 !important;
   }
 }
+
+.control-prose {
+  margin: 0;
+  padding: 0 0 10px;
+  color: #6e6860;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 10px;
+  font-style: italic;
+  line-height: 1.45;
+}

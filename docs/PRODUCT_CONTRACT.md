@@ -15,15 +15,16 @@ Viewers should feel a deck unfolding as a filmic sequence rather than watching s
 ## In scope
 
 - Fresh browser studio built in this exact workspace.
-- Three.js/WebGL renderer with custom GLSL for slide shape, optical motion, borders, and animated backgrounds.
+- Three.js/WebGL renderer with custom GLSL for slide shape, optical motion, borders, animated backgrounds, and a deterministic scene-wide lens pipeline.
 - Image-slide import, reorder, removal, fit control, and clean object-URL lifecycle. V1 video is deliberately limited to one optional pinned presenter; moving-track items are still images.
 - Horizontal and vertical infinite carousels.
 - Multiple spatial flows with direct drag, wheel, keyboard, autoplay, inertia, pause, and reverse.
 - Independent stage and slide aspect ratios, including 9:16, 4:5, 1:1, 16:9, and custom values.
 - Slide scale, spacing, depth, bend, tilt, corner radius, superellipse-style corner smoothing, border, shadow, and motion distortion controls.
-- Transparent, solid, gradient, and softly animated shader backgrounds.
-- Authored genre presets, including travel and horror, that change motion logic as well as palette.
-- Optional pinned frame, off by default, which can hold an image or talking-head video while other slides travel.
+- Transparent output plus fourteen procedural shader atmosphere families, with explicit palette, scale, softness, complexity, parallax, motion, grain, vignette, and seed controls.
+- Six authored lens recipes and bounded expert controls for soft focus, edge defocus, motion smear, chromatic separation, bloom, halation, flare, lens curvature, vignette, grain, gate weave, and breathing.
+- Twelve authored genre worlds, including travel, horror, fashion, documentary, archive, thriller, romance, fantasy, and music directions, that change motion logic, surface, atmosphere, and optics together.
+- Optional pinned frame, off by default, which can hold an image or talking-head video while other slides travel. It can remain optically protected or join the full-frame treatment.
 - Still capture, deterministic fixed-step MP4 export, honest transparent PNG-sequence export, preset/project import/export, durable local media persistence, and verified pinned-video audio handling.
 - Responsive controls, reduced-motion behavior, keyboard access, WebGL failure fallback, and local-only media handling.
 
@@ -41,10 +42,12 @@ Viewers should feel a deck unfolding as a filmic sequence rather than watching s
 ## Costliest false wins
 
 1. Beautiful demo, unusable with real media. Countercheck: import mixed aspect ratios and video, reorder/remove them, enable a pinned video, reload settings, and capture output.
-2. Dense control panel whose controls do not materially affect the rendered result. Countercheck: inspect rendered before/after states and test settings at boundaries.
+2. Dense control panel whose controls do not materially affect the rendered result. Countercheck: inspect rendered before/after states, prove the optical pass changes pixels, and test every saved range at its boundaries.
 3. Smooth desktop loop that breaks on phone, reduced motion, WebGL loss, low slide counts, transparency, or export. Countercheck: real-browser tests across those states and decoded output inspection.
 4. "Instagram export" that is only a real-time canvas recording with dropped frames, missing presenter audio, or unknown dimensions. Countercheck: drive export from frame index and fixed time, then inspect MP4 container, codec, dimensions, duration, frame count, frame decode, and audio track. H.264 output is always opaque; transparency uses PNG sequence.
-5. Many presets that are palette swaps. Countercheck: each genre must have a distinct motion sentence: pace, path, depth, optical treatment, and background behavior.
+5. Many presets that are palette swaps. Countercheck: each genre must have a distinct motion sentence: pace, path, depth, surface, full-frame lens treatment, and background behavior.
+6. Cinematic preview whose export loses the lens. Countercheck: preview, PNG, sequence, and MP4 must call the same optical shader with explicit evaluated time and velocity.
+7. Blanket blur that makes the deck unreadable. Countercheck: centre readability, edge-weighted defocus, velocity-linked smear, bounded channel split, and an optional crisp presenter layer.
 
 ## Frozen bar
 
@@ -53,7 +56,10 @@ Viewers should feel a deck unfolding as a filmic sequence rather than watching s
 - Carousel loops without visible jumps in both axes; 1, 2, and 12-item sets remain valid.
 - Drag is 1:1, interruptible, and hands velocity into inertia; keyboard actions stay immediate.
 - Pinned frame remains stable while moving frames continue and is never enabled by surprise.
-- Corner radius, smoothing, spacing, speed, flow, borders, slide ratio, stage ratio, and backgrounds create visible, bounded changes.
+- Corner radius, smoothing, spacing, speed, flow, borders, slide ratio, stage ratio, backgrounds, and every surfaced lens control create visible, bounded changes.
+- Optical finishing is scene-wide, deterministic, alpha-safe, bypassable, and shared by preview and export. A saved timestamp renders the same lens grain, gate position, breathing, and smear every time.
+- The pinned presenter can remain crisp after scene-wide optics without becoming detached from stage geometry or export timing.
+- Fourteen rendered background families remain materially distinct under their default parameters; scale/softness/complexity/parallax produce bounded variation without turning the tool into a random shader toy.
 - Transparent mode yields transparent still output; non-transparent modes fill every exported pixel.
 - Reduced motion pauses autoplay and removes vestibular effects while preserving control and legibility.
 - WebGL failure presents a usable DOM media strip and explanation rather than a blank stage.

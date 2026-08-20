@@ -18,6 +18,12 @@ rAF + input inertia     frame n → n / fps
       └───────────┬───────────┘
                   ▼
        Three.js scene + raw GLSL
+                  │
+          linear scene target
+                  │
+     deterministic optical pass
+                  │
+        crisp presenter overlay
 ```
 
 `src/engine/evaluate.ts` owns spatial geometry and time-derived distance. It has no DOM, GPU, or clock dependency. `CinematicCarousel` owns Three.js resources, input state, texture lifecycle, and preview timing. Export temporarily gives the same renderer an exact output surface and calls `renderAtAsync(time)` for each planned frame.
@@ -30,12 +36,21 @@ The moving track is a virtual strip whose slot count is always a complete multip
 - The renderer uses sRGB output and `NoToneMapping`; source textures are tagged sRGB.
 - The slide vertex shader bends a subdivided plane from bounded, normalised velocity.
 - The slide fragment shader handles cover/contain sampling, focal position, antialiased superellipse corners, borders, grain, and alpha.
-- A separate shader scene draws animated backgrounds. Transparent mode skips it entirely.
-- The pinned frame is a separate scene object. It never inherits moving-track transforms.
+- A separate shader scene draws fourteen deterministic procedural atmosphere families. Transparent mode skips it entirely. Scale, softness, complexity, parallax, seed, palette, motion, grain, and vignette remain explicit saved inputs.
+- Track and background first render into a linear RGBA target when optical finishing is active. A full-frame shader then applies radial/edge soft focus, directional velocity smear, channel separation, bloom, warm halation, horizontal flare, lens curvature, vignette, grain, gate weave, and breathing.
+- The optical target is bypassed when the pass is disabled or every effect is zero. There is no gratuitous framebuffer cost in the clean path.
+- The pinned frame is a separate scene. It never inherits moving-track transforms and can render after the optical pass, keeping a presenter crisp while the surrounding composition remains soft and unstable. Users can deliberately opt it back into the lens treatment.
 - Presenter preview uses `VideoTexture`. Deterministic output instead draws decoded samples into a stable canvas and updates a `CanvasTexture` before rendering each frame. A single binder gives an active export frame strict precedence over preview media, and pinned images are awaited even when they sit outside the moving mesh pool.
 - Presenter playback follows the renderer state: user pause, export, context loss, document hiding, or disposal pauses the actual media element. Restore returns both UI and media to the truthful prior state.
 
 WebGPU/TSL is not the v1 primary path. WebGL2 currently gives the project a broader, better-proven route through canvas capture and browser video encoding. The evaluator and settings model are deliberately renderer-independent enough for a later WebGPU backend.
+
+
+### Optical determinism and colour
+
+The optical pass receives evaluated time, normalised carousel velocity, axis, and saved lens settings. Fixed-step exports therefore produce the same optical frame for the same project state and timestamp. Reduced-motion output freezes gate weave and breathing, removes motion smear, and keeps the authored static lens character.
+
+The intermediate scene texture has no output colour space: it stores the linear composition. The optical shader performs the final output transform exactly once when writing to the sRGB browser canvas. Transparent samples remain premultiplied while they are blurred, then return to straight RGB for normal canvas blending; this avoids dark fringes and makes PNG alpha testable rather than assumed.
 
 ## Export
 
