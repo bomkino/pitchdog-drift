@@ -1,32 +1,44 @@
-name: Deep cinematic lighting gauntlet
+name: Cinematic lighting gauntlet
 
 on:
   pull_request:
     branches:
       - main
     paths:
-      - .gauntlet/lighting-next.py
-      - .gauntlet/lighting-seam-fix.py
-      - .gauntlet/lighting-final-pass*
+      - .gauntlet/lighting-integrity.py
       - .github/workflows/lighting-deep-gauntlet.yml
+      - docs/CINEMATIC_LIGHTING.md
+      - docs/LIGHTING_REVIEW_CHECKLIST.md
+      - e2e/studio.e2e.ts
+      - src/components/ControlPanel.tsx
+      - src/engine/CinematicCarousel.ts
+      - src/engine/shaders.ts
+      - src/lib/settingsValidation.ts
+      - src/lighting.ts
+      - src/model.ts
+      - src/themes.ts
+      - tests/engineShader.test.ts
+      - tests/lighting.test.ts
+      - tests/lightingValidation.test.ts
+      - tests/settingsValidation.test.ts
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: lighting-deep-gauntlet-${{ github.event.pull_request.number }}
+  group: cinematic-lighting-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deepen:
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Check out lighting branch
+      - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: feat/cinematic-lighting-rig
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -34,34 +46,16 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Apply the lighting foundation only when absent
+      - name: Verify immutable lighting contract
         run: |
-          if grep -q 'export const LIGHTING_VERSION = 2 as const' src/model.ts \
-            && grep -q 'if (mode === "static" || amount <= 0)' src/lighting.ts; then
-            echo "Version-2 lighting foundation already present."
-          else
-            python .gauntlet/lighting-next.py
-            python .gauntlet/lighting-seam-fix.py
-          fi
-
-      - name: Apply the user-journey lighting final pass when staged
-        run: |
-          if [ -f .gauntlet/lighting-final-pass.py ]; then
-            python .gauntlet/lighting-final-pass.py
-          else
-            echo "Final pass already applied and its staging payload removed."
-          fi
-          if [ -f .gauntlet/lighting-final-pass-followup.py ]; then
-            python .gauntlet/lighting-final-pass-followup.py
-          fi
-
-      - name: Reject malformed diffs
-        run: git diff --check
+          python .gauntlet/lighting-integrity.py
+          git diff --check
+          test -z "$(git status --porcelain --untracked-files=all)"
 
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Typecheck, unit test, and build
+      - name: Typecheck, unit test, and production build
         run: npm run check
 
       - name: Install Chromium
@@ -70,31 +64,7 @@ jobs:
       - name: Run complete real-browser gauntlet
         run: npm run test:e2e
 
-      - name: Commit only the exact verified product source
-        run: |
-          tested_head="$(git rev-parse HEAD)"
-          git fetch origin feat/cinematic-lighting-rig
-          remote_head="$(git rev-parse origin/feat/cinematic-lighting-rig)"
-          if [ "$remote_head" != "$tested_head" ]; then
-            echo "Remote branch changed during verification; refusing to push untested integration."
-            exit 1
-          fi
-
-          rm -f .gauntlet/lighting-final-pass.py \
-            .gauntlet/lighting-final-pass-followup.py \
-            .gauntlet/lighting-final-pass.payload.*
-          git config user.name "pitch.dog lighting gauntlet"
-          git config user.email "111725271+bomkino@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          if git diff --cached --quiet; then
-            echo "Source already matches the verified final pass."
-          else
-            git commit -m "feat: complete cinematic lighting direction"
-            git push origin HEAD:feat/cinematic-lighting-rig
-          fi
-
-      - name: Upload browser evidence
+      - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.6.2
         with:
