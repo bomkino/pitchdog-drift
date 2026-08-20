@@ -71,6 +71,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
 
         switch command {
         case "runtime-info":
+            resetCapabilitiesForDocumentBoot()
             replyHandler(successEnvelope(runtimeInfo()), nil)
         case "client-state":
             clientState.update(from: payload)
@@ -190,6 +191,21 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func resetCapabilitiesForDocumentBoot() {
+        // NativeBridge.js calls runtime-info once for each new local document.
+        // Tear down capabilities from the previous WebContent process before
+        // acknowledging the replacement document. This covers manual reload,
+        // not only quit and process-termination callbacks.
+        exportActivityGuard.end()
+        brokerQueue.sync {
+            broker.abortAll()
+            aacBroker.closeAll()
+        }
+        inputIntent = nil
+        clientState = ClientState()
+        clientStateDidChange?(clientState)
     }
 
     private func runtimeInfo() -> JSONDictionary {
