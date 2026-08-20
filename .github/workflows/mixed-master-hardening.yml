@@ -10,6 +10,17 @@ on:
       - src/sonic/renderMixedMaster.ts
       - e2e/sonicMixFixture.ts
       - e2e/sonic-mix.e2e.ts
+      - src/components/SonicDock.tsx
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/mixed-master-hardening.yml
+      - scripts/apply-mixed-master-export.py
+      - src/sonic/renderMixedMaster.ts
+      - e2e/sonicMixFixture.ts
+      - e2e/sonic-mix.e2e.ts
+      - src/components/SonicDock.tsx
   workflow_dispatch:
 
 permissions:
@@ -50,6 +61,17 @@ jobs:
 
       - name: Run full browser and AAC gauntlet
         run: npm run test:e2e
+
+      - name: Preserve mixed-master failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mixed-master-failure-evidence
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Remove one-shot integration machinery
         run: |
