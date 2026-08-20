@@ -43,6 +43,14 @@ describe("custom shader output contract", () => {
     expect(backgroundFragmentShader).toContain("floor(uPhase * 24.0)");
     expect(backgroundFragmentShader.match(/variant </g)?.length ?? 0).toBeGreaterThanOrEqual(12);
   });
+
+  it("never relies on undefined reversed literal smoothstep edges", () => {
+    const literalCalls = [...backgroundFragmentShader.matchAll(/smoothstep\(([-+]?\d+(?:\.\d+)?),\s*([-+]?\d+(?:\.\d+)?)/g)];
+    expect(literalCalls.length).toBeGreaterThan(0);
+    for (const call of literalCalls) {
+      expect(Number(call[1])).toBeLessThan(Number(call[2]));
+    }
+  });
 });
 
 describe("export surface preflight", () => {
