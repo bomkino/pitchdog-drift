@@ -1,7 +1,42 @@
 import type { CSSProperties } from "react";
-import type { StudioSettings, ThemeId } from "../model";
+import {
+  MAX_SLIDE_THICKNESS,
+  type DynamicsMode,
+  type Flow,
+  type StudioSettings,
+  type SurfaceMode,
+  type ThemeId,
+} from "../model";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
+
+const PATH_NOTES: Readonly<Record<Flow, string>> = Object.freeze({
+  straight: "A disciplined strip with only authored depth and focus falloff.",
+  arc: "A one-sided cinematic bow; useful for calm lateral travel.",
+  ribbon: "A soft S-curve that keeps the centre legible while edges drift.",
+  cylinder: "Frames wrap a shallow drum and reveal their physical edge.",
+  tunnel: "Depth pulls outward from the focal frame without swallowing it.",
+  helix: "A controlled corkscrew with tangent-led banking and real parallax.",
+  orbit: "A broad elliptical pass built for close, luminous movement.",
+  cascade: "Layered rises and falls, softer than a switchback.",
+  lemniscate: "A figure-eight crossing with balanced lateral rhythm.",
+  switchback: "Harder lateral reversals with depth carried through every turn.",
+});
+
+const DYNAMICS_NOTES: Readonly<Record<DynamicsMode, string>> = Object.freeze({
+  direct: "Immediate and restrained; the carousel stops close to the hand.",
+  weighted: "Measured inertia with a confident, editorial release.",
+  spring: "Sharper acceleration and a tactile elastic settle.",
+  drift: "Long coast and the least resistance after the hand lets go.",
+});
+
+const SURFACE_NOTES: Readonly<Record<SurfaceMode, string>> = Object.freeze({
+  card: "Rigid stock: restrained bow, crisp torsion, dry physical edge.",
+  paper: "Curled sheet: one broad buckle, matte edge, no rubber wobble.",
+  silk: "Pinned cloth: diagonal folds, quiet boundaries, soft grazing light.",
+  gel: "Elastic mass: impulse lags behind the hand, with restrained gloss.",
+});
+
 
 interface ControlPanelProps {
   settings: StudioSettings;
@@ -54,7 +89,7 @@ export function ControlPanel({
       <section className="theme-section" aria-labelledby="themes-title">
         <div className="section-heading-row">
           <h3 id="themes-title">Film worlds</h3>
-          <span>6</span>
+          <span>{THEMES.length}</span>
         </div>
         <div className="theme-grid">
           {THEMES.map((theme) => (
@@ -135,7 +170,7 @@ export function ControlPanel({
         <RangeField label="Spacing" value={settings.motion.gap * 100} min={0} max={120} step={1} unit="%" onChange={(value) => patch("motion", { gap: value / 100 })} />
       </InspectorGroup>
 
-      <InspectorGroup title="Motion" eyebrow={`${settings.motion.speed.toFixed(2)} slides/s`} open>
+      <InspectorGroup title="Motion" eyebrow={`${settings.motion.flow} · ${settings.motion.dynamics}`} open>
         <Segmented label="Flow axis" value={settings.motion.axis} options={[{ value: "horizontal", label: "Horizontal" }, { value: "vertical", label: "Vertical" }]} onChange={(axis) => patch("motion", { axis })} />
         <Segmented label="Direction" value={settings.motion.direction} options={[{ value: -1 as const, label: "Reverse" }, { value: 1 as const, label: "Forward" }]} onChange={(direction) => patch("motion", { direction })} />
         <SelectField
@@ -153,6 +188,7 @@ export function ControlPanel({
             { value: "lemniscate", label: "Figure eight" },
             { value: "switchback", label: "Switchback" },
           ]}
+          hint={PATH_NOTES[settings.motion.flow]}
           onChange={(flow) => patch("motion", { flow })}
         />
         <SelectField
@@ -164,8 +200,10 @@ export function ControlPanel({
             { value: "spring", label: "Spring" },
             { value: "drift", label: "Drift" },
           ]}
+          hint={DYNAMICS_NOTES[settings.motion.dynamics]}
           onChange={(dynamics) => patch("motion", { dynamics })}
         />
+        <RangeField label="Hand response" value={settings.motion.dragSensitivity * 100} min={0} max={400} step={5} unit="%" hint="Zero locks direct manipulation; higher values move farther under the same hand gesture." onChange={(value) => patch("motion", { dragSensitivity: value / 100 })} />
         <RangeField label="Speed" value={settings.motion.speed} min={0} max={1.5} step={0.01} decimals={2} unit="×" onChange={(speed) => patch("motion", { speed })} />
         <RangeField label="Curve" value={settings.motion.curvature * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("motion", { curvature: value / 100 })} />
         <RangeField label="Depth" value={settings.motion.depth * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("motion", { depth: value / 100 })} />
@@ -178,7 +216,7 @@ export function ControlPanel({
         <SwitchField label="Reduced-motion master" checked={settings.motion.reducedMotionOutput} hint="Independent from your OS preview preference." onChange={(reducedMotionOutput) => patch("motion", { reducedMotionOutput })} />
       </InspectorGroup>
 
-      <InspectorGroup title="Surface" eyebrow={`${Math.round(settings.slide.smoothing * 100)}% smoothing`}>
+      <InspectorGroup title="Surface" eyebrow={`${settings.slide.surface} · ${settings.slide.thickness.toFixed(1)} px`}>
         <Segmented label="Image fit" value={settings.slide.fit} options={[{ value: "cover", label: "Cover" }, { value: "contain", label: "Contain" }]} onChange={(fit) => patch("slide", { fit })} />
         <SelectField
           label="Material"
@@ -189,6 +227,7 @@ export function ControlPanel({
             { value: "silk", label: "Silk · folded" },
             { value: "gel", label: "Gel · elastic" },
           ]}
+          hint={SURFACE_NOTES[settings.slide.surface]}
           onChange={(surface) => patch("slide", { surface })}
         />
         <RangeField label="Focal point X" value={settings.slide.focalX * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { focalX: value / 100 })} />
@@ -196,7 +235,7 @@ export function ControlPanel({
         <RangeField label="Corner radius" value={settings.slide.radius} min={0} max={180} step={1} unit=" px" onChange={(radius) => patch("slide", { radius })} />
         <RangeField label="Corner smoothing" value={settings.slide.smoothing * 100} min={0} max={100} step={1} unit="%" hint="60% is the familiar iOS-style continuous corner." onChange={(value) => patch("slide", { smoothing: value / 100 })} />
 
-        <RangeField label="3D thickness" value={settings.slide.thickness} min={0} max={32} step={0.5} decimals={1} unit=" px" hint="Scene-space edge depth; zero keeps the slide perfectly flat." onChange={(thickness) => patch("slide", { thickness })} />
+        <RangeField label="3D thickness" value={settings.slide.thickness} min={0} max={MAX_SLIDE_THICKNESS} step={0.5} decimals={1} unit=" px" hint="Scene-space edge depth; zero keeps the slide perfectly flat." onChange={(thickness) => patch("slide", { thickness })} />
         <RangeField label="Border" value={settings.slide.borderWidth} min={0} max={16} step={0.5} decimals={1} unit=" px" onChange={(borderWidth) => patch("slide", { borderWidth })} />
         <ColorField label="Border colour" value={settings.slide.borderColor} onChange={(borderColor) => patch("slide", { borderColor })} />
         <RangeField label="Border presence" value={settings.slide.borderOpacity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { borderOpacity: value / 100 })} />

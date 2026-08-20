@@ -1,71 +1,260 @@
-# Spatial Fabric Dynamics — Gauntlet Record
+# Spatial Fabric Gauntlet
 
-Branch focus: **3Dness, paths, fabrics, physics. Nothing ornamental.**
+This branch asks one narrow question:
 
-## Actual goal
+> Can a pitch-deck carousel feel like matter travelling through authored space,
+> without sacrificing slide legibility, local-first operation, deterministic
+> export, transparent output, or the pinned presenter?
 
-Make a slide carousel feel like matter moving through space—not flat cards receiving decorative wobble. The system must remain director-controllable, deterministic at export, safe at hostile settings, and light enough to preserve the existing bounded renderer.
+The answer is implemented as one coupled system. Paths decide where slides are.
+Tangents decide how they face. Preview physics decides how the hand transfers
+energy. Acceleration and travel decide how each material deforms. A rounded,
+lit sidewall makes thickness readable when the path exposes it.
 
-## What changed
+No global post-processing stack. No dependency-heavy rigid-body engine. No
+stateful cloth solver entering export.
 
-### 1. Coherent spatial paths
+## User journey contract
 
-The evaluator now treats every flow as a parametric path with a numerical tangent. Slide banking comes from that tangent rather than a disconnected rotation preset. Depth, cross-axis displacement, scale, opacity, and orientation therefore describe one movement.
+A director should be able to:
 
-Ten flows ship: Straight, Arc, Ribbon, Cylinder, Tunnel, Helix, Orbit, Cascade, Figure Eight, and Switchback. `bank` controls how strongly tangent direction becomes slide orientation. All formulas are bounded and finite at minimum and maximum authored values.
+1. Pick a film world and immediately see a coherent path, response, material,
+   and edge depth.
+2. Drag or wheel the stage and feel the selected physics character in the hand.
+3. Pause and see the entire material freeze without a phase jump.
+4. Set `Curve`, `Depth`, `Banking`, `Fabric flex`, or `3D thickness` to zero and
+   receive a truthful zero state.
+5. Keep the pinned presenter clean, flat, sharp, and independent.
+6. Export the same timestamp twice and receive the same frame.
+7. Enable seamless output and close the path, the fabric phase, and background
+   phase together.
+8. Work for hours without preview coordinates growing until floating-point
+   precision visibly degrades.
 
-### 2. Material characters, not generic wobble
+Every item above has either a unit contract, a browser contract, or both.
 
-The slide vertex shader contains four deliberately different deformation models:
+## Ten spatial paths
 
-- **Card:** restrained bow plus torsional edge.
-- **Paper:** cylindrical curl and low-frequency buckle.
-- **Silk:** broad travelling folds with quiet, pinned edges.
-- **Gel:** coherent radial bulge with elastic lag.
+The evaluator exposes ten authored paths:
 
-Velocity drives deformation energy. `Fabric flex` remains the single amplitude control, preventing a cockpit of meaningless sliders. The fragment shader adds restrained grazing light and frame-stable, slide-space grain. It does not use time-varying slide grain, so exports do not shimmer.
+- **Straight** — a disciplined strip with restrained depth.
+- **Arc** — a one-sided cinematic bow.
+- **Ribbon** — an S-curve with a soft depth falloff.
+- **Cylinder** — a shallow wrap around a cylindrical wall.
+- **Tunnel** — a focal centre with aggressive depth at the edges.
+- **Helix** — corkscrew lateral motion and depth.
+- **Orbit** — a close circular sweep around the focal plane.
+- **Cascade** — layered waves with stepped depth.
+- **Figure Eight** — a crossing lemniscate.
+- **Switchback** — harder lateral reversals with continuous depth.
 
-### 3. Real thickness
+Each sample returns position, tangent, bend, orientation, focus scale, and
+opacity. Banking follows the tangent; it is not a second unrelated rotation
+preset. `Curve = 0` and `Depth = 0` collapse every path to the same honest flat
+strip.
 
-Each slide has a bounded box shell behind the shader-deformed front plane. `3D thickness` is measured in scene pixels. It produces side faces under path banking, rather than faking every depth cue with a drop shadow. The shell shares the existing bounded pool; it adds no unbounded scene allocation.
+The path implementation uses the same principle as Three.js curves:
+orientation follows a unit tangent, and bend is derived from neighbouring path
+samples. The engine keeps this evaluator allocation-free because it runs for
+every resident slide on every rendered frame.
 
-### 4. Physics with a hard boundary
+## Physics that reaches the hand
 
-Preview motion uses a fixed-substep, semi-implicit second-order integrator. Four characters alter response, damping, coast, and impulse transfer: Direct, Weighted, Spring, and Drift.
+The first implementation changed autoplay easing but left pointer and wheel
+handlers on the old direct velocity mutations. That meant the `Physics`
+selector did not govern the interaction users actually feel.
 
-Velocity and acceleration are clamped relative to slide stride. Delta time is capped and subdivided. Pointer/wheel impulses are bounded before entering state.
+The corrected contract routes drag and wheel displacement through the same
+bounded impulse model:
 
-**Export does not integrate preview state.** Export distance and velocity remain analytic functions of settings and timestamp. This prevents frame-rate history, pointer history, and preview jank from changing rendered output.
+- **Direct** — immediate response, strong braking, almost no coast.
+- **Weighted** — restrained mass and a short cinematic settle.
+- **Spring** — faster recovery with visible but bounded overshoot.
+- **Drift** — the longest coast and least resistance after release.
 
-### 5. Loop and reduced-motion contracts
+Preview integration is semi-implicit and split into fixed substeps no larger
+than `1 / 120 s`. Frame gaps are capped. Velocity, acceleration, displacement,
+and release impulses are bounded relative to slide stride. Invalid values are
+sanitised before they can poison the render loop.
 
-Fabric phase uses an integer number of turns in seamless export, so the closing frame returns to the opening phase. Reduced-motion output and reduced-motion preview freeze fabric phase and inertial motion while preserving static spatial composition.
+Pause and reduced-motion preview are hard stops. Manual positioning remains
+available, but kinetic continuation does not sneak past the transport state.
 
-## Guardrails
+Long-running preview position is rebased to the nearest equivalent track
+coordinate. Because the carousel and fabric are track-periodic, this changes no
+pixels and prevents large-number precision loss.
 
-- No cloth solver dependency. A full constraint mesh would multiply state, tuning, failure modes, and export risk for little editorial gain at Instagram scale.
-- No GPU-compute dependency. The bounded vertex model gives the material read without requiring WebGPU or floating-point simulation textures.
-- No new draw-call growth with asset count. Pool size remains bounded; the shell is one additional pooled mesh per resident slide.
-- No background or lens-system expansion. Parallel branches own those concerns.
-- Existing settings files remain schema-v1 compatible: missing branch-extension fields hydrate to defaults; malformed supplied fields still fail validation.
+## Four materials, four deformation logics
 
-## Gauntlet gates
+The material selector does not alter one wobble amplitude. It selects four
+different vertex-deformation branches:
 
-1. Every flow finite across both axes, all indices, large positive/negative travel, and control maxima.
-2. Tangents remain normalized and banking remains bounded.
-3. Physics remains finite after invalid state, pathological impulses, and 10-second frame gaps.
-4. 60 Hz and 120 Hz integration stay materially close.
-5. Every surface maps to a distinct shader branch.
-6. Fabric phase closes over seamless duration and freezes for reduced motion.
-7. Typecheck, unit tests, production build, and end-to-end suite pass before merge.
+### Card
+
+Rigid stock. Acceleration creates a restrained bow and torsional edge. Constant
+motion alone produces little deformation.
+
+### Paper
+
+Cylindrical curl, one broad buckle, and a small memory of path curvature. It
+avoids high-frequency rubber motion.
+
+### Silk
+
+Broad travelling folds, diagonal bias, and quiet pinned edges. The fragment
+shader adds a restrained grazing sheen derived from the deformed geometry.
+
+### Gel
+
+One coherent elastic mass. Acceleration shifts the bulge behind the hand, while
+constant velocity contributes a smaller lag.
+
+The deformation energy combines velocity, acceleration, and path bend. It has
+a true zero state. Fabric travel is derived from carousel distance—not wall
+clock—so pausing freezes it without snapping to another pose. Whole-track
+movement advances an integer number of fabric turns, making seamless cuts
+close exactly.
+
+Slide grain is locked to slide UV space and a stable slide seed. It cannot
+sparkle differently because another frame was rendered.
+
+## Deformed-surface lighting
+
+The original shader brightened pixels from a scalar warp value. That looked
+plausible in one direction but was not lighting.
+
+The current fragment shader reconstructs the deformed view-space normal from
+screen-space derivatives:
+
+```glsl
+normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)))
+```
+
+Diffuse, rim, and specular terms remain deliberately narrow. The deck is the
+subject; surface lighting exists to reveal folds, not to recolour the artwork.
+
+## Continuous-corner 3D shell
+
+A rectangular `BoxGeometry` behind a continuously rounded slide creates a
+visible lie at every banked corner. It also gave the pinned presenter an
+accidental shell and allocated one geometry per resident item.
+
+The corrected shell:
+
+- Samples the same radius and superellipse-smoothing family as the front mask.
+- Builds only a sidewall and rear plate; the image shader remains the front.
+- Uses one shared indexed `BufferGeometry` across the bounded resident pool.
+- Regenerates only when width, height, radius, or smoothing changes.
+- Computes normals and bounds once per regeneration.
+- Uses `MeshStandardMaterial` with restrained surface-specific roughness.
+- Receives a hemisphere fill and directional key.
+- Is explicitly absent from the pinned presenter.
+- Disposes the shared geometry once and each per-item material once.
+
+`MeshPhysicalMaterial` was considered for silk sheen. It was rejected for the
+shell because its additional per-pixel cost is unnecessary here. The slide
+shader already supplies material-specific front-face response; the sidewall
+only needs legible depth.
+
+## Deterministic export boundary
+
+Preview state never enters export.
+
+Export position and velocity remain analytic functions of settings and
+timestamp. Export acceleration is zero because the authored master travels at
+constant analytic velocity. Material airflow still responds to that velocity.
+Surface phase derives from analytic distance and track length.
+
+Therefore:
+
+- Pointer history cannot alter an export.
+- Display refresh rate cannot alter an export.
+- A dropped preview frame cannot alter an export.
+- Pausing preview cannot alter an export.
+- Seamless start and end share the same path and surface pose.
+- Reduced-motion output returns static distance, velocity, acceleration, and
+  fabric phase.
+
+## Performance budget
+
+The branch deliberately avoids:
+
+- A rigid-body dependency.
+- A CPU cloth constraint mesh per slide.
+- A floating-point simulation texture.
+- A full-frame post-processing target.
+- Per-asset scene growth.
+- Per-frame geometry creation.
+- `MeshPhysicalMaterial` for every edge.
+- Time-driven random grain.
+
+The bounded pool remains the dominant invariant. Imported asset count changes
+texture residency and logical slots, not scene-object count.
+
+## Gauntlet coverage
+
+### Unit
+
+- Ten paths across horizontal and vertical axes.
+- Maximum controls and long positive/negative travel.
+- Unit tangents, bounded bend, finite transforms.
+- Distinct path signatures.
+- Honest curve/depth zero state.
+- Banking changes orientation but not path position.
+- Complete asset cycles at the wrap seam.
+- 60 / 120 / 240 Hz physics comparison.
+- Invalid state, ten-second frame gaps, and extreme impulses.
+- Distinct drag response for all four physics characters.
+- Long-session coordinate rebasing.
+- Track-locked fabric phase closure.
+- Four distinct material profiles.
+- Continuous-corner shell bounds, normals, radius, smoothing, and vertex budget.
+- UI/validation thickness-limit parity.
+- Legacy extension hydration and malformed extension rejection.
+- Shader uniforms, deformed normals, stable grain, and no wall-clock surface time.
+- No `BoxGeometry`, `MeshBasicMaterial`, presenter shell, or per-item shell geometry.
+
+### Browser
+
+- Helix + spring + silk + thickness renders without console errors.
+- Paused material output is pixel-stable after background motion and grain are
+  explicitly disabled.
+- Card, paper, silk, and gel produce four distinct rendered frames.
+- Flat and thick edges produce distinct rendered frames.
+- Drag changes the rendered composition and exposes correct dragging state.
+- Dynamic help copy explains what path, physics, and material choices do.
+
+### Repository
+
+```text
+npm run typecheck
+npm test -- --run
+npm run build
+npm run test:e2e
+git diff --check
+```
 
 ## Research translated into decisions
 
-The useful pattern from high-end WebGL carousels is not “add Three.js.” It is the coupling of scroll velocity, curved geometry, and shader deformation. Three.js curve/tangent primitives reinforce the same architectural point: orientation should follow the path derivative. GPU computation helpers were reviewed, then rejected for this branch because deterministic bounded deformation solves the actual product need with less runtime and export complexity.
+- Three.js `Curve#getTangent()` and Frenet-frame concepts support tangent-led
+  orientation, but this engine keeps its path sampler allocation-free.
+- Three.js `BufferGeometry` supports indexed positions, normals, computed
+  bounds, and explicit disposal: the right primitive for a shared shell.
+- `MeshBasicMaterial` ignores lights, so it cannot reveal authored edge depth.
+- `MeshStandardMaterial` supplies per-fragment PBR response at a reasonable
+  cost for the bounded shell pool.
+- `MeshPhysicalMaterial` offers fabric sheen, but the Three.js documentation
+  explicitly notes its higher per-pixel cost. That cost belongs only where it
+  materially changes the result.
+- The Codrops WebGL carousel reference is strongest when geometry, camera,
+  scrolling, and shader response behave as one motion language. Drift follows
+  that principle while retaining deterministic local export.
 
 References:
 
-- Codrops, *Building a WebGL Carousel with React Three Fiber and GSAP*: https://tympanus.net/codrops/2023/04/27/building-a-webgl-carousel-with-react-three-fiber-and-gsap/
-- Three.js `Curve` and tangent APIs: https://threejs.org/docs/#api/en/extras/core/Curve
-- Three.js `TubeGeometry`: https://threejs.org/docs/#api/en/geometries/TubeGeometry
-- Three.js `GPUComputationRenderer`: https://threejs.org/docs/#examples/en/misc/GPUComputationRenderer
+- https://threejs.org/docs/pages/Curve.html
+- https://threejs.org/docs/pages/BufferGeometry.html
+- https://threejs.org/docs/pages/MeshStandardMaterial.html
+- https://threejs.org/docs/pages/MeshPhysicalMaterial.html
+- https://threejs.org/docs/pages/MeshBasicMaterial.html
+- https://tympanus.net/codrops/2023/04/27/building-a-webgl-carousel-with-react-three-fiber-and-gsap/

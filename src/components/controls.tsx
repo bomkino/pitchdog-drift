@@ -135,10 +135,11 @@ interface SelectFieldProps<T extends string | number> {
   label: string;
   value: T;
   options: Array<{ value: T; label: string }>;
+  hint?: string;
   onChange: (value: T) => void;
 }
 
-export function SelectField<T extends string | number>({ label, value, options, onChange }: SelectFieldProps<T>) {
+export function SelectField<T extends string | number>({ label, value, options, hint, onChange }: SelectFieldProps<T>) {
   return (
     <label className="control-field select-field">
       <span>{label}</span>
@@ -148,6 +149,7 @@ export function SelectField<T extends string | number>({ label, value, options, 
       }}>
         {options.map((option) => <option key={String(option.value)} value={String(option.value)}>{option.label}</option>)}
       </select>
+      {hint ? <small>{hint}</small> : null}
     </label>
   );
 }

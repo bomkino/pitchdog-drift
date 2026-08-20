@@ -145,14 +145,14 @@ function pathPoint(
   const absN = Math.abs(n);
   const c = clamp(curvature, 0, 1);
   const d = Math.max(0, depth);
-  const crossScale = crossExtent * (0.018 + c * 0.142);
+  const crossScale = crossExtent * c * 0.16;
 
   switch (flow) {
     case "straight":
       return { cross: 0, z: -d * 0.22 * n * n };
     case "arc":
       return {
-        cross: -Math.sign(n || 1) * crossScale * 0.56 * n * n,
+        cross: -crossScale * 0.56 * n * n,
         z: -d * 0.86 * n * n,
       };
     case "ribbon":

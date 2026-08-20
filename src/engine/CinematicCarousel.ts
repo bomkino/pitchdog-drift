@@ -19,11 +19,14 @@ import {
 } from "./shaders";
 
 import {
+  applyMotionImpulse,
   integrateMotionState,
+  rebaseLoopPosition,
   surfaceModeIndex,
-  surfacePhaseAtTime,
+  surfacePhaseAtDistance,
   SURFACE_PROFILES,
 } from "./spatialDynamics";
+import { createRoundedSlideShellGeometry } from "./slideShell";
 const MAX_POOL_SIZE = 24;
 const TEXTURE_CACHE_LIMIT = 24;
 const PREVIEW_TEXTURE_EDGE = 2048;
@@ -45,7 +48,7 @@ interface TextureRecord {
 interface SlidePoolItem {
   group: THREE.Group;
   slide: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-  shell: THREE.Mesh;
+  shell: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> | null;
   shadow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   material: THREE.ShaderMaterial;
   shadowMaterial: THREE.ShaderMaterial;
@@ -161,10 +164,13 @@ function createSlideMaterial(placeholder: THREE.Texture): THREE.ShaderMaterial {
       uBorderOpacity: { value: 0.5 },
       uOpacity: { value: 1 },
       uVelocity: { value: 0 },
+      uAcceleration: { value: 0 },
       uDistortion: { value: 0 },
       uAxis: { value: 0 },
-      uPhase: { value: 0 },
-      uTime: { value: 0 },
+      uSurface: { value: 0 },
+      uSlideSeed: { value: 0 },
+      uTravelPhase: { value: 0 },
+      uPathBend: { value: 0 },
     },
   });
 }
@@ -225,7 +231,6 @@ export class CinematicCarousel {
   private motionPosition = 0;
   private motionVelocity = 0;
   private motionAcceleration = 0;
-  private activeExportMode = false;
   private paused = false;
   private dragging = false;
   private dragPointerId: number | null = null;
@@ -240,6 +245,9 @@ export class CinematicCarousel {
   private exportActive = false;
   private blobTextureKeyCounter = 0;
   private presenterRequestGeneration = 0;
+  private lastWheelTime = 0;
+  private sharedShellGeometry: THREE.BufferGeometry | null = null;
+  private shellGeometryKey = "";
 
   private readonly onPointerDownBound = (event: PointerEvent) => this.onPointerDown(event);
   private readonly onPointerMoveBound = (event: PointerEvent) => this.onPointerMove(event);
@@ -308,9 +316,13 @@ export class CinematicCarousel {
     this.backgroundMesh.frustumCulled = false;
     this.backgroundScene.add(this.backgroundMesh);
     this.scene.add(this.track);
+    const ambientLight = new THREE.HemisphereLight(0xf7f0e7, 0x15120f, 0.76);
+    const edgeLight = new THREE.DirectionalLight(0xfff3df, 1.18);
+    edgeLight.position.set(-0.42, 0.58, 1.1);
+    this.scene.add(ambientLight, edgeLight);
 
     for (let index = 0; index < MAX_POOL_SIZE; index += 1) this.pool.push(this.createPoolItem(index));
-    ({ group: this.presenterGroup, slide: this.presenterSlide, shadow: this.presenterShadow, material: this.presenterMaterial, shadowMaterial: this.presenterShadowMaterial } = this.createPoolItem(1000));
+    ({ group: this.presenterGroup, slide: this.presenterSlide, shadow: this.presenterShadow, material: this.presenterMaterial, shadowMaterial: this.presenterShadowMaterial } = this.createPoolItem(1000, false));
     this.presenterGroup.renderOrder = 1000;
     this.presenterSlide.renderOrder = 1001;
     this.presenterShadow.renderOrder = 999;
@@ -332,21 +344,32 @@ export class CinematicCarousel {
     this.start();
   }
 
-  private createPoolItem(index: number): SlidePoolItem {
+  private createPoolItem(index: number, withShell = true): SlidePoolItem {
     const group = new THREE.Group();
     const material = createSlideMaterial(this.placeholderTexture);
     const shadowMaterial = createShadowMaterial();
     const slide = new THREE.Mesh(this.geometry, material);
-    const shellMaterial = new THREE.MeshBasicMaterial({
-      color: 0x171513,
-      transparent: true,
-      opacity: 0.62,
-      depthWrite: true,
-    });
-    const shell = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), shellMaterial);
-    shell.position.z = -1;
-    shell.renderOrder = -1;
-    slide.add(shell);
+    const shellMaterial = withShell
+      ? new THREE.MeshStandardMaterial({
+          color: 0x171513,
+          roughness: 0.82,
+          metalness: 0,
+          emissive: 0x000000,
+          emissiveIntensity: 0.02,
+          transparent: true,
+          opacity: 0.86,
+          depthWrite: true,
+          side: THREE.DoubleSide,
+        })
+      : null;
+    const shell = shellMaterial
+      ? new THREE.Mesh(this.getOrCreateShellGeometry(), shellMaterial)
+      : null;
+    if (shell) {
+      shell.position.z = -0.35;
+      shell.renderOrder = index * 2;
+      slide.add(shell);
+    }
     const shadow = new THREE.Mesh(this.geometry, shadowMaterial);
     slide.renderOrder = index * 2 + 2;
     shadow.renderOrder = index * 2 + 1;
@@ -354,8 +377,42 @@ export class CinematicCarousel {
     group.add(shadow, slide);
     group.visible = false;
     if (index < MAX_POOL_SIZE) this.track.add(group);
-    return {
- shell, group, slide, shadow, material, shadowMaterial, assetKey: null };
+    return { group, slide, shell, shadow, material, shadowMaterial, assetKey: null };
+  }
+
+  private shellGeometrySignature(width: number, height: number): string {
+    return [
+      width.toFixed(3),
+      height.toFixed(3),
+      this.settings.slide.radius.toFixed(3),
+      this.settings.slide.smoothing.toFixed(4),
+    ].join(":");
+  }
+
+  private getOrCreateShellGeometry(): THREE.BufferGeometry {
+    if (!this.sharedShellGeometry) {
+      const geometry = getSlideGeometry(this.settings);
+      this.updateSharedShellGeometry(geometry.width, geometry.height);
+    }
+    return this.sharedShellGeometry!;
+  }
+
+  private updateSharedShellGeometry(width: number, height: number): void {
+    const signature = this.shellGeometrySignature(width, height);
+    if (signature === this.shellGeometryKey && this.sharedShellGeometry) return;
+    const next = createRoundedSlideShellGeometry(
+      width,
+      height,
+      this.settings.slide.radius,
+      this.settings.slide.smoothing,
+    );
+    const previous = this.sharedShellGeometry;
+    this.sharedShellGeometry = next;
+    this.shellGeometryKey = signature;
+    for (const item of this.pool) {
+      if (item.shell) item.shell.geometry = next;
+    }
+    previous?.dispose();
   }
 
   get capabilities(): EngineCapabilitySnapshot {
@@ -547,7 +604,10 @@ export class CinematicCarousel {
 
   setPaused(paused: boolean): void {
     this.paused = paused;
-    if (paused) this.motionVelocity *= 0.7;
+    if (paused) {
+      this.motionVelocity = 0;
+      this.motionAcceleration = 0;
+    }
     this.syncPresenterPlayback();
   }
 
@@ -558,12 +618,19 @@ export class CinematicCarousel {
 
   setReducedMotionPreview(reduced: boolean): void {
     this.reducedMotionPreview = reduced;
-    if (reduced) this.motionVelocity = 0;
+    if (reduced) {
+      this.motionVelocity = 0;
+      this.motionAcceleration = 0;
+    }
   }
 
   stepSlides(amount: number): void {
     const geometry = getSlideGeometry(this.settings);
-    this.motionPosition += geometry.stride * amount * this.settings.motion.direction;
+    const slotCount = getLogicalSlotCount(this.assets.length, geometry);
+    this.motionPosition = rebaseLoopPosition(
+      this.motionPosition + geometry.stride * amount * this.settings.motion.direction,
+      slotCount * geometry.stride,
+    );
     this.motionVelocity = 0;
     this.motionAcceleration = 0;
     this.renderPreview();
@@ -616,7 +683,7 @@ export class CinematicCarousel {
     const slotCount = getLogicalSlotCount(this.assets.length, geometry);
     const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
     const velocity = velocityAtTime(this.settings, slotCount, geometry.stride, true);
-    this.renderInternal(time, distance, velocity, true);
+    this.renderInternal(time, distance, velocity, true, 0);
   }
 
   async renderAtAsync(time: number): Promise<void> {
@@ -676,7 +743,7 @@ export class CinematicCarousel {
       if (this.exportActive || this.contextLost || document.hidden) return;
       const delta = Math.min(0.05, Math.max(0, (now - this.lastFrameTime) / 1000));
       this.lastFrameTime = now;
-      this.elapsed += delta;
+      if (!this.paused && !this.reducedMotionPreview) this.elapsed += delta;
       this.advanceMotion(delta);
       this.renderPreview();
       this.sampleFps(now);
@@ -690,38 +757,63 @@ export class CinematicCarousel {
   }
 
   private advanceMotion(delta: number): void {
+    if (this.dragging || this.paused || this.reducedMotionPreview) return;
     const geometry = getSlideGeometry(this.settings);
-    const autoplay = this.settings.motion.autoplay && !this.paused && !this.reducedMotionPreview;
-    const desiredVelocity = autoplay ? this.settings.motion.direction * this.settings.motion.speed * geometry.stride : 0;
-    if (!this.dragging) {
-      const response = 1 - Math.exp(-delta * (autoplay ? 4.8 : 7.5));
-      const integratedMotion = integrateMotionState(
-        {
-          position: this.motionPosition,
-          velocity: this.motionVelocity,
-          acceleration: this.motionAcceleration,
-        },
-        desiredVelocity,
-        delta,
-        this.settings.motion.dynamics,
-        geometry.stride,
-      );
-      this.motionPosition = integratedMotion.position;
-      this.motionVelocity = integratedMotion.velocity;
-      this.motionAcceleration = integratedMotion.acceleration;
-    }
+    const slotCount = getLogicalSlotCount(this.assets.length, geometry);
+    const loopLength = slotCount * geometry.stride;
+    const autoplay = this.settings.motion.autoplay;
+    const desiredVelocity = autoplay
+      ? this.settings.motion.direction * this.settings.motion.speed * geometry.stride
+      : 0;
+    const integrated = integrateMotionState(
+      {
+        position: this.motionPosition,
+        velocity: this.motionVelocity,
+        acceleration: this.motionAcceleration,
+      },
+      desiredVelocity,
+      delta,
+      this.settings.motion.dynamics,
+      geometry.stride,
+    );
+    this.motionPosition = rebaseLoopPosition(integrated.position, loopLength);
+    this.motionVelocity = integrated.velocity;
+    this.motionAcceleration = integrated.acceleration;
   }
 
   private renderPreview(): void {
     if (this.contextLost || this.disposed || this.exportActive) return;
-    this.renderInternal(this.elapsed, this.motionPosition, this.motionVelocity, false);
+    this.renderInternal(
+      this.elapsed,
+      this.motionPosition,
+      this.motionVelocity,
+      false,
+      this.motionAcceleration,
+    );
   }
 
-  private renderInternal(time: number, distance: number, velocity: number, exportMode: boolean): void {
-    this.activeExportMode = exportMode;
+  private renderInternal(
+    time: number,
+    distance: number,
+    velocity: number,
+    exportMode: boolean,
+    acceleration = 0,
+  ): void {
     const geometry = getSlideGeometry(this.settings);
     const slotCount = getLogicalSlotCount(this.assets.length, geometry);
-    const normalizedVelocity = this.reducedMotionPreview && !exportMode ? 0 : THREE.MathUtils.clamp(velocity / Math.max(1, geometry.stride), -1, 1);
+    const reducedPreview = this.reducedMotionPreview && !exportMode;
+    const normalizedVelocity = reducedPreview
+      ? 0
+      : THREE.MathUtils.clamp(velocity / Math.max(1, geometry.stride), -1, 1);
+    const normalizedAcceleration = reducedPreview
+      ? 0
+      : THREE.MathUtils.clamp(
+          acceleration / Math.max(1, geometry.stride * 18),
+          -1,
+          1,
+        );
+    const travelPhase = surfacePhaseAtDistance(distance, slotCount * geometry.stride);
+    this.updateSharedShellGeometry(geometry.width, geometry.height);
     const visible: VisibleItem[] = [];
 
     for (let logicalIndex = 0; logicalIndex < slotCount; logicalIndex += 1) {
@@ -741,7 +833,15 @@ export class CinematicCarousel {
         continue;
       }
       keepTextureKeys.add(this.textureKey(visibleItem.asset));
-      this.updatePoolItem(item, visibleItem, geometry.width, geometry.height, time, normalizedVelocity);
+      this.updatePoolItem(
+        item,
+        visibleItem,
+        geometry.width,
+        geometry.height,
+        normalizedVelocity,
+        normalizedAcceleration,
+        travelPhase,
+      );
     }
 
     this.updatePresenterGeometry(time);
@@ -764,8 +864,9 @@ export class CinematicCarousel {
     visible: VisibleItem,
     width: number,
     height: number,
-    time: number,
     velocity: number,
+    acceleration: number,
+    travelPhase: number,
   ): void {
     const { evaluated, asset, logicalIndex } = visible;
     item.group.visible = true;
@@ -789,18 +890,16 @@ export class CinematicCarousel {
     uniforms.uBorderColor!.value.set(this.settings.slide.borderColor);
     uniforms.uBorderOpacity!.value = this.settings.slide.borderOpacity;
     uniforms.uOpacity!.value = evaluated.opacity;
+    const assetCount = Math.max(1, this.assets.length);
+    const assetIndex = ((logicalIndex % assetCount) + assetCount) % assetCount;
     uniforms.uVelocity!.value = velocity;
+    uniforms.uAcceleration!.value = acceleration;
     uniforms.uDistortion!.value = this.settings.motion.distortion;
     uniforms.uAxis!.value = this.settings.motion.axis === "horizontal" ? 0 : 1;
-    uniforms.uPhase!.value = surfaceModeIndex(this.settings.slide.surface) +
-      ((((logicalIndex % Math.max(1, this.assets.length)) + Math.max(1, this.assets.length)) %
-        Math.max(1, this.assets.length)) / Math.max(1, this.assets.length));
-    uniforms.uTime!.value = surfacePhaseAtTime(
-      this.settings,
-      time,
-      this.activeExportMode,
-      this.reducedMotionPreview,
-    );
+    uniforms.uSurface!.value = surfaceModeIndex(this.settings.slide.surface);
+    uniforms.uSlideSeed!.value = (assetIndex + 0.5) / assetCount;
+    uniforms.uTravelPhase!.value = travelPhase;
+    uniforms.uPathBend!.value = evaluated.pathBend;
     const shadowUniforms = item.shadowMaterial.uniforms;
     shadowUniforms.uSizePx!.value.set(width + shadowMargin * 2, height + shadowMargin * 2);
     shadowUniforms.uRadiusPx!.value = this.settings.slide.radius + shadowMargin * 0.35;
@@ -836,15 +935,28 @@ export class CinematicCarousel {
           this.callbacks.onError?.(error instanceof Error ? error.message : `Could not load ${asset.name}.`);
         });
     }
-  const surfaceProfile = SURFACE_PROFILES[this.settings.slide.surface];
-  const thickness = Math.max(0, this.settings.slide.thickness);
-  item.shell.visible = thickness > 0.05 && evaluated.opacity > 0.015;
-  item.shell.scale.set(0.998, 0.998, Math.max(0.1, thickness));
-  item.shell.position.z = -Math.max(0.1, thickness) * 0.5 - 0.6;
-  const shellMaterial = item.shell.material as THREE.MeshBasicMaterial;
-  shellMaterial.color.set(this.settings.slide.borderColor).multiplyScalar(surfaceProfile.edgeTone);
-  shellMaterial.opacity = Math.min(0.94, Math.max(0.08, evaluated.opacity * surfaceProfile.edgeOpacity));
-}
+    const shell = item.shell;
+    if (shell) {
+      const profile = SURFACE_PROFILES[this.settings.slide.surface];
+      const thickness = Math.max(0, this.settings.slide.thickness);
+      shell.visible = thickness > 0.05 && evaluated.opacity > 0.015;
+      shell.scale.set(1, 1, Math.max(0.1, thickness));
+      shell.position.z = -0.35;
+      shell.material.color
+        .set(this.settings.slide.borderColor)
+        .multiplyScalar(profile.edgeTone);
+      shell.material.emissive
+        .set(this.settings.slide.borderColor)
+        .multiplyScalar(profile.edgeTone * 0.18);
+      shell.material.emissiveIntensity = profile.emissiveIntensity;
+      shell.material.roughness = profile.roughness;
+      shell.material.metalness = profile.metalness;
+      shell.material.opacity = Math.min(
+        0.98,
+        Math.max(0, evaluated.opacity * profile.edgeOpacity),
+      );
+    }
+  }
 
   private updatePresenterGeometry(time = this.elapsed): void {
     const settings = this.settings.presenter;
@@ -875,9 +987,13 @@ export class CinematicCarousel {
     uniforms.uBorderOpacity!.value = settings.borderOpacity;
     uniforms.uOpacity!.value = 1;
     uniforms.uVelocity!.value = 0;
+    uniforms.uAcceleration!.value = 0;
     uniforms.uDistortion!.value = 0;
     uniforms.uAxis!.value = 0;
-    uniforms.uTime!.value = time;
+    uniforms.uSurface!.value = 0;
+    uniforms.uSlideSeed!.value = 0;
+    uniforms.uTravelPhase!.value = 0;
+    uniforms.uPathBend!.value = 0;
 
     const shadowUniforms = this.presenterShadowMaterial.uniforms;
     shadowUniforms.uSizePx!.value.set(width + margin * 2, height + margin * 2);
@@ -1030,6 +1146,32 @@ export class CinematicCarousel {
     }
   }
 
+  private applyInteractionDisplacement(displacement: number, deltaSeconds: number): void {
+    const geometry = getSlideGeometry(this.settings);
+    const slotCount = getLogicalSlotCount(this.assets.length, geometry);
+    const loopLength = slotCount * geometry.stride;
+    if (this.paused || this.reducedMotionPreview) {
+      this.motionPosition = rebaseLoopPosition(this.motionPosition + displacement, loopLength);
+      this.motionVelocity = 0;
+      this.motionAcceleration = 0;
+      return;
+    }
+    const next = applyMotionImpulse(
+      {
+        position: this.motionPosition,
+        velocity: this.motionVelocity,
+        acceleration: this.motionAcceleration,
+      },
+      displacement,
+      deltaSeconds,
+      this.settings.motion.dynamics,
+      geometry.stride,
+    );
+    this.motionPosition = rebaseLoopPosition(next.position, loopLength);
+    this.motionVelocity = next.velocity;
+    this.motionAcceleration = next.acceleration;
+  }
+
   private onPointerDown(event: PointerEvent): void {
     if (this.exportActive || event.button !== 0) return;
     this.dragging = true;
@@ -1050,8 +1192,7 @@ export class CinematicCarousel {
     const cssExtent = this.settings.motion.axis === "horizontal" ? rect.width : rect.height;
     const worldExtent = this.settings.motion.axis === "horizontal" ? this.settings.stage.width : this.settings.stage.height;
     const deltaWorld = (-deltaCss / Math.max(1, cssExtent)) * worldExtent * this.settings.motion.dragSensitivity;
-    this.motionPosition += deltaWorld;
-    this.motionVelocity = deltaWorld / deltaTime;
+    this.applyInteractionDisplacement(deltaWorld, deltaTime);
     this.lastPointerCoordinate = coordinate;
     this.lastPointerTime = now;
     this.renderPreview();
@@ -1068,11 +1209,23 @@ export class CinematicCarousel {
   private onWheel(event: WheelEvent): void {
     if (this.exportActive) return;
     event.preventDefault();
-    const modeScale = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 18 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? 240 : 1;
-    const raw = this.settings.motion.axis === "horizontal" && Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    const impulse = THREE.MathUtils.clamp(raw * modeScale, -180, 180) * this.settings.motion.dragSensitivity;
-    this.motionPosition += impulse;
-    this.motionVelocity += impulse * 5.5;
+    const modeScale = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? 18
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? 240
+        : 1;
+    const raw = this.settings.motion.axis === "horizontal"
+      && Math.abs(event.deltaX) > Math.abs(event.deltaY)
+      ? event.deltaX
+      : event.deltaY;
+    const impulse = THREE.MathUtils.clamp(raw * modeScale, -180, 180)
+      * this.settings.motion.dragSensitivity;
+    const now = performance.now();
+    const deltaSeconds = this.lastWheelTime > 0
+      ? Math.max(1 / 240, Math.min(0.08, (now - this.lastWheelTime) / 1000))
+      : 1 / 60;
+    this.lastWheelTime = now;
+    this.applyInteractionDisplacement(impulse, deltaSeconds);
     this.renderPreview();
   }
 
@@ -1142,11 +1295,11 @@ export class CinematicCarousel {
     this.textureCache.clear();
     this.placeholderTexture.dispose();
     this.pool.forEach((item) => {
-      item.shell.geometry.dispose();
-      (item.shell.material as THREE.Material).dispose();
+      item.shell?.material.dispose();
       item.material.dispose();
       item.shadowMaterial.dispose();
     });
+    this.sharedShellGeometry?.dispose();
     this.presenterMaterial.dispose();
     this.presenterShadowMaterial.dispose();
     this.geometry.dispose();

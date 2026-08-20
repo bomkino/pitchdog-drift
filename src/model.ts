@@ -2,6 +2,7 @@ export const SCHEMA_VERSION = 1 as const;
 export const ENGINE_VERSION = "1.0.0";
 export const SHADER_VERSION = "1.0.0";
 export const THEME_VERSION = "1.0.0";
+export const MAX_SLIDE_THICKNESS = 32 as const;
 
 export type Axis = "horizontal" | "vertical";
 export type Direction = 1 | -1;
