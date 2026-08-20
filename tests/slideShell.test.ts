@@ -74,7 +74,7 @@ describe("continuous-corner slide shell", () => {
     expect(continuous.length).toBe(circular.length);
   });
 
-  it("keeps zero-radius cards square and finite", () => {
+  it("keeps zero-radius cards square, sharp, and finite", () => {
     const contour = sampleRoundedRectContour(1600, 900, 0, 0);
     expect(contour).toEqual([
       { x: 0.5, y: 0.5 },
@@ -85,7 +85,9 @@ describe("continuous-corner slide shell", () => {
     const geometry = createRoundedSlideShellGeometry(1600, 900, 0, 0);
     const position = geometry.getAttribute("position") as THREE.BufferAttribute;
     const normal = geometry.getAttribute("normal") as THREE.BufferAttribute;
-    expect(position.count).toBe(20);
+    // Four independent vertices per edge preserve hard side normals, followed
+    // by one rear ring and one rear center: 4n + n + 1.
+    expect(position.count).toBe(contour.length * 5 + 1);
     expect(finiteAttribute(position)).toBe(true);
     expect(finiteAttribute(normal)).toBe(true);
     geometry.dispose();
