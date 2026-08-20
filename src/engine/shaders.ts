@@ -397,7 +397,7 @@ export const backgroundFragmentShader = /* glsl */ `
         color *= 1.0 - softBlob(p, eclipseCenter, 0.24) * 0.22;
       } else {
         float streaks = pow(max(0.0, sin((p.y + p.x * 0.12) * 34.0 + phase * 1.8)), 18.0);
-        float road = smoothstep(0.72, 0.05, abs(p.x)) * smoothstep(-0.55, 0.4, -p.y);
+        float road = (1.0 - smoothstep(0.05, 0.72, abs(p.x))) * smoothstep(-0.55, 0.4, -p.y);
         color = mix(color, uAccent, streaks * road * 0.24 * uIntensity);
       }
     }
