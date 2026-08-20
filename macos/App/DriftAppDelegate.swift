@@ -18,6 +18,9 @@ final class DriftAppDelegate: NSObject,
     private var contentRuleList: WKContentRuleList?
     private var preparingRuntime = false
     private var webRuntimeReady = false
+    private var receivedAuthoritativeClientState = false
+    private var recoveryResetScheduled = false
+    private var recoveryStabilityGeneration = 0
     private var pendingProjectURLs: [URL] = []
     private var approvedClose = false
     private var revealLastSavedFileItem: NSMenuItem?
@@ -30,6 +33,7 @@ final class DriftAppDelegate: NSObject,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        invalidateRecoveryStabilityWindow()
         nativeBridge?.abortAllWrites()
         removeNativeMessageHandler()
     }
@@ -94,9 +98,11 @@ final class DriftAppDelegate: NSObject,
     }
 
     func windowWillClose(_ notification: Notification) {
+        invalidateRecoveryStabilityWindow()
         nativeBridge?.abortAllWrites()
         removeNativeMessageHandler()
         webRuntimeReady = false
+        receivedAuthoritativeClientState = false
         webRootURL = nil
         trustedIndexURL = nil
         webView = nil
@@ -169,6 +175,9 @@ final class DriftAppDelegate: NSObject,
         }
         webRootURL = indexURL.deletingLastPathComponent().standardizedFileURL
         trustedIndexURL = indexURL.standardizedFileURL
+        webRuntimeReady = false
+        receivedAuthoritativeClientState = false
+        invalidateRecoveryStabilityWindow()
 
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
@@ -187,8 +196,11 @@ final class DriftAppDelegate: NSObject,
 
         let bridge = NativeBridgeHost()
         bridge.clientStateDidChange = { [weak self] _ in
-            self?.refreshMenuState()
-            self?.deliverPendingProjectsIfPossible()
+            guard let self else { return }
+            self.receivedAuthoritativeClientState = true
+            self.refreshMenuState()
+            self.deliverPendingProjectsIfPossible()
+            self.scheduleRecoveryBudgetResetIfNeeded()
         }
         bridge.lastCommittedFileDidChange = { [weak self] _ in
             self?.revealLastSavedFileItem?.isEnabled = true
@@ -225,7 +237,6 @@ final class DriftAppDelegate: NSObject,
         window.makeKeyAndOrderFront(nil)
         self.window = window
 
-        webRuntimeReady = false
         webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -277,31 +288,70 @@ final class DriftAppDelegate: NSObject,
         NSApp.mainMenu?.update()
     }
 
+    private func scheduleRecoveryBudgetResetIfNeeded() {
+        guard webRuntimeReady,
+              receivedAuthoritativeClientState,
+              !webContentRecoveryPolicy.hasRemainingAttempt,
+              !recoveryResetScheduled else { return }
+
+        recoveryResetScheduled = true
+        recoveryStabilityGeneration += 1
+        let generation = recoveryStabilityGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+            guard let self else { return }
+            guard generation == self.recoveryStabilityGeneration else { return }
+            self.recoveryResetScheduled = false
+            guard self.webRuntimeReady,
+                  self.receivedAuthoritativeClientState,
+                  !self.webContentRecoveryPolicy.hasRemainingAttempt else { return }
+            self.webContentRecoveryPolicy.reset()
+        }
+    }
+
+    private func invalidateRecoveryStabilityWindow() {
+        recoveryStabilityGeneration += 1
+        recoveryResetScheduled = false
+    }
+
     // MARK: - WebKit navigation and recovery
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard TrustedWebRuntime.acceptsMainFrameURL(webView.url, trustedIndexURL: trustedIndexURL) else {
             webRuntimeReady = false
+            invalidateRecoveryStabilityWindow()
             return
         }
         webRuntimeReady = true
         deliverPendingProjectsIfPossible()
+        scheduleRecoveryBudgetResetIfNeeded()
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        webRuntimeReady = false
+        receivedAuthoritativeClientState = false
+        invalidateRecoveryStabilityWindow()
         presentWarning(title: "Drift could not finish loading", message: error.localizedDescription)
     }
 
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        webRuntimeReady = false
+        receivedAuthoritativeClientState = false
+        invalidateRecoveryStabilityWindow()
+        presentWarning(title: "Drift could not begin loading", message: error.localizedDescription)
+    }
+
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        invalidateRecoveryStabilityWindow()
         nativeBridge?.abortAllWrites()
         webRuntimeReady = false
+        receivedAuthoritativeClientState = false
 
         let mayOfferRecovery = webContentRecoveryPolicy.consumeAttempt()
         let alert = NSAlert()
         alert.alertStyle = .critical
         if !mayOfferRecovery {
             alert.messageText = "The visual engine stopped twice"
-            alert.informativeText = "Drift stopped the recovery loop. Incomplete native writes were rolled back. Quit, reopen the app, and use the autosaved project or a portable .pitched backup."
+            alert.informativeText = "Drift stopped this recovery loop. Incomplete native writes were rolled back. Quit, reopen the app, and use the autosaved project or a portable .pitched backup."
             alert.addButton(withTitle: "Quit Drift")
             alert.runModal()
             approvedClose = true
@@ -310,7 +360,7 @@ final class DriftAppDelegate: NSObject,
         }
 
         alert.messageText = "The visual engine stopped unexpectedly"
-        alert.informativeText = "Any incomplete native export was rolled back. Drift can make one recovery attempt from the locally saved project in its app container."
+        alert.informativeText = "Any incomplete native export was rolled back. Drift can make one recovery attempt from the locally saved project in its app container. A studio that remains healthy for 30 seconds regains one future recovery attempt."
         alert.addButton(withTitle: "Reload Drift")
         alert.addButton(withTitle: "Quit")
         if alert.runModal() == .alertFirstButtonReturn {
@@ -675,7 +725,9 @@ final class DriftAppDelegate: NSObject,
             )
             return
         }
+        invalidateRecoveryStabilityWindow()
         webRuntimeReady = false
+        receivedAuthoritativeClientState = false
         webView?.reload()
     }
 
@@ -706,6 +758,7 @@ final class DriftAppDelegate: NSObject,
         Local save state: \(state.saveState)
         Recent notice signal: \(state.lastNotice ?? "none")
         Web content recovery remaining: \(webContentRecoveryPolicy.hasRemainingAttempt)
+        Recovery stability countdown active: \(recoveryResetScheduled)
         """
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(diagnostics, forType: .string)
