@@ -24,13 +24,33 @@ rAF + input inertia     frame n → n / fps
 
 The moving track is a virtual strip whose slot count is always a complete multiple of the asset count. That prevents duplicated neighbours at the wrap seam for awkward 1, 2, and N-item sets. When more candidates are visible than the 24-mesh pool can draw, nearest-to-centre candidates are selected before transparent draw ordering. Only potentially visible textures are decoded; cache identity includes verified content identity rather than asset ID alone, late decode generations cannot replace newer intent, and source bitmaps are closed on eviction.
 
+Saved `motion.autoplay` now participates in pure evaluation. The temporary preview pause remains an engine concern, but disabling saved autoplay yields zero deterministic distance and velocity in both evaluator modes. Preview and export therefore cannot disagree about whether the project itself moves.
+
+## Intent orchestration
+
+The complete inspector remains the canonical editing surface. `DirectorJourney` is a progressive orchestration layer above it, not a second settings store.
+
+- Audience-effect recipes begin with one of the authored film worlds and then write a small set of high-leverage controls.
+- Rhythm moves adjust existing speed, spacing, and optical-energy fields.
+- Master moves write existing stage, duration, frame-rate, and seamless settings.
+- Audit fixes write the same bounded controls a user could edit manually.
+- The advanced inspector immediately reflects every directed move, and normal autosave captures the resulting project.
+
+The bridge deliberately drives the existing accessible controls through native input/change semantics. This keeps one React state tree and avoids hidden presets that only affect export. The cost is a contract between the orchestration layer and stable control labels; unit and real-browser tests protect that contract.
+
+Editor guides are separate DOM overlays mounted inside the stage frame. They have no WebGL resource, do not touch `StudioSettings`, and cannot enter canvas capture. Their local-storage preference is workstation UI state rather than portable project authorship.
+
+The master check is also observational. It reads bounded public controls and renderer/media state, reports concrete failure modes, and offers fixes only where a mechanical safe choice exists. It never invents a quality score.
+
 ## Rendering
 
 - WebGL2 is required for the cinematic renderer.
 - The renderer uses sRGB output and `NoToneMapping`; source textures are tagged sRGB.
 - The slide vertex shader bends a subdivided plane from bounded, normalised velocity.
-- The slide fragment shader handles cover/contain sampling, focal position, antialiased superellipse corners, borders, grain, and alpha.
-- A separate shader scene draws animated backgrounds. Transparent mode skips it entirely.
+- The slide fragment shader handles cover/contain sampling, focal position, antialiased superellipse corners, borders, static microtexture, velocity-aware directional blur, bounded RGB separation, peripheral defocus, and alpha.
+- Optical effects are object-local. The focal slide can return crisp, the pinned presenter remains clean, transparent output keeps one alpha contract, and export avoids a full-resolution intermediate render target.
+- A separate shader scene draws the authored procedural background corpus. Transparent mode skips it entirely.
+- Background animation is expressed through exact cyclic vectors. Seamless output therefore closes procedural motion rather than merely returning the main playhead.
 - The pinned frame is a separate scene object. It never inherits moving-track transforms.
 - Presenter preview uses `VideoTexture`. Deterministic output instead draws decoded samples into a stable canvas and updates a `CanvasTexture` before rendering each frame. A single binder gives an active export frame strict precedence over preview media, and pinned images are awaited even when they sit outside the moving mesh pool.
 - Presenter playback follows the renderer state: user pause, export, context loss, document hiding, or disposal pauses the actual media element. Restore returns both UI and media to the truthful prior state.
@@ -80,7 +100,8 @@ The current recovery protocol is single-tab. Independent tabs writing the same p
 - Cancellation: abort the target; if a platform close already committed, truncate the cancelled file to zero.
 - H.264 transparency request: output remains explicitly opaque; use PNG for alpha.
 - Presenter audio above 30 fps: fail with a stable sync error; never silently drop audio.
+- Missing orchestration control: abort the directed move, preserve the project, and surface the missing contract instead of partially claiming success.
 
 ## Privacy
 
-The production application contains no fetch/XHR/WebSocket path and no runtime service integration. Vite is only a local development server. Imported media, saved projects, and renders remain on the device unless the user deliberately moves an exported file.
+The production application contains no fetch/XHR/WebSocket path and no runtime service integration. Vite is only a local development server. Imported media, saved projects, renders, guide preferences, and intent choices remain on the device unless the user deliberately moves an exported file.
