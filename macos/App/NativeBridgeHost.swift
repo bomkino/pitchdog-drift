@@ -122,12 +122,12 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                     throw BridgeFailure("TypeMismatchError", "Slides must be PNG, JPEG, WebP, or AVIF images.")
                 }
                 let size = try fileSize(at: url)
-                guard size <= 64 * 1024 * 1024 else {
-                    throw BridgeFailure("QuotaExceededError", "One selected slide exceeds Drift’s 64 MiB per-file limit.")
+                guard size <= driftMaximumProjectAssetBytes else {
+                    throw BridgeFailure("QuotaExceededError", "One selected slide exceeds Drift’s 64 MiB portable-project asset limit.")
                 }
                 total += size
-                guard total <= driftMaximumImageBatchBytes else {
-                    throw BridgeFailure("QuotaExceededError", "The selected slide batch exceeds Drift’s 80 MiB import limit.")
+                guard total <= driftMaximumProjectTotalAssetBytes else {
+                    throw BridgeFailure("QuotaExceededError", "The selected slide batch exceeds Drift’s 80 MiB portable-project media budget.")
                 }
             }
         case .presenter:
@@ -139,8 +139,8 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             guard type?.conforms(to: .movie) == true || ["mp4", "webm", "mov"].contains(url.pathExtension.lowercased()) else {
                 throw BridgeFailure("TypeMismatchError", "Presenter media must be MP4, WebM, or MOV video.")
             }
-            guard try fileSize(at: url) <= driftMaximumImportFileBytes else {
-                throw BridgeFailure("QuotaExceededError", "Presenter video exceeds the 96 MiB native import limit.")
+            guard try fileSize(at: url) <= driftMaximumProjectAssetBytes else {
+                throw BridgeFailure("QuotaExceededError", "Presenter video exceeds Drift’s 64 MiB portable-project asset limit.")
             }
         case .project:
             guard urls.count == 1, let url = urls.first else {
@@ -150,8 +150,8 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             guard url.pathExtension.lowercased() == "pitched" else {
                 throw BridgeFailure("TypeMismatchError", "Drift projects use the .pitched extension.")
             }
-            guard try fileSize(at: url) <= driftMaximumImportFileBytes else {
-                throw BridgeFailure("QuotaExceededError", "Project archive exceeds Drift’s 96 MiB import limit.")
+            guard try fileSize(at: url) <= driftMaximumProjectArchiveBytes else {
+                throw BridgeFailure("QuotaExceededError", "Project archive exceeds Drift’s 96 MiB verified archive limit.")
             }
         }
         return urls.map(\.standardizedFileURL)
@@ -205,6 +205,9 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             "nativeAacProvider": "AudioToolbox",
             "networkEntitlements": false,
             "exportPowerAssertionActive": exportActivityGuard.isActive,
+            "projectAssetLimitBytes": driftMaximumProjectAssetBytes,
+            "projectTotalMediaLimitBytes": driftMaximumProjectTotalAssetBytes,
+            "projectArchiveLimitBytes": driftMaximumProjectArchiveBytes,
         ]
     }
 
@@ -326,13 +329,13 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         case .slides:
             panel.allowedContentTypes = ["png", "jpg", "jpeg", "webp", "avif"]
                 .compactMap { UTType(filenameExtension: $0) }
-            panel.message = "Choose up to 200 pitch-deck images. Files stay on this Mac."
+            panel.message = "Choose up to 200 pitch-deck images. Original project media is limited to 64 MiB per file and 80 MiB total."
         case .presenter:
             panel.allowedContentTypes = [.mpeg4Movie, .quickTimeMovie, .movie]
-            panel.message = "Choose one presenter video. Audio support is checked before export."
+            panel.message = "Choose one presenter video up to 64 MiB. Audio support is checked before export."
         case .project:
             panel.allowedContentTypes = [UTType(filenameExtension: "pitched") ?? UTType(importedAs: "dog.pitch.pitched-project")]
-            panel.message = "Open a verified .pitched project bundle."
+            panel.message = "Open a verified .pitched project bundle up to 96 MiB."
         }
         restorePanelDirectory(panel, key: "lastOpenDirectory")
         return panel
