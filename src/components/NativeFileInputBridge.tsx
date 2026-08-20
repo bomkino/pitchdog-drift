@@ -76,8 +76,12 @@ export function NativeFileInputBridge() {
         });
     };
 
+    document.documentElement.dataset.driftNativeFileInputBridge = "ready";
     document.addEventListener("click", onClick, true);
-    return () => document.removeEventListener("click", onClick, true);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      delete document.documentElement.dataset.driftNativeFileInputBridge;
+    };
   }, []);
 
   if (!error) return null;
