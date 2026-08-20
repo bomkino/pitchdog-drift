@@ -15,7 +15,7 @@ def main() -> None:
     if marker not in repair:
         raise RuntimeError("Could not locate spatial repair write boundary")
 
-    hardening = r'''
+    hardening = r"""
     # Drift names the authored front plane `slide`; earlier migration code
     # assumed a generic `mesh`. Preserve the project's semantic naming.
     source = replace_once(
@@ -54,7 +54,7 @@ def main() -> None:
         "shellMaterial.color.set(settings.slide.borderColor)",
         "shellMaterial.color.set(this.settings.slide.borderColor)",
     )
-'''
+"""
 
     repair = repair.replace(marker, hardening + "\n" + marker, 1)
     TEMP.write_text(repair, encoding="utf-8")
