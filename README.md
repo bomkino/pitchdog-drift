@@ -46,7 +46,7 @@ npm run test:e2e   # Real-browser media, WebGL, fallback, and portability checks
 
 `Lens response` is deliberately one coherent master rather than six unrelated effect sliders. At zero, slides remain optically clean. As it rises, speed produces a trailing directional smear, a small RGB split, warmer highlight spread, slight desaturation, slide-locked registration, and mesh flex. High settings are still bounded so typography remains readable, paused frames stay still, reduced-motion masters do not shimmer, and seamless masters close cleanly.
 
-`World variation` changes the deterministic background seed. It alters the procedural composition—projector cone, prism wash, emulsion cloud, paper fold, eclipse, night streak, and related structures—without changing the selected colours. The same seed and time always render the same frame.
+`World variation` changes the deterministic background seed. It alters the procedural composition—projector cone, prism wash, emulsion cloud, paper fold, eclipse, night streak, and related structures—without changing the selected colours. The same seed and time always render the same frame. `Background breath` reaches a genuinely static pose at zero; under seamless lock, every non-zero breath stays on a mathematically closed orbit.
 
 ## Export truth
 

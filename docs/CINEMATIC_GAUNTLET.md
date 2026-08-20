@@ -82,7 +82,7 @@ Each opaque family contains four deterministic compositions selected by `seed mo
 - **Paper:** fold, stain, archival bars, fogged emulsion.
 - **Void:** projector cone, breathing slit, eclipse corona, night-road streaks.
 
-Every family also receives sparse dust, restrained static grain, and aspect-correct vignette. `World variation` exposes the seed directly. The same settings and timestamp always produce the same frame. In seamless mode, every animated background term is a closed periodic orbit, so the state at the loop boundary returns exactly.
+Every family also receives sparse dust, restrained static grain, and aspect-correct vignette. `World variation` exposes the seed directly. The same settings and timestamp always produce the same frame. `Background breath` interpolates from a fixed seed pose to the moving composition, so zero is truly still. In seamless mode, every non-zero animated term remains a closed periodic orbit, so the state at the loop boundary returns exactly.
 
 The shader uses compact value-noise FBM only where structure needs it. Solid avoids procedural field structure while retaining the global grain, dust, and vignette controls. Transparent bypasses the background scene entirely.
 
@@ -135,6 +135,7 @@ The Director panel now exposes previously hidden engine settings:
 | Pinned talking head becomes blurry | Presenter material keeps distortion and velocity at zero |
 | Seed makes exports nondeterministic | No runtime randomness; seed and analytic phase are uniforms |
 | Background becomes noise soup | Sparse dust, low grain ceiling, static grain, family-specific composition before texture |
+| Background breath says zero but still moves | Phase motion is interpolated from a fixed seed pose; a GPU midpoint readback must remain byte-identical at zero |
 | New paths produce NaN/Infinity | Full axis/path sweep in deterministic evaluator tests |
 | Theme registry drifts from validation | Theme and flow unions derive from exported constant registries |
 | Custom shaders double-convert colour | One `colorspace_fragment` include after final output per fragment shader |

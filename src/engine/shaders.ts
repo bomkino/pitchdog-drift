@@ -300,7 +300,14 @@ export const backgroundFragmentShader = /* glsl */ `
     float variant = mod(floor(uSeed + 0.5), 4.0);
     float seedPhase = uSeed * 0.0137;
     float phase = uPhase + seedPhase;
-    float wave = sin(phase) * uMotion;
+    float motionAmount = clamp(uMotion, 0.0, 1.0);
+    float sinPhase = mix(sin(seedPhase), sin(phase), motionAmount);
+    float cosPhase = mix(cos(seedPhase), cos(phase), motionAmount);
+    float sinDoublePhase = mix(sin(seedPhase * 2.0), sin(phase * 2.0), motionAmount);
+    float cosDoublePhase = mix(cos(seedPhase * 2.0), cos(phase * 2.0), motionAmount);
+    float cosPhasePlusTwo = mix(cos(seedPhase + 2.1), cos(phase + 2.1), motionAmount);
+    float sinPhasePlusOne = mix(sin(seedPhase + 1.4), sin(phase + 1.4), motionAmount);
+    float wave = sin(phase) * motionAmount;
     vec3 color = uColorA;
 
     if (uMode < 0.5) {
@@ -310,54 +317,60 @@ export const backgroundFragmentShader = /* glsl */ `
       color = mix(uColorA, uColorB, gradient);
 
       if (variant < 0.5) {
-        float projector = softBlob(p, vec2(0.36 + cos(phase) * 0.08, -0.28), 0.72);
-        float flare = lineGlow(p.x + p.y * 0.28 - sin(phase * 2.0) * 0.08, 0.18);
+        float projector = softBlob(p, vec2(0.36 + cosPhase * 0.08, -0.28), 0.72);
+        float flare = lineGlow(p.x + p.y * 0.28 - sinDoublePhase * 0.08, 0.18);
         color = mix(color, uAccent, (projector * 0.28 + flare * 0.08) * uIntensity);
       } else if (variant < 1.5) {
-        float horizon = lineGlow(p.y + sin(p.x * 2.1 + phase) * 0.05, 0.12);
-        float burn = softBlob(p, vec2(-0.44 + cos(phase * 2.0) * 0.1, 0.2), 0.58);
+        float horizonWave = mix(
+          sin(p.x * 2.1 + seedPhase),
+          sin(p.x * 2.1 + phase),
+          motionAmount
+        );
+        float horizon = lineGlow(p.y + horizonWave * 0.05, 0.12);
+        float burn = softBlob(p, vec2(-0.44 + cosDoublePhase * 0.1, 0.2), 0.58);
         color = mix(color, uAccent, (horizon * 0.18 + burn * 0.24) * uIntensity);
       } else if (variant < 2.5) {
-        float prismA = lineGlow(p.x * 0.7 - p.y + sin(phase) * 0.12, 0.2);
-        float prismB = lineGlow(p.x * 0.7 - p.y - 0.26 + cos(phase * 2.0) * 0.08, 0.08);
+        float prismA = lineGlow(p.x * 0.7 - p.y + sinPhase * 0.12, 0.2);
+        float prismB = lineGlow(p.x * 0.7 - p.y - 0.26 + cosDoublePhase * 0.08, 0.08);
         color = mix(color, uAccent, (prismA * 0.16 + prismB * 0.12) * uIntensity);
       } else {
-        vec2 fieldDrift = vec2(cos(phase), sin(phase)) * 0.08 + vec2(cos(phase * 2.0), -sin(phase * 2.0)) * 0.035;
+        vec2 fieldDrift = vec2(cosPhase, sinPhase) * 0.08
+          + vec2(cosDoublePhase, -sinDoublePhase) * 0.035;
         float field = fbm(p * 1.65 + fieldDrift);
         float wash = smoothstep(0.38, 0.78, field + p.y * 0.18);
         color = mix(color, uAccent, wash * 0.25 * uIntensity);
       }
     } else if (uMode < 2.5) {
-      vec2 drift = vec2(cos(phase), sin(phase * 2.0)) * uMotion * 0.12;
+      vec2 drift = vec2(cosPhase, sinDoublePhase) * 0.12;
       float warp = fbm(p * 1.8 + drift + variant * 3.7);
       vec2 warped = p + vec2(warp - 0.5, valueNoise(p * 2.9 - drift * 1.7 + vec2(8.3)) - 0.5) * 0.14 * uIntensity;
-      vec2 centerA = vec2(cos(phase) * 0.34, sin(phase * 2.0) * 0.22);
-      vec2 centerB = vec2(cos(phase + 2.1) * 0.42, sin(phase + 1.4) * 0.3);
+      vec2 centerA = vec2(cosPhase * 0.34, sinDoublePhase * 0.22);
+      vec2 centerB = vec2(cosPhasePlusTwo * 0.42, sinPhasePlusOne * 0.3);
 
       if (variant < 0.5) {
         centerA += vec2(-0.16, 0.05);
         centerB += vec2(0.22, -0.1);
       } else if (variant < 1.5) {
-        centerA = vec2(-0.38 + cos(phase) * 0.08, -0.28);
-        centerB = vec2(0.32, 0.26 + sin(phase * 2.0) * 0.08);
+        centerA = vec2(-0.38 + cosPhase * 0.08, -0.28);
+        centerB = vec2(0.32, 0.26 + sinDoublePhase * 0.08);
       } else if (variant < 2.5) {
-        centerA = vec2(sin(phase * 2.0) * 0.18, -0.38);
-        centerB = vec2(cos(phase * 2.0) * 0.24, 0.34);
+        centerA = vec2(sinDoublePhase * 0.18, -0.38);
+        centerB = vec2(cosDoublePhase * 0.24, 0.34);
       } else {
-        centerA = vec2(-0.44, sin(phase * 2.0) * 0.2);
-        centerB = vec2(0.46, cos(phase * 2.0) * 0.18);
+        centerA = vec2(-0.44, sinDoublePhase * 0.2);
+        centerB = vec2(0.46, cosDoublePhase * 0.18);
       }
 
       float a = softBlob(warped, centerA, mix(0.64, 0.84, warp));
       float b = softBlob(warped, centerB, mix(0.52, 0.72, 1.0 - warp));
-      vec2 veilDrift = vec2(cos(phase * 2.0), sin(phase * 2.0)) * 0.06;
+      vec2 veilDrift = vec2(cosDoublePhase, sinDoublePhase) * 0.06;
       float veil = smoothstep(0.34, 0.74, fbm(warped * 2.35 + veilDrift));
       color = mix(uColorA, uColorB, a * 0.74 * uIntensity);
       color = mix(color, uAccent, (b * 0.44 + veil * 0.09) * uIntensity);
     } else if (uMode < 3.5) {
       float fibers = sin((p.y + sin(p.x * 18.0 + seedPhase) * 0.014) * 610.0) * 0.5 + 0.5;
       float pulp = fbm(p * vec2(9.0, 5.0) + variant * 19.0);
-      vec2 cloudDrift = vec2(cos(phase), -sin(phase)) * 0.045;
+      vec2 cloudDrift = vec2(cosPhase, -sinPhase) * 0.045;
       float cloud = fbm(p * 1.65 + cloudDrift);
       color = mix(uColorA, uColorB, smoothstep(-0.48, 0.62, p.y + (cloud - 0.5) * 0.16));
       color += (fibers - 0.5) * 0.018 * uIntensity;
@@ -373,7 +386,7 @@ export const backgroundFragmentShader = /* glsl */ `
         float bars = smoothstep(0.78, 1.0, sin((p.x + p.y * 0.18) * 42.0 + seedPhase) * 0.5 + 0.5);
         color = mix(color, uAccent, bars * 0.035 * uIntensity);
       } else {
-        vec2 emulsionDrift = vec2(cos(phase * 2.0), sin(phase * 2.0)) * 0.04;
+        vec2 emulsionDrift = vec2(cosDoublePhase, sinDoublePhase) * 0.04;
         float emulsion = smoothstep(0.42, 0.74, fbm(p * 3.1 + emulsionDrift));
         color = mix(color, uAccent, emulsion * 0.09 * uIntensity);
       }
@@ -383,30 +396,47 @@ export const backgroundFragmentShader = /* glsl */ `
 
       if (variant < 0.5) {
         float coneWidth = mix(0.05, 0.5, smoothstep(-0.72, 0.64, p.y));
-        float cone = 1.0 - smoothstep(coneWidth, coneWidth + 0.08, abs(p.x + sin(p.y * 2.1 + phase) * 0.05));
+        float coneWave = mix(
+          sin(p.y * 2.1 + seedPhase),
+          sin(p.y * 2.1 + phase),
+          motionAmount
+        );
+        float cone = 1.0 - smoothstep(coneWidth, coneWidth + 0.08, abs(p.x + coneWave * 0.05));
         float source = softBlob(p, vec2(0.0, -0.62), 0.22);
         color = mix(color, uAccent, (cone * 0.16 + source * 0.22) * uIntensity);
       } else if (variant < 1.5) {
-        float slit = lineGlow(p.x + sin(p.y * 2.4 + phase) * 0.08, 0.11);
-        float pulse = 0.8 + 0.2 * sin(phase);
+        float slitWave = mix(
+          sin(p.y * 2.4 + seedPhase),
+          sin(p.y * 2.4 + phase),
+          motionAmount
+        );
+        float slit = lineGlow(p.x + slitWave * 0.08, 0.11);
+        float pulse = 0.8 + 0.2 * sinPhase;
         color = mix(color, uAccent, slit * pulse * 0.27 * uIntensity);
       } else if (variant < 2.5) {
-        vec2 eclipseCenter = vec2(cos(phase) * 0.08, sin(phase * 2.0) * 0.06);
+        vec2 eclipseCenter = vec2(cosPhase * 0.08, sinDoublePhase * 0.06);
         float radius = length(p - eclipseCenter);
         float ring = lineGlow(radius - 0.26, 0.025);
         float corona = lineGlow(radius - 0.26, 0.12);
         color = mix(color, uAccent, (ring * 0.24 + corona * 0.08) * uIntensity);
         color *= 1.0 - softBlob(p, eclipseCenter, 0.24) * 0.22;
       } else {
-        float streaks = pow(max(0.0, sin((p.y + p.x * 0.12) * 34.0 + phase * 2.0)), 18.0);
+        float streakBase = (p.y + p.x * 0.12) * 34.0;
+        float streakWave = mix(
+          sin(streakBase + seedPhase * 2.0),
+          sin(streakBase + phase * 2.0),
+          motionAmount
+        );
+        float streaks = pow(max(0.0, streakWave), 18.0);
         float road = (1.0 - smoothstep(0.05, 0.72, abs(p.x))) * smoothstep(-0.55, 0.4, -p.y);
         color = mix(color, uAccent, streaks * road * 0.24 * uIntensity);
       }
     }
 
     // Sparse dust and breathing grain keep the field alive without becoming a
-    // noisy overlay. Seed changes composition; phase changes only motion.
-    vec2 dustDrift = vec2(cos(phase), -sin(phase)) * 0.018;
+    // noisy overlay. Seed changes composition; motion amount interpolates from
+    // a fixed seed pose to the closed analytic orbit.
+    vec2 dustDrift = vec2(cosPhase, -sinPhase) * 0.018;
     vec2 dustUv = (p + vec2(0.93, 0.71) + dustDrift) * vec2(48.0, 72.0);
     vec2 dustCell = fract(dustUv) - 0.5;
     vec2 dustId = floor(dustUv);

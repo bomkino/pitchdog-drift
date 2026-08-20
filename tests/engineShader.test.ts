@@ -41,10 +41,14 @@ describe("custom shader output contract", () => {
   it("keeps the generated atmosphere deterministic, seeded, and materially varied", () => {
     expect(backgroundFragmentShader).toContain("float variant = mod(floor(uSeed + 0.5), 4.0)");
     expect(backgroundFragmentShader).toContain("float fbm(vec2 p)");
+    expect(backgroundFragmentShader).toContain("float motionAmount = clamp(uMotion, 0.0, 1.0)");
+    expect(backgroundFragmentShader).toContain("float sinPhase = mix(sin(seedPhase), sin(phase), motionAmount)");
+    expect(backgroundFragmentShader).toContain("float cosDoublePhase = mix(cos(seedPhase * 2.0), cos(phase * 2.0), motionAmount)");
     expect(backgroundFragmentShader).toContain("float dust");
     expect(backgroundFragmentShader).toContain("vec2 dustDrift");
     expect(backgroundFragmentShader).toContain("vec2(uSeed * 0.37, uSeed * 0.19)");
     expect(backgroundFragmentShader.match(/variant </g)?.length ?? 0).toBeGreaterThanOrEqual(12);
+    expect(backgroundFragmentShader.match(/motionAmount/g)?.length ?? 0).toBeGreaterThanOrEqual(14);
   });
 
   it("pins slide texture and closes procedural motion on integer phase harmonics", () => {

@@ -155,10 +155,75 @@ test("reduced-motion frames are exact and seamless cinematic frames close at the
       }
     }
 
+    async function compareStillBackground() {
+      const settings = structuredClone(DEFAULT_SETTINGS);
+      settings.stage = { width: 256, height: 256, transparent: false };
+      settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 4 };
+      settings.motion = {
+        ...settings.motion,
+        seamless: true,
+        seamlessLoops: 2,
+        reducedMotionOutput: false,
+      };
+      settings.background = {
+        ...settings.background,
+        style: "void",
+        colorA: "#02050c",
+        colorB: "#0c1b43",
+        accent: "#6ce0de",
+        intensity: 0.9,
+        motion: 0,
+        grain: 0.18,
+        vignette: 0.54,
+        seed: 303,
+      };
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 256;
+      canvas.height = 256;
+      document.body.append(canvas);
+      const engine = new CinematicCarousel(canvas, settings);
+      let surface: ReturnType<typeof engine.beginExport> | null = null;
+      try {
+        surface = engine.beginExport(256, 256);
+        const gl = canvas.getContext("webgl2", { alpha: true });
+        if (!gl) throw new Error("WebGL2 readback unavailable.");
+        const capture = (time: number) => {
+          engine.renderAt(time);
+          gl.finish();
+          const pixels = new Uint8Array(256 * 256 * 4);
+          gl.readPixels(0, 0, 256, 256, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          return pixels;
+        };
+        const start = capture(0);
+        const middle = capture(1.37);
+        let changedChannels = 0;
+        let totalDelta = 0;
+        let maximumDelta = 0;
+        for (let index = 0; index < start.length; index += 1) {
+          const delta = Math.abs(start[index]! - middle[index]!);
+          if (delta > 0) changedChannels += 1;
+          totalDelta += delta;
+          maximumDelta = Math.max(maximumDelta, delta);
+        }
+        return {
+          changedChannels,
+          meanDelta: totalDelta / start.length,
+          maximumDelta,
+          startRgbEnergy: start.reduce((sum, value, index) => sum + (index % 4 === 3 ? 0 : value), 0),
+        };
+      } finally {
+        surface?.restore();
+        engine.dispose();
+        canvas.remove();
+      }
+    }
+
     try {
       return {
         reduced: await compare(true),
         seamless: await compare(false),
+        backgroundStill: await compareStillBackground(),
       };
     } finally {
       URL.revokeObjectURL(objectUrl);
@@ -167,7 +232,9 @@ test("reduced-motion frames are exact and seamless cinematic frames close at the
 
   expect(receipt.reduced.startRgbEnergy).toBeGreaterThan(1_000);
   expect(receipt.seamless.startRgbEnergy).toBeGreaterThan(1_000);
+  expect(receipt.backgroundStill.startRgbEnergy).toBeGreaterThan(1_000);
   expect(receipt.reduced).toMatchObject({ changedChannels: 0, meanDelta: 0, maximumDelta: 0 });
+  expect(receipt.backgroundStill).toMatchObject({ changedChannels: 0, meanDelta: 0, maximumDelta: 0 });
   expect(receipt.seamless.meanDelta).toBeLessThan(0.25);
   expect(receipt.seamless.maximumDelta).toBeLessThanOrEqual(16);
   expect(receipt.seamless.changedChannels / receipt.seamless.channelCount).toBeLessThan(0.05);
