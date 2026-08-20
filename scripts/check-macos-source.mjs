@@ -33,6 +33,7 @@ const appSwift = [
   "macos/App/NativeFileBroker.swift",
   "macos/App/NativeGauntlet.swift",
   "macos/App/NativeModels.swift",
+  "macos/App/TrustedWebRuntime.swift",
   "macos/App/WebViewSelfTest.swift",
 ];
 const probes = [
@@ -193,6 +194,18 @@ requireMarkers("macos/App/NativeModels.swift", [
   "mutating func consumeAttempt() -> Bool",
   "present (content withheld)",
 ]);
+requireMarkers("macos/App/TrustedWebRuntime.swift", [
+  "acceptsMainFrameURL",
+  "resolvingSymlinksInPath()",
+  "data document",
+  "sibling document",
+]);
+requireMarkers("macos/App/NativeBridgeHost.swift", [
+  "private let trustedIndexURL = TrustedWebRuntime.bundledIndexURL()",
+  "TrustedWebRuntime.acceptsMainFrameURL(",
+  "message.frameInfo.request.url",
+  "signed local studio document",
+]);
 requireMarkers("macos/App/DriftAppDelegate.swift", [
   "webContentRecoveryPolicy.consumeAttempt()",
   "webContentRecoveryPolicy.reset()",
@@ -205,6 +218,7 @@ requireMarkers("macos/App/NativeGauntlet.swift", [
   "confidential renderer notice text",
 ]);
 requireMarkers("macos/Probes/NativeGauntletMain.swift", [
+  "TrustedWebRuntime.runSelfTest()",
   "NativeFileBroker.runSelfTest()",
   "NativeGauntlet.run()",
   "NativeAacEncoderBroker.runSelfTest()",
@@ -296,5 +310,5 @@ requireMarkers(".github/workflows/macos-release.yml", [
 forbidMarkers(".github/workflows/macos-release.yml", ["ref: ${{ inputs.source_ref }}"]);
 
 console.log(
-  `macOS source contract passed: ${appSwift.length} canonical Swift files, bridge command parity, sandbox and codec boundaries, explicit native probes, one-attempt recovery wiring, and a non-publishing release-evidence lane.`,
+  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge trust, command parity, sandbox and codec boundaries, explicit native probes, one-attempt recovery wiring, and a non-publishing release-evidence lane.`,
 );
