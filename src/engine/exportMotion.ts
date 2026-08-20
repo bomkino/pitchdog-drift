@@ -15,7 +15,8 @@ interface MotionCharacterSample {
 }
 
 function finite(value: number, fallback = 0): number {
-  return Number.isFinite(value) ? value : fallback;
+  const safe = Number.isFinite(value) ? value : fallback;
+  return Object.is(safe, -0) ? 0 : safe;
 }
 
 /**
