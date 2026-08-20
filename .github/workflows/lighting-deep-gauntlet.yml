@@ -7,12 +7,14 @@ on:
     paths:
       - .gauntlet/lighting-next.py
       - .gauntlet/lighting-seam-fix.py
+      - .gauntlet/lighting-final-pass*
+      - .github/workflows/lighting-deep-gauntlet.yml
 
 permissions:
   contents: write
 
 concurrency:
-  group: lighting-deep-gauntlet
+  group: lighting-deep-gauntlet-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -42,6 +44,14 @@ jobs:
             python .gauntlet/lighting-seam-fix.py
           fi
 
+      - name: Apply the user-journey lighting final pass when staged
+        run: |
+          if [ -f .gauntlet/lighting-final-pass.py ]; then
+            python .gauntlet/lighting-final-pass.py
+          else
+            echo "Final pass already applied and its staging payload removed."
+          fi
+
       - name: Reject malformed diffs
         run: git diff --check
 
@@ -51,25 +61,33 @@ jobs:
       - name: Typecheck, unit test, and build
         run: npm run check
 
-      - name: Commit reviewable product source when changed
-        run: |
-          git config user.name "pitch.dog lighting gauntlet"
-          git config user.email "111725271+bomkino@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          if git diff --cached --quiet; then
-            echo "Source already matches this gauntlet stage."
-          else
-            git commit -m "feat: deepen cinematic lighting direction"
-            git pull --rebase origin feat/cinematic-lighting-rig
-            git push origin HEAD:feat/cinematic-lighting-rig
-          fi
-
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
       - name: Run complete real-browser gauntlet
         run: npm run test:e2e
+
+      - name: Commit only the exact verified product source
+        run: |
+          tested_head="$(git rev-parse HEAD)"
+          git fetch origin feat/cinematic-lighting-rig
+          remote_head="$(git rev-parse origin/feat/cinematic-lighting-rig)"
+          if [ "$remote_head" != "$tested_head" ]; then
+            echo "Remote branch changed during verification; refusing to push untested integration."
+            exit 1
+          fi
+
+          rm -f .gauntlet/lighting-final-pass.py .gauntlet/lighting-final-pass.payload.*
+          git config user.name "pitch.dog lighting gauntlet"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Source already matches the verified final pass."
+          else
+            git commit -m "feat: complete cinematic lighting direction"
+            git push origin HEAD:feat/cinematic-lighting-rig
+          fi
 
       - name: Upload browser evidence
         if: always()
