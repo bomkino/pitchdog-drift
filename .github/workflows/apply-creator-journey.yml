@@ -1,0 +1,146 @@
+name: Apply creator journey gauntlet
+
+on:
+  push:
+    branches:
+      - gauntlet/cinematic-atmosphere-lab
+    paths:
+      - scripts/applyCreatorJourney.py
+      - .github/workflows/apply-creator-journey.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: creator-journey-gauntlet
+  cancel-in-progress: false
+
+jobs:
+  integrate-and-prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out stacked branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Integrate creator journey
+        run: python3 scripts/applyCreatorJourney.py
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Type, unit, and production build gate
+        run: npm run check
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Real-browser WebGL and journey gate
+        run: npm run test:e2e
+
+      - name: Diff hygiene
+        run: git diff --check
+
+      - name: Remove one-shot automation
+        run: |
+          rm scripts/applyCreatorJourney.py
+          rm .github/workflows/apply-creator-journey.yml
+
+      - name: Commit proven integration
+        id: commit
+        run: |
+          git config user.name "pitch.dog gauntlet"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: direct the exact master from first import to delivery"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git push origin HEAD:gauntlet/cinematic-atmosphere-lab
+
+      - name: Update pull request receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          cat > /tmp/pr-body.md <<'EOF'
+          ## Stack position
+
+          This is a focused creator-journey layer on top of `gauntlet/cinematic-depth` / PR #5. It deliberately does **not** create another competing optical pipeline.
+
+          ## Actual goal
+
+          Turn Drift from a capable control panel into a directing instrument: fast first success, truthful timing, reversible exploration, exact-master review, and visible export consequences.
+
+          ## What changed
+
+          ### Director’s Desk
+          - A creator-facing path above the deep inspector: Slides → World → Pace → Review → Export.
+          - First-use guidance that gets out of the way after the creator understands the instrument.
+          - Live readiness state rather than a decorative “ready” label.
+
+          ### Human pacing
+          - Linger, Editorial, Kinetic, and Trailer recipes expressed as seconds per slide.
+          - Duration is derived from actual moving-slide count and bounded to supported master limits.
+          - Live preview speed is aligned with the selected export pace.
+
+          ### Exact master timeline
+          - Scrubs the same fixed-time evaluator used by export.
+          - Slide-arrival chapter marks represent actual authored deck beats.
+          - “Return live” explicitly exits deterministic master-preview mode.
+          - “Save this frame” captures the exact playhead time at output resolution.
+
+          ### Reversible direction
+          - Session-bounded undo/redo with rapid slider motion coalesced into one gesture.
+          - `⌘/Ctrl+Z` and `Shift+⌘/Ctrl+Z` outside form fields.
+          - Deliberate A/B reference: Set A, hold to compare, release to return—without polluting history.
+
+          ### Timing truth
+          - One seamless loop now means one pass through the uploaded deck.
+          - Renderer padding remains an internal mesh-pool concern and no longer inflates user-facing loop duration or velocity.
+          - The desk exposes true slides/s, seconds/slide, total frames, and authored pass count.
+
+          ### Delivery preflight
+          - Missing/single-slide checks.
+          - Reading-speed warnings.
+          - Presenter-duration coverage after trim and start offset.
+          - Existing 50/60 fps presenter-audio guard exposed before render.
+          - Transparent-master format guidance.
+          - Conservative centre/social caution guides that never render into the master.
+          - Copyable master brief for handoff.
+
+          ## Trust boundaries
+
+          - No new runtime dependency.
+          - Existing project data remains compatible.
+          - Preview/export evaluator parity remains intact.
+          - Guides alter no pixels.
+          - Undo history is bounded and session-local.
+          - No media or settings leave the browser.
+
+          ## Gauntlet receipt
+
+          The final integration commit was created **only after** all gates passed in a clean GitHub runner:
+
+          - `npm run check` — TypeScript, unit/contract tests, production build
+          - `npm run test:e2e` — Chromium, WebGL, creator journey, console cleanliness
+          - true authored-pass loop tests
+          - presenter coverage and high-fps audio preflight tests
+          - pacing and chapter-timeline tests
+          - real-browser undo/redo, A/B compare, guide, and clipboard flow
+          - `git diff --check`
+
+          Full rationale and failure modes: `docs/CREATOR_JOURNEY_GAUNTLET.md`.
+
+          Ready for human visual review. Not merged.
+          EOF
+          gh pr edit 2 --repo bomkino/pitchdog-drift --body-file /tmp/pr-body.md
+          gh pr ready 2 --repo bomkino/pitchdog-drift
+          gh pr comment 2 --repo bomkino/pitchdog-drift --body "Creator-journey hard gate passed on \`${HEAD_SHA}\`: clean install, TypeScript, unit/contracts, production build, Chromium/WebGL E2E, and diff hygiene. The one-shot integration workflow removed itself before the final commit."
