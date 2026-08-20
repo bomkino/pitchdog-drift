@@ -1,0 +1,107 @@
+.sound-room {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.sound-room__head,
+.sound-room__actions,
+.sound-room__slider,
+.sound-room__field,
+.sound-room__toggles {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sound-room__head {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.sound-room h2 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.sound-room p {
+  max-width: 34ch;
+  margin: 4px 0 0;
+  opacity: 0.62;
+  font-size: 11px;
+  line-height: 1.42;
+}
+
+.sound-room__switch,
+.sound-room__toggles label,
+.sound-room__reduced-motion {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+}
+
+.sound-room__toggles {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.sound-room__field {
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.sound-room__field select,
+.sound-room__field input[type='number'] {
+  min-width: 150px;
+  max-width: 68%;
+}
+
+.sound-room__sliders {
+  display: grid;
+  gap: 7px;
+}
+
+.sound-room__slider {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 28px;
+  font-size: 11px;
+}
+
+.sound-room__slider input {
+  min-width: 0;
+  width: 100%;
+}
+
+.sound-room__slider output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.66;
+}
+
+.sound-room__reduced-motion {
+  align-items: flex-start;
+  line-height: 1.35;
+  opacity: 0.76;
+}
+
+.sound-room__actions {
+  flex-wrap: wrap;
+}
+
+.sound-room__actions button {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sound-room *,
+  .sound-room *::before,
+  .sound-room *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+  }
+}
