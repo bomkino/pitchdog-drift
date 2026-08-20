@@ -60,6 +60,15 @@ const host = requireMarkers("macos/App/NativeBridgeHost.swift", [
   "Project is still busy",
   "Project could not be delivered",
   "completion: ((Error?) -> Void)? = nil",
+  "let descriptorToken = descriptor[\"token\"] as? String",
+  "releaseFileGrant(descriptorToken)",
+  "private func releaseFileGrant(_ token: String?)",
+  "var descriptors: [JSONDictionary] = []",
+  "for descriptor in descriptors",
+  "self.broker.releaseFile([\"token\": token])",
+]);
+forbidMarkers("macos/App/NativeBridgeHost.swift", [
+  "let descriptors = try urls.map { try self.broker.registerFile($0, mode: .readOnly) }",
 ]);
 const resetStart = host.indexOf("private func resetCapabilitiesForDocumentBoot()");
 const resetEnd = host.indexOf("private func runtimeInfo()", resetStart);
@@ -83,6 +92,34 @@ requireMarkers("macos/Probes/NativeGauntletMain.swift", [
   "external Finder project admission",
   "ClientState.runExternalProjectImportAdmissionSelfTest()",
 ]);
+
+const appDelegate = requireMarkers("macos/App/DriftAppDelegate.swift", [
+  "Drift did not queue this project to replace your work later.",
+  "guard pendingProjectURLs.isEmpty else",
+  "pendingProjectURLs = [project]",
+  "pendingProjectURLs.removeAll()",
+  "let pending = pendingProjectURLs.first",
+  "nativeBridge?.abortAllWrites()\n        invalidateRecoveryStabilityWindow()",
+  "func webView(_ webView: WKWebView, didFail navigation:",
+  "func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation:",
+]);
+for (const method of [
+  "func webView(_ webView: WKWebView, didFail navigation:",
+  "func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation:",
+]) {
+  const start = appDelegate.indexOf(method);
+  const end = appDelegate.indexOf("\n    }", start);
+  const body = appDelegate.slice(start, end);
+  if (!body.includes("nativeBridge?.abortAllWrites()")) {
+    fail(`${method} must revoke native capabilities before reporting a failed navigation`);
+  }
+}
+const reloadStart = appDelegate.indexOf("@objc private func reload(_ sender: Any?)");
+const reloadEnd = appDelegate.indexOf("@objc private func openUserGuide", reloadStart);
+const reloadBody = appDelegate.slice(reloadStart, reloadEnd);
+if (reloadBody.indexOf("nativeBridge?.abortAllWrites()") > reloadBody.indexOf("webView?.reload()")) {
+  fail("manual reload must revoke native capabilities before WebKit navigates");
+}
 
 const bridge = read("macos/NativeBridge.js");
 const runtimeBootCalls = bridge.match(/callNative\("runtime-info"\)/g) ?? [];
@@ -126,5 +163,5 @@ requireMarkers("e2e/native-menu-import.e2e.ts", [
 ]);
 
 console.log(
-  "macOS hardening contract passed: PNG sequence commits are exclusive and crash-clean, document boots revoke stale capabilities without faking renderer readiness, Finder projects are serialized, and File-menu imports have static, unit, and real-browser evidence.",
+  "macOS hardening contract passed: PNG sequence commits are exclusive and crash-clean; document boots, reloads, and failed navigations revoke capabilities; Finder projects cannot queue a surprise replacement; native import grants are transactional; and File-menu imports have static, unit, and real-browser evidence.",
 );
