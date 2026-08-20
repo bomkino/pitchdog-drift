@@ -35,7 +35,7 @@ or:
   APPLE_NOTARY_ISSUER_ID     API issuer ID.
 
 The script creates local artifacts only. It never uploads a GitHub release,
-changes a tag, or sends analytics from the application.
+changes a tag, publishes a binary, or sends analytics from the application.
 EOF
 }
 
@@ -62,7 +62,7 @@ require_command() {
 [[ -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]] || fail \
   "DRIFT_MACOS_SIGN_IDENTITY must name a real Developer ID Application certificate"
 
-for command in node npm xcrun xcodebuild swiftc lipo codesign ditto hdiutil shasum security; do
+for command in node npm python3 xcrun xcodebuild swiftc lipo codesign ditto hdiutil shasum security; do
   require_command "$command"
 done
 
@@ -85,13 +85,16 @@ if [[ "$SKIP_TESTS" != true ]]; then
   npm --prefix "$ROOT" run check:mac-source
 fi
 
-DRIFT_MACOS_SIGN_IDENTITY="$SIGN_IDENTITY" \
+# Use the real identity even for the initial complete app build. Release-only
+# evidence is added below and the frozen bundle is signed once more afterwards.
+DRIFT_CODESIGN_IDENTITY="$SIGN_IDENTITY" \
 DRIFT_MACOS_ARCHS="${DRIFT_MACOS_ARCHS:-arm64 x86_64}" \
   "$ROOT/scripts/build-macos-app.sh"
 
 [[ -d "$APP_PATH" ]] || fail "builder did not create $APP_PATH"
 
 LEGAL_ROOT="$APP_PATH/Contents/Resources/Legal"
+RESOURCES_ROOT="$APP_PATH/Contents/Resources"
 mkdir -p "$LEGAL_ROOT"
 for legal in LICENSE NOTICE ASSET-LICENSE.md THIRD_PARTY_NOTICES.md TRADEMARKS.md; do
   [[ -f "$ROOT/$legal" ]] || fail "required legal file is missing: $legal"
@@ -102,8 +105,9 @@ done
 # release boundary below separately proves that the software AAC/FFmpeg WASM
 # extension is not present in the packaged Mac runtime.
 npm --prefix "$ROOT" sbom --omit=dev --sbom-format=cyclonedx > "$LEGAL_ROOT/SBOM.cdx.json"
+[[ -s "$LEGAL_ROOT/SBOM.cdx.json" ]] || fail "npm produced an empty source SBOM"
 
-WEB_ROOT="$APP_PATH/Contents/Resources/Web"
+WEB_ROOT="$RESOURCES_ROOT/Web"
 [[ -d "$WEB_ROOT" ]] || fail "packaged web bundle is missing"
 if find "$WEB_ROOT" -type f \( -name '*.map' -o -name '*.wasm' \) -print -quit | grep -q .; then
   find "$WEB_ROOT" -type f \( -name '*.map' -o -name '*.wasm' \) -print >&2
@@ -114,8 +118,29 @@ if grep -RIlE '@mediabunny/aac-encoder|libavcodec|ffmpeg[^a-zA-Z]' "$WEB_ROOT" >
   fail "release web bundle contains the excluded software AAC/FFmpeg path"
 fi
 
-# Adding legal evidence changes signed resources. Sign once, after the complete
-# bundle is frozen, with hardened runtime and a trusted timestamp.
+# Release-only legal evidence changes Resources. Rebuild the byte manifest after
+# every resource is frozen and before the final signature. A verifier must never
+# be asked to excuse an unmanifested SBOM.
+python3 - "$RESOURCES_ROOT" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+manifest = root / "BuildManifest.txt"
+entries: list[str] = []
+for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+    if not path.is_file() or path == manifest:
+        continue
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    entries.append(f"{digest}  {path.relative_to(root).as_posix()}")
+manifest.write_text("\n".join(entries) + "\n", encoding="utf-8")
+PY
+chmod 0644 "$RESOURCES_ROOT/BuildManifest.txt"
+
+# Sign only after the app, legal bundle, SBOM, and manifest are immutable.
 codesign --force \
   --sign "$SIGN_IDENTITY" \
   --options runtime \
@@ -123,7 +148,7 @@ codesign --force \
   --entitlements "$ROOT/macos/Drift.entitlements" \
   "$APP_PATH"
 
-codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+codesign --verify --deep --strict --all-architectures --verbose=2 "$APP_PATH"
 "$ROOT/scripts/verify-macos-app.sh" "$APP_PATH"
 
 rm -f "$ARCHIVE_PATH"
@@ -154,6 +179,10 @@ if (report.status !== 'Accepted') {
   console.error(`Notarisation was not accepted: ${report.status ?? 'unknown status'}`);
   process.exit(1);
 }
+if (typeof report.id !== 'string' || report.id.length === 0) {
+  console.error('Notarisation report has no submission identifier.');
+  process.exit(1);
+}
 NODE
 }
 
@@ -171,10 +200,22 @@ trap cleanup EXIT
 cp -R "$APP_PATH" "$STAGING_ROOT/Drift.app"
 ln -s /Applications "$STAGING_ROOT/Applications"
 cat > "$STAGING_ROOT/Read Me.txt" <<'EOF'
-Drag Drift to Applications.
+DRIFT FOR macOS
+
+Drag Drift.app to Applications, eject this disk image, then open Drift from
+Applications.
 
 Drift is local-first. Imported deck media and saved projects remain on this Mac
-unless you deliberately export or move them.
+unless you deliberately export or move them. The signed app has App Sandbox,
+user-selected file access, and no client or server network entitlement.
+
+Presenter audio uses Drift’s bounded bridge to Apple’s software AAC-LC encoder
+in AudioToolbox. H.264 video remains capability-gated through WKWebView. The app
+contains no FFmpeg WebAssembly encoder and never silently strips requested audio.
+
+Verify this exact candidate against ReleaseManifest.json and SHA256SUMS.txt
+before distribution. A signed or notarized artifact is not automatically
+published or approved for release.
 EOF
 
 rm -f "$DMG_PATH"
@@ -200,37 +241,80 @@ fi
 
 APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")"
 APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Contents/Info.plist")"
+APP_SOURCE_REVISION="$(/usr/libexec/PlistBuddy -c 'Print :DriftSourceRevision' "$APP_PATH/Contents/Info.plist")"
 GIT_COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf unknown)"
+[[ "$APP_SOURCE_REVISION" == "$GIT_COMMIT" ]] || fail \
+  "Info.plist source revision $APP_SOURCE_REVISION differs from checked-out commit $GIT_COMMIT"
 SIGNING_TEAM="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')"
 
-node - "$RELEASE_MANIFEST" "$APP_PATH" "$ARCHIVE_PATH" "$DMG_PATH" "$APP_VERSION" "$APP_BUILD" "$GIT_COMMIT" "$SIGNING_TEAM" "$NOTARIZE" <<'NODE'
+node - "$RELEASE_MANIFEST" "$APP_PATH" "$ARCHIVE_PATH" "$DMG_PATH" "$APP_VERSION" "$APP_BUILD" "$GIT_COMMIT" "$SIGNING_TEAM" "$NOTARIZE" "$APP_NOTARY_REPORT" "$DMG_NOTARY_REPORT" <<'NODE'
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const childProcess = require('node:child_process');
 
-const [manifestPath, appPath, archivePath, dmgPath, version, build, commit, team, notarized] = process.argv.slice(2);
+const [
+  manifestPath,
+  appPath,
+  archivePath,
+  dmgPath,
+  version,
+  build,
+  commit,
+  team,
+  notarized,
+  appNotaryPath,
+  dmgNotaryPath,
+] = process.argv.slice(2);
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const command = (program, args) => childProcess.execFileSync(program, args, { encoding: 'utf8' }).trim();
+const readNotaryId = (file) => {
+  if (!fs.existsSync(file)) return null;
+  const report = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (report.status !== 'Accepted' || typeof report.id !== 'string' || report.id.length === 0) {
+    throw new Error(`Notary report is not accepted or has no ID: ${file}`);
+  }
+  return report.id;
+};
+const isNotarized = notarized === 'true';
 const manifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   product: 'Drift',
   version,
   build,
   commit,
   teamIdentifier: team || null,
   hardenedRuntime: true,
-  notarized: notarized === 'true',
+  notarized: isNotarized,
+  published: false,
   architectures: command('lipo', ['-archs', path.join(appPath, 'Contents/MacOS/Drift')]).split(/\s+/),
   minimumSystemVersion: command('/usr/libexec/PlistBuddy', ['-c', 'Print :LSMinimumSystemVersion', path.join(appPath, 'Contents/Info.plist')]),
+  codecs: {
+    video: 'WKWebView-H264-capability-gated',
+    presenterAudio: 'AudioToolbox-Apple-software-AAC-LC',
+  },
   artifacts: {
-    appArchive: { file: path.basename(archivePath), bytes: fs.statSync(archivePath).size, sha256: sha256(archivePath) },
-    diskImage: { file: path.basename(dmgPath), bytes: fs.statSync(dmgPath).size, sha256: sha256(dmgPath) },
+    notarizationSubmissionArchive: {
+      file: path.basename(archivePath),
+      bytes: fs.statSync(archivePath).size,
+      sha256: sha256(archivePath),
+      distributable: false,
+    },
+    diskImage: {
+      file: path.basename(dmgPath),
+      bytes: fs.statSync(dmgPath).size,
+      sha256: sha256(dmgPath),
+    },
+  },
+  notarization: {
+    appSubmissionId: isNotarized ? readNotaryId(appNotaryPath) : null,
+    dmgSubmissionId: isNotarized ? readNotaryId(dmgNotaryPath) : null,
   },
   evidence: {
     sourceMapsAbsent: true,
     webAssemblyAbsent: true,
     softwareAacFfmpegAbsent: true,
+    resourceManifestRegeneratedAfterSbom: true,
     legalBundle: 'Drift.app/Contents/Resources/Legal',
     sourceSbom: 'Drift.app/Contents/Resources/Legal/SBOM.cdx.json',
   },
@@ -243,17 +327,18 @@ NODE
   shasum -a 256 "$(basename "$ARCHIVE_PATH")" "$(basename "$DMG_PATH")" "$(basename "$RELEASE_MANIFEST")" > "$CHECKSUM_PATH"
 )
 
-"$ROOT/scripts/verify-macos-release.sh" "$APP_PATH" "$DMG_PATH" "$RELEASE_MANIFEST"
+"$ROOT/scripts/verify-macos-release.sh" "$APP_PATH" "$DMG_PATH" "$RELEASE_MANIFEST" "$ARCHIVE_PATH"
 
 cat <<EOF
 
-Release-grade local artifacts created:
-  App:      $APP_PATH
-  Archive:  $ARCHIVE_PATH
-  DMG:      $DMG_PATH
-  Manifest: $RELEASE_MANIFEST
-  SHA-256:  $CHECKSUM_PATH
+Release candidate created and verified locally:
+  App:                 $APP_PATH
+  Notary submission:   $ARCHIVE_PATH
+  DMG:                 $DMG_PATH
+  Manifest:            $RELEASE_MANIFEST
+  SHA-256:             $CHECKSUM_PATH
 
 Notarised: $NOTARIZE
-Nothing was published or uploaded by this script.
+Published: no
+Uploaded by this script: no
 EOF
