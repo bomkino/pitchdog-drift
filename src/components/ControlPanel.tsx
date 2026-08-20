@@ -313,7 +313,13 @@ export function ControlPanel({
         <RangeField label="Spacing" value={settings.motion.gap * 100} min={0} max={120} step={1} unit="%" onChange={(value) => patch("motion", { gap: value / 100 })} />
       </InspectorGroup>
 
-      <InspectorGroup title="Motion" eyebrow={`${settings.motion.speed.toFixed(2)} slides/s`} open>
+      <InspectorGroup
+        title="Motion"
+        eyebrow={settings.motion.seamless
+          ? `${settings.motion.seamlessLoops}× complete loop`
+          : `${settings.motion.speed.toFixed(2)} slides/s`}
+        open
+      >
         <Segmented label="Flow axis" value={settings.motion.axis} options={[{ value: "horizontal", label: "Horizontal" }, { value: "vertical", label: "Vertical" }]} onChange={(axis) => patch("motion", { axis })} />
         <Segmented label="Direction" value={settings.motion.direction} options={[{ value: -1 as const, label: "Reverse" }, { value: 1 as const, label: "Forward" }]} onChange={(direction) => patch("motion", { direction })} />
         <SelectField
@@ -329,13 +335,21 @@ export function ControlPanel({
           onChange={(flow) => patch("motion", { flow })}
         />
         <SwitchField label="Autoplay" checked={settings.motion.autoplay} hint="Drag, wheel, arrows, and pause remain available." onChange={(autoplay) => patch("motion", { autoplay })} />
-        <RangeField label="Speed" value={settings.motion.speed} min={0} max={1.5} step={0.01} decimals={2} unit="×" onChange={(speed) => patch("motion", { speed })} />
+        {settings.motion.seamless ? (
+          <div className="output-spec cadence-receipt" role="note">
+            <span>MASTER CADENCE</span>
+            <strong>Duration × source slides × loops</strong>
+            <small>Preview and export now use the same derived pace. Invisible render-padding copies never count as authored slides. Switch to free-run timing to direct speed manually.</small>
+          </div>
+        ) : (
+          <RangeField label="Speed" value={settings.motion.speed} min={0} max={1.5} step={0.01} decimals={2} unit="×" onChange={(speed) => patch("motion", { speed })} />
+        )}
         <RangeField label="Curve" value={settings.motion.curvature * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("motion", { curvature: value / 100 })} />
         <RangeField label="Depth" value={settings.motion.depth * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("motion", { depth: value / 100 })} />
         <RangeField label="Tilt" value={settings.motion.tilt} min={0} max={18} step={0.5} decimals={1} unit="°" onChange={(tilt) => patch("motion", { tilt })} />
         <RangeField label="Drag weight" value={settings.motion.dragSensitivity} min={0} max={4} step={0.05} decimals={2} unit="×" hint="Pointer and wheel response only; export timing stays deterministic." onChange={(dragSensitivity) => patch("motion", { dragSensitivity })} />
-        <SwitchField label="Seamless export lock" checked={settings.motion.seamless} hint="Forces whole loops across master duration." onChange={(seamless) => patch("motion", { seamless })} />
-        {settings.motion.seamless ? <RangeField label="Loops per master" value={settings.motion.seamlessLoops} min={1} max={6} step={1} onChange={(seamlessLoops) => patch("motion", { seamlessLoops })} /> : null}
+        <SwitchField label="Seamless export lock" checked={settings.motion.seamless} hint="Closes on complete source-slide cycles. Preview and master use the same cadence." onChange={(seamless) => patch("motion", { seamless })} />
+        {settings.motion.seamless ? <RangeField label="Complete cycles per master" value={settings.motion.seamlessLoops} min={1} max={6} step={1} onChange={(seamlessLoops) => patch("motion", { seamlessLoops })} /> : null}
         <SwitchField label="Reduced-motion master" checked={settings.motion.reducedMotionOutput} hint="Independent from your OS preview preference." onChange={(reducedMotionOutput) => patch("motion", { reducedMotionOutput })} />
       </InspectorGroup>
 
