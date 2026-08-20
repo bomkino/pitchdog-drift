@@ -82,6 +82,62 @@ jobs:
           test ! -e .github/director-desk-payload
           test ! -e .github/director-cut-payload
 
+      - name: Make held previews genuinely single-frame
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path("src/engine/CinematicCarousel.ts")
+          source = path.read_text()
+          old = """      if (!this.paused && !this.reducedMotionPreview) this.elapsed += delta;
+                this.advanceMotion(delta);
+                this.renderPreview();
+                this.sampleFps(now);"""
+          new = """      const shouldAnimate = !this.paused && !this.reducedMotionPreview;
+                if (shouldAnimate) {
+                  this.elapsed += delta;
+                  this.advanceMotion(delta);
+                  this.renderPreview();
+                  this.sampleFps(now);
+                }"""
+          if old not in source:
+              raise SystemExit("Expected held-preview render-loop anchor was not found")
+          source = source.replace(old, new, 1)
+
+          old = """    if (paused) this.motionVelocity = 0;
+              this.syncPresenterPlayback();
+              this.renderPreview();"""
+          new = """    if (paused) {
+                this.motionVelocity = 0;
+                this.callbacks.onFrame?.(0);
+              } else {
+                this.fpsFrameCounter = 0;
+                this.fpsSampleStarted = performance.now();
+              }
+              this.syncPresenterPlayback();
+              this.renderPreview();"""
+          if old not in source:
+              raise SystemExit("Expected pause anchor was not found")
+          source = source.replace(old, new, 1)
+
+          old = """    if (reduced) this.motionVelocity = 0;
+              this.renderPreview();"""
+          new = """    if (reduced) {
+                this.motionVelocity = 0;
+                this.callbacks.onFrame?.(0);
+              } else if (!this.paused) {
+                this.fpsFrameCounter = 0;
+                this.fpsSampleStarted = performance.now();
+              }
+              this.renderPreview();"""
+          if old not in source:
+              raise SystemExit("Expected reduced-motion anchor was not found")
+          source = source.replace(old, new, 1)
+          path.write_text(source)
+          PY
+
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -107,7 +163,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: director-desk-v2-browser-failure
+          name: director-desk-v3-browser-failure
           path: |
             playwright-report/
             test-results/
