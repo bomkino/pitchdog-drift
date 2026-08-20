@@ -32,6 +32,12 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
 
   await page.getByRole("button", { name: /Dread/ }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("dread");
+  const lensRecipe = page.getByRole("combobox", { name: "Lens recipe", exact: true });
+  await expect(lensRecipe).toHaveValue("night-terror");
+  await lensRecipe.selectOption("dream-glass");
+  await expect(page.locator(".stage-topline").last()).toContainText("dream-glass");
+  await page.getByRole("slider", { name: "Chromatic split" }).fill("37");
+  await expect(lensRecipe).toHaveValue("custom");
   await page.getByLabel("Stage width").fill("1200");
   await expect(page.locator(".stage-hud")).toContainText("1200 × 1920");
 
@@ -41,7 +47,7 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await background.selectOption("transparent");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "true");
   await page.getByRole("button", { name: /Road Memory/ }).click();
-  await expect(background).toHaveValue("gradient");
+  await expect(background).toHaveValue("horizon");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "false");
 
   const contextExtension = await page.locator("[data-testid=webgl-stage]").evaluate((canvas) => {
@@ -244,6 +250,7 @@ test("presenter playback obeys pause and export while removal preserves an unrel
     const settings = structuredClone(DEFAULT_SETTINGS);
     settings.stage = { width: 256, height: 256, transparent: true };
     settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
+    settings.optics = { ...settings.optics, enabled: false };
     settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
     settings.presenter = { ...settings.presenter, enabled: true, assetId: "presenter-fixture" };
     const canvas = document.createElement("canvas");
@@ -540,13 +547,19 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
 
   await page.getByRole("button", { name: "Pause preview" }).click();
   await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
-  await page.getByRole("button", { name: "Export PNG sequence" }).click();
-  await expect(page.locator(".export-overlay")).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(window, "showDirectoryPicker", { configurable: true, value: undefined });
+  });
+  await page.getByRole("button", { name: "Export PNG sequence" }).dispatchEvent("click");
+  const exportOverlay = page.locator(".export-overlay");
+  const cancelExport = page.getByRole("button", { name: "Cancel export" });
+  await expect(exportOverlay).toBeVisible();
+  await expect(cancelExport).toBeVisible();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("Space");
   await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
-  await page.getByRole("button", { name: "Cancel export" }).click();
-  await expect(page.locator(".export-overlay")).toBeHidden();
+  await cancelExport.dispatchEvent("click");
+  await expect(exportOverlay).toBeHidden();
   await expect(page.getByRole("button", { name: "Play preview" })).toBeEnabled();
   await page.getByRole("button", { name: "Play preview" }).click();
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
@@ -592,6 +605,23 @@ test("transparent PNG stores straight-alpha colour without dark fringes", async 
     const settings = structuredClone(DEFAULT_SETTINGS);
     settings.stage = { width: 256, height: 256, transparent: true };
     settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
+    settings.optics = {
+      ...settings.optics,
+      enabled: true,
+      profile: "custom",
+      softFocus: 0.4,
+      edgeSoftness: 0.3,
+      motionBlur: 0,
+      chromaticAberration: 0,
+      bloom: 0,
+      halation: 0,
+      flare: 0,
+      barrelDistortion: 0,
+      vignette: 0,
+      grain: 0,
+      gateWeave: 0,
+      breathing: 0,
+    };
     settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
     settings.motion = {
       ...settings.motion,
@@ -673,6 +703,306 @@ test("transparent PNG stores straight-alpha colour without dark fringes", async 
   }
 });
 
+test("scene-wide optics are deterministic while a protected presenter stays crisp", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/model.ts"),
+    ]);
+
+    const makeFixture = async (kind: "checker" | "presenter") => {
+      const source = document.createElement("canvas");
+      source.width = 128;
+      source.height = 128;
+      const context = source.getContext("2d")!;
+      if (kind === "checker") {
+        for (let y = 0; y < 8; y += 1) {
+          for (let x = 0; x < 8; x += 1) {
+            context.fillStyle = (x + y) % 2 === 0 ? "#fff4d8" : "#07121f";
+            context.fillRect(x * 16, y * 16, 16, 16);
+          }
+        }
+        context.fillStyle = "#20d5ff";
+        context.fillRect(60, 0, 8, 128);
+      } else {
+        context.fillStyle = "#ff1616";
+        context.fillRect(0, 0, 128, 128);
+      }
+      const blob = await new Promise<Blob>((resolve, reject) => source.toBlob(
+        (value) => value ? resolve(value) : reject(new Error("Could not create optical fixture.")),
+        "image/png",
+      ));
+      return {
+        id: kind,
+        name: `${kind}.png`,
+        kind: "image" as const,
+        blob,
+        mimeType: "image/png",
+        width: 128,
+        height: 128,
+        objectUrl: URL.createObjectURL(blob),
+      };
+    };
+
+    const decode = async (blob: Blob) => {
+      const bitmap = await createImageBitmap(blob, { premultiplyAlpha: "none" });
+      const decoded = document.createElement("canvas");
+      decoded.width = bitmap.width;
+      decoded.height = bitmap.height;
+      const context = decoded.getContext("2d", { willReadFrequently: true })!;
+      context.drawImage(bitmap, 0, 0);
+      const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+      const center = Array.from(context.getImageData(128, 128, 1, 1).data);
+      bitmap.close();
+      return { pixels: Array.from(pixels), center };
+    };
+
+    const hashBlob = async (blob: Blob) => Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+
+    const checker = await makeFixture("checker");
+    const presenter = await makeFixture("presenter");
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    document.body.append(canvas);
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.stage = { width: 256, height: 256, transparent: true };
+    settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
+    settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
+    settings.motion = {
+      ...settings.motion,
+      axis: "horizontal",
+      speed: 0,
+      flow: "straight",
+      gap: 0,
+      curvature: 0,
+      depth: 0,
+      tilt: 0,
+      distortion: 0,
+      focusScale: 0,
+      edgeFade: 0,
+    };
+    settings.slide = {
+      ...settings.slide,
+      aspectWidth: 1,
+      aspectHeight: 1,
+      scale: 1,
+      radius: 0,
+      smoothing: 0,
+      borderWidth: 0,
+      borderOpacity: 0,
+      shadowOpacity: 0,
+    };
+    settings.presenter = {
+      ...settings.presenter,
+      enabled: true,
+      assetId: presenter.id,
+      x: 0.5,
+      y: 0.5,
+      width: 0.28,
+      aspectWidth: 1,
+      aspectHeight: 1,
+      radius: 0,
+      smoothing: 0,
+      borderWidth: 0,
+      borderOpacity: 0,
+      shadowOpacity: 0,
+    };
+    settings.optics = { ...settings.optics, enabled: false };
+
+    const engine = new CinematicCarousel(canvas, settings);
+    engine.stop();
+    try {
+      await engine.setAssets([checker]);
+      await engine.setPresenterAsset(presenter);
+      const cleanBlob = await engine.captureStill(256, 256, 1.25);
+      const cinematic = structuredClone(settings);
+      cinematic.optics = {
+        ...cinematic.optics,
+        enabled: true,
+        profile: "custom",
+        softFocus: 0.46,
+        edgeSoftness: 0.72,
+        motionBlur: 0,
+        chromaticAberration: 0.68,
+        bloom: 0.28,
+        halation: 0.34,
+        flare: 0.25,
+        barrelDistortion: 0.2,
+        vignette: 0.28,
+        grain: 0.16,
+        gateWeave: 0.12,
+        breathing: 0.1,
+        protectPresenter: true,
+      };
+      engine.setSettings(cinematic);
+      const treatedA = await engine.captureStill(256, 256, 1.25);
+      const treatedB = await engine.captureStill(256, 256, 1.25);
+      const [clean, treated] = await Promise.all([decode(cleanBlob), decode(treatedA)]);
+      let differingPixels = 0;
+      let aggregateDifference = 0;
+      for (let index = 0; index < clean.pixels.length; index += 4) {
+        const delta = Math.abs(clean.pixels[index]! - treated.pixels[index]!)
+          + Math.abs(clean.pixels[index + 1]! - treated.pixels[index + 1]!)
+          + Math.abs(clean.pixels[index + 2]! - treated.pixels[index + 2]!);
+        aggregateDifference += delta;
+        if (delta > 24) differingPixels += 1;
+      }
+      return {
+        cleanCenter: clean.center,
+        treatedCenter: treated.center,
+        differingPixels,
+        meanDifference: aggregateDifference / (256 * 256 * 3),
+        treatedHashA: await hashBlob(treatedA),
+        treatedHashB: await hashBlob(treatedB),
+      };
+    } finally {
+      engine.dispose();
+      URL.revokeObjectURL(checker.objectUrl);
+      URL.revokeObjectURL(presenter.objectUrl);
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.differingPixels).toBeGreaterThan(8_000);
+  expect(receipt.meanDifference).toBeGreaterThan(3);
+  expect(receipt.treatedHashA).toBe(receipt.treatedHashB);
+  for (const center of [receipt.cleanCenter, receipt.treatedCenter]) {
+    expect(center[0]).toBeGreaterThan(245);
+    expect(center[1]).toBeLessThan(35);
+    expect(center[2]).toBeLessThan(35);
+    expect(center[3]).toBeGreaterThan(250);
+  }
+});
+
+test("seamless lock closes the carousel, atmosphere, and lens on the same exact frame", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/model.ts"),
+    ]);
+
+    const source = document.createElement("canvas");
+    source.width = 192;
+    source.height = 108;
+    const context = source.getContext("2d")!;
+    const gradient = context.createLinearGradient(0, 0, 192, 108);
+    gradient.addColorStop(0, "#f7dcc0");
+    gradient.addColorStop(0.5, "#9a2738");
+    gradient.addColorStop(1, "#071423");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 192, 108);
+    context.fillStyle = "#f8f2e8";
+    context.fillRect(22, 18, 64, 9);
+    context.fillRect(22, 35, 108, 5);
+    const blob = await new Promise<Blob>((resolve, reject) => source.toBlob(
+      (value) => value ? resolve(value) : reject(new Error("Could not create loop fixture.")),
+      "image/png",
+    ));
+    const asset = {
+      id: "loop-fixture",
+      name: "loop-fixture.png",
+      kind: "image" as const,
+      blob,
+      mimeType: "image/png",
+      width: 192,
+      height: 108,
+      objectUrl: URL.createObjectURL(blob),
+    };
+    const hashBlob = async (value: Blob) => Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", await value.arrayBuffer())),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    document.body.append(canvas);
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.stage = { width: 256, height: 256, transparent: false };
+    settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 4 };
+    settings.motion = {
+      ...settings.motion,
+      axis: "horizontal",
+      flow: "ribbon",
+      speed: 0.48,
+      gap: 0.18,
+      curvature: 0.52,
+      depth: 0.3,
+      tilt: 6,
+      distortion: 0.38,
+      seamless: true,
+      seamlessLoops: 2,
+    };
+    settings.slide = {
+      ...settings.slide,
+      aspectWidth: 16,
+      aspectHeight: 9,
+      scale: 0.72,
+      radius: 22,
+      smoothing: 0.6,
+    };
+    settings.background = {
+      ...settings.background,
+      style: "projector",
+      colorA: "#050302",
+      colorB: "#3c2418",
+      accent: "#f0b36c",
+      motion: 0.73,
+      grain: 0.18,
+      vignette: 0.62,
+      scale: 1.18,
+      softness: 0.58,
+      complexity: 0.77,
+      parallax: 0.82,
+      seed: 417,
+    };
+    settings.optics = {
+      ...settings.optics,
+      enabled: true,
+      profile: "custom",
+      softFocus: 0.28,
+      edgeSoftness: 0.44,
+      motionBlur: 0.34,
+      chromaticAberration: 0.31,
+      bloom: 0.22,
+      halation: 0.26,
+      flare: 0.18,
+      barrelDistortion: 0.12,
+      vignette: 0.21,
+      grain: 0.12,
+      gateWeave: 0.13,
+      breathing: 0.16,
+    };
+
+    const engine = new CinematicCarousel(canvas, settings);
+    engine.stop();
+    try {
+      await engine.setAssets([asset]);
+      const start = await engine.captureStill(256, 256, 0);
+      const middle = await engine.captureStill(256, 256, settings.output.duration / 2.7);
+      const end = await engine.captureStill(256, 256, settings.output.duration);
+      return {
+        start: await hashBlob(start),
+        middle: await hashBlob(middle),
+        end: await hashBlob(end),
+      };
+    } finally {
+      engine.dispose();
+      URL.revokeObjectURL(asset.objectUrl);
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.start).toBe(receipt.end);
+  expect(receipt.start).not.toBe(receipt.middle);
+});
+
 test("cover focal controls reach both source edges in both axes", async ({ page }) => {
   await page.goto("/");
   const samples = await page.evaluate(async () => {
@@ -709,6 +1039,7 @@ test("cover focal controls reach both source edges in both axes", async ({ page 
     const settings = structuredClone(DEFAULT_SETTINGS);
     settings.stage = { width: 256, height: 256, transparent: true };
     settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
+    settings.optics = { ...settings.optics, enabled: false };
     settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
     settings.motion = {
       ...settings.motion,
@@ -864,6 +1195,7 @@ test("renderer pool and media replacement always preserve latest visual intent",
     const settings = structuredClone(DEFAULT_SETTINGS);
     settings.stage = { width: 256, height: 256, transparent: true };
     settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
+    settings.optics = { ...settings.optics, enabled: false };
     settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
     settings.motion = {
       ...settings.motion,
@@ -1086,6 +1418,7 @@ test("a pinned image outside the moving mesh pool is awaited before export", asy
     const settings = structuredClone(DEFAULT_SETTINGS);
     settings.stage = { width: 256, height: 256, transparent: true };
     settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
+    settings.optics = { ...settings.optics, enabled: false };
     settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
     settings.motion = { ...settings.motion, speed: 0, flow: "straight", distortion: 0, depth: 0, tilt: 0 };
     settings.slide = {

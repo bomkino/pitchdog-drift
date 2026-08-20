@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
-import type { StudioSettings, ThemeId } from "../model";
+import { BACKGROUND_FAMILIES, getBackgroundFamily } from "../backgrounds";
+import type { LensProfileId, StudioSettings, ThemeId } from "../model";
+import { LENS_PROFILES, applyLensProfile, patchCustomOptics } from "../optics";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
 
@@ -40,6 +42,18 @@ export function ControlPanel({
     });
   };
   const stageLabel = `${settings.stage.width}:${settings.stage.height}`;
+  const selectedLens = LENS_PROFILES.find((profile) => profile.id === settings.optics.profile) ?? null;
+  const selectedBackground = getBackgroundFamily(settings.background.style);
+  const patchOptics = (values: Parameters<typeof patchCustomOptics>[1]) => {
+    onSettings(patchCustomOptics(settings, values));
+  };
+  const selectLensProfile = (profile: LensProfileId) => {
+    if (profile === "custom") {
+      patch("optics", { profile });
+      return;
+    }
+    onSettings(applyLensProfile(settings, profile));
+  };
 
   return (
     <aside className="inspector" aria-label="Director controls" aria-busy={exporting} inert={exporting}>
@@ -54,7 +68,7 @@ export function ControlPanel({
       <section className="theme-section" aria-labelledby="themes-title">
         <div className="section-heading-row">
           <h3 id="themes-title">Film worlds</h3>
-          <span>6</span>
+          <span>{THEMES.length}</span>
         </div>
         <div className="theme-grid">
           {THEMES.map((theme) => (
@@ -161,6 +175,43 @@ export function ControlPanel({
         <SwitchField label="Reduced-motion master" checked={settings.motion.reducedMotionOutput} hint="Independent from your OS preview preference." onChange={(reducedMotionOutput) => patch("motion", { reducedMotionOutput })} />
       </InspectorGroup>
 
+      <InspectorGroup title="Lens" eyebrow={settings.optics.enabled ? settings.optics.profile : "BYPASSED"} open>
+        <SwitchField
+          label="Optical finishing pass"
+          checked={settings.optics.enabled}
+          hint="One deterministic full-frame pass. Preview, PNG and MP4 share it."
+          onChange={(enabled) => patch("optics", { enabled })}
+        />
+        <SelectField
+          label="Lens recipe"
+          value={settings.optics.profile}
+          options={[
+            ...LENS_PROFILES.map((profile) => ({ value: profile.id, label: profile.name })),
+            { value: "custom" as const, label: "Custom" },
+          ]}
+          onChange={selectLensProfile}
+        />
+        <p className="control-prose">{selectedLens?.description ?? "Manual optical direction. Every adjustment remains bounded and export-deterministic."}</p>
+        <SwitchField
+          label="Protect pinned frame"
+          checked={settings.optics.protectPresenter}
+          hint="Keeps a talking-head frame crisp while the world behind it carries the lens treatment."
+          onChange={(protectPresenter) => patch("optics", { protectPresenter })}
+        />
+        <RangeField label="Soft focus" value={settings.optics.softFocus * 100} min={0} max={100} step={1} unit="%" hint="Centre-weighted diffusion. Not a CSS blur." onChange={(value) => patchOptics({ softFocus: value / 100 })} />
+        <RangeField label="Edge defocus" value={settings.optics.edgeSoftness * 100} min={0} max={100} step={1} unit="%" hint="Lets the centre hold while the frame falls softly out of focus." onChange={(value) => patchOptics({ edgeSoftness: value / 100 })} />
+        <RangeField label="Motion smear" value={settings.optics.motionBlur * 100} min={0} max={100} step={1} unit="%" hint="Directional and velocity-reactive; zero when the carousel stops." onChange={(value) => patchOptics({ motionBlur: value / 100 })} />
+        <RangeField label="Chromatic split" value={settings.optics.chromaticAberration * 100} min={0} max={100} step={1} unit="%" hint="Mostly at moving edges; the centre stays readable." onChange={(value) => patchOptics({ chromaticAberration: value / 100 })} />
+        <RangeField label="Bloom" value={settings.optics.bloom * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchOptics({ bloom: value / 100 })} />
+        <RangeField label="Halation" value={settings.optics.halation * 100} min={0} max={100} step={1} unit="%" hint="Warm highlight bleed, separate from neutral bloom." onChange={(value) => patchOptics({ halation: value / 100 })} />
+        <RangeField label="Anamorphic flare" value={settings.optics.flare * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchOptics({ flare: value / 100 })} />
+        <RangeField label="Lens curvature" value={settings.optics.barrelDistortion * 100} min={-100} max={100} step={1} unit="%" hint="Negative pinches inward; positive bows outward." onChange={(value) => patchOptics({ barrelDistortion: value / 100 })} />
+        <RangeField label="Lens vignette" value={settings.optics.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchOptics({ vignette: value / 100 })} />
+        <RangeField label="Film grain" value={settings.optics.grain * 100} min={0} max={50} step={1} unit="%" hint="Screen-space and deterministic at every export frame." onChange={(value) => patchOptics({ grain: value / 100 })} />
+        <RangeField label="Gate weave" value={settings.optics.gateWeave * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchOptics({ gateWeave: value / 100 })} />
+        <RangeField label="Lens breathing" value={settings.optics.breathing * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchOptics({ breathing: value / 100 })} />
+      </InspectorGroup>
+
       <InspectorGroup title="Surface" eyebrow={`${Math.round(settings.slide.smoothing * 100)}% smoothing`}>
         <Segmented label="Image fit" value={settings.slide.fit} options={[{ value: "cover", label: "Cover" }, { value: "contain", label: "Contain" }]} onChange={(fit) => patch("slide", { fit })} />
         <RangeField label="Focal point X" value={settings.slide.focalX * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { focalX: value / 100 })} />
@@ -178,23 +229,22 @@ export function ControlPanel({
         <SelectField
           label="Background"
           value={settings.background.style}
-          options={[
-            { value: "transparent", label: "Transparent" },
-            { value: "solid", label: "Solid" },
-            { value: "gradient", label: "Gradient" },
-            { value: "aura", label: "Soft aura" },
-            { value: "paper", label: "Paper field" },
-            { value: "void", label: "Breathing void" },
-          ]}
+          options={BACKGROUND_FAMILIES.map((family) => ({ value: family.id, label: family.name }))}
           onChange={(style) => onSettings({ ...settings, stage: { ...settings.stage, transparent: style === "transparent" }, background: { ...settings.background, style } })}
         />
+        <p className="control-prose">{selectedBackground.description}</p>
         <ColorField label="Ground" value={settings.background.colorA} onChange={(colorA) => patch("background", { colorA })} />
         <ColorField label="Field" value={settings.background.colorB} onChange={(colorB) => patch("background", { colorB })} />
         <ColorField label="Light" value={settings.background.accent} onChange={(accent) => patch("background", { accent })} />
         <RangeField label="Intensity" value={settings.background.intensity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { intensity: value / 100 })} />
         <RangeField label="Background breath" value={settings.background.motion * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { motion: value / 100 })} />
+        <RangeField label="Field scale" value={settings.background.scale * 100} min={25} max={250} step={1} unit="%" hint="Controls the size of light, fog, folds and texture—not the canvas." onChange={(value) => patch("background", { scale: value / 100 })} />
+        <RangeField label="Atmospheric softness" value={settings.background.softness * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { softness: value / 100 })} />
+        <RangeField label="Field complexity" value={settings.background.complexity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { complexity: value / 100 })} />
+        <RangeField label="Parallax drift" value={settings.background.parallax * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { parallax: value / 100 })} />
         <RangeField label="Grain" value={settings.background.grain * 100} min={0} max={60} step={1} unit="%" onChange={(value) => patch("background", { grain: value / 100 })} />
         <RangeField label="Vignette" value={settings.background.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { vignette: value / 100 })} />
+        <NumberField label="Atmosphere seed" value={settings.background.seed} min={0} max={1_000_000} onChange={(seed) => patch("background", { seed })} />
       </InspectorGroup>
 
       <InspectorGroup title="Pinned frame" eyebrow={settings.presenter.enabled ? "ON" : "OFF"}>

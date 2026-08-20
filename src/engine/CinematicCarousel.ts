@@ -1,5 +1,7 @@
 import * as THREE from "three";
+import { backgroundMode } from "../backgrounds";
 import type { StudioAsset, StudioSettings } from "../model";
+import { hasVisibleOptics } from "../optics";
 import {
   distanceAtTime,
   evaluateSlide,
@@ -12,6 +14,8 @@ import {
 import {
   backgroundFragmentShader,
   backgroundVertexShader,
+  opticalFragmentShader,
+  opticalVertexShader,
   shadowFragmentShader,
   shadowVertexShader,
   slideFragmentShader,
@@ -22,6 +26,7 @@ const MAX_POOL_SIZE = 24;
 const TEXTURE_CACHE_LIMIT = 24;
 const PREVIEW_TEXTURE_EDGE = 2048;
 const CAMERA_FOV = 35;
+const TAU = Math.PI * 2;
 
 interface EngineCallbacks {
   onError?: (message: string) => void;
@@ -121,17 +126,6 @@ export function assertExportSurfaceSupported(
   }
 }
 
-function backgroundMode(style: StudioSettings["background"]["style"]): number {
-  switch (style) {
-    case "solid": return 0;
-    case "gradient": return 1;
-    case "aura": return 2;
-    case "paper": return 3;
-    case "void": return 4;
-    default: return 0;
-  }
-}
-
 function createSlideMaterial(placeholder: THREE.Texture): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: slideVertexShader,
@@ -184,14 +178,22 @@ export class CinematicCarousel {
   readonly renderer: THREE.WebGLRenderer;
 
   private readonly scene = new THREE.Scene();
+  private readonly presenterScene = new THREE.Scene();
   private readonly backgroundScene = new THREE.Scene();
+  private readonly opticalScene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(CAMERA_FOV, 9 / 16, 1, 50_000);
   private readonly backgroundCamera = new THREE.Camera();
+  private readonly opticalCamera = new THREE.Camera();
   private readonly track = new THREE.Group();
   private readonly geometry = new THREE.PlaneGeometry(1, 1, 32, 18);
   private readonly backgroundGeometry = new THREE.PlaneGeometry(2, 2);
+  private readonly opticalGeometry = new THREE.PlaneGeometry(2, 2);
   private readonly backgroundMaterial: THREE.ShaderMaterial;
   private readonly backgroundMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private readonly opticalMaterial: THREE.ShaderMaterial;
+  private readonly opticalMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private readonly sceneTarget: THREE.WebGLRenderTarget;
+  private readonly drawingBufferSize = new THREE.Vector2();
   private readonly placeholderTexture: THREE.DataTexture;
   private readonly pool: SlidePoolItem[] = [];
   private readonly textureCache = new Map<string, TextureRecord>();
@@ -291,6 +293,10 @@ export class CinematicCarousel {
         uMotion: { value: settings.background.motion },
         uGrain: { value: settings.background.grain },
         uVignette: { value: settings.background.vignette },
+        uScale: { value: settings.background.scale },
+        uSoftness: { value: settings.background.softness },
+        uComplexity: { value: settings.background.complexity },
+        uParallax: { value: settings.background.parallax },
         uPhase: { value: 0 },
         uSeed: { value: settings.background.seed },
       },
@@ -298,6 +304,50 @@ export class CinematicCarousel {
     this.backgroundMesh = new THREE.Mesh(this.backgroundGeometry, this.backgroundMaterial);
     this.backgroundMesh.frustumCulled = false;
     this.backgroundScene.add(this.backgroundMesh);
+
+    this.sceneTarget = new THREE.WebGLRenderTarget(1, 1, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+      depthBuffer: true,
+      stencilBuffer: false,
+      generateMipmaps: false,
+    });
+    // Keep the intermediate composition linear. The optical shader performs
+    // the sole output transform when it writes to the browser canvas.
+    this.sceneTarget.texture.colorSpace = THREE.NoColorSpace;
+    this.sceneTarget.texture.name = "Drift optical source";
+    this.opticalMaterial = new THREE.ShaderMaterial({
+      vertexShader: opticalVertexShader,
+      fragmentShader: opticalFragmentShader,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+      uniforms: {
+        uScene: { value: this.sceneTarget.texture },
+        uResolution: { value: new THREE.Vector2(settings.stage.width, settings.stage.height) },
+        uPhase: { value: 0 },
+        uVelocity: { value: 0 },
+        uAxis: { value: settings.motion.axis === "horizontal" ? 0 : 1 },
+        uSoftFocus: { value: settings.optics.softFocus },
+        uEdgeSoftness: { value: settings.optics.edgeSoftness },
+        uMotionBlur: { value: settings.optics.motionBlur },
+        uChromaticAberration: { value: settings.optics.chromaticAberration },
+        uBloom: { value: settings.optics.bloom },
+        uHalation: { value: settings.optics.halation },
+        uFlare: { value: settings.optics.flare },
+        uBarrelDistortion: { value: settings.optics.barrelDistortion },
+        uVignette: { value: settings.optics.vignette },
+        uGrain: { value: settings.optics.grain },
+        uGateWeave: { value: settings.optics.gateWeave },
+        uBreathing: { value: settings.optics.breathing },
+      },
+    });
+    this.opticalMesh = new THREE.Mesh(this.opticalGeometry, this.opticalMaterial);
+    this.opticalMesh.frustumCulled = false;
+    this.opticalScene.add(this.opticalMesh);
     this.scene.add(this.track);
 
     for (let index = 0; index < MAX_POOL_SIZE; index += 1) this.pool.push(this.createPoolItem(index));
@@ -306,7 +356,7 @@ export class CinematicCarousel {
     this.presenterSlide.renderOrder = 1001;
     this.presenterShadow.renderOrder = 999;
     this.presenterGroup.visible = false;
-    this.scene.add(this.presenterGroup);
+    this.presenterScene.add(this.presenterGroup);
 
     canvas.addEventListener("pointerdown", this.onPointerDownBound);
     canvas.addEventListener("pointermove", this.onPointerMoveBound);
@@ -715,14 +765,45 @@ export class CinematicCarousel {
     if (this.renderCounter % 90 === 0) this.evictTextures(keepTextureKeys);
     this.renderCounter += 1;
 
-    this.renderer.setClearColor(0x000000, 0);
-    this.renderer.clear(true, true, true);
     const transparent = this.settings.stage.transparent || this.settings.background.style === "transparent";
+    const opticalPass = hasVisibleOptics(this.settings.optics);
+    const protectPresenter = opticalPass && this.settings.optics.protectPresenter;
+    this.renderer.setClearColor(0x000000, 0);
+
+    if (opticalPass) {
+      this.ensureSceneTargetSize();
+      this.updateOptical(time, normalizedVelocity, exportMode);
+      this.renderer.setRenderTarget(this.sceneTarget);
+      this.renderer.clear(true, true, true);
+      if (!transparent) {
+        this.renderer.render(this.backgroundScene, this.backgroundCamera);
+        this.renderer.clearDepth();
+      }
+      this.renderer.render(this.scene, this.camera);
+      if (!protectPresenter) {
+        this.renderer.clearDepth();
+        this.renderer.render(this.presenterScene, this.camera);
+      }
+
+      this.renderer.setRenderTarget(null);
+      this.renderer.clear(true, true, true);
+      this.renderer.render(this.opticalScene, this.opticalCamera);
+      if (protectPresenter) {
+        this.renderer.clearDepth();
+        this.renderer.render(this.presenterScene, this.camera);
+      }
+      return;
+    }
+
+    this.renderer.setRenderTarget(null);
+    this.renderer.clear(true, true, true);
     if (!transparent) {
       this.renderer.render(this.backgroundScene, this.backgroundCamera);
       this.renderer.clearDepth();
     }
     this.renderer.render(this.scene, this.camera);
+    this.renderer.clearDepth();
+    this.renderer.render(this.presenterScene, this.camera);
   }
 
   private updatePoolItem(
@@ -849,20 +930,68 @@ export class CinematicCarousel {
     this.backgroundMaterial.uniforms.uMotion!.value = background.motion;
     this.backgroundMaterial.uniforms.uGrain!.value = background.grain;
     this.backgroundMaterial.uniforms.uVignette!.value = background.vignette;
+    this.backgroundMaterial.uniforms.uScale!.value = background.scale;
+    this.backgroundMaterial.uniforms.uSoftness!.value = background.softness;
+    this.backgroundMaterial.uniforms.uComplexity!.value = background.complexity;
+    this.backgroundMaterial.uniforms.uParallax!.value = background.parallax;
     this.backgroundMaterial.uniforms.uSeed!.value = background.seed;
+    this.updateOpticalUniforms();
+  }
+
+  private updateOpticalUniforms(): void {
+    const optics = this.settings.optics;
+    const uniforms = this.opticalMaterial.uniforms;
+    uniforms.uAxis!.value = this.settings.motion.axis === "horizontal" ? 0 : 1;
+    uniforms.uSoftFocus!.value = optics.softFocus;
+    uniforms.uEdgeSoftness!.value = optics.edgeSoftness;
+    uniforms.uMotionBlur!.value = optics.motionBlur;
+    uniforms.uChromaticAberration!.value = optics.chromaticAberration;
+    uniforms.uBloom!.value = optics.bloom;
+    uniforms.uHalation!.value = optics.halation;
+    uniforms.uFlare!.value = optics.flare;
+    uniforms.uBarrelDistortion!.value = optics.barrelDistortion;
+    uniforms.uVignette!.value = optics.vignette;
+    uniforms.uGrain!.value = optics.grain;
+    uniforms.uGateWeave!.value = optics.gateWeave;
+    uniforms.uBreathing!.value = optics.breathing;
+  }
+
+  private ensureSceneTargetSize(): void {
+    this.renderer.getDrawingBufferSize(this.drawingBufferSize);
+    const width = Math.max(1, Math.round(this.drawingBufferSize.x));
+    const height = Math.max(1, Math.round(this.drawingBufferSize.y));
+    if (this.sceneTarget.width !== width || this.sceneTarget.height !== height) {
+      this.sceneTarget.setSize(width, height);
+    }
+    this.opticalMaterial.uniforms.uResolution!.value.set(width, height);
+  }
+
+  private updateOptical(time: number, velocity: number, exportMode: boolean): void {
+    const reduced = exportMode ? this.settings.motion.reducedMotionOutput : this.reducedMotionPreview;
+    let phase = reduced ? 0 : (time % TAU + TAU) % TAU;
+    if (exportMode && this.settings.motion.seamless && !reduced) {
+      const cycles = (time / Math.max(0.001, this.settings.output.duration))
+        * Math.max(1, Math.round(this.settings.motion.seamlessLoops));
+      phase = ((cycles % 1) + 1) % 1 * TAU;
+    }
+    const uniforms = this.opticalMaterial.uniforms;
+    uniforms.uPhase!.value = phase;
+    uniforms.uVelocity!.value = reduced ? 0 : velocity;
+    uniforms.uAxis!.value = this.settings.motion.axis === "horizontal" ? 0 : 1;
   }
 
   private updateBackground(time: number, exportMode: boolean): void {
     const reduced = exportMode ? this.settings.motion.reducedMotionOutput : this.reducedMotionPreview;
-    let phase = reduced ? 0 : time * this.settings.background.motion * 0.72;
+    const naturalPhase = time * this.settings.background.motion * 0.72;
+    let phase = reduced ? 0 : (naturalPhase % TAU + TAU) % TAU;
     if (exportMode && this.settings.motion.seamless && !reduced) {
-      phase = (time / Math.max(0.001, this.settings.output.duration)) * Math.PI * 2 * Math.max(1, Math.round(this.settings.motion.seamlessLoops));
+      const cycles = (time / Math.max(0.001, this.settings.output.duration))
+        * Math.max(1, Math.round(this.settings.motion.seamlessLoops));
+      phase = ((cycles % 1) + 1) % 1 * TAU;
     }
+    this.renderer.getDrawingBufferSize(this.drawingBufferSize);
     this.backgroundMaterial.uniforms.uPhase!.value = phase;
-    this.backgroundMaterial.uniforms.uResolution!.value.set(
-      this.exportActive ? this.settings.output.width : this.settings.stage.width,
-      this.exportActive ? this.settings.output.height : this.settings.stage.height,
-    );
+    this.backgroundMaterial.uniforms.uResolution!.value.copy(this.drawingBufferSize);
   }
 
   private updateCamera(): void {
@@ -1056,6 +1185,7 @@ export class CinematicCarousel {
     this.syncPresenterPlayback();
     this.placeholderTexture.needsUpdate = true;
     this.backgroundMaterial.needsUpdate = true;
+    this.opticalMaterial.needsUpdate = true;
     for (const record of this.textureCache.values()) record.texture.needsUpdate = true;
     this.presenterPreviewTexture && (this.presenterPreviewTexture.needsUpdate = true);
     this.callbacks.onContextState?.("restored");
@@ -1101,7 +1231,10 @@ export class CinematicCarousel {
     this.presenterShadowMaterial.dispose();
     this.geometry.dispose();
     this.backgroundGeometry.dispose();
+    this.opticalGeometry.dispose();
     this.backgroundMaterial.dispose();
+    this.opticalMaterial.dispose();
+    this.sceneTarget.dispose();
     this.renderer.dispose();
   }
 }

@@ -1,7 +1,11 @@
 import {
+  BACKGROUND_STYLES,
+  DEFAULT_SETTINGS,
   ENGINE_VERSION,
+  LENS_PROFILE_IDS,
   SCHEMA_VERSION,
   SHADER_VERSION,
+  THEME_IDS,
   type StudioSettings,
 } from "../model";
 
@@ -69,6 +73,15 @@ function number(value: unknown, path: string, rule: NumberRule): number {
   return value;
 }
 
+function numberOrLegacyDefault(
+  value: unknown,
+  fallback: number,
+  path: string,
+  rule: NumberRule,
+): number {
+  return value === undefined ? fallback : number(value, path, rule);
+}
+
 function literal<T extends string | number>(value: unknown, path: string, expected: T): T {
   if (value !== expected) return invalid(path, `must equal ${String(expected)}`);
   return expected;
@@ -109,21 +122,40 @@ const AXES = ["horizontal", "vertical"] as const;
 const DIRECTIONS = [-1, 1] as const;
 const FLOWS = ["straight", "arc", "ribbon", "cylinder", "tunnel"] as const;
 const IMAGE_FITS = ["cover", "contain"] as const;
-const BACKGROUNDS = ["transparent", "solid", "gradient", "aura", "paper", "void"] as const;
-const THEMES = [
-  "editorial-drift",
-  "road-memory",
-  "dread",
-  "noir-contact",
-  "tender-light",
-  "chrome-dream",
-] as const;
+const BACKGROUNDS = BACKGROUND_STYLES;
+const THEMES = THEME_IDS;
+const LENS_PROFILES = LENS_PROFILE_IDS;
 const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
+
+function validateOptics(value: unknown): StudioSettings["optics"] {
+  // Version 1 projects created before the Director's Cut branch have no
+  // optics object. Enrich exactly that historical shape with the authored
+  // default; once an optics object exists, every surfaced field is strict.
+  if (value === undefined) return structuredClone(DEFAULT_SETTINGS.optics);
+  const optics = record(value, "settings.optics");
+  return {
+    enabled: boolean(optics.enabled, "settings.optics.enabled"),
+    profile: oneOf(optics.profile, "settings.optics.profile", LENS_PROFILES),
+    softFocus: number(optics.softFocus, "settings.optics.softFocus", { min: 0, max: 1 }),
+    edgeSoftness: number(optics.edgeSoftness, "settings.optics.edgeSoftness", { min: 0, max: 1 }),
+    motionBlur: number(optics.motionBlur, "settings.optics.motionBlur", { min: 0, max: 1 }),
+    chromaticAberration: number(optics.chromaticAberration, "settings.optics.chromaticAberration", { min: 0, max: 1 }),
+    bloom: number(optics.bloom, "settings.optics.bloom", { min: 0, max: 1 }),
+    halation: number(optics.halation, "settings.optics.halation", { min: 0, max: 1 }),
+    flare: number(optics.flare, "settings.optics.flare", { min: 0, max: 1 }),
+    barrelDistortion: number(optics.barrelDistortion, "settings.optics.barrelDistortion", { min: -1, max: 1 }),
+    vignette: number(optics.vignette, "settings.optics.vignette", { min: 0, max: 1 }),
+    grain: number(optics.grain, "settings.optics.grain", { min: 0, max: 0.5 }),
+    gateWeave: number(optics.gateWeave, "settings.optics.gateWeave", { min: 0, max: 1 }),
+    breathing: number(optics.breathing, "settings.optics.breathing", { min: 0, max: 1 }),
+    protectPresenter: boolean(optics.protectPresenter, "settings.optics.protectPresenter"),
+  };
+}
 
 /**
  * Validates the complete current settings schema and rebuilds it field by
- * field. Unknown keys never cross the trust boundary; missing or malformed
- * known keys never receive a silent default.
+ * field. Unknown keys never cross the trust boundary. Only the explicitly
+ * documented version-1 optics/background enrichment receives legacy defaults.
  */
 export function validateStudioSettings(value: unknown): StudioSettings {
   const source = record(value, "settings");
@@ -228,8 +260,13 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       motion: number(background.motion, "settings.background.motion", { min: 0, max: 1 }),
       grain: number(background.grain, "settings.background.grain", { min: 0, max: 0.6 }),
       vignette: number(background.vignette, "settings.background.vignette", { min: 0, max: 1 }),
+      scale: numberOrLegacyDefault(background.scale, DEFAULT_SETTINGS.background.scale, "settings.background.scale", { min: 0.25, max: 2.5 }),
+      softness: numberOrLegacyDefault(background.softness, DEFAULT_SETTINGS.background.softness, "settings.background.softness", { min: 0, max: 1 }),
+      complexity: numberOrLegacyDefault(background.complexity, DEFAULT_SETTINGS.background.complexity, "settings.background.complexity", { min: 0, max: 1 }),
+      parallax: numberOrLegacyDefault(background.parallax, DEFAULT_SETTINGS.background.parallax, "settings.background.parallax", { min: 0, max: 1 }),
       seed: number(background.seed, "settings.background.seed", { min: 0, max: 1_000_000, integer: true }),
     },
+    optics: validateOptics(source.optics),
     presenter: {
       enabled: presenterEnabled,
       assetId: presenterAssetId,

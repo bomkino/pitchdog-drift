@@ -43,7 +43,7 @@ export function Stage({
     <section className="stage-column" aria-label="Cinematic preview" aria-busy={busy}>
       <div className="stage-topline">
         <span>{settings.themeId.replaceAll("-", " ")}</span>
-        <span>{settings.motion.axis} · {settings.motion.flow}</span>
+        <span>{settings.motion.axis} · {settings.motion.flow} · {settings.optics.enabled ? settings.optics.profile : "clean bypass"}</span>
       </div>
       <div className="stage-well">
         <div
@@ -98,7 +98,9 @@ export function Stage({
               <strong>{exportProgress.message}</strong>
               <progress value={exportProgress.completed} max={Math.max(1, exportProgress.total)} />
               <small>{Math.round((exportProgress.completed / Math.max(1, exportProgress.total)) * 100)}%</small>
-              <button type="button" onClick={onCancelExport}>Cancel export</button>
+              {exportProgress.phase === "complete"
+                ? <span className="export-complete">Verified</span>
+                : <button type="button" onClick={onCancelExport}>Cancel export</button>}
             </div>
           ) : null}
 

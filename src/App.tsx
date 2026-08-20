@@ -212,6 +212,8 @@ export function App() {
   const engineRef = useRef<CinematicCarousel | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const exportProgressTimerRef = useRef<number | null>(null);
+  const exportGenerationRef = useRef(0);
   const noticeTimerRef = useRef<number | null>(null);
   const identityRef = useRef<ProjectIdentity | null>(null);
   const recoverySnapshotRef = useRef<ProjectSnapshot<StudioProjectPayload> | null>(null);
@@ -570,6 +572,8 @@ export function App() {
 
   useEffect(() => () => {
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+    if (exportProgressTimerRef.current !== null) window.clearTimeout(exportProgressTimerRef.current);
+    abortRef.current?.abort("Studio closed");
     assetsRef.current.forEach(disposeAsset);
     if (presenterRef.current) disposeAsset(presenterRef.current);
   }, []);
@@ -687,18 +691,32 @@ export function App() {
     if (projectPendingRef.current > 0) throw new Error("A project or media operation is still in progress.");
     const engine = engineRef.current;
     if (!engine) throw new Error("Cinematic renderer is unavailable; export is blocked.");
+    if (exportProgressTimerRef.current !== null) {
+      window.clearTimeout(exportProgressTimerRef.current);
+      exportProgressTimerRef.current = null;
+    }
     const output = settingsRef.current.output;
     const surface = engine.beginExport(output.width, output.height);
     const controller = new AbortController();
+    const generation = exportGenerationRef.current + 1;
+    exportGenerationRef.current = generation;
     abortRef.current = controller;
     setExportProgress({ phase: "preparing", completed: 0, total: 1_000, message: "Preparing deterministic timeline" });
-    return { engine, controller, surface, output };
+    return { engine, controller, surface, output, generation };
   }, []);
 
-  const endExport = useCallback((surface: { restore: () => void }) => {
-    surface.restore();
-    abortRef.current = null;
-    window.setTimeout(() => setExportProgress(null), 650);
+  const endExport = useCallback((session: {
+    surface: { restore: () => void };
+    controller: AbortController;
+    generation: number;
+  }) => {
+    session.surface.restore();
+    if (abortRef.current === session.controller) abortRef.current = null;
+    if (exportProgressTimerRef.current !== null) window.clearTimeout(exportProgressTimerRef.current);
+    exportProgressTimerRef.current = window.setTimeout(() => {
+      if (exportGenerationRef.current === session.generation) setExportProgress(null);
+      exportProgressTimerRef.current = null;
+    }, 650);
   }, []);
 
   const exportVideo = useCallback(async () => {
@@ -754,7 +772,7 @@ export function App() {
     } catch (error) {
       announce(error instanceof Error ? error.message : "MP4 export failed.", "error");
     } finally {
-      if (session) endExport(session.surface);
+      if (session) endExport(session);
     }
   }, [announce, beginExport, endExport, mp4Supported, pinnedAsset, renderForExport]);
 
@@ -784,7 +802,7 @@ export function App() {
     } catch (error) {
       announce(error instanceof Error ? error.message : "PNG capture failed.", "error");
     } finally {
-      if (session) endExport(session.surface);
+      if (session) endExport(session);
     }
   }, [announce, beginExport, endExport, pinnedAsset, renderForExport]);
 
@@ -823,7 +841,7 @@ export function App() {
     } catch (error) {
       announce(error instanceof Error ? error.message : "PNG sequence export failed.", "error");
     } finally {
-      if (session) endExport(session.surface);
+      if (session) endExport(session);
     }
   }, [announce, beginExport, endExport, pinnedAsset, renderForExport]);
 

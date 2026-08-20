@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assertExportSurfaceSupported, selectRenderableItems } from "../src/engine/CinematicCarousel";
 import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
 import { evaluateSlide, getLogicalSlotCount, getSlideGeometry, isPotentiallyVisible } from "../src/engine/evaluate";
-import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader } from "../src/engine/shaders";
+import { backgroundFragmentShader, opticalFragmentShader, shadowFragmentShader, slideFragmentShader } from "../src/engine/shaders";
 
 const LIMITS = {
   maxTextureSize: 8_192,
@@ -13,10 +13,24 @@ const LIMITS = {
 
 describe("custom shader output contract", () => {
   it("encodes every custom material from linear light into the renderer output color space", () => {
-    for (const shader of [slideFragmentShader, shadowFragmentShader, backgroundFragmentShader]) {
+    for (const shader of [slideFragmentShader, shadowFragmentShader, backgroundFragmentShader, opticalFragmentShader]) {
       expect(shader).toContain("#include <colorspace_fragment>");
       expect(shader.indexOf("#include <colorspace_fragment>")).toBeGreaterThan(shader.lastIndexOf("gl_FragColor"));
     }
+  });
+
+  it("keeps the scene-wide optical finish alpha-safe and velocity-reactive", () => {
+    expect(opticalFragmentShader).toContain("uMotionBlur");
+    expect(opticalFragmentShader).toContain("uChromaticAberration");
+    expect(opticalFragmentShader).toContain("abs(uVelocity)");
+    expect(opticalFragmentShader).toContain("color.rgb / max(0.0001, color.a)");
+    expect(opticalFragmentShader).toContain("if (color.a <= 0.0001)");
+  });
+
+  it("ships fourteen authored procedural background modes", () => {
+    expect(backgroundFragmentShader).toContain("uMode < 12.5");
+    expect(backgroundFragmentShader).toContain("uComplexity");
+    expect(backgroundFragmentShader).toContain("uParallax");
   });
 
   it("maps the contained image's occupied fraction, not its reciprocal", () => {

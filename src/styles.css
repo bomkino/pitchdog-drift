@@ -705,6 +705,7 @@ a:focus-visible {
 .export-overlay progress::-webkit-progress-bar { background: #38342e; }
 .export-overlay small { color: var(--muted); font-family: ui-monospace, monospace; }
 .export-overlay button { margin-top: 5px; border: 0; color: #b8b0a5; background: transparent; text-decoration: underline; cursor: pointer; }
+.export-complete { min-height: 16px; color: #9cb496 !important; letter-spacing: 0.12em; }
 
 .transport {
   display: flex;
@@ -1408,4 +1409,14 @@ a:focus-visible {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+.control-prose {
+  margin: 0;
+  padding: 0 0 10px;
+  color: #6e6860;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 10px;
+  font-style: italic;
+  line-height: 1.45;
 }

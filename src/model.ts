@@ -7,8 +7,52 @@ export type Axis = "horizontal" | "vertical";
 export type Direction = 1 | -1;
 export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel";
 export type ImageFit = "cover" | "contain";
-export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
-export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
+
+export const BACKGROUND_STYLES = [
+  "transparent",
+  "solid",
+  "gradient",
+  "aura",
+  "paper",
+  "void",
+  "horizon",
+  "fog",
+  "prism",
+  "velvet",
+  "emulsion",
+  "night-drive",
+  "tidal",
+  "ember",
+  "projector",
+] as const;
+export type BackgroundStyle = (typeof BACKGROUND_STYLES)[number];
+
+export const THEME_IDS = [
+  "editorial-drift",
+  "road-memory",
+  "dread",
+  "noir-contact",
+  "tender-light",
+  "chrome-dream",
+  "sunstruck-atlas",
+  "blue-hour",
+  "velvet-fever",
+  "celluloid-archive",
+  "night-run",
+  "eclipse-ritual",
+] as const;
+export type ThemeId = (typeof THEME_IDS)[number];
+
+export const LENS_PROFILE_IDS = [
+  "clean-gate",
+  "soft-print",
+  "anamorphic-night",
+  "dream-glass",
+  "bleach-bypass",
+  "night-terror",
+  "custom",
+] as const;
+export type LensProfileId = (typeof LENS_PROFILE_IDS)[number];
 
 export interface StageSettings {
   width: number;
@@ -60,7 +104,29 @@ export interface BackgroundSettings {
   motion: number;
   grain: number;
   vignette: number;
+  scale: number;
+  softness: number;
+  complexity: number;
+  parallax: number;
   seed: number;
+}
+
+export interface OpticsSettings {
+  enabled: boolean;
+  profile: LensProfileId;
+  softFocus: number;
+  edgeSoftness: number;
+  motionBlur: number;
+  chromaticAberration: number;
+  bloom: number;
+  halation: number;
+  flare: number;
+  barrelDistortion: number;
+  vignette: number;
+  grain: number;
+  gateWeave: number;
+  breathing: number;
+  protectPresenter: boolean;
 }
 
 export interface PresenterSettings {
@@ -102,6 +168,7 @@ export interface StudioSettings {
   motion: MotionSettings;
   slide: SlideSettings;
   background: BackgroundSettings;
+  optics: OpticsSettings;
   presenter: PresenterSettings;
   output: OutputSettings;
 }
@@ -191,7 +258,28 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     motion: 0.34,
     grain: 0.12,
     vignette: 0.48,
+    scale: 1,
+    softness: 0.72,
+    complexity: 0.38,
+    parallax: 0.32,
     seed: 17,
+  },
+  optics: {
+    enabled: true,
+    profile: "soft-print",
+    softFocus: 0.18,
+    edgeSoftness: 0.24,
+    motionBlur: 0.14,
+    chromaticAberration: 0.1,
+    bloom: 0.1,
+    halation: 0.12,
+    flare: 0.03,
+    barrelDistortion: 0.02,
+    vignette: 0.08,
+    grain: 0.08,
+    gateWeave: 0.02,
+    breathing: 0.03,
+    protectPresenter: true,
   },
   presenter: {
     enabled: false,
