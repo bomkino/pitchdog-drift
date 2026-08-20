@@ -5,15 +5,20 @@ import { Script } from "node:vm";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const at = (path) => join(root, path);
-const read = (path) => readFileSync(at(path), "utf8");
 const fail = (message) => { throw new Error(`macOS source contract failed: ${message}`); };
 const requireFile = (path) => { if (!existsSync(at(path))) fail(`missing ${path}`); };
+const read = (path) => {
+  requireFile(path);
+  return readFileSync(at(path), "utf8");
+};
 const requireAll = (text, markers, label) => {
+  if (typeof text !== "string") fail(`${label} source was not loaded`);
   for (const marker of markers) {
     if (!text.includes(marker)) fail(`${label} is missing ${JSON.stringify(marker)}`);
   }
 };
 const forbidAll = (text, markers, label) => {
+  if (typeof text !== "string") fail(`${label} source was not loaded`);
   for (const marker of markers) {
     if (text.includes(marker)) fail(`${label} still contains forbidden ${JSON.stringify(marker)}`);
   }
@@ -67,6 +72,8 @@ const required = [
   "macos/NativeBridge.js",
   "macos/Info.plist",
   "macos/Drift.entitlements",
+  "src/App.tsx",
+  "src/components/MediaLibrary.tsx",
   "src/lib/macosAacEncoder.ts",
   "src/lib/nativeMac.ts",
   "tests/macosAacEncoder.test.ts",
@@ -110,10 +117,13 @@ if (JSON.stringify(discoveredAppSwift) !== JSON.stringify([...appSwift].sort()))
 }
 
 const source = Object.fromEntries(required.map((path) => [path, read(path)]));
+for (const path of required) {
+  if (typeof source[path] !== "string") fail(`source map omitted ${path}`);
+}
 const swift = appSwift.map((path) => source[path]).join("\n");
 const bridge = source["macos/NativeBridge.js"];
 const app = source["src/App.tsx"];
-const mediaLibrary = source["src/components/MediaLibrary.tsx"] ?? read("src/components/MediaLibrary.tsx");
+const mediaLibrary = source["src/components/MediaLibrary.tsx"];
 const nativeMac = source["src/lib/nativeMac.ts"];
 const nativeMacTests = source["tests/nativeMac.test.ts"];
 const appDelegate = source["macos/App/DriftAppDelegate.swift"];
