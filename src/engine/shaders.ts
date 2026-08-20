@@ -127,7 +127,7 @@ export const slideFragmentShader = /* glsl */ `
     // Grain is locked to the slide surface and logical slot. It does not crawl
     // with wall-clock time, so preview, stills, loops, and frame sequences agree.
     float grain = (hash12(floor(vUv * uSizePx) + vec2(uPhase * 17.0, uPhase * 31.0)) - 0.5) * 0.018;
-    sampled.rgb += grain + abs(vWarp) * 0.018;
+    sampled.rgb += (grain + abs(vWarp) * 0.018) * clamp(uLightingEnabled, 0.0, 1.0);
     vec3 surface = mix(sampled.rgb, uBorderColor, borderMask * uBorderOpacity);
 
     // Derivatives recover the true normal of the vertex-deformed card in view
@@ -183,8 +183,6 @@ export const shadowFragmentShader = /* glsl */ `
   uniform float uSoftnessPx;
   uniform float uContactStrength;
   uniform float uOpacity;
-  uniform float uLightPhase;
-  uniform float uLightBreath;
 
   float shapeDistance(vec2 p, vec2 halfSize, float radius, float smoothing) {
     if (radius < 0.5) {
@@ -201,8 +199,7 @@ export const shadowFragmentShader = /* glsl */ `
 
   void main() {
     vec2 pixel = (vUv - 0.5) * uCanvasSizePx;
-    float pulse = 1.0 + sin(uLightPhase * 2.0) * uLightBreath * 0.035;
-    vec2 castOffset = uShadowOffsetPx * pulse;
+    vec2 castOffset = uShadowOffsetPx;
     float softness = max(1.0, uSoftnessPx);
 
     float castDistance = shapeDistance(

@@ -56,7 +56,7 @@ Every manual edit converts the selected recipe to `Custom rig`. Recipes change d
 
 ### Lighting
 
-- **Cinematic lighting** — one master bypass for card light, cast shadow, and spill.
+- **Cinematic lighting** — one master bypass for card light, cast shadow, spill, and lighting-only surface texture. Off means source pixels pass through unchanged.
 - **Light character** — authored coherent rig.
 - **Key / fill colour** — restrained source tints.
 - **Key angle / elevation** — direction and apparent source height.
@@ -108,7 +108,7 @@ The branch must pass all existing checks plus dedicated falsification for:
 - spatial rather than wall-clock grain;
 - separate cast and contact shadow lobes;
 - ascending `smoothstep` vignette edges;
-- real Chromium/WebGL pixel change across rigs and byte-stable rest frames;
+- real Chromium/WebGL pixel change across rigs and pixel-stable rest frames;
 - the repository’s complete TypeScript, unit, production-build, media, export, context-loss, accessibility, and portability suites.
 
 ## Human review matrix

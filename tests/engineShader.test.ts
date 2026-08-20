@@ -79,12 +79,14 @@ describe("cinematic lighting shader contract", () => {
   it("keeps slide and background grain spatial instead of wall-clock driven", () => {
     expect(slideFragmentShader).toContain("floor(vUv * uSizePx)");
     expect(slideFragmentShader).not.toContain("fract(uTime)");
+    expect(slideFragmentShader).toContain("* clamp(uLightingEnabled, 0.0, 1.0)");
     expect(backgroundFragmentShader).toContain("hash12(gl_FragCoord.xy)");
     expect(backgroundFragmentShader).not.toContain("hash12(gl_FragCoord.xy +");
   });
 
   it("builds a directional coloured cast plus a separate contact-hardening lobe", () => {
     expect(shadowFragmentShader).toContain("uShadowOffsetPx");
+    expect(shadowFragmentShader).not.toContain("uShadowOffsetPx * pulse");
     expect(shadowFragmentShader).toContain("uShadowColor");
     expect(shadowFragmentShader).toContain("contactSoftness");
     expect(shadowFragmentShader).toContain("contactDistance");

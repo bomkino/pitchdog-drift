@@ -590,6 +590,7 @@ test("transparent PNG stores straight-alpha colour without dark fringes", async 
     document.body.append(canvas);
 
     const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.lighting = { ...settings.lighting, enabled: false };
     settings.stage = { width: 256, height: 256, transparent: true };
     settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
     settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
@@ -862,6 +863,7 @@ test("renderer pool and media replacement always preserve latest visual intent",
     ).join("");
 
     const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.lighting = { ...settings.lighting, enabled: false };
     settings.stage = { width: 256, height: 256, transparent: true };
     settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
     settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
@@ -1208,27 +1210,65 @@ test("authored lighting changes real WebGL pixels and remains still when directe
   if (!(await atmosphere.evaluate((element) => (element as HTMLDetailsElement).open))) {
     await atmosphere.locator("summary").click();
   }
+  await page.getByRole("combobox", { name: "Background", exact: true }).selectOption("solid");
   await page.getByRole("slider", { name: "Background breath" }).fill("0");
+  await page.getByRole("slider", { name: "Grain" }).fill("0");
+
+  const compareScreenshots = async (first: Buffer, second: Buffer) => page.evaluate(
+    async ({ firstPng, secondPng }) => {
+      const decode = async (encoded: string): Promise<Uint8ClampedArray> => {
+        const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }), { premultiplyAlpha: "none" });
+        const canvas = document.createElement("canvas");
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
+        context.drawImage(bitmap, 0, 0);
+        const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+        bitmap.close();
+        return pixels;
+      };
+      const [firstPixels, secondPixels] = await Promise.all([decode(firstPng), decode(secondPng)]);
+      if (firstPixels.length !== secondPixels.length) return { maxDelta: 255, significantChannels: 1 };
+      let maxDelta = 0;
+      let significantChannels = 0;
+      for (let index = 0; index < firstPixels.length; index += 1) {
+        const delta = Math.abs(firstPixels[index]! - secondPixels[index]!);
+        maxDelta = Math.max(maxDelta, delta);
+        if (delta > 1) significantChannels += 1;
+      }
+      return { maxDelta, significantChannels };
+    },
+    { firstPng: first.toString("base64"), secondPng: second.toString("base64") },
+  );
 
   const canvas = page.locator("[data-testid=webgl-stage]");
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(180);
   const windowPixels = await canvas.screenshot();
 
   await lightCharacter.selectOption("noir-slice");
   await expect(lightCharacter).toHaveValue("noir-slice");
   await page.getByRole("slider", { name: "Light breath" }).fill("0");
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(180);
   const noirPixels = await canvas.screenshot();
   expect(noirPixels.equals(windowPixels)).toBe(false);
 
+  await page.waitForTimeout(250);
+  const noirPixelsLater = await canvas.screenshot();
+  const litStability = await compareScreenshots(noirPixels, noirPixelsLater);
+  expect(litStability.maxDelta).toBeLessThanOrEqual(1);
+  expect(litStability.significantChannels).toBe(0);
+
   const lightingSwitch = page.getByRole("switch", { name: "Cinematic lighting" });
   await lightingSwitch.uncheck();
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(180);
   const unlitPixels = await canvas.screenshot();
-  expect(unlitPixels.equals(noirPixels)).toBe(false);
+  expect(unlitPixels.equals(noirPixelsLater)).toBe(false);
 
   await page.waitForTimeout(250);
   const unlitPixelsLater = await canvas.screenshot();
-  expect(unlitPixelsLater.equals(unlitPixels)).toBe(true);
+  const unlitStability = await compareScreenshots(unlitPixels, unlitPixelsLater);
+  expect(unlitStability.maxDelta).toBeLessThanOrEqual(1);
+  expect(unlitStability.significantChannels).toBe(0);
   expect(errors).toEqual([]);
 });

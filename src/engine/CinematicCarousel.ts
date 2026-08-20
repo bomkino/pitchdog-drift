@@ -191,8 +191,6 @@ function createShadowMaterial(): THREE.ShaderMaterial {
       uSoftnessPx: { value: 52 },
       uContactStrength: { value: 0.58 },
       uOpacity: { value: 0.34 },
-      uLightPhase: { value: 0 },
-      uLightBreath: { value: 0.1 },
     },
   });
 }
@@ -828,8 +826,6 @@ export class CinematicCarousel {
     shadowUniforms.uOpacity!.value = this.settings.lighting.enabled
       ? this.settings.lighting.shadowOpacity * evaluated.opacity
       : 0;
-    shadowUniforms.uLightPhase!.value = lighting.phase;
-    shadowUniforms.uLightBreath!.value = this.settings.lighting.breath;
 
     const assetKey = this.textureKey(asset);
     if (item.assetKey !== assetKey) {
@@ -919,8 +915,6 @@ export class CinematicCarousel {
     shadowUniforms.uSoftnessPx!.value = Math.max(2, this.settings.lighting.shadowSoftness * 0.92);
     shadowUniforms.uContactStrength!.value = this.settings.lighting.contactStrength * 0.9;
     shadowUniforms.uOpacity!.value = this.settings.lighting.enabled ? settings.shadowOpacity : 0;
-    shadowUniforms.uLightPhase!.value = lighting.phase;
-    shadowUniforms.uLightBreath!.value = this.settings.lighting.breath;
   }
 
   private updateSettingsUniforms(): void {
