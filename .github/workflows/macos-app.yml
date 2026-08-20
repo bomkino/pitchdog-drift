@@ -1,0 +1,86 @@
+name: macOS app
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/macos-app.yml"
+      - "macos/**"
+      - "scripts/build-macos-app.sh"
+      - "scripts/generate-macos-icon.py"
+      - "src/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "tsconfig*.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-native-studio:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify web and native source
+        run: npm run check
+
+      - name: Build universal sandboxed application
+        env:
+          DRIFT_SOURCE_REVISION: ${{ github.sha }}
+        run: npm run build:mac
+
+      - name: Falsify bundle claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="build/macos/Drift.app"
+          BIN="$APP/Contents/MacOS/Drift"
+          RECEIPT="$APP/Contents/Resources/BuildReceipt.txt"
+
+          test -x "$BIN"
+          test -f "$APP/Contents/Resources/Web/index.html"
+          test -f "$APP/Contents/Resources/NativeBridge.js"
+          test -f "$APP/Contents/Resources/Drift.icns"
+          test -f "$APP/Contents/Resources/Legal/LICENSE"
+          test -f "$APP/Contents/Resources/Legal/THIRD_PARTY_NOTICES.md"
+          test -f "$RECEIPT"
+
+          plutil -lint "$APP/Contents/Info.plist"
+          lipo -verify_arch arm64 x86_64 "$BIN"
+          codesign --verify --deep --strict "$APP"
+          "$BIN" --smoke-test
+
+          grep -Fx "source_revision=${GITHUB_SHA}" "$RECEIPT"
+          ! grep -Eq '(src|href)="/assets/' "$APP/Contents/Resources/Web/index.html"
+
+          ENTITLEMENTS="$RUNNER_TEMP/drift-entitlements.plist"
+          codesign -d --entitlements :- "$APP" > "$ENTITLEMENTS" 2>/dev/null
+          test "$(plutil -extract com.apple.security.app-sandbox raw "$ENTITLEMENTS")" = "true"
+          test "$(plutil -extract com.apple.security.files.user-selected.read-write raw "$ENTITLEMENTS")" = "true"
+          if plutil -extract com.apple.security.network.client raw "$ENTITLEMENTS" >/dev/null 2>&1; then
+            echo "Unexpected outbound-network entitlement" >&2
+            exit 1
+          fi
+
+      - name: Confirm no compiled distribution was staged
+        run: |
+          test ! -e release
+          test -z "$(find . -maxdepth 3 -type f \( -name '*.dmg' -o -name '*.pkg' -o -name '*.zip' \) -print -quit)"
