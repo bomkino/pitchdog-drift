@@ -43,3 +43,8 @@ replace_once(
     'await page.getByLabel("Master").fill("0.41");',
     'await page.getByRole("slider", { name: "Sound level", exact: true }).fill("0.41");',
 )
+replace_once(
+    "e2e/studio.e2e.ts",
+    'await expect(page.getByLabel("Master")).toHaveValue("0.41");',
+    'await expect(page.getByRole("slider", { name: "Sound level", exact: true })).toHaveValue("0.41");',
+)
