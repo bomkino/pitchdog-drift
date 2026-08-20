@@ -12,6 +12,9 @@ struct NativeGauntletMain {
             activePhase = "export power-activity lifecycle"
             try ExportActivityGuard.runSelfTest()
 
+            activePhase = "external Finder project admission"
+            try ClientState.runExternalProjectImportAdmissionSelfTest()
+
             activePhase = "native file-broker core"
             try NativeFileBroker.runSelfTest()
 
@@ -21,7 +24,7 @@ struct NativeGauntletMain {
             activePhase = "native AAC encoder"
             try NativeAacEncoderBroker.runSelfTest()
 
-            print("Drift trusted-WebKit, export-activity, native file, rollback, grant, and AAC gauntlets passed.")
+            print("Drift trusted-WebKit, export-activity, project-admission, native file, rollback, grant, and AAC gauntlets passed.")
             Darwin.exit(0)
         } catch let failure as BridgeFailure {
             fputs(
