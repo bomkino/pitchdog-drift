@@ -1,0 +1,47 @@
+name: Diagnose Director Desk browser gate
+
+on:
+  push:
+    branches: [gauntlet/directors-cut-optical-pipeline]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/directors-cut-optical-pipeline
+          fetch-depth: 0
+
+      - name: Capture the failed browser receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=gauntlet%2Fdirectors-cut-optical-pipeline&per_page=100" --jq '.workflow_runs[] | select(.name == "Apply Director Desk product pass") | .id' | head -1)"
+          test -n "$run_id"
+          {
+            printf 'run_id=%s\n\n' "$run_id"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+            printf '\n\n--- FAILED LOGS ---\n'
+            gh run view "$run_id" --log-failed || true
+          } > .github/director-desk-failure.log
+          rm .github/workflows/diagnose-director-desk-run.yml
+
+      - name: Publish diagnostic receipt and remove diagnostic workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github
+          git commit -m "chore: publish Director Desk browser failure receipt"
+          git push origin HEAD:gauntlet/directors-cut-optical-pipeline
