@@ -1,15 +1,14 @@
-name: macOS release candidate
+name: macOS signed release evidence
 
 on:
   workflow_dispatch:
     inputs:
-      source_ref:
-        description: Exact branch, tag, or commit to package
+      source_commit:
+        description: Exact 40-character commit already reachable from main
         required: true
-        default: main
         type: string
-      confirm_local_only:
-        description: Build and upload private workflow evidence only; do not publish
+      confirm_no_binary_upload:
+        description: Build and verify on the runner; retain text receipts only
         required: true
         default: true
         type: boolean
@@ -18,24 +17,50 @@ permissions:
   contents: read
 
 concurrency:
-  group: macos-release-${{ inputs.source_ref }}
+  group: macos-release-evidence-${{ inputs.source_commit }}
   cancel-in-progress: false
 
 jobs:
-  release-candidate:
-    if: ${{ inputs.confirm_local_only }}
+  release-evidence:
+    if: ${{ inputs.confirm_no_binary_upload }}
     runs-on: macos-15
     timeout-minutes: 90
+    environment:
+      name: macos-release
     env:
       KEYCHAIN_PATH: ${{ runner.temp }}/drift-release.keychain-db
       CERTIFICATE_PATH: ${{ runner.temp }}/drift-developer-id.p12
       NOTARY_KEY_PATH: ${{ runner.temp }}/AuthKey_Drift.p8
     steps:
-      - name: Check out exact source
+      - name: Check out trusted main history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: main
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Resolve an exact trusted main commit before secrets exist
+        env:
+          REQUESTED_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$REQUESTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "source_commit must be one exact 40-character Git commit SHA." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          git cat-file -e "${REQUESTED_COMMIT}^{commit}"
+          if ! git merge-base --is-ancestor "$REQUESTED_COMMIT" origin/main; then
+            echo "The requested commit is not reachable from trusted main." >&2
+            exit 1
+          fi
+          git checkout --detach "$REQUESTED_COMMIT"
+          RESOLVED_COMMIT="$(git rev-parse HEAD)"
+          [[ "$RESOLVED_COMMIT" == "${REQUESTED_COMMIT,,}" ]] || {
+            echo "Resolved commit differs from the requested commit." >&2
+            exit 1
+          }
+          echo "DRIFT_RELEASE_SOURCE_COMMIT=$RESOLVED_COMMIT" >> "$GITHUB_ENV"
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -55,7 +80,7 @@ jobs:
           set -euo pipefail
           for variable in CERTIFICATE_P12 CERTIFICATE_PASSWORD SIGN_IDENTITY NOTARY_KEY_P8 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
             if [[ -z "${!variable}" ]]; then
-              echo "Required repository secret is empty: $variable" >&2
+              echo "Required macos-release environment secret is empty: $variable" >&2
               exit 1
             fi
           done
@@ -81,6 +106,7 @@ jobs:
           print(secrets.token_urlsafe(32))
           PY
           )"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
           echo "DRIFT_TEMP_KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -114,7 +140,7 @@ jobs:
           path.chmod(0o600)
           PY
 
-      - name: Build, sign, notarise, staple, and verify
+      - name: Build, sign, notarise, staple, and verify without publishing
         env:
           DRIFT_MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
           APPLE_NOTARY_KEY_PATH: ${{ env.NOTARY_KEY_PATH }}
@@ -123,35 +149,40 @@ jobs:
           DRIFT_MACOS_ARCHS: arm64 x86_64
         run: scripts/release-macos-app.sh --notarize
 
-      - name: Record workflow source identity
+      - name: Record workflow source and non-publication identity
+        env:
+          REQUESTED_COMMIT: ${{ inputs.source_commit }}
         run: |
           set -euo pipefail
           {
-            echo "requested_ref=${{ inputs.source_ref }}"
+            echo "requested_commit=$REQUESTED_COMMIT"
             echo "resolved_commit=$(git rev-parse HEAD)"
+            echo "main_ancestor=yes"
             echo "repository=${GITHUB_REPOSITORY}"
             echo "workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "binary_uploaded=no"
+            echo "github_release_created=no"
           } > build/release/WorkflowSource.txt
 
-      - name: Upload private release evidence
+      - name: Retain text receipts only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: drift-macos-release-candidate-${{ github.run_id }}
+          name: drift-macos-signed-receipts-${{ github.run_id }}
           path: |
-            build/release/Drift-macOS.zip
-            build/release/Drift-macOS.dmg
             build/release/ReleaseManifest.json
             build/release/SHA256SUMS.txt
             build/release/notary-app.json
             build/release/notary-dmg.json
             build/release/WorkflowSource.txt
           if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
+          retention-days: 7
+          compression-level: 9
 
-      - name: Remove temporary signing material
+      - name: Remove signing material and every compiled binary
         if: always()
         run: |
           set +e
           security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1
           rm -f "$CERTIFICATE_PATH" "$NOTARY_KEY_PATH"
+          rm -rf build/macos/Drift.app
+          rm -f build/release/Drift-macOS.zip build/release/Drift-macOS.dmg
