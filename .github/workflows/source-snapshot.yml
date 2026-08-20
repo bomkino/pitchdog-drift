@@ -3,6 +3,8 @@ name: Source snapshot
 on:
   push:
     branches: [gauntlet/directors-cut-optical-pipeline]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
