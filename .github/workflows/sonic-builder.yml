@@ -38,10 +38,10 @@ jobs:
           from pathlib import Path
           path = Path('scripts/sonic-export-builder.mjs')
           source = path.read_text()
-          anchor = source.index('H.264 master verified')
+          anchor = source.rfind('result.width')
           start = source.rfind('  await replaceOnce(', 0, anchor)
           end = source.find('  await replaceOnce(', anchor)
-          if start < 0 or end < 0:
+          if anchor < 0 or start < 0 or end < 0:
               raise RuntimeError('Could not isolate the staging-only receipt patch.')
           path.write_text(source[:start] + source[end:])
           PY
