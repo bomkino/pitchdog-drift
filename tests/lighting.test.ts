@@ -1,25 +1,51 @@
 import { describe, expect, it } from "vitest";
 import {
-  LIGHTING_PRESETS,
   applyLightingPreset,
+  getLightingPreset,
+  isLightingCustomized,
+  LIGHTING_PRESETS,
+  lightingNeedsContinuousFrames,
   resolveLightingFrame,
 } from "../src/lighting";
-import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
+import { DEFAULT_SETTINGS, cloneSettings, type LightingSettings } from "../src/model";
 import { THEMES } from "../src/themes";
 import { validateStudioSettings } from "../src/lib/settingsValidation";
 
-function expectTupleClose(actual: readonly number[], expected: readonly number[], precision = 10): void {
-  expect(actual).toHaveLength(expected.length);
-  actual.forEach((value, index) => expect(value).toBeCloseTo(expected[index]!, precision));
+function frame(
+  lighting: LightingSettings,
+  time: number,
+  overrides: Partial<Parameters<typeof resolveLightingFrame>[1]> = {},
+) {
+  return resolveLightingFrame(lighting, {
+    time,
+    reduced: false,
+    seamless: false,
+    duration: 8,
+    loops: 1,
+    ...overrides,
+  });
 }
 
-describe("authored cinematic lighting", () => {
-  it("ships six materially distinct, valid rigs rather than palette swaps", () => {
-    expect(LIGHTING_PRESETS).toHaveLength(6);
-    expect(new Set(LIGHTING_PRESETS.map((preset) => preset.id)).size).toBe(6);
-    expect(new Set(LIGHTING_PRESETS.map((preset) => preset.lighting.gobo)).size).toBe(6);
-    expect(new Set(LIGHTING_PRESETS.map((preset) => preset.lighting.shadowDistance)).size).toBe(6);
-    expect(new Set(LIGHTING_PRESETS.map((preset) => preset.lighting.elevation)).size).toBe(6);
+describe("authored lighting direction", () => {
+  it("ships twelve structurally distinct rigs rather than palette swaps", () => {
+    expect(LIGHTING_PRESETS).toHaveLength(12);
+    expect(new Set(LIGHTING_PRESETS.map((preset) => preset.id)).size).toBe(12);
+    expect(new Set(LIGHTING_PRESETS.map((preset) => preset.lighting.gobo)).size).toBe(12);
+
+    const signatures = LIGHTING_PRESETS.map(({ lighting }) => JSON.stringify({
+      space: lighting.space,
+      motion: [lighting.motionMode, lighting.motionSpeed, lighting.breath],
+      source: [lighting.azimuth, lighting.elevation, lighting.keyIntensity, lighting.fillIntensity],
+      surface: [lighting.rimIntensity, lighting.sheen, lighting.roughness, lighting.artworkProtection],
+      shadow: [
+        lighting.shadowOpacity,
+        lighting.shadowSoftness,
+        lighting.shadowDistance,
+        lighting.contactStrength,
+      ],
+      field: [lighting.backgroundSpill, lighting.spillFocus, lighting.goboStrength, lighting.gobo],
+    }));
+    expect(new Set(signatures).size).toBe(LIGHTING_PRESETS.length);
 
     for (const preset of LIGHTING_PRESETS) {
       const settings = cloneSettings(DEFAULT_SETTINGS);
@@ -28,90 +54,123 @@ describe("authored cinematic lighting", () => {
     }
   });
 
-  it("gives every film world an authored lighting rig", () => {
-    expect(THEMES.map((theme) => theme.settings.lighting.preset)).toEqual([
-      "studio-soft",
-      "window-rake",
-      "noir-slice",
-      "projector-haze",
-      "golden-hour",
-      "electric-rim",
-    ]);
-    expect(new Set(THEMES.map((theme) => theme.settings.lighting.preset)).size).toBe(THEMES.length);
+  it("keeps every film world wired to an authored lighting rig", () => {
+    for (const theme of THEMES) {
+      expect(theme.settings.lighting.preset).not.toBe("custom");
+      expect(getLightingPreset(theme.settings.lighting.preset).id)
+        .toBe(theme.settings.lighting.preset);
+    }
   });
 
-  it("applies a recipe without mutating the previous rig", () => {
-    const current = { ...DEFAULT_SETTINGS.lighting };
-    const next = applyLightingPreset(current, "noir-slice");
+  it("applies a rig without mutating source state or overriding an intentional bypass", () => {
+    const current = cloneSettings(DEFAULT_SETTINGS).lighting;
+    current.enabled = false;
+    const next = applyLightingPreset(current, "moon-pool");
 
-    expect(next).toEqual(LIGHTING_PRESETS.find((preset) => preset.id === "noir-slice")!.lighting);
+    expect(next).toEqual({
+      ...getLightingPreset("moon-pool").lighting,
+      enabled: false,
+    });
     expect(next).not.toBe(current);
-    expect(current).toEqual(DEFAULT_SETTINGS.lighting);
-    expect(applyLightingPreset(current, "custom")).toEqual({ ...current, preset: "custom" });
+    expect(current.preset).toBe("studio-soft");
   });
 
-  it("resolves finite unit vectors and bounded shadow geometry at every control extreme", () => {
-    for (const azimuth of [-180, 0, 180]) {
-      for (const elevation of [5, 45, 85]) {
-        for (const shadowDistance of [0, 180]) {
-          const lighting = {
-            ...DEFAULT_SETTINGS.lighting,
-            azimuth,
-            elevation,
-            shadowDistance,
-            breath: 1,
-          };
-          const frame = resolveLightingFrame(lighting, {
-            time: 1_000_000,
-            reduced: false,
-            seamless: false,
-            duration: 30,
-            loops: 6,
-          });
-          const values = [
-            ...frame.direction,
-            ...frame.screenDirection,
-            ...frame.shadowOffset,
-            frame.phase,
-            frame.goboMode,
-          ];
-          expect(values.every(Number.isFinite)).toBe(true);
-          expect(Math.hypot(...frame.direction)).toBeCloseTo(1, 12);
-          expect(Math.hypot(...frame.screenDirection)).toBeCloseTo(1, 12);
-          expect(Math.hypot(...frame.shadowOffset)).toBeLessThanOrEqual(181);
-        }
+  it("tracks tuned rigs without treating the master bypass as customization", () => {
+    const authored = { ...getLightingPreset("studio-soft").lighting };
+    expect(isLightingCustomized(authored)).toBe(false);
+
+    authored.enabled = false;
+    expect(isLightingCustomized(authored)).toBe(false);
+
+    authored.shadowSoftness += 1;
+    expect(isLightingCustomized(authored)).toBe(true);
+
+    const reset = applyLightingPreset(authored, authored.preset);
+    expect(isLightingCustomized(reset)).toBe(false);
+    expect(reset.enabled).toBe(false);
+  });
+
+  it("resolves finite normalized directions and bounded fields across every rig", () => {
+    for (const preset of LIGHTING_PRESETS) {
+      for (const time of [0, 0.125, 3.75, 8, 93.4]) {
+        const resolved = frame(preset.lighting, time);
+        expect(resolved.direction.every(Number.isFinite)).toBe(true);
+        expect(resolved.screenDirection.every(Number.isFinite)).toBe(true);
+        expect(resolved.shadowOffset.every(Number.isFinite)).toBe(true);
+        expect(resolved.fieldCenter.every(Number.isFinite)).toBe(true);
+        expect(Math.hypot(...resolved.direction)).toBeCloseTo(1, 8);
+        expect(Math.hypot(...resolved.screenDirection)).toBeCloseTo(1, 8);
+        expect(Math.hypot(...resolved.shadowOffset))
+          .toBeLessThanOrEqual(preset.lighting.shadowDistance + 1e-8);
+        expect(Math.abs(resolved.fieldCenter[0])).toBeLessThanOrEqual(0.45);
+        expect(Math.abs(resolved.fieldCenter[1])).toBeLessThanOrEqual(0.45);
+        expect(resolved.intensity).toBeGreaterThanOrEqual(0.82);
+        expect(resolved.intensity).toBeLessThanOrEqual(1.18);
+        expect(resolved.goboMode).toBeGreaterThanOrEqual(0);
+        expect(resolved.goboMode).toBeLessThan(12);
       }
     }
   });
 
-  it("shortens the cast as the source rises", () => {
-    const timeline = { time: 0, reduced: false, seamless: false, duration: 8, loops: 1 };
-    const low = resolveLightingFrame({ ...DEFAULT_SETTINGS.lighting, elevation: 5, shadowDistance: 180 }, timeline);
-    const high = resolveLightingFrame({ ...DEFAULT_SETTINGS.lighting, elevation: 85, shadowDistance: 180 }, timeline);
+  it("closes every animated rig exactly under seamless export", () => {
+    for (const preset of LIGHTING_PRESETS) {
+      const timeline = {
+        reduced: false,
+        seamless: true,
+        duration: 9,
+        loops: 3,
+      };
+      const start = resolveLightingFrame(preset.lighting, { ...timeline, time: 0 });
+      const end = resolveLightingFrame(preset.lighting, { ...timeline, time: 9 });
+
+      for (const key of ["direction", "screenDirection", "shadowOffset", "fieldCenter"] as const) {
+        expect(end[key][0]).toBeCloseTo(start[key][0], 10);
+        expect(end[key][1]).toBeCloseTo(start[key][1], 10);
+      }
+      expect(end.direction[2]).toBeCloseTo(start.direction[2], 10);
+      expect(end.intensity).toBeCloseTo(start.intensity, 10);
+      expect(end.goboMode).toBe(start.goboMode);
+    }
+  });
+
+  it("freezes the complete state for reduced motion and static light", () => {
+    const moving = { ...getLightingPreset("headlight-sweep").lighting };
+    const reducedStart = frame(moving, 0, { reduced: true });
+    const reducedLater = frame(moving, 1_000_000, { reduced: true });
+    expect(reducedLater).toEqual(reducedStart);
+
+    const staticRig = { ...moving, motionMode: "static" as const, breath: 1 };
+    expect(frame(staticRig, 0)).toEqual(frame(staticRig, 1_000_000));
+  });
+
+  it("requests continuous preview frames only when light can actually move", () => {
+    const lighting = { ...DEFAULT_SETTINGS.lighting };
+    expect(lightingNeedsContinuousFrames(lighting, false)).toBe(true);
+    expect(lightingNeedsContinuousFrames(lighting, true)).toBe(false);
+    expect(lightingNeedsContinuousFrames({ ...lighting, enabled: false }, false)).toBe(false);
+    expect(lightingNeedsContinuousFrames({ ...lighting, breath: 0 }, false)).toBe(false);
+    expect(lightingNeedsContinuousFrames({ ...lighting, motionMode: "static" }, false)).toBe(false);
+  });
+
+  it("shortens the cast as the source rises without exceeding authored reach", () => {
+    const base = { ...DEFAULT_SETTINGS.lighting, shadowDistance: 180, motionMode: "static" as const };
+    const low = frame({ ...base, elevation: 5 }, 0);
+    const high = frame({ ...base, elevation: 85 }, 0);
 
     expect(Math.hypot(...low.shadowOffset)).toBeGreaterThan(Math.hypot(...high.shadowOffset));
+    expect(Math.hypot(...low.shadowOffset)).toBeLessThanOrEqual(180);
   });
 
-  it("closes the complete light state exactly at a seamless master boundary", () => {
-    const lighting = { ...DEFAULT_SETTINGS.lighting, breath: 1 };
-    const timeline = { reduced: false, seamless: true, duration: 8, loops: 3 };
-    const start = resolveLightingFrame(lighting, { ...timeline, time: 0 });
-    const end = resolveLightingFrame(lighting, { ...timeline, time: timeline.duration });
-
-    expectTupleClose(end.direction, start.direction);
-    expectTupleClose(end.screenDirection, start.screenDirection);
-    expectTupleClose(end.shadowOffset, start.shadowOffset);
-    expect(end.goboMode).toBe(start.goboMode);
-    expect(end.phase).toBeCloseTo(Math.PI * 2 * timeline.loops, 12);
-  });
-
-  it("freezes every animated lighting quantity under reduced motion", () => {
-    const lighting = { ...DEFAULT_SETTINGS.lighting, breath: 1 };
-    const base = { reduced: true, seamless: false, duration: 8, loops: 1 };
-    const first = resolveLightingFrame(lighting, { ...base, time: 0 });
-    const later = resolveLightingFrame(lighting, { ...base, time: 999_999 });
-
-    expect(later).toEqual(first);
-    expect(first.phase).toBe(0);
+  it("keeps all four motion speeds deterministic and exactly closing", () => {
+    const base = { ...getLightingPreset("lantern-flicker").lighting };
+    for (const motionSpeed of [1, 2, 3, 4] as const) {
+      const lighting = { ...base, motionSpeed };
+      const start = frame(lighting, 0, { seamless: true, duration: 11, loops: 2 });
+      const end = frame(lighting, 11, { seamless: true, duration: 11, loops: 2 });
+      expect(end.direction[0]).toBeCloseTo(start.direction[0], 10);
+      expect(end.direction[1]).toBeCloseTo(start.direction[1], 10);
+      expect(end.direction[2]).toBeCloseTo(start.direction[2], 10);
+      expect(end.intensity).toBeCloseTo(start.intensity, 10);
+    }
   });
 });

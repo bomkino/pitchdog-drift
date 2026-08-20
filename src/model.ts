@@ -2,6 +2,7 @@ export const SCHEMA_VERSION = 1 as const;
 export const ENGINE_VERSION = "1.0.0";
 export const SHADER_VERSION = "1.0.0";
 export const THEME_VERSION = "1.0.0";
+export const LIGHTING_VERSION = 2 as const;
 
 export type Axis = "horizontal" | "vertical";
 export type Direction = 1 | -1;
@@ -9,8 +10,35 @@ export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel";
 export type ImageFit = "cover" | "contain";
 export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
 export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
-export type LightingPresetId = "custom" | "studio-soft" | "window-rake" | "projector-haze" | "noir-slice" | "golden-hour" | "electric-rim";
-export type LightGobo = "softbox" | "window" | "projector" | "slit" | "sunset" | "edge";
+export type LightingPresetId =
+  | "custom"
+  | "studio-soft"
+  | "window-rake"
+  | "projector-haze"
+  | "noir-slice"
+  | "golden-hour"
+  | "electric-rim"
+  | "overcast-window"
+  | "moon-pool"
+  | "sodium-vapor"
+  | "lantern-flicker"
+  | "fluorescent-flat"
+  | "headlight-sweep";
+export type LightGobo =
+  | "softbox"
+  | "window"
+  | "projector"
+  | "slit"
+  | "sunset"
+  | "edge"
+  | "overcast"
+  | "moon"
+  | "sodium"
+  | "lantern"
+  | "ceiling"
+  | "headlights";
+export type LightingMotion = "static" | "breathe" | "sweep" | "flicker" | "orbit";
+export type LightingSpace = "stage" | "card";
 
 export interface StageSettings {
   width: number;
@@ -66,8 +94,12 @@ export interface BackgroundSettings {
 }
 
 export interface LightingSettings {
+  version: typeof LIGHTING_VERSION;
   preset: LightingPresetId;
   enabled: boolean;
+  space: LightingSpace;
+  motionMode: LightingMotion;
+  motionSpeed: 1 | 2 | 3 | 4;
   keyColor: string;
   fillColor: string;
   shadowColor: string;
@@ -78,12 +110,15 @@ export interface LightingSettings {
   rimIntensity: number;
   sheen: number;
   roughness: number;
+  artworkProtection: number;
+  heroProtection: number;
   shadowOpacity: number;
   shadowSoftness: number;
   shadowDistance: number;
   contactStrength: number;
   backgroundSpill: number;
   spillFocus: number;
+  goboStrength: number;
   breath: number;
   gobo: LightGobo;
 }
@@ -220,8 +255,12 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     seed: 17,
   },
   lighting: {
+    version: LIGHTING_VERSION,
     preset: "studio-soft",
     enabled: true,
+    space: "stage",
+    motionMode: "breathe",
+    motionSpeed: 1,
     keyColor: "#fff1dc",
     fillColor: "#b9c9e8",
     shadowColor: "#100c12",
@@ -232,12 +271,15 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     rimIntensity: 0.14,
     sheen: 0.16,
     roughness: 0.72,
+    artworkProtection: 0.82,
+    heroProtection: 0.82,
     shadowOpacity: 0.34,
     shadowSoftness: 52,
     shadowDistance: 54,
     contactStrength: 0.58,
     backgroundSpill: 0.28,
     spillFocus: 0.78,
+    goboStrength: 0.08,
     breath: 0.1,
     gobo: "softbox",
   },

@@ -1,6 +1,7 @@
 import {
   DEFAULT_SETTINGS,
   ENGINE_VERSION,
+  LIGHTING_VERSION,
   SCHEMA_VERSION,
   SHADER_VERSION,
   type StudioSettings,
@@ -111,8 +112,38 @@ const DIRECTIONS = [-1, 1] as const;
 const FLOWS = ["straight", "arc", "ribbon", "cylinder", "tunnel"] as const;
 const IMAGE_FITS = ["cover", "contain"] as const;
 const BACKGROUNDS = ["transparent", "solid", "gradient", "aura", "paper", "void"] as const;
-const LIGHTING_PRESETS = ["custom", "studio-soft", "window-rake", "projector-haze", "noir-slice", "golden-hour", "electric-rim"] as const;
-const LIGHT_GOBOS = ["softbox", "window", "projector", "slit", "sunset", "edge"] as const;
+const LIGHTING_PRESETS = [
+  "custom",
+  "studio-soft",
+  "window-rake",
+  "projector-haze",
+  "noir-slice",
+  "golden-hour",
+  "electric-rim",
+  "overcast-window",
+  "moon-pool",
+  "sodium-vapor",
+  "lantern-flicker",
+  "fluorescent-flat",
+  "headlight-sweep",
+] as const;
+const LIGHT_GOBOS = [
+  "softbox",
+  "window",
+  "projector",
+  "slit",
+  "sunset",
+  "edge",
+  "overcast",
+  "moon",
+  "sodium",
+  "lantern",
+  "ceiling",
+  "headlights",
+] as const;
+const LIGHTING_MOTIONS = ["static", "breathe", "sweep", "flicker", "orbit"] as const;
+const LIGHTING_SPACES = ["stage", "card"] as const;
+const LIGHTING_SPEEDS = [1, 2, 3, 4] as const;
 const THEMES = [
   "editorial-drift",
   "road-memory",
@@ -126,9 +157,11 @@ const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
 /**
  * Validates the complete current settings schema and rebuilds it field by
  * field. Unknown keys never cross the trust boundary; missing or malformed
- * known keys never receive a silent default. The only compatibility
- * exception is the additive v1 lighting section: projects written before
- * it existed inherit the old slide shadow values and the current neutral rig.
+ * known keys never receive a silent default. Lighting is the additive
+ * compatibility exception: projects written before it existed inherit the
+ * visible legacy shadow, while first-generation lighting objects inherit only
+ * the new version-2 direction fields. Existing authored values are never
+ * silently repaired.
  */
 export function validateStudioSettings(value: unknown): StudioSettings {
   const source = record(value, "settings");
@@ -246,8 +279,20 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       seed: number(background.seed, "settings.background.seed", { min: 0, max: 1_000_000, integer: true }),
     },
     lighting: {
+      version: lighting.version === undefined
+        ? LIGHTING_VERSION
+        : literal(lighting.version, "settings.lighting.version", LIGHTING_VERSION),
       preset: oneOf(lighting.preset, "settings.lighting.preset", LIGHTING_PRESETS),
       enabled: boolean(lighting.enabled, "settings.lighting.enabled"),
+      space: lighting.space === undefined
+        ? DEFAULT_SETTINGS.lighting.space
+        : oneOf(lighting.space, "settings.lighting.space", LIGHTING_SPACES),
+      motionMode: lighting.motionMode === undefined
+        ? DEFAULT_SETTINGS.lighting.motionMode
+        : oneOf(lighting.motionMode, "settings.lighting.motionMode", LIGHTING_MOTIONS),
+      motionSpeed: lighting.motionSpeed === undefined
+        ? DEFAULT_SETTINGS.lighting.motionSpeed
+        : oneOf(lighting.motionSpeed, "settings.lighting.motionSpeed", LIGHTING_SPEEDS),
       keyColor: hexColour(lighting.keyColor, "settings.lighting.keyColor"),
       fillColor: hexColour(lighting.fillColor, "settings.lighting.fillColor"),
       shadowColor: hexColour(lighting.shadowColor, "settings.lighting.shadowColor"),
@@ -258,12 +303,21 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       rimIntensity: number(lighting.rimIntensity, "settings.lighting.rimIntensity", { min: 0, max: 1 }),
       sheen: number(lighting.sheen, "settings.lighting.sheen", { min: 0, max: 1 }),
       roughness: number(lighting.roughness, "settings.lighting.roughness", { min: 0, max: 1 }),
+      artworkProtection: lighting.artworkProtection === undefined
+        ? DEFAULT_SETTINGS.lighting.artworkProtection
+        : number(lighting.artworkProtection, "settings.lighting.artworkProtection", { min: 0, max: 1 }),
+      heroProtection: lighting.heroProtection === undefined
+        ? DEFAULT_SETTINGS.lighting.heroProtection
+        : number(lighting.heroProtection, "settings.lighting.heroProtection", { min: 0, max: 1 }),
       shadowOpacity: number(lighting.shadowOpacity, "settings.lighting.shadowOpacity", { min: 0, max: 0.9 }),
       shadowSoftness: number(lighting.shadowSoftness, "settings.lighting.shadowSoftness", { min: 2, max: 180 }),
       shadowDistance: number(lighting.shadowDistance, "settings.lighting.shadowDistance", { min: 0, max: 180 }),
       contactStrength: number(lighting.contactStrength, "settings.lighting.contactStrength", { min: 0, max: 1 }),
       backgroundSpill: number(lighting.backgroundSpill, "settings.lighting.backgroundSpill", { min: 0, max: 1 }),
       spillFocus: number(lighting.spillFocus, "settings.lighting.spillFocus", { min: 0.15, max: 1.5 }),
+      goboStrength: lighting.goboStrength === undefined
+        ? DEFAULT_SETTINGS.lighting.goboStrength
+        : number(lighting.goboStrength, "settings.lighting.goboStrength", { min: 0, max: 1 }),
       breath: number(lighting.breath, "settings.lighting.breath", { min: 0, max: 1 }),
       gobo: oneOf(lighting.gobo, "settings.lighting.gobo", LIGHT_GOBOS),
     },
