@@ -68,7 +68,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             return 1
         }
 
-        print("Drift WebView self-test passed: relative bundle assets, React studio, typed app contract, authoritative state, and native polyfills loaded.")
+        print("Drift WebView self-test passed: relative bundle assets, React studio, installed typed app contract, authoritative state, direct native save, and file-system polyfills loaded.")
         return 0
     }
 
@@ -93,8 +93,10 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
           hasNativeMarker: window.__DRIFT_NATIVE_MAC__?.bridgeVersion === 2,
           hasSavePicker: typeof window.showSaveFilePicker === 'function',
           hasDirectoryPicker: typeof window.showDirectoryPicker === 'function',
+          hasNativeSave: typeof window.__driftNativeSaveBlob === 'function',
           hasAppBridgeInstaller: typeof window.__driftNativeInstallAppBridge === 'function',
           hasStateReporter: typeof window.__driftNativeReportClientState === 'function',
+          hasInstalledAppBridge: document.documentElement.dataset.driftNativeAppBridge === 'ready',
           isFileRuntime: location.protocol === 'file:',
           title: document.title
         }))()
@@ -111,15 +113,17 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                values["hasNativeMarker"] as? Bool == true,
                values["hasSavePicker"] as? Bool == true,
                values["hasDirectoryPicker"] as? Bool == true,
+               values["hasNativeSave"] as? Bool == true,
                values["hasAppBridgeInstaller"] as? Bool == true,
                values["hasStateReporter"] as? Bool == true,
+               values["hasInstalledAppBridge"] as? Bool == true,
                values["isFileRuntime"] as? Bool == true,
                self.bridge?.clientState.lastNotice != nil {
                 self.finished = true
                 return
             }
             guard attemptsRemaining > 0, let webView else {
-                self.failure = "The bundled page loaded, but React did not install the typed native contract or report authoritative state."
+                self.failure = "The bundled page loaded, but React did not install the typed native contract, expose direct native saves, or report authoritative state."
                 self.finished = true
                 return
             }

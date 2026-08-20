@@ -61,21 +61,47 @@ codesign -dv --verbose=4 "${APP_BUNDLE}" 2>"${SIGNATURE}"
 grep -Eq 'flags=.*runtime' "${SIGNATURE}" || fail "hardened runtime is not present in the signature."
 
 ENTITLEMENTS="${TEMP_DIR}/entitlements.plist"
-if ! codesign -d --entitlements :- "${APP_BUNDLE}" >"${ENTITLEMENTS}" 2>/dev/null || [[ ! -s "${ENTITLEMENTS}" ]]; then
-  codesign -d --entitlements :- "${APP_BUNDLE}" 2>"${ENTITLEMENTS}" >/dev/null
+ENTITLEMENTS_DIAGNOSTICS="${TEMP_DIR}/entitlements.stderr"
+if ! codesign -d --entitlements :- "${APP_BUNDLE}" >"${ENTITLEMENTS}" 2>"${ENTITLEMENTS_DIAGNOSTICS}"; then
+  cat "${ENTITLEMENTS_DIAGNOSTICS}" >&2
+  fail "codesign could not extract the app entitlements."
 fi
-plutil -lint "${ENTITLEMENTS}" >/dev/null
-[[ "$(plutil -extract com.apple.security.app-sandbox raw -o - "${ENTITLEMENTS}")" == "true" ]] \
-  || fail "App Sandbox entitlement is missing."
-[[ "$(plutil -extract com.apple.security.files.user-selected.read-write raw -o - "${ENTITLEMENTS}")" == "true" ]] \
-  || fail "user-selected read/write entitlement is missing."
-ENTITLEMENTS_DUMP="$(plutil -p "${ENTITLEMENTS}")"
-if grep -E 'com\.apple\.security\.network\.(client|server)' <<<"${ENTITLEMENTS_DUMP}" >/dev/null; then
-  fail "network entitlements are forbidden for Drift’s local-only app."
-fi
-if grep -E 'disable-library-validation|allow-unsigned-executable-memory|allow-jit' <<<"${ENTITLEMENTS_DUMP}" >/dev/null; then
-  fail "the app carries an unnecessary hardened-runtime exception."
-fi
+plutil -lint "${ENTITLEMENTS}" >/dev/null || {
+  cat "${ENTITLEMENTS_DIAGNOSTICS}" >&2
+  fail "codesign returned an unreadable entitlement plist."
+}
+python3 - "${ENTITLEMENTS}" <<'PY'
+from __future__ import annotations
+
+import plistlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+with path.open("rb") as stream:
+    entitlements = plistlib.load(stream)
+
+required = {
+    "com.apple.security.app-sandbox": True,
+    "com.apple.security.files.user-selected.read-write": True,
+}
+for key, expected in required.items():
+    if entitlements.get(key) is not expected:
+        raise SystemExit(f"Drift.app verification failed: signed entitlement {key!r} is missing or not true.")
+
+for key in entitlements:
+    if key.startswith("com.apple.security.network."):
+        raise SystemExit(f"Drift.app verification failed: network entitlement {key!r} is forbidden.")
+
+for key in (
+    "com.apple.security.cs.disable-library-validation",
+    "com.apple.security.cs.allow-unsigned-executable-memory",
+    "com.apple.security.cs.allow-jit",
+    "com.apple.security.cs.allow-dyld-environment-variables",
+):
+    if entitlements.get(key):
+        raise SystemExit(f"Drift.app verification failed: dangerous hardened-runtime exception {key!r} is enabled.")
+PY
 
 actual_archs="$(lipo -archs "${EXECUTABLE}" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ' | sed 's/ $//')"
 expected_archs="$(printf '%s\n' ${DRIFT_EXPECT_ARCHS:-arm64 x86_64} | sort | tr '\n' ' ' | sed 's/ $//')"

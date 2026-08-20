@@ -40,7 +40,11 @@ enum GrantMode {
 
 struct ClientState {
     var exportInProgress = false
-    var projectBusy = false
+    // Native menus and protected-exit logic must remain locked until React has
+    // emitted its first authoritative state snapshot. A finished HTML
+    // navigation is not evidence that the studio, project store, or typed app
+    // bridge is ready.
+    var projectBusy = true
     var saveState = "loading"
     var lastNotice: String?
 

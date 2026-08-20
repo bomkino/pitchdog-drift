@@ -80,6 +80,7 @@ const app = read("src/App.tsx");
 const mediaLibrary = read("src/components/MediaLibrary.tsx");
 const nativeMac = read("src/lib/nativeMac.ts");
 const nativeMacTests = read("tests/nativeMac.test.ts");
+const webViewSelfTest = read("macos/App/WebViewSelfTest.swift");
 const build = read("scripts/build-macos-app.sh");
 const verify = read("scripts/verify-macos-app.sh");
 const packageDmg = read("scripts/package-macos-dmg.sh");
@@ -153,19 +154,32 @@ for (const kind of ["slides", "presenter", "project"]) {
 
 requireText(bridge, "__driftNativeInstallAppBridge", "native app bridge installer");
 requireText(bridge, "__driftNativeReportClientState", "authoritative native state reporter");
+requireText(bridge, "__driftNativeSaveBlob", "direct native Blob save");
+requireText(bridge, "driftNativeAppBridge = \"ready\"", "installed app bridge marker");
 requireText(app, "installNativeMacAppBridge", "React bridge installation");
 requireText(app, "reportNativeMacClientState", "React authoritative state report");
+requireText(app, "saveNativeMacBlob", "awaited native save path");
+requireText(app, "nativeCommandRef", "stable native command adapter");
+requireText(app, "nativeImportRef", "stable native import adapter");
+requireText(app, "await downloadBlob", "truthful generated-file completion");
 requireText(app, "imageInputRef={imageInputRef}", "direct native slide action");
 requireText(app, "presenterInputRef={presenterInputRef}", "direct native presenter action");
 requireText(mediaLibrary, "imageInputRef: RefObject", "external slide input ref");
 requireText(mediaLibrary, "presenterInputRef: RefObject", "external presenter input ref");
-requireText(nativeMacTests, "instead of scraping rendered copy", "native contract falsification test");
+requireText(nativeMac, "saveNativeMacBlob", "typed direct native save helper");
+requireText(nativeMacTests, "instead of scraping rendered copy", "native state falsification test");
+requireText(nativeMacTests, "does not report export success until the native staged save resolves", "truthful save falsification test");
+requireText(webViewSelfTest, "hasInstalledAppBridge", "packaged typed-bridge integration probe");
+requireText(webViewSelfTest, "hasNativeSave", "packaged direct-save integration probe");
 for (const forbidden of [
   "function clickByText",
   "function readClientState",
   "querySelectorAll(\"button\")",
   ".header-status span",
   ".export-overlay",
+  "MutationObserver",
+  "nativeSavePending",
+  "queuedCommands",
 ]) {
   forbidText(bridge, forbidden, "native app contract");
 }
@@ -225,5 +239,5 @@ requireText(macWorkflow, "shasum -a 256 -c", "DMG checksum verification");
 requireText(macDocs, "## Compiled-distribution boundary", "compiled-distribution documentation");
 
 console.log(
-  "macOS source contract passed: one typed React↔AppKit contract, seven canonical Swift files, one bridge, one workflow, and one verified 512 MiB output ceiling.",
+  "macOS source contract passed: one stable typed React↔AppKit contract, direct awaited native saves, seven canonical Swift files, one bridge, one workflow, and one verified 512 MiB output ceiling.",
 );
