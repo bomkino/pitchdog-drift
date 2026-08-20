@@ -30,9 +30,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Probe authentic CC0 preview endpoints
-        run: node scripts/probe-freesound-previews.mjs
-
       - name: Vendor pinned CC0 audio and integrate source
         run: |
           printf '\nNo third-party image, font, video, or audio asset is included in the repository.\n' >> ASSET-LICENSE.md
@@ -79,7 +76,7 @@ jobs:
 
       - name: Commit verified implementation only
         run: |
-          rm scripts/sonic-builder.mjs scripts/sonic-export-builder.mjs scripts/repair-sonic-export-builder.py scripts/fix-generated-sonic.py scripts/probe-freesound-previews.mjs .github/workflows/sonic-builder.yml
+          rm scripts/sonic-builder.mjs scripts/sonic-export-builder.mjs scripts/repair-sonic-export-builder.py scripts/fix-generated-sonic.py .github/workflows/sonic-builder.yml
           git config user.name "pitch.dog sonic gauntlet"
           git config user.email "actions@users.noreply.github.com"
           git add -A
