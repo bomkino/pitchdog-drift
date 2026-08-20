@@ -18,6 +18,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     private let broker = NativeFileBroker()
     private let aacBroker = NativeAacEncoderBroker()
     private let brokerQueue = DispatchQueue(label: "dog.pitch.drift.file-broker", qos: .userInitiated)
+    private let trustedIndexURL = TrustedWebRuntime.bundledIndexURL()
     private(set) var clientState = ClientState()
     private var inputIntent: InputIntent?
     private var lastCommittedURL: URL?
@@ -44,8 +45,19 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         didReceive message: WKScriptMessage,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
-        guard message.name == driftBridgeName, message.frameInfo.isMainFrame else {
-            replyHandler(failureEnvelope(BridgeFailure("SecurityError", "Native messages are accepted only from Drift’s main frame.")), nil)
+        guard message.name == driftBridgeName,
+              message.frameInfo.isMainFrame,
+              TrustedWebRuntime.acceptsMainFrameURL(
+                  message.frameInfo.request.url,
+                  trustedIndexURL: trustedIndexURL
+              ) else {
+            replyHandler(
+                failureEnvelope(BridgeFailure(
+                    "SecurityError",
+                    "Native messages are accepted only from Drift’s signed local studio document."
+                )),
+                nil
+            )
             return
         }
         guard let body = message.body as? JSONDictionary,
