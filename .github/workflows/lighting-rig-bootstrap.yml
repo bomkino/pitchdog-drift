@@ -6,6 +6,11 @@ on:
       - feat/cinematic-lighting-rig
     paths:
       - .gauntlet/build-cinematic-lighting.py
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .gauntlet/build-cinematic-lighting.py
 
 permissions:
   contents: write
@@ -23,6 +28,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: feat/cinematic-lighting-rig
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -55,4 +61,4 @@ jobs:
           git add -A
           git diff --cached --check
           git commit -m "feat: authored cinematic lighting and analytical shadows [lighting-built]"
-          git push origin HEAD:${GITHUB_REF_NAME}
+          git push origin HEAD:feat/cinematic-lighting-rig
