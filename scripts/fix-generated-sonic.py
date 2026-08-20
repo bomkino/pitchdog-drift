@@ -104,3 +104,15 @@ replace_once(
     for (const sample of samples) sample.close();
   }''',
 )
+
+replace_once(
+    "e2e/studio.e2e.ts",
+    'await page.getByLabel("Cinema").check();',
+    'await page.getByRole("radio", { name: "Cinema", exact: true }).check();',
+)
+
+replace_once(
+    "e2e/studio.e2e.ts",
+    'await expect(page.getByLabel("Cinema")).toBeChecked();',
+    'await expect(page.getByRole("radio", { name: "Cinema", exact: true })).toBeChecked();',
+)
