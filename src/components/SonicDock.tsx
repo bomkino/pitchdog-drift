@@ -47,9 +47,9 @@ function RangeRow({
 
 function stateLabel(state: SonicRuntimeState): string {
   switch (state) {
-    case "ready": return "preview armed";
-    case "muted": return "preview muted";
-    case "unavailable": return "sound unavailable";
+    case "ready": return "armed";
+    case "muted": return "muted";
+    case "unavailable": return "unavailable";
     case "idle":
     default: return "ready after input";
   }
@@ -192,7 +192,16 @@ export function SonicDock({
           <button
             type="button"
             className="sonic-audition"
-            disabled={disabled || state === "unavailable"}
+            disabled={
+              disabled
+              || state === "unavailable"
+              || !settings.previewEnabled
+            }
+            title={
+              settings.previewEnabled
+                ? "Play a short passage and settle gesture"
+                : "Enable tactile preview to audition"
+            }
             onClick={onAudition}
           >
             Audition gesture
