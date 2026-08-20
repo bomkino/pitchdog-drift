@@ -1,8 +1,8 @@
 name: Director journey synthesis
 
 on:
-  push:
-    branches: [gauntlet/cinematic-optics-worlds]
+  pull_request:
+    types: [opened, synchronize, reopened]
     paths:
       - .github/workflows/gauntlet-synthesis.yml
       - scripts/gauntlet-synthesis.mjs
@@ -11,17 +11,19 @@ permissions:
   contents: write
 
 concurrency:
-  group: director-journey-synthesis
+  group: director-journey-synthesis-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   synthesize:
+    if: github.head_ref == 'gauntlet/cinematic-optics-worlds'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - name: Check out synthesis branch
+      - name: Check out the real synthesis branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: gauntlet/cinematic-optics-worlds
           fetch-depth: 0
 
       - name: Use Node.js 22
