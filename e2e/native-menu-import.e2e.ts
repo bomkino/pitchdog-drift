@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-const onePixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X1R1WQAAAABJRU5ErkJggg==";
+// A real 4 × 4 RGBA PNG. Keep the fixture decodable so this journey tests
+// Drift's native picker/import contract—not a corrupt-image rejection path.
+const validPng = "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAFUlEQVR4nGN8ODvrPwMSYGJAA4QFAL7XAu0bAiZXAAAAAElFTkSuQmCC";
 
 async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page): Promise<void> {
   await page.addInitScript(({ pngBase64 }) => {
@@ -60,7 +62,7 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
         }];
       },
     });
-  }, { pngBase64: onePixelPng });
+  }, { pngBase64: validPng });
 
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("data-drift-native-file-input-bridge", "ready");
@@ -68,9 +70,10 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
   await expect(page.locator(".asset-list li").first()).toBeVisible({ timeout: 30_000 });
 }
 
-test("File-menu Add Slides uses one explicit native picker and releases its grant", async ({ page }) => {
+test("File-menu Add Slides replaces the demo slate through one native picker and releases its grant", async ({ page }) => {
   await bootSimulatedNativeRuntime(page);
   const initialCount = await page.locator(".asset-list li").count();
+  expect(initialCount).toBeGreaterThan(1);
 
   await page.evaluate(async () => {
     const state = (window as unknown as {
@@ -79,8 +82,11 @@ test("File-menu Add Slides uses one explicit native picker and releases its gran
     await state.appBridge.command("add-slides");
   });
 
-  await expect(page.locator(".asset-list li")).toHaveCount(initialCount + 1);
-  await expect(page.locator(".asset-list li").last()).toContainText("menu-import.png");
+  // The authored study is a first-launch placeholder, not user media. The
+  // first real deck must replace those eight demos rather than becoming slide 9.
+  await expect(page.locator(".asset-list li")).toHaveCount(1);
+  await expect(page.locator(".asset-list li").first()).toContainText("menu-import.png");
+  await expect(page.getByRole("alert")).toHaveCount(0);
 
   const receipt = await page.evaluate(() => {
     const state = (window as unknown as {
