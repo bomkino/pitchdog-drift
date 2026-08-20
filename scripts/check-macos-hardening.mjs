@@ -55,6 +55,11 @@ const host = requireMarkers("macos/App/NativeBridgeHost.swift", [
   "clientState = ClientState()",
   "only React may unlock the",
   "This covers manual reload",
+  "clientState.reserveExternalProjectImport()",
+  "releaseExternalProjectReservationIfNeeded",
+  "Project is still busy",
+  "Project could not be delivered",
+  "completion: ((Error?) -> Void)? = nil",
 ]);
 const resetStart = host.indexOf("private func resetCapabilitiesForDocumentBoot()");
 const resetEnd = host.indexOf("private func runtimeInfo()", resetStart);
@@ -65,6 +70,19 @@ for (const marker of ["exportActivityGuard.end()", "broker.abortAll()", "aacBrok
 if (resetBody.includes("clientStateDidChange")) {
   fail("document-boot reset must not impersonate an authoritative React state report");
 }
+
+requireMarkers("macos/App/NativeModels.swift", [
+  "mutating func reserveExternalProjectImport() -> Bool",
+  "guard !hasProtectedWork else { return false }",
+  "mutating func releaseExternalProjectImportReservation()",
+  "runExternalProjectImportAdmissionSelfTest",
+  "A second external project import bypassed the active reservation",
+  "Protected work admitted an external project replacement",
+]);
+requireMarkers("macos/Probes/NativeGauntletMain.swift", [
+  "external Finder project admission",
+  "ClientState.runExternalProjectImportAdmissionSelfTest()",
+]);
 
 const bridge = read("macos/NativeBridge.js");
 const runtimeBootCalls = bridge.match(/callNative\("runtime-info"\)/g) ?? [];
@@ -108,5 +126,5 @@ requireMarkers("e2e/native-menu-import.e2e.ts", [
 ]);
 
 console.log(
-  "macOS hardening contract passed: PNG sequence commits are exclusive and crash-clean, document boots revoke stale capabilities without faking renderer readiness, and File-menu imports have static, unit, and real-browser evidence.",
+  "macOS hardening contract passed: PNG sequence commits are exclusive and crash-clean, document boots revoke stale capabilities without faking renderer readiness, Finder projects are serialized, and File-menu imports have static, unit, and real-browser evidence.",
 );
