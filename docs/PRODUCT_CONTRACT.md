@@ -4,13 +4,15 @@ Frozen: 20 August 2026
 
 ## Outcome
 
-Create a local-first directing tool for turning pitch-deck slides and a presenter video into authored, cinematic Instagram sequences. It must let the user shape motion and atmosphere without touching code, then capture the result at a useful social-video resolution.
+Create a local-first directing tool for turning pitch-deck slides and a presenter video into authored, cinematic Instagram sequences. It must let the user shape motion and atmosphere without touching code, reach a coherent first result through creative intent rather than parameter translation, then capture the result at a useful social-video resolution.
 
-This is not a carousel demo, a shader toy, or a settings-panel mockup. The real artifact is a controllable moving composition that remains beautiful with the user's own slides, survives awkward inputs, and produces a usable file.
+This is not a carousel demo, a shader toy, a settings-panel mockup, or a preset gallery. The real artifact is a controllable moving composition that remains beautiful with the user's own slides, survives awkward inputs, produces a usable file, and helps a first-time director make sound decisions before exposing the full machinery.
 
 ## Audience effect
 
 Viewers should feel a deck unfolding as a filmic sequence rather than watching screenshots pass through a template. The deck remains legible. Motion creates tension, pace, and continuity; it never becomes the subject by accident.
+
+The editor should make the person directing feel more capable, not more technical. A user may begin with language—quiet reveal, clean evidence, slow dread—and finish in exact parameters without crossing into a second hidden state.
 
 ## In scope
 
@@ -23,6 +25,10 @@ Viewers should feel a deck unfolding as a filmic sequence rather than watching s
 - Slide scale, spacing, depth, bend, tilt, corner radius, superellipse-style corner smoothing, border, shadow, and motion distortion controls.
 - Transparent, solid, gradient, and softly animated shader backgrounds.
 - Authored genre presets, including travel and horror, that change motion logic as well as palette.
+- Intent-first audience-effect recipes that write the real inspector settings rather than creating an alternate rendering state.
+- Restrained rhythm moves and complete master-shape moves for common social outputs.
+- Editor-only composition guides for thirds, title safety, caption reserve, and conservative platform-interface reserve.
+- A factual master check covering renderer readiness, media count, readability pressure, optical excess, slide scale, transparency, loop closure, and pinned-media state.
 - Optional pinned frame, off by default, which can hold an image or talking-head video while other slides travel.
 - Still capture, deterministic fixed-step MP4 export, honest transparent PNG-sequence export, preset/project import/export, durable local media persistence, and verified pinned-video audio handling.
 - Responsive controls, reduced-motion behavior, keyboard access, WebGL failure fallback, and local-only media handling.
@@ -35,29 +41,41 @@ Viewers should feel a deck unfolding as a filmic sequence rather than watching s
 - Prior component studies and public references inform mechanisms and settings only. Do not copy a composition or turn this into Galileo Gallery or Framer Components v3.
 - No runtime analytics, tracking, remote fonts, cloud upload, or hidden network request.
 - User media never leaves the browser.
+- Intent choices and guide preferences remain local. No behavioural telemetry is added to justify the new journey.
 - Existing source packages remain untouched.
 - First-class editor/export runtime is current desktop Chromium or Brave with WebGL2, WebCodecs AVC, and File System Access. Other browsers are capability-gated and must not pretend to offer an unavailable export.
 
 ## Costliest false wins
 
 1. Beautiful demo, unusable with real media. Countercheck: import mixed aspect ratios and video, reorder/remove them, enable a pinned video, reload settings, and capture output.
-2. Dense control panel whose controls do not materially affect the rendered result. Countercheck: inspect rendered before/after states and test settings at boundaries.
-3. Smooth desktop loop that breaks on phone, reduced motion, WebGL loss, low slide counts, transparency, or export. Countercheck: real-browser tests across those states and decoded output inspection.
-4. "Instagram export" that is only a real-time canvas recording with dropped frames, missing presenter audio, or unknown dimensions. Countercheck: drive export from frame index and fixed time, then inspect MP4 container, codec, dimensions, duration, frame count, frame decode, and audio track. H.264 output is always opaque; transparency uses PNG sequence.
-5. Many presets that are palette swaps. Countercheck: each genre must have a distinct motion sentence: pace, path, depth, optical treatment, and background behavior.
+2. Dense control panel whose controls do not materially affect the rendered result. Countercheck: inspect rendered before/after states, test settings at boundaries, and verify intent moves land in the actual inspector rather than a parallel preset state.
+3. Beginner layer that looks friendly but reduces capability or cannot be undone in the advanced editor. Countercheck: apply a directed move, inspect every resulting saved value, continue editing manually, reload, and export the same state.
+4. Smooth desktop loop that breaks on phone, reduced motion, WebGL loss, low slide counts, transparency, or export. Countercheck: real-browser tests across those states and decoded output inspection.
+5. "Instagram export" that is only a real-time canvas recording with dropped frames, missing presenter audio, or unknown dimensions. Countercheck: drive export from frame index and fixed time, then inspect MP4 container, codec, dimensions, duration, frame count, frame decode, and audio track. H.264 output is always opaque; transparency uses PNG sequence.
+6. Many presets that are palette swaps. Countercheck: each genre must have a distinct motion sentence: pace, path, depth, optical treatment, and background behavior.
+7. Platform-safe guides presented as permanent platform truth. Countercheck: label them as conservative working areas, keep them editor-only, and avoid claiming volatile interface measurements as guarantees.
+8. A reassuring quality score that hides concrete faults. Countercheck: the master check reports evidence and bounded fixes, never a synthetic rating.
 
 ## Frozen bar
 
 - Default scene has a clear authored point of view and legible slides at first load.
+- A first-time user can reach a coherent audience-effect, pace, and output shape in three meaningful choices without understanding shader or geometry vocabulary.
+- Directed moves update the canonical inspector controls and survive normal autosave/project portability. No duplicate state exists.
 - Imported moving-track images and the single optional presenter video render without stretching and can be managed without code.
 - Carousel loops without visible jumps in both axes; 1, 2, and 12-item sets remain valid.
 - Drag is 1:1, interruptible, and hands velocity into inertia; keyboard actions stay immediate.
 - Pinned frame remains stable while moving frames continue and is never enabled by surprise.
+- Presenter Runway establishes a practical speaker-plus-deck starting layout without pretending to reserve geometry the renderer does not own.
 - Corner radius, smoothing, spacing, speed, flow, borders, slide ratio, stage ratio, and backgrounds create visible, bounded changes.
+- Authored rhythm moves stay below the editor's extreme range. Maximum speed remains an advanced choice, not a recommended aesthetic.
 - Transparent mode yields transparent still output; non-transparent modes fill every exported pixel.
 - Reduced motion pauses autoplay and removes vestibular effects while preserving control and legibility.
+- Saved autoplay intent governs deterministic export. Temporary preview pause never silently changes the project.
+- Composition guides remain DOM-only and are absent from every canvas capture and exported master.
+- Master check flags missing media, unavailable rendering, high speed, high optical energy, thumbnail-scale slides, alpha constraints, unlocked seams, and pinned-frame state without assigning a quality score.
 - WebGL failure presents a usable DOM media strip and explanation rather than a blank stage.
 - UI remains operable at 1440 x 900, 1024 x 768, 390 x 844, and 320 x 568.
+- Intent director remains keyboard-operable and does not introduce document overflow at phone widths.
 - Production build and typecheck pass; deterministic geometry/state tests pass.
 - Chromium runtime has no uncaught exceptions during core journey.
 - Preview and export share a pure time-based scene evaluator; exported frame `n` renders at `n / fps`, independent of display refresh or encoder speed.
@@ -66,9 +84,9 @@ Viewers should feel a deck unfolding as a filmic sequence rather than watching s
 - Saved project reopens with settings, order, and copied media intact; missing media fails visibly. Portable project bundle contains a versioned manifest plus original assets.
 - Default master is 1080 x 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque H.264 at 16 Mbit/s, and—when a pinned presenter has audio—AAC 48 kHz stereo at 192 kbit/s. Duration is adjustable from 3 to 30 seconds.
 - Transparent frame export writes exactly `round(duration * fps)` numbered PNGs at requested dimensions, with decodable nonzero alpha where composition permits. Directory streaming is first class; memory ZIP fallback has a strict safe cap.
-- OS reduced-motion preference changes editor preview only. Export follows saved project motion unless the user explicitly selects reduced-motion output.
+- OS reduced-motion preference changes editor preview only. Export follows saved project motion unless the user explicitly selects reduced-motion output or disables saved autoplay.
 - Portable bundle survives a fresh browser profile with local storage cleared; ordered asset hashes, manifest schema, engine version, and theme version match.
-- Empty project, corrupt image, unsupported presenter codec, oversized texture, canceled export, partial-file cleanup, and WebGL context loss all fail visibly without destroying saved work.
+- Empty project, corrupt image, unsupported presenter codec, oversized texture, canceled export, partial-file cleanup, missing orchestration control, and WebGL context loss all fail visibly without destroying saved work.
 - DOM fallback keeps media/project management usable but labels cinematic preview and export unavailable. It never silently substitutes CSS output.
 - Seamless-export mode repeats motion/background state without a visible end-to-start jump.
 - Fresh critics must falsify product/visual and technical/accessibility claims, but critic approval never replaces artifact checks.
