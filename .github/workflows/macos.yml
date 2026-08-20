@@ -12,6 +12,7 @@ on:
       - "scripts/probe-macos-packaged-webview.sh"
       - "scripts/release-macos-app.sh"
       - "scripts/verify-macos-app.sh"
+      - "scripts/verify-macos-dmg.sh"
       - "scripts/verify-macos-release.sh"
       - "src/**"
       - "tests/**"
@@ -30,6 +31,7 @@ on:
       - "scripts/probe-macos-packaged-webview.sh"
       - "scripts/release-macos-app.sh"
       - "scripts/verify-macos-app.sh"
+      - "scripts/verify-macos-dmg.sh"
       - "scripts/verify-macos-release.sh"
       - "src/**"
       - "tests/**"
@@ -160,14 +162,14 @@ jobs:
       - name: Create and mount-check local DMG
         run: npm run package:mac
 
-      - name: Verify local release artifact
-        run: npm run verify:mac-release
+      - name: Reopen and independently verify local DMG
+        run: npm run verify:mac:dmg
 
       - name: Prove release guard rejects non-Developer-ID signing
         run: |
           set -euo pipefail
           if npm run release:mac; then
-            echo "Release guard unexpectedly accepted an ad-hoc build." >&2
+            echo "Release guard unexpectedly accepted an ad-hoc or missing signing identity." >&2
             exit 1
           fi
-          test ! -e build/macos/release/Drift.dmg
+          test ! -e build/release/Drift-macOS.dmg
