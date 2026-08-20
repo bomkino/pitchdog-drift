@@ -1,4 +1,4 @@
-name: Spatial fabric v4 gauntlet
+name: Spatial fabric v5 gauntlet
 
 on:
   push:
@@ -10,12 +10,12 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: spatial-fabric-v4-gauntlet
+  group: spatial-fabric-v5-gauntlet
   cancel-in-progress: false
 
 jobs:
   apply-prove-clean:
-    if: ${{ contains(github.event.head_commit.message, 'stage spatial v4 execution') }}
+    if: ${{ contains(github.event.head_commit.message, 'stage spatial v5 execution') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -24,7 +24,7 @@ jobs:
           ref: gauntlet/spatial-fabric-dynamics
           fetch-depth: 0
 
-      - name: Apply reviewed v4 refinements
+      - name: Apply reviewed v5 refinements
         run: python3 scripts/apply_spatial_v4.py
 
       - name: Commit inspectable candidate
@@ -32,7 +32,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "feat: spatial fabric v4 candidate"
+          git commit -m "feat: spatial fabric v5 candidate"
           git push origin HEAD:gauntlet/spatial-fabric-dynamics
 
       - uses: actions/setup-node@v4
@@ -61,7 +61,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: spatial-v4-playwright-evidence
+          name: spatial-v5-playwright-evidence
           path: |
             playwright-report
             test-results
@@ -81,11 +81,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           git add -A
-          git commit -m "feat: spatial fabric v4 verified"
+          git commit -m "feat: spatial fabric v5 verified"
           git push origin HEAD:gauntlet/spatial-fabric-dynamics
           pr_url="$(gh pr list --repo bomkino/pitchdog-drift --head gauntlet/spatial-fabric-dynamics --state open --json url --jq '.[0].url')"
           if [ -n "$pr_url" ]; then
-            gh pr comment "$pr_url" --body $'Spatial fabric v4 gauntlet passed.\n\n- refresh-rate-invariant preview physics\n- deterministic exported motion character\n- exact seamless position, velocity, and acceleration closure\n- compatibility-safe legacy hydration\n- typecheck, unit suite, production build, and rendered-browser suite\n- one-shot machinery removed'
+            gh pr comment "$pr_url" --body $'Spatial fabric v5 gauntlet passed.\n\n- resolution-independent material deformation\n- artwork locked to the deformed surface\n- banking independent from base tilt\n- preview autoplay shares the master cadence\n- typecheck, unit suite, production build, and rendered-browser suite\n- one-shot machinery removed'
           fi
 
-# staged spatial v4 execution
+# staged spatial v5 execution
