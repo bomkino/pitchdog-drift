@@ -108,6 +108,30 @@ describe("deterministic export motion character", () => {
     }
   });
 
+  it("is a pure repeated-timestamp evaluation", () => {
+    const { settings, geometry, slotCount } = setup();
+    settings.motion.dynamics = "spring";
+    settings.motion.seamless = true;
+    const first = evaluateExportMotion(settings, 3.375, slotCount, geometry.stride);
+    const second = evaluateExportMotion(settings, 3.375, slotCount, geometry.stride);
+    expect(second).toEqual(first);
+  });
+
+  it("stays finite at maximum authored settings and hostile timestamps", () => {
+    const { settings, geometry, slotCount } = setup();
+    settings.motion.speed = 1.5;
+    settings.motion.seamless = true;
+    settings.motion.seamlessLoops = 6;
+    settings.output.duration = 3;
+    for (const mode of MODES) {
+      settings.motion.dynamics = mode;
+      for (const time of [Number.NaN, Number.NEGATIVE_INFINITY, -100, 0, 1.5, 3, 30_000]) {
+        const frame = evaluateExportMotion(settings, time, slotCount, geometry.stride);
+        expect(Object.values(frame).every(Number.isFinite)).toBe(true);
+      }
+    }
+  });
+
   it("returns a complete hard zero for reduced-motion output", () => {
     const { settings, geometry, slotCount } = setup();
     settings.motion.reducedMotionOutput = true;
