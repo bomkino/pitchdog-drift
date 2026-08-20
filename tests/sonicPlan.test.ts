@@ -118,8 +118,10 @@ describe("soundtrack PCM mixer", () => {
   it("honours absolute timestamps and rejects malformed PCM", () => {
     const destination = [new Float32Array(2), new Float32Array(2)];
     mixSoundtrackIntoPlanar(destination, 0.5, 4, stereoBuffer([0, 0.2, 0.4, 0.6], [0, 0.1, 0.2, 0.3], 4), 1);
-    expect(Array.from(destination[0]!)).toEqual([0.4, 0.6]);
-    expect(Array.from(destination[1]!)).toEqual([0.2, 0.3]);
+    expect(destination[0]![0]).toBeCloseTo(0.4, 6);
+    expect(destination[0]![1]).toBeCloseTo(0.6, 6);
+    expect(destination[1]![0]).toBeCloseTo(0.2, 6);
+    expect(destination[1]![1]).toBeCloseTo(0.3, 6);
 
     expect(() => mixSoundtrackIntoPlanar([], 0, 48_000, stereoBuffer([0], [0], 48_000), 1)).toThrow(TypeError);
     expect(() => mixSoundtrackIntoPlanar([new Float32Array(1)], 0, 0, stereoBuffer([0], [0], 48_000), 1)).toThrow(TypeError);
