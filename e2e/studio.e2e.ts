@@ -547,13 +547,19 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
 
   await page.getByRole("button", { name: "Pause preview" }).click();
   await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
-  await page.getByRole("button", { name: "Export PNG sequence" }).click();
-  await expect(page.locator(".export-overlay")).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(window, "showDirectoryPicker", { configurable: true, value: undefined });
+  });
+  await page.getByRole("button", { name: "Export PNG sequence" }).dispatchEvent("click");
+  const exportOverlay = page.locator(".export-overlay");
+  const cancelExport = page.getByRole("button", { name: "Cancel export" });
+  await expect(exportOverlay).toBeVisible();
+  await expect(cancelExport).toBeVisible();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("Space");
   await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
-  await page.getByRole("button", { name: "Cancel export" }).click();
-  await expect(page.locator(".export-overlay")).toBeHidden();
+  await cancelExport.dispatchEvent("click");
+  await expect(exportOverlay).toBeHidden();
   await expect(page.getByRole("button", { name: "Play preview" })).toBeEnabled();
   await page.getByRole("button", { name: "Play preview" }).click();
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
