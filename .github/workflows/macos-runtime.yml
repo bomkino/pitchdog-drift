@@ -11,6 +11,7 @@ on:
       - "src/lib/macosAacEncoder.ts"
       - "tests/macos-export-probe.html"
       - "tests/macosExportProbe.ts"
+      - "tests/macosAacEncoder.test.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/macos-runtime.yml"
@@ -23,6 +24,7 @@ on:
       - "src/lib/macosAacEncoder.ts"
       - "tests/macos-export-probe.html"
       - "tests/macosExportProbe.ts"
+      - "tests/macosAacEncoder.test.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/macos-runtime.yml"
@@ -38,7 +40,7 @@ concurrency:
 jobs:
   wkwebview-runtime:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -66,23 +68,42 @@ jobs:
             system_profiler SPHardwareDataType SPSoftwareDataType
           } > build/macos/runtime-identity.txt
 
-      - name: Prove WebGL, PNG, AVC, and AAC inside WKWebView
+      - name: Prove WebGL, PNG, and AVC inside WKWebView
         env:
           DRIFT_REQUIRE_NATIVE_MP4: "1"
           DRIFT_CODEC_REPORT: ${{ github.workspace }}/build/macos/codec-capabilities.json
         run: scripts/probe-macos-codecs.sh
 
-      - name: Require actual native AAC packet output
+      - name: Prove Apple software AAC-LC through AudioToolbox
+        env:
+          DRIFT_NATIVE_AAC_REPORT: ${{ github.workspace }}/build/macos/native-aac-capabilities.json
+        run: scripts/probe-macos-aac.sh
+
+      - name: Reconcile WebKit and native audio capabilities
         run: |
           node - <<'NODE'
           const fs = require('node:fs');
-          const report = JSON.parse(fs.readFileSync('build/macos/codec-capabilities.json', 'utf8'));
-          if (report.aac?.encoded !== true) {
-            console.error('WKWebView did not produce a native AAC packet. Presenter audio cannot be called release-ready.');
-            console.error(JSON.stringify(report.aac, null, 2));
+          const webkit = JSON.parse(fs.readFileSync('build/macos/codec-capabilities.json', 'utf8'));
+          const native = JSON.parse(fs.readFileSync('build/macos/native-aac-capabilities.json', 'utf8'));
+
+          if (native.encoded !== true || native.provider !== 'AudioToolbox') {
+            console.error('Apple AudioToolbox AAC did not produce a verified access unit.');
+            console.error(JSON.stringify(native, null, 2));
             process.exit(1);
           }
-          console.log(`Native AAC encoded ${report.aac.chunks.length} packet(s).`);
+
+          const browserAudioEncoder = webkit.apis?.AudioEncoder === 'function';
+          const browserAudioData = webkit.apis?.AudioData === 'function';
+          console.log(`WKWebView AudioEncoder API: ${browserAudioEncoder ? 'present' : 'absent'}`);
+          console.log(`WKWebView AudioData API: ${browserAudioData ? 'present' : 'absent'}`);
+          console.log(`AudioToolbox AAC packets: ${native.packetCount}`);
+          console.log(`AudioToolbox frame equation: ${native.frameEquationHolds}`);
+
+          if (webkit.aac?.encoded === true) {
+            console.log('WKWebView also encoded AAC; Drift still uses the deterministic native app backend.');
+          } else {
+            console.log('Presenter audio is supplied by Drift.app through its bounded native AAC bridge.');
+          }
           NODE
 
       - name: Render and verify real deterministic outputs inside WKWebView
@@ -99,6 +120,7 @@ jobs:
           path: |
             build/macos/runtime-identity.txt
             build/macos/codec-capabilities.json
+            build/macos/native-aac-capabilities.json
             build/macos/export-probe-result.json
             build/macos/export-probe/ProbeBundleReceipt.json
           if-no-files-found: warn

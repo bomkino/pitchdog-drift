@@ -16,6 +16,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     var lastCommittedFileDidChange: ((URL) -> Void)?
 
     private let broker = NativeFileBroker()
+    private let aacBroker = NativeAacEncoderBroker()
     private let brokerQueue = DispatchQueue(label: "dog.pitch.drift.file-broker", qos: .userInitiated)
     private(set) var clientState = ClientState()
     private var inputIntent: InputIntent?
@@ -32,7 +33,10 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     deinit {
-        brokerQueue.sync { broker.abortAll() }
+        brokerQueue.sync {
+            broker.abortAll()
+            aacBroker.closeAll()
+        }
     }
 
     func userContentController(
@@ -73,6 +77,8 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
              "file-info", "file-read", "file-release", "directory-get-file",
              "directory-remove-entry", "directory-release":
             performBrokerCommand(command, payload: payload, replyHandler: replyHandler)
+        case "aac-create", "aac-append", "aac-finish", "aac-close":
+            performAacCommand(command, payload: payload, replyHandler: replyHandler)
         default:
             replyHandler(failureEnvelope(BridgeFailure("NotSupportedError", "Unknown native command: \(command)")), nil)
         }
@@ -156,7 +162,10 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     func abortAllWrites() {
-        brokerQueue.sync { broker.abortAll() }
+        brokerQueue.sync {
+            broker.abortAll()
+            aacBroker.closeAll()
+        }
     }
 
     func revealLastExportInFinder() {
@@ -176,6 +185,8 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             "architecture": currentArchitecture(),
             "sandboxed": ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil,
             "systemCodecsOnly": true,
+            "nativeAac": true,
+            "nativeAacProvider": "AudioToolbox",
             "networkEntitlements": false,
         ]
     }
@@ -337,6 +348,29 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                 case "directory-remove-entry": value = try self.broker.removeDirectoryEntry(payload)
                 case "directory-release": value = try self.broker.releaseDirectory(payload)
                 default: throw BridgeFailure("NotSupportedError", "Unknown file-broker command.")
+                }
+                DispatchQueue.main.async { replyHandler(successEnvelope(value), nil) }
+            } catch {
+                DispatchQueue.main.async { replyHandler(failureEnvelope(error), nil) }
+            }
+        }
+    }
+
+    private func performAacCommand(
+        _ command: String,
+        payload: JSONDictionary,
+        replyHandler: @escaping (Any?, String?) -> Void
+    ) {
+        brokerQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let value: Any
+                switch command {
+                case "aac-create": value = try self.aacBroker.create(payload)
+                case "aac-append": value = try self.aacBroker.append(payload)
+                case "aac-finish": value = try self.aacBroker.finish(payload)
+                case "aac-close": value = try self.aacBroker.close(payload)
+                default: throw BridgeFailure("NotSupportedError", "Unknown native AAC command.")
                 }
                 DispatchQueue.main.async { replyHandler(successEnvelope(value), nil) }
             } catch {

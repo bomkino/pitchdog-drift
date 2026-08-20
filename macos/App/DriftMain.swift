@@ -15,6 +15,7 @@ struct DriftMain {
             do {
                 try NativeFileBroker.runSelfTest()
                 try NativeGauntlet.run()
+                try NativeAacEncoderBroker.runSelfTest()
                 Darwin.exit(0)
             } catch {
                 fputs("Drift native self-test failed: \(error.localizedDescription)\n", stderr)
