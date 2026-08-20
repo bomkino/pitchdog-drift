@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Close the final user-journey and 12-gobo dispatch gaps after the main pass."""
 from pathlib import Path
+import re
 
 
 def replace_once(path: str, old: str, new: str, marker: str) -> None:
@@ -15,16 +16,28 @@ def replace_once(path: str, old: str, new: str, marker: str) -> None:
     print(f"updated: {path} :: {marker}")
 
 
-# Test the visible user journey: the shadow controls live in a disclosure.
-replace_once(
-    "e2e/studio.e2e.ts",
-    '''  await expect(page.getByRole("combobox", { name: "Light movement" })).toHaveValue("static");
-  await expect(page.getByRole("combobox", { name: "Light shape" })).toHaveValue("slit");''',
-    '''  await expect(page.getByRole("combobox", { name: "Light movement" })).toHaveValue("static");
-  await page.getByText("Shadow & spill", { exact: true }).click();
-  await expect(page.getByRole("combobox", { name: "Light shape" })).toHaveValue("slit");''',
-    'await page.getByText("Shadow & spill", { exact: true }).click();',
-)
+# Test the visible user journey: Light shape lives in the Shadow & spill
+# disclosure. Insert the real user action directly before its first assertion,
+# regardless of how the surrounding block has grown.
+e2e_path = Path("e2e/studio.e2e.ts")
+e2e = e2e_path.read_text(encoding="utf-8")
+journey_marker = 'await page.getByText("Shadow & spill", { exact: true }).click();'
+if journey_marker not in e2e:
+    pattern = re.compile(
+        r'(?m)^(?P<indent>\s*)await expect\(page\.getByRole\("combobox", \{ name: "Light shape" \}\)\)\.toHaveValue\("slit"\);'
+    )
+    match = pattern.search(e2e)
+    if not match:
+        raise RuntimeError("Could not find the Light shape assertion in e2e/studio.e2e.ts")
+    indent = match.group("indent")
+    replacement = (
+        f'{indent}{journey_marker}\n'
+        f'{indent}await expect(page.getByRole("combobox", {{ name: "Light shape" }})).toHaveValue("slit");'
+    )
+    e2e_path.write_text(e2e[:match.start()] + replacement + e2e[match.end():], encoding="utf-8")
+    print("updated: e2e/studio.e2e.ts :: open Shadow & spill")
+else:
+    print("already applied: e2e/studio.e2e.ts :: open Shadow & spill")
 
 # The first generated 12-field dispatcher let mode 0 fall through to the
 # projector branch. Make every numeric band explicit so Softbox really is 0.
