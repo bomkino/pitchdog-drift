@@ -42,7 +42,6 @@ export class SonicEngine {
   private readonly voices = new Set<AudioBufferSourceNode>();
   private readonly lastPlayed = new Map<SonicCue, number>();
   private readonly timers = new Set<number>();
-  private activePalette: SonicPalette | null = null;
   private sequence = 0;
   private motionSequence = 0;
   private suppressed = false;
@@ -64,9 +63,7 @@ export class SonicEngine {
   get runtimeState(): SonicRuntimeState {
     if (this.unavailable) return "unavailable";
     if (!this.settings.previewEnabled) return "muted";
-    if (this.context && this.activePalette === this.settings.palette && this.decoded.has(this.settings.palette)) {
-      return "ready";
-    }
+    if (this.context && this.decoded.has(this.settings.palette)) return "ready";
     return "idle";
   }
 
@@ -150,7 +147,7 @@ export class SonicEngine {
     while (this.voices.size >= MAX_VOICES) {
       const oldest = this.voices.values().next().value as AudioBufferSourceNode | undefined;
       if (!oldest) break;
-      oldest.stop();
+      try { oldest.stop(); } catch { /* already ended */ }
       this.voices.delete(oldest);
     }
 
@@ -225,10 +222,7 @@ export class SonicEngine {
 
   private async loadPalette(palette: SonicPalette): Promise<Map<SonicCue, AudioBuffer>> {
     const cached = this.decoded.get(palette);
-    if (cached) {
-      this.activePalette = palette;
-      return cached;
-    }
+    if (cached) return cached;
     const existing = this.loads.get(palette);
     if (existing) return existing;
     const context = this.context;
@@ -241,7 +235,6 @@ export class SonicEngine {
     })).then((entries) => {
       const buffers = new Map<SonicCue, AudioBuffer>(entries);
       this.decoded.set(palette, buffers);
-      this.activePalette = palette;
       return buffers;
     }).finally(() => {
       this.loads.delete(palette);
