@@ -15,15 +15,16 @@ describe("project media budget", () => {
       item("one.png", 20 * MiB),
       item("oversized.mov", 65 * MiB),
       item("two.png", 30 * MiB),
-      item("no-room.png", 20 * MiB),
+      item("no-room.png", 21 * MiB),
+      item("three.png", 10 * MiB),
       item("count-limited.png", 1 * MiB),
-    ], 10 * MiB, 2);
+    ], 10 * MiB, 3);
 
-    expect(selection.accepted.map(({ name }) => name)).toEqual(["one.png", "two.png"]);
+    expect(selection.accepted.map(({ name }) => name)).toEqual(["one.png", "two.png", "three.png"]);
     expect(selection.rejectedTooLarge.map(({ name }) => name)).toEqual(["oversized.mov"]);
     expect(selection.rejectedForBudget.map(({ name }) => name)).toEqual(["no-room.png"]);
     expect(selection.rejectedForCount.map(({ name }) => name)).toEqual(["count-limited.png"]);
-    expect(selection.remainingBytes).toBe(20 * MiB);
+    expect(selection.remainingBytes).toBe(10 * MiB);
   });
 
   it("does not let a replacement presenter push original media beyond 80 MiB", () => {
