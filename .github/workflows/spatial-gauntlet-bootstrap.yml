@@ -31,7 +31,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply focused spatial implementation
-        run: python3 scripts/apply_spatial_gauntlet.py
+        run: python3 scripts/apply_spatial_gauntlet_repair.py
       - name: Install
         run: npm ci
       - name: Typecheck
