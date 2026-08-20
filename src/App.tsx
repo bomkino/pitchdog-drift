@@ -7,6 +7,7 @@ import {
   type ChangeEvent,
 } from "react";
 import { ControlPanel } from "./components/ControlPanel";
+import { applyEditorialCut, getEditorialCut, type EditorialCutId } from "./editorialCuts";
 import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
 import { CinematicCarousel } from "./engine/CinematicCarousel";
@@ -914,6 +915,15 @@ export function App() {
     announce(`${getTheme(id).name} is now directing the scene.`);
   }, [announce]);
 
+  const onEditorialCut = useCallback((id: EditorialCutId) => {
+    const cut = getEditorialCut(id);
+    const next = applyEditorialCut(settingsRef.current, id);
+    engineRef.current?.setSettingsAnchored(next);
+    settingsRef.current = next;
+    setSettings(next);
+    announce(`${cut.name} is holding the current slide while it reshapes the edit.`, "good");
+  }, [announce]);
+
   const capabilityLabel = webglError
     ? "DOM fallback"
     : mp4Supported === null
@@ -982,6 +992,8 @@ export function App() {
           settings={settings}
           onSettings={setSettings}
           onTheme={onTheme}
+          onEditorialCut={onEditorialCut}
+          slideCount={assets.length}
           onExportStill={exportStill}
           onExportVideo={exportVideo}
           onExportFrames={exportFrames}

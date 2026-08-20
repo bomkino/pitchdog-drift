@@ -8,6 +8,9 @@ Drift has one non-negotiable invariant: export is a deterministic evaluation of 
 StudioSettings + ordered assets + time
                   │
                   ▼
+  raw distance → authored cadence
+                  │
+                  ▼
           pure evaluate(t)
                   │
       ┌───────────┴───────────┐
@@ -22,18 +25,19 @@ rAF + input inertia     frame n → n / fps
 
 `src/engine/evaluate.ts` owns spatial geometry and time-derived distance. It has no DOM, GPU, or clock dependency. `CinematicCarousel` owns Three.js resources, input state, texture lifecycle, and preview timing. Export temporarily gives the same renderer an exact output surface and calls `renderAtAsync(time)` for each planned frame.
 
-The moving track is a virtual strip whose slot count is always a complete multiple of the asset count. That prevents duplicated neighbours at the wrap seam for awkward 1, 2, and N-item sets. When more candidates are visible than the 24-mesh pool can draw, nearest-to-centre candidates are selected before transparent draw ordering. Only potentially visible textures are decoded; cache identity includes verified content identity rather than asset ID alone, late decode generations cannot replace newer intent, and source bitmaps are closed on eviction.
+The moving track is a virtual strip whose slot count is always a complete multiple of the asset count. That prevents duplicated neighbours at the wrap seam for awkward 1, 2, and N-item sets. Virtual slots are a rendering concern: Editorial seamless timing, registration, grain, and delivery analysis use source-slide identity and source-deck count, so viewport padding never becomes extra editorial content. When more candidates are visible than the 24-mesh pool can draw, nearest-to-centre candidates are selected before transparent draw ordering. Only potentially visible textures are decoded; cache identity includes verified content identity rather than asset ID alone, late decode generations cannot replace newer intent, and source bitmaps are closed on eviction.
 
 ## Rendering
 
 - WebGL2 is required for the cinematic renderer.
 - The renderer uses sRGB output and `NoToneMapping`; source textures are tagged sRGB.
-- The slide vertex shader bends a subdivided plane from bounded, normalised velocity.
+- The slide vertex shader bends a subdivided plane from bounded, normalised velocity. Editorial cadence keeps primary pose deterministic while velocity supplies only transient optical response.
 - The slide fragment shader handles cover/contain sampling, focal position, antialiased superellipse corners, borders, grain, and alpha.
 - A separate shader scene draws animated backgrounds. Transparent mode skips it entirely.
 - The pinned frame is a separate scene object. It never inherits moving-track transforms.
 - Presenter preview uses `VideoTexture`. Deterministic output instead draws decoded samples into a stable canvas and updates a `CanvasTexture` before rendering each frame. A single binder gives an active export frame strict precedence over preview media, and pinned images are awaited even when they sit outside the moving mesh pool.
-- Presenter playback follows the renderer state: user pause, export, context loss, document hiding, or disposal pauses the actual media element. Restore returns both UI and media to the truthful prior state.
+- Presenter playback follows the renderer state: user pause, export, context loss, document hiding, or disposal pauses the actual media element. Restore returns both UI and media to the truthful prior state. User pause also zeros carousel velocity and freezes elapsed atmosphere phase.
+- Editorial direct manipulation maps raw timeline distance into visible authored distance, applies pointer/wheel/step input there, then inverts the monotonic cadence map. Holds therefore remain real during playback without making the card stick under the hand.
 
 WebGPU/TSL is not the v1 primary path. WebGL2 currently gives the project a broader, better-proven route through canvas capture and browser video encoding. The evaluator and settings model are deliberately renderer-independent enough for a later WebGPU backend.
 
@@ -84,3 +88,12 @@ The current recovery protocol is single-tab. Independent tabs writing the same p
 ## Privacy
 
 The production application contains no fetch/XHR/WebSocket path and no runtime service integration. Vite is only a local development server. Imported media, saved projects, and renders remain on the device unless the user deliberately moves an exported file.
+
+
+## Editorial cuts and delivery
+
+`src/editorialCuts.ts` is a derived directing layer, not a second project schema. Cuts patch authored motion fields while preserving atmosphere, output, presenter, autoplay, seamless choices, and reduced-motion output. Matching current settings back to a known cut is tolerant and computed; a manual change becomes Custom cut.
+
+Delivery analysis uses source-slide count, authored slides per second, output duration, and loop count. Seamless Editorial preview and export share the same effective speed. The UI still warns when closure retimes or rushes the authored cut.
+
+Selecting a cut calls `CinematicCarousel.setSettingsAnchored()`: the engine finds the nearest focused source step under the previous geometry, applies the new axis/stride, and maps that source step into the new cadence. The user keeps the subject while the motion language changes.

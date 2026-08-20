@@ -107,7 +107,7 @@ function assetId(value: unknown, path: string): string | null {
 
 const AXES = ["horizontal", "vertical"] as const;
 const DIRECTIONS = [-1, 1] as const;
-const FLOWS = ["straight", "arc", "ribbon", "cylinder", "tunnel"] as const;
+const FLOWS = ["straight", "arc", "ribbon", "cylinder", "tunnel", "editorial"] as const;
 const IMAGE_FITS = ["cover", "contain"] as const;
 const BACKGROUNDS = ["transparent", "solid", "gradient", "aura", "paper", "void"] as const;
 const THEMES = [

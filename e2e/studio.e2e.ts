@@ -88,9 +88,33 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
 
   const axis = page.getByRole("group", { name: "Flow axis" });
   const vertical = axis.getByRole("radio", { name: "Vertical" });
+  const expectedCuts = [
+    "Explainer Cut",
+    "Paper Argument",
+    "Clean Data",
+    "Documentary Glide",
+  ];
+  const seenCuts: string[] = [];
+  let reachedAxis = false;
   await page.getByRole("slider", { name: "Spacing" }).focus();
-  await page.keyboard.press("Tab");
-  await page.keyboard.press("Tab");
+  for (let step = 0; step < 16; step += 1) {
+    await page.keyboard.press("Tab");
+    const active = await page.evaluate(() => {
+      const element = document.activeElement;
+      return {
+        label: element instanceof HTMLElement ? element.getAttribute("aria-label") ?? "" : "",
+        inputType: element instanceof HTMLInputElement ? element.type : "",
+      };
+    });
+    expect(active.inputType).not.toBe("file");
+    if (expectedCuts.includes(active.label) && !seenCuts.includes(active.label)) {
+      seenCuts.push(active.label);
+    }
+    reachedAxis = await vertical.evaluate((element) => element === document.activeElement);
+    if (reachedAxis) break;
+  }
+  expect(seenCuts).toEqual(expectedCuts);
+  expect(reachedAxis).toBe(true);
   await expect(vertical).toBeFocused();
   const focusOutline = await vertical.locator("+ span").evaluate((span) => getComputedStyle(span).outlineStyle);
   expect(focusOutline).not.toBe("none");

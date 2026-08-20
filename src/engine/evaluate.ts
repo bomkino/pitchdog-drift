@@ -1,4 +1,10 @@
 import type { StudioSettings } from "../model";
+import {
+  editorialRegistration,
+  evaluateEditorialCadence,
+  remapEditorialDistance,
+  type EditorialCadenceState,
+} from "./editorialCadence";
 
 export interface SlideGeometry {
   width: number;
@@ -18,6 +24,10 @@ export interface EvaluatedSlide {
   scale: number;
   opacity: number;
   normalized: number;
+  transitionPulse: number;
+  anticipation: number;
+  landingImpact: number;
+  settle: number;
 }
 
 export function clamp(value: number, min: number, max: number): number {
@@ -52,31 +62,109 @@ export function getLogicalSlotCount(assetCount: number, geometry: SlideGeometry)
   return Math.max(assetCount, Math.ceil(minimum / assetCount) * assetCount);
 }
 
-export function distanceAtTime(settings: StudioSettings, time: number, slotCount: number, stride: number, exportMode: boolean): number {
-  if (settings.motion.reducedMotionOutput && exportMode) return 0;
-  const direction = settings.motion.direction;
-  if (exportMode && settings.motion.seamless && slotCount > 0) {
-    const phase = time / Math.max(0.001, settings.output.duration);
-    return direction * slotCount * stride * Math.max(1, Math.round(settings.motion.seamlessLoops)) * phase;
+export function getLoopStrideCount(
+  settings: StudioSettings,
+  sourceCount: number,
+  slotCount: number,
+): number {
+  const safeSourceCount = Number.isSafeInteger(sourceCount) && sourceCount > 0 ? sourceCount : 0;
+  const safeSlotCount = Number.isSafeInteger(slotCount) && slotCount > 0 ? slotCount : 0;
+  if (settings.motion.flow === "editorial") return safeSourceCount;
+  return safeSlotCount;
+}
+
+export function deliverySlidesPerSecond(
+  settings: StudioSettings,
+  loopStrideCount: number,
+  exportMode: boolean,
+): number {
+  if (exportMode && settings.motion.reducedMotionOutput) return 0;
+  const safeLoopStrideCount = Number.isSafeInteger(loopStrideCount) && loopStrideCount > 0
+    ? loopStrideCount
+    : 0;
+  const loops = Number.isFinite(settings.motion.seamlessLoops)
+    ? Math.max(1, Math.round(settings.motion.seamlessLoops))
+    : 1;
+  const duration = Number.isFinite(settings.output.duration)
+    ? Math.max(0.001, settings.output.duration)
+    : 0.001;
+  const authoredSpeed = Number.isFinite(settings.motion.speed)
+    ? Math.max(0, settings.motion.speed)
+    : 0;
+  if (settings.motion.flow === "editorial" && settings.motion.seamless && safeLoopStrideCount > 0) {
+    return safeLoopStrideCount
+      * loops
+      / duration;
   }
-  return direction * settings.motion.speed * stride * Math.max(0, time);
+  if (exportMode && settings.motion.seamless && safeLoopStrideCount > 0) {
+    return safeLoopStrideCount * loops / duration;
+  }
+  return authoredSpeed;
+}
+
+export function distanceAtTime(settings: StudioSettings, time: number, loopStrideCount: number, stride: number, exportMode: boolean): number {
+  if (settings.motion.reducedMotionOutput && exportMode) return 0;
+  if (!Number.isFinite(time) || !Number.isFinite(stride)) return 0;
+  const speed = deliverySlidesPerSecond(settings, loopStrideCount, exportMode);
+  if (speed === 0) return 0;
+  return settings.motion.direction * speed * stride * Math.max(0, time);
 }
 
 export function velocityAtTime(
   settings: StudioSettings,
-  slotCount: number,
+  loopStrideCount: number,
   stride: number,
   exportMode: boolean,
 ): number {
-  if (exportMode && settings.motion.reducedMotionOutput) return 0;
-  if (exportMode && settings.motion.seamless && slotCount > 0) {
-    return settings.motion.direction
-      * slotCount
-      * stride
-      * Math.max(1, Math.round(settings.motion.seamlessLoops))
-      / Math.max(0.001, settings.output.duration);
-  }
-  return settings.motion.direction * settings.motion.speed * stride;
+  if (!Number.isFinite(stride)) return 0;
+  const speed = deliverySlidesPerSecond(settings, loopStrideCount, exportMode);
+  if (speed === 0) return 0;
+  return settings.motion.direction * speed * stride;
+}
+
+/**
+ * A source-deck-owned atmosphere phase. It freezes inside editorial holds and
+ * repeats exactly when the source deck repeats, independent of virtual meshes.
+ */
+export function editorialDeckPhase(
+  settings: StudioSettings,
+  distance: number,
+  stride: number,
+  sourceCount: number,
+): number {
+  if (
+    settings.motion.flow !== "editorial"
+    || !Number.isFinite(distance)
+    || !Number.isFinite(stride)
+    || Math.abs(stride) < 1e-6
+    || !Number.isSafeInteger(sourceCount)
+    || sourceCount <= 0
+  ) return 0;
+  const safeStride = Math.abs(stride);
+  const visibleDistance = remapEditorialDistance(
+    distance,
+    safeStride,
+    settings.motion.speed,
+    settings.motion.curvature,
+    settings.motion.edgeFade,
+  );
+  const loopLength = sourceCount * safeStride;
+  return (positiveModulo(visibleDistance, loopLength) / loopLength) * Math.PI * 2;
+}
+
+function editorialCadenceForDistance(
+  distance: number,
+  settings: StudioSettings,
+  geometry: SlideGeometry,
+): EditorialCadenceState | null {
+  if (settings.motion.flow !== "editorial") return null;
+  return evaluateEditorialCadence(
+    distance,
+    geometry.stride,
+    settings.motion.speed,
+    settings.motion.curvature,
+    settings.motion.edgeFade,
+  );
 }
 
 export function evaluateSlide(
@@ -85,14 +173,20 @@ export function evaluateSlide(
   distance: number,
   settings: StudioSettings,
   geometry: SlideGeometry,
+  sourceIndex = index,
 ): EvaluatedSlide {
   if (slotCount <= 0) {
-    return { primary: 0, cross: 0, z: 0, rotationX: 0, rotationY: 0, rotationZ: 0, scale: 1, opacity: 0, normalized: 0 };
+    return { primary: 0, cross: 0, z: 0, rotationX: 0, rotationY: 0, rotationZ: 0, scale: 1, opacity: 0, normalized: 0, transitionPulse: 0, anticipation: 0, landingImpact: 0, settle: 0 };
   }
 
+  const cadence = editorialCadenceForDistance(distance, settings, geometry);
+  const evaluatedDistance = cadence
+    ? (cadence.cycle + cadence.progress) * Math.abs(geometry.stride)
+    : distance;
   const loopLength = slotCount * geometry.stride;
-  let primary = positiveModulo(index * geometry.stride - distance + loopLength / 2, loopLength) - loopLength / 2;
-  if (Object.is(primary, -0)) primary = 0;
+  const wrappedDistance = positiveModulo(evaluatedDistance, loopLength);
+  let primary = positiveModulo(index * geometry.stride - wrappedDistance + loopLength / 2, loopLength) - loopLength / 2;
+  if (Math.abs(primary) < 1e-9 || Object.is(primary, -0)) primary = 0;
 
   const visibleRadius = geometry.axisExtent / 2 + geometry.stride;
   const normalized = clamp(primary / Math.max(1, visibleRadius), -1.4, 1.4);
@@ -137,6 +231,44 @@ export function evaluateSlide(
       rotationX = settings.motion.axis === "vertical" ? normalized * tilt : 0;
       rotationZ = Math.sign(normalized) * tilt * Math.pow(abs, 1.4) * 0.46;
       break;
+    case "editorial": {
+      const registration = editorialRegistration(sourceIndex);
+      const transitionPulse = cadence?.transitionPulse ?? 0;
+      const anticipation = cadence?.anticipation ?? 0;
+      const landingImpact = cadence?.landingImpact ?? 0;
+      const settle = cadence?.settle ?? 0;
+      const travel = settings.motion.direction;
+      // Beat hold owns timing only. Tactile registration follows the hinge
+      // control so a director can change rhythm without moving the layout.
+      const paperEnergy = clamp(settings.motion.tilt / 9, 0, 1);
+      const paperOffset = registration * paperEnergy * geometry.crossExtent * 0.012;
+      const focalArc = Math.sin(normalized * Math.PI) * paperEnergy * geometry.crossExtent * 0.018;
+      const settleAngle = settle * tilt * 0.34 * travel;
+      const anticipationAngle = -travel * anticipation * tilt * 0.11;
+      const landingAngle = travel * landingImpact * tilt * 0.075;
+
+      cross = paperOffset + focalArc;
+      z = -depth * (0.06 + 0.94 * Math.pow(abs, 1.45))
+        + anticipation * depth * 0.035
+        - transitionPulse * depth * 0.08
+        - landingImpact * depth * 0.045;
+      rotationZ = registration * tilt * 0.055
+        - normalized * tilt * 0.16
+        + anticipationAngle
+        + landingAngle
+        + settleAngle;
+      rotationY = settings.motion.axis === "horizontal"
+        ? -normalized * tilt * 0.48
+          + travel * transitionPulse * tilt * 0.08
+          + anticipationAngle * 0.2
+        : settleAngle * 0.18 + landingAngle * 0.12;
+      rotationX = settings.motion.axis === "vertical"
+        ? normalized * tilt * 0.48
+          - travel * transitionPulse * tilt * 0.08
+          - anticipationAngle * 0.2
+        : settleAngle * 0.16 + landingAngle * 0.1;
+      break;
+    }
     case "straight":
     default:
       z = -depth * normalized * normalized * 0.28;
@@ -145,9 +277,26 @@ export function evaluateSlide(
   }
 
   const focus = 1 - clamp(abs, 0, 1);
-  const scale = 1 + settings.motion.focusScale * focus;
+  const landingLift = settings.motion.flow === "editorial"
+    ? (cadence?.landingImpact ?? 0) * settings.motion.focusScale * focus * 0.2
+    : 0;
+  const scale = 1 + settings.motion.focusScale * focus + landingLift;
   const opacity = clamp(1 - settings.motion.edgeFade * Math.pow(abs, 1.6), 0.08, 1);
-  return { primary, cross, z, rotationX, rotationY, rotationZ, scale, opacity, normalized };
+  return {
+    primary,
+    cross,
+    z,
+    rotationX,
+    rotationY,
+    rotationZ,
+    scale,
+    opacity,
+    normalized,
+    transitionPulse: cadence?.transitionPulse ?? 0,
+    anticipation: cadence?.anticipation ?? 0,
+    landingImpact: cadence?.landingImpact ?? 0,
+    settle: cadence?.settle ?? 0,
+  };
 }
 
 export function isPotentiallyVisible(evaluated: EvaluatedSlide, geometry: SlideGeometry): boolean {

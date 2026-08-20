@@ -5,7 +5,7 @@ export const THEME_VERSION = "1.0.0";
 
 export type Axis = "horizontal" | "vertical";
 export type Direction = 1 | -1;
-export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel";
+export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel" | "editorial";
 export type ImageFit = "cover" | "contain";
 export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
 export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";

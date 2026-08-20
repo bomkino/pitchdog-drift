@@ -1130,6 +1130,41 @@ a:focus-visible {
   font-size: 8px;
 }
 
+.output-preflight {
+  display: grid;
+  gap: 4px;
+  padding: 10px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-left: 2px solid #716b62;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.output-preflight[data-status="closed"] { border-left-color: #7ca177; }
+.output-preflight[data-status="retimed"] { border-left-color: #ba7448; }
+.output-preflight[data-status="rushed"] { border-left-color: #b45142; }
+.output-preflight[data-status="partial"] { border-left-color: #a86f4f; }
+.output-preflight[data-status="still"] { border-left-color: #7f7792; }
+
+.output-preflight > span {
+  color: var(--rust-light);
+  font-family: ui-monospace, monospace;
+  font-size: 7px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+}
+
+.output-preflight strong {
+  color: #cec5b9;
+  font-size: 9px;
+  font-weight: 620;
+}
+
+.output-preflight small {
+  color: #777168;
+  font-size: 9px;
+  line-height: 1.48;
+}
+
 .output-spec {
   display: grid;
   gap: 5px;
@@ -1408,4 +1443,332 @@ a:focus-visible {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* Editorial directing begins with a strong cut, then exposes its mechanics. */
+.editorial-cuts {
+  display: grid;
+  gap: 9px;
+  margin: 2px 0 10px;
+  padding: 12px 0 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.editorial-cuts-heading,
+.delivery-receipt-topline {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editorial-cuts-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.editorial-cuts-heading span,
+.delivery-receipt-topline > span,
+.delivery-receipt dt {
+  color: var(--rust-light);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.editorial-cuts-heading h4 {
+  margin: 0;
+  color: #d8d1c6;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.editorial-cuts-heading > small {
+  max-width: 48%;
+  overflow: hidden;
+  color: var(--faint);
+  font-family: ui-monospace, monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.editorial-cut-grid {
+  display: grid;
+  gap: 5px;
+}
+
+.editorial-cut-card {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 3px;
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.025), transparent 54%),
+    rgba(255, 255, 255, 0.012);
+  text-align: left;
+  cursor: pointer;
+}
+
+.editorial-cut-card:hover {
+  border-color: rgba(225, 155, 106, 0.34);
+  background:
+    linear-gradient(115deg, rgba(225, 155, 106, 0.06), transparent 58%),
+    rgba(255, 255, 255, 0.018);
+}
+
+.editorial-cut-card[data-active="true"] {
+  border-color: rgba(225, 155, 106, 0.66);
+  box-shadow: 0 0 0 1px rgba(225, 155, 106, 0.08) inset;
+  background:
+    linear-gradient(115deg, rgba(184, 94, 57, 0.13), transparent 63%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.editorial-cut-card[data-active="true"]::after {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  content: "";
+  background: var(--rust-light);
+  box-shadow: 0 0 0 4px rgba(225, 155, 106, 0.08);
+}
+
+.editorial-cut-index {
+  padding-top: 1px;
+  color: #625d56;
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+}
+
+.editorial-cut-card > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding-right: 10px;
+}
+
+.editorial-cut-card small {
+  color: #8c694f;
+  font-family: ui-monospace, monospace;
+  font-size: 8px;
+  letter-spacing: 0.09em;
+}
+
+.editorial-cut-card strong {
+  color: #ddd5ca;
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.editorial-cut-card > span:last-child > span {
+  color: #8e877d;
+  font-size: 9px;
+  line-height: 1.48;
+}
+
+.editorial-cut-card em {
+  color: #5f5a53;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 8.5px;
+  font-style: italic;
+  line-height: 1.35;
+}
+
+.editorial-rhythm {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(120deg, rgba(225, 155, 106, 0.045), rgba(255, 255, 255, 0.012));
+}
+
+.editorial-rhythm-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.editorial-rhythm-heading span,
+.editorial-rhythm dt {
+  color: var(--rust-light);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 7px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.editorial-rhythm-heading strong {
+  color: #b9b1a5;
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.editorial-rhythm-track {
+  min-height: 24px;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  background: #11100f;
+}
+
+.editorial-rhythm-track > span {
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(240, 230, 214, 0.68);
+  font-family: ui-monospace, monospace;
+  font-size: 6px;
+  letter-spacing: 0.09em;
+}
+
+.editorial-rhythm-track .rhythm-read,
+.editorial-rhythm-track .rhythm-land {
+  background: rgba(184, 94, 57, 0.17);
+}
+
+.editorial-rhythm-track .rhythm-carry {
+  border-inline: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.025), rgba(225, 155, 106, 0.11), rgba(255, 255, 255, 0.025));
+}
+
+.editorial-rhythm dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+}
+
+.editorial-rhythm dl > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.editorial-rhythm dt,
+.editorial-rhythm dd {
+  margin: 0;
+}
+
+.editorial-rhythm dt {
+  color: #6f6961;
+  letter-spacing: 0.08em;
+}
+
+.editorial-rhythm dd {
+  color: #aaa196;
+  font-family: ui-monospace, monospace;
+  font-size: 7px;
+}
+
+.delivery-receipt {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-left: 2px solid #716b62;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.delivery-receipt[data-status="unscored"] { border-left-color: #66615a; }
+.delivery-receipt[data-status="still"] { border-left-color: #7f7792; }
+.delivery-receipt[data-status="empty"] { border-left-color: #66615a; }
+.delivery-receipt[data-status="closed"] { border-left-color: #7ca177; }
+.delivery-receipt[data-status="complete-open"] { border-left-color: #9e8a67; }
+.delivery-receipt[data-status="partial"] { border-left-color: #a86f4f; }
+.delivery-receipt[data-status="retimed"] { border-left-color: #ba7448; }
+.delivery-receipt[data-status="rushed"] { border-left-color: #b45142; }
+
+.delivery-receipt-topline {
+  align-items: center;
+}
+
+.delivery-receipt-topline strong {
+  color: #d4ccc0;
+  font-size: 9px;
+  font-weight: 620;
+}
+
+.delivery-receipt p {
+  margin: 0;
+  color: #888178;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.delivery-receipt dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin: 0;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.delivery-receipt dl > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 7px;
+  background: #161513;
+}
+
+.delivery-receipt dt,
+.delivery-receipt dd {
+  margin: 0;
+}
+
+.delivery-receipt dt {
+  color: #6f6961;
+}
+
+.delivery-receipt dd {
+  overflow: hidden;
+  color: #b7afa4;
+  font-family: ui-monospace, monospace;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delivery-repair {
+  min-height: 32px;
+  border-color: rgba(225, 155, 106, 0.42);
+  color: #d9ad8c;
+  background: rgba(184, 94, 57, 0.09);
+  font-size: 8px;
+  font-weight: 620;
+}
+
+.delivery-repair:hover {
+  border-color: rgba(225, 155, 106, 0.7);
+  color: #f0c5a5;
+  background: rgba(184, 94, 57, 0.15);
+}
+
+.delivery-advice {
+  color: #a87961;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+@media (max-width: 540px) {
+  .delivery-receipt dl,
+  .editorial-rhythm dl { grid-template-columns: 1fr; }
 }

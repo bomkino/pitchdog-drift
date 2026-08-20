@@ -41,7 +41,8 @@ export const slideFragmentShader = /* glsl */ `
   uniform float uVelocity;
   uniform float uDistortion;
   uniform float uAxis;
-  uniform float uTime;
+  uniform float uPhase;
+  uniform float uTactile;
 
   float roundedSuperellipseDistance(vec2 p, vec2 halfSize, float radius, float smoothing) {
     if (radius < 0.5) {
@@ -108,7 +109,12 @@ export const slideFragmentShader = /* glsl */ `
       sampled.a = 1.0;
     }
 
-    float grain = (hash12(gl_FragCoord.xy + fract(uTime) * 113.0) - 0.5) * 0.018;
+    // Texture belongs to the slide. Wall-clock noise makes pauses crawl and
+    // makes identical export poses differ; slide-space grain remains tactile
+    // without becoming temporal shimmer.
+    float grain = (hash12(vUv * uSizePx + vec2(uPhase * 37.0, uPhase * 19.0)) - 0.5)
+      * 0.018
+      * clamp(uTactile, 0.0, 1.0);
     sampled.rgb += grain + abs(vWarp) * 0.025;
     vec3 color = mix(sampled.rgb, uBorderColor, borderMask * uBorderOpacity);
     float alpha = outerMask * sampled.a * uOpacity;
@@ -203,8 +209,8 @@ export const backgroundFragmentShader = /* glsl */ `
       color = mix(uColorA, uColorB, gradient);
       color = mix(color, uAccent, softBlob(p, vec2(0.35 + cos(uPhase) * 0.08, -0.3), 0.7) * 0.32 * uIntensity);
     } else if (uMode < 2.5) {
-      vec2 centerA = vec2(cos(uPhase) * 0.34, sin(uPhase * 1.0) * 0.22);
-      vec2 centerB = vec2(cos(uPhase + 2.1) * 0.42, sin(uPhase + 1.4) * 0.3);
+      vec2 centerA = vec2(cos(uPhase) * 0.34, sin(uPhase * 1.0) * 0.22) * uMotion;
+      vec2 centerB = vec2(cos(uPhase + 2.1) * 0.42, sin(uPhase + 1.4) * 0.3) * uMotion;
       float a = softBlob(p, centerA, 0.72);
       float b = softBlob(p, centerB, 0.62);
       color = mix(uColorA, uColorB, a * 0.72 * uIntensity);
@@ -214,13 +220,13 @@ export const backgroundFragmentShader = /* glsl */ `
       color = mix(uColorA, uColorB, smoothstep(-0.45, 0.65, p.y));
       color += (fibers - 0.5) * 0.018 * uIntensity;
     } else {
-      float slit = exp(-abs(p.x + sin(p.y * 2.4 + uPhase) * 0.08) * 8.0);
-      float pulse = 0.82 + 0.18 * sin(uPhase);
+      float slit = exp(-abs(p.x + sin(p.y * 2.4 + uPhase) * 0.08 * uMotion) * 8.0);
+      float pulse = 0.82 + 0.18 * sin(uPhase) * uMotion;
       color = mix(uColorA, uColorB, smoothstep(-0.4, 0.5, p.y) * 0.36);
       color = mix(color, uAccent, slit * pulse * 0.28 * uIntensity);
     }
 
-    float vignette = smoothstep(0.88, 0.18, dot(p, p));
+    float vignette = 1.0 - smoothstep(0.18, 0.88, dot(p, p));
     color *= mix(1.0 - uVignette * 0.62, 1.0, vignette);
     float grain = (hash12(gl_FragCoord.xy + vec2(cos(uPhase), sin(uPhase)) * 97.0) - 0.5) * uGrain * 0.16;
     color += grain;
