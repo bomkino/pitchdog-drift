@@ -13,6 +13,7 @@ final class DriftAppDelegate: NSObject,
     private var window: NSWindow?
     private var webView: WKWebView?
     private var webRootURL: URL?
+    private var trustedIndexURL: URL?
     private var nativeBridge: NativeBridgeHost?
     private var contentRuleList: WKContentRuleList?
     private var preparingRuntime = false
@@ -97,6 +98,7 @@ final class DriftAppDelegate: NSObject,
         removeNativeMessageHandler()
         webRuntimeReady = false
         webRootURL = nil
+        trustedIndexURL = nil
         webView = nil
         nativeBridge = nil
         window = nil
@@ -166,6 +168,7 @@ final class DriftAppDelegate: NSObject,
             return
         }
         webRootURL = indexURL.deletingLastPathComponent().standardizedFileURL
+        trustedIndexURL = indexURL.standardizedFileURL
 
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
@@ -277,6 +280,10 @@ final class DriftAppDelegate: NSObject,
     // MARK: - WebKit navigation and recovery
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard TrustedWebRuntime.acceptsMainFrameURL(webView.url, trustedIndexURL: trustedIndexURL) else {
+            webRuntimeReady = false
+            return
+        }
         webRuntimeReady = true
         deliverPendingProjectsIfPossible()
     }
@@ -325,6 +332,20 @@ final class DriftAppDelegate: NSObject,
         }
         guard let url = navigationAction.request.url,
               let scheme = url.scheme?.lowercased() else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        if navigationAction.targetFrame?.isMainFrame == true {
+            if TrustedWebRuntime.acceptsMainFrameURL(url, trustedIndexURL: trustedIndexURL) {
+                decisionHandler(.allow)
+                return
+            }
+            if ["http", "https"].contains(scheme), navigationAction.navigationType == .linkActivated {
+                NSWorkspace.shared.open(url)
+            } else {
+                NSSound.beep()
+            }
             decisionHandler(.cancel)
             return
         }
