@@ -5,7 +5,8 @@ import Foundation
 @main
 struct DriftMain {
     static func main() {
-        let arguments = Set(CommandLine.arguments.dropFirst())
+        let argumentList = Array(CommandLine.arguments.dropFirst())
+        let arguments = Set(argumentList)
 
         if arguments.contains("--smoke-test") {
             Darwin.exit(runSmokeTest())
@@ -21,7 +22,11 @@ struct DriftMain {
             }
         }
         if arguments.contains("--webview-self-test") {
-            Darwin.exit(WebViewSelfTest.run())
+            let prefix = "--webview-self-test-report-name="
+            let receiptName = argumentList
+                .first(where: { $0.hasPrefix(prefix) })
+                .map { String($0.dropFirst(prefix.count)) }
+            Darwin.exit(WebViewSelfTest.run(receiptName: receiptName))
         }
 
         let application = NSApplication.shared

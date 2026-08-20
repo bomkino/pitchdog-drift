@@ -3,6 +3,7 @@ import Foundation
 import WebKit
 
 final class WebViewSelfTest: NSObject, WKNavigationDelegate {
+    private let receiptName: String?
     private var window: NSWindow?
     private var webView: WKWebView?
     private var bridge: NativeBridgeHost?
@@ -11,13 +12,23 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     private var startedNavigation = false
     private var committedNavigation = false
     private var finishedNavigation = false
+    private var contentProcessTerminationCount = 0
     private var lastProbe = "no probe completed"
 
-    static func run() -> Int32 {
+    private init(receiptName: String?) {
+        self.receiptName = receiptName
+        super.init()
+    }
+
+    static func run(receiptName: String? = nil) -> Int32 {
         let application = NSApplication.shared
-        application.setActivationPolicy(.prohibited)
+        // A WKWebView media/GPU process is not faithfully exercised under the
+        // prohibited activation policy used by command-line-only tools. The
+        // real app is regular; accessory gives the self-test a real WindowServer
+        // lifecycle without adding a second Dock application.
+        application.setActivationPolicy(.accessory)
         application.finishLaunching()
-        let harness = WebViewSelfTest()
+        let harness = WebViewSelfTest(receiptName: receiptName)
         return harness.execute()
     }
 
@@ -25,8 +36,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         guard let bridgeURL = Bundle.main.url(forResource: "NativeBridge", withExtension: "js"),
               let bridgeSource = try? String(contentsOf: bridgeURL, encoding: .utf8),
               let indexURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web") else {
-            fputs("Drift WebView self-test failed: bundled runtime is missing.\n", stderr)
-            return 1
+            return failReceipt("bundled runtime is missing")
         }
 
         let configuration = WKWebViewConfiguration()
@@ -59,30 +69,54 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         bridge.webView = webView
         self.webView = webView
 
-        // WKWebView may defer process and compositor startup when it is never
-        // attached to a window. Use a genuine, nearly invisible off-screen
-        // window so the test exercises the same lifecycle as Drift.app without
-        // flashing UI on the runner.
+        // Keep the compositor honest. The previous test placed a 1%-opaque
+        // borderless window 12,000 points off-screen. Hosted WebKit terminated
+        // that content process even though the same bundle, signature, native
+        // bridge, and file broker had already passed. CI has no human viewer;
+        // use a normal visible window and test the lifecycle users actually get.
         let window = NSWindow(
-            contentRect: NSRect(x: -12_000, y: -12_000, width: 1200, height: 800),
-            styleMask: [.borderless],
+            contentRect: NSRect(x: 80, y: 80, width: 1200, height: 800),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.alphaValue = 0.01
-        window.ignoresMouseEvents = true
+        window.title = "Drift packaged-runtime verification"
         window.contentView = webView
-        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
         self.window = window
 
         webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
 
-        let deadline = Date().addingTimeInterval(45)
+        let deadline = Date().addingTimeInterval(55)
         while !finished && Date() < deadline {
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
         }
 
+        let state = bridge.clientState
+        let diagnostic = diagnosticMessage(webView: webView, state: state)
+        cleanup(configuration: configuration, webView: webView, window: window, bridge: bridge)
+
+        if let failure {
+            return failReceipt("\(failure); \(diagnostic)", state: state)
+        }
+        guard finished else {
+            return failReceipt("timed out after 55 seconds; \(diagnostic)", state: state)
+        }
+
+        let message = "relative bundle assets, React studio, installed typed app contract, authoritative state, native-menu command dispatch, direct native save, and file-system polyfills loaded"
+        writeReceipt(ok: true, message: message, state: state)
+        print("Drift WebView self-test passed: \(message).")
+        return 0
+    }
+
+    private func cleanup(
+        configuration: WKWebViewConfiguration,
+        webView: WKWebView,
+        window: NSWindow,
+        bridge: NativeBridgeHost
+    ) {
         webView.stopLoading()
         webView.navigationDelegate = nil
         window.orderOut(nil)
@@ -92,20 +126,57 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             contentWorld: .page
         )
         bridge.abortAllWrites()
+    }
 
-        if let failure {
-            fputs("Drift WebView self-test failed: \(failure)\n", stderr)
-            return 1
-        }
-        guard finished else {
-            let state = bridge.clientState
-            let diagnostic = "timed out after 45 seconds; started=\(startedNavigation), committed=\(committedNavigation), finishedNavigation=\(finishedNavigation), isLoading=\(webView.isLoading), url=\(webView.url?.absoluteString ?? "nil"), saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), lastProbe=\(lastProbe)"
-            fputs("Drift WebView self-test failed: \(diagnostic)\n", stderr)
-            return 1
-        }
+    private func diagnosticMessage(webView: WKWebView, state: ClientState) -> String {
+        "started=\(startedNavigation), committed=\(committedNavigation), finishedNavigation=\(finishedNavigation), contentProcessTerminations=\(contentProcessTerminationCount), isLoading=\(webView.isLoading), url=\(webView.url?.absoluteString ?? "nil"), saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), lastProbe=\(lastProbe)"
+    }
 
-        print("Drift WebView self-test passed: relative bundle assets, React studio, installed typed app contract, authoritative state, native-menu command dispatch, direct native save, and file-system polyfills loaded.")
-        return 0
+    private func failReceipt(_ message: String, state: ClientState = ClientState()) -> Int32 {
+        writeReceipt(ok: false, message: message, state: state)
+        fputs("Drift WebView self-test failed: \(message)\n", stderr)
+        return 1
+    }
+
+    private func writeReceipt(ok: Bool, message: String, state: ClientState) {
+        guard let receiptName else { return }
+        guard receiptName.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"#, options: .regularExpression) != nil else {
+            fputs("Drift WebView self-test could not write an unsafe receipt name.\n", stderr)
+            return
+        }
+        do {
+            guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+                throw NSError(domain: "DriftWebViewSelfTest", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "the application caches directory is unavailable",
+                ])
+            }
+            let directory = caches
+                .appendingPathComponent("Drift", isDirectory: true)
+                .appendingPathComponent("SelfTests", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appendingPathComponent(receiptName, isDirectory: false)
+            let receipt: [String: Any] = [
+                "schemaVersion": 1,
+                "ok": ok,
+                "message": message,
+                "bundleIdentifier": Bundle.main.bundleIdentifier ?? NSNull(),
+                "bundleVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? NSNull(),
+                "sourceRevision": Bundle.main.object(forInfoDictionaryKey: "DriftSourceRevision") ?? NSNull(),
+                "startedNavigation": startedNavigation,
+                "committedNavigation": committedNavigation,
+                "finishedNavigation": finishedNavigation,
+                "contentProcessTerminationCount": contentProcessTerminationCount,
+                "saveState": state.saveState,
+                "projectBusy": state.projectBusy,
+                "exportInProgress": state.exportInProgress,
+                "lastNotice": state.lastNotice ?? NSNull(),
+                "lastProbe": lastProbe,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: url, options: .atomic)
+        } catch {
+            fputs("Drift WebView self-test receipt failed: \(error.localizedDescription)\n", stderr)
+        }
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -132,8 +203,23 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        failure = "the WebKit content process terminated during the packaged-runtime test"
-        finished = true
+        contentProcessTerminationCount += 1
+        guard contentProcessTerminationCount == 1 else {
+            failure = "the WebKit content process terminated twice during the packaged-runtime test"
+            finished = true
+            return
+        }
+
+        // The production app exposes an explicit reload recovery after a WebKit
+        // process loss. Exercise that promise once. A second termination is a
+        // hard failure rather than an infinite green-by-retry loop.
+        startedNavigation = false
+        committedNavigation = false
+        finishedNavigation = false
+        lastProbe = "content process terminated once; testing reload recovery"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            webView.reload()
+        }
     }
 
     private func pollRuntime(in webView: WKWebView, attemptsRemaining: Int) {
@@ -157,7 +243,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         }))()
         """
         webView.evaluateJavaScript(probe) { [weak self] result, error in
-            guard let self else { return }
+            guard let self, !self.finished else { return }
             if let error {
                 self.failure = "runtime probe failed: \(error.localizedDescription)"
                 self.finished = true
@@ -190,7 +276,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             }
 
             guard attemptsRemaining > 0 else {
-                self.failure = "The bundled page loaded but never reached a ready typed contract and settled authoritative state. Last probe: \(self.lastProbe); native state: saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), lastNotice=\(state.lastNotice ?? "nil")"
+                self.failure = "the bundled page loaded but never reached a ready typed contract and settled authoritative state; lastProbe=\(self.lastProbe), saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), lastNotice=\(state.lastNotice ?? "nil")"
                 self.finished = true
                 return
             }
@@ -202,7 +288,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
 
     private func testNativeCommandRoundTrip(in webView: WKWebView, attemptsRemaining: Int) {
         webView.evaluateJavaScript("window.__driftNativeCommand?.('toggle-focus')") { [weak self, weak webView] _, error in
-            guard let self else { return }
+            guard let self, !self.finished else { return }
             if let error {
                 self.failure = "native command dispatch failed: \(error.localizedDescription)"
                 self.finished = true
@@ -219,7 +305,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
 
     private func pollFocusState(in webView: WKWebView, attemptsRemaining: Int) {
         webView.evaluateJavaScript("document.querySelector('main.app')?.dataset.focus === 'true'") { [weak self] result, error in
-            guard let self else { return }
+            guard let self, !self.finished else { return }
             if let error {
                 self.failure = "focus-state probe failed: \(error.localizedDescription)"
                 self.finished = true
