@@ -1,0 +1,141 @@
+name: Harden export memory preflight
+
+on:
+  push:
+    branches: [gauntlet/directors-cut-optical-pipeline]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: harden-export-memory
+  cancel-in-progress: true
+
+jobs:
+  harden:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/directors-cut-optical-pipeline
+          fetch-depth: 0
+
+      - name: Wait for earlier contract corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            git fetch origin gauntlet/directors-cut-optical-pipeline
+            CLEAN_LENS=$(git show origin/gauntlet/directors-cut-optical-pipeline:e2e/cleanLensComparison.e2e.ts 2>/dev/null || true)
+            SURFACE=$(git show origin/gauntlet/directors-cut-optical-pipeline:tests/creatorSurface.test.ts 2>/dev/null || true)
+            if grep -q "expressiveWorld" <<< "$CLEAN_LENS" \
+              && grep -q "initialize|setup|start" <<< "$SURFACE"; then
+              git reset --hard origin/gauntlet/directors-cut-optical-pipeline
+              exit 0
+            fi
+            sleep 4
+          done
+          echo "Earlier contract corrections did not settle." >&2
+          exit 1
+
+      - name: Add optical working-set guard
+        shell: python
+        run: |
+          from pathlib import Path
+
+          engine = Path("src/engine/CinematicCarousel.ts")
+          source = engine.read_text()
+          if "estimateExportWorkingSetBytes" not in source:
+              anchor = "\nfunction backgroundMode("
+              if anchor not in source:
+                  raise SystemExit("Could not find backgroundMode insertion anchor.")
+              guard = r'''
+
+          export const DEFAULT_EXPORT_WORKING_SET_LIMIT = 512 * 1024 * 1024;
+
+          /**
+           * Estimate the transient GPU footprint of one full-frame optical export.
+           * The guard intentionally counts the scene colour/depth target, the
+           * default colour/depth surface, and allocator/driver headroom. It is a
+           * conservative stability budget, not a claim about exact GPU residency.
+           */
+          export function estimateExportWorkingSetBytes(width: number, height: number): number {
+            if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) return Number.POSITIVE_INFINITY;
+            const pixels = width * height;
+            const rgba8ColourAndDepthSurfaces = pixels * 16;
+            const allocatorHeadroom = pixels * 4;
+            return rgba8ColourAndDepthSurfaces + allocatorHeadroom;
+          }
+
+          export function assertExportWorkingSetSupported(
+            width: number,
+            height: number,
+            maximumBytes = DEFAULT_EXPORT_WORKING_SET_LIMIT,
+          ): void {
+            const estimated = estimateExportWorkingSetBytes(width, height);
+            if (!Number.isFinite(maximumBytes) || maximumBytes <= 0) {
+              throw new Error("Export working-set limit must be a positive number of bytes.");
+            }
+            if (estimated > maximumBytes) {
+              const neededMiB = Math.ceil(estimated / (1024 * 1024));
+              const limitMiB = Math.floor(maximumBytes / (1024 * 1024));
+              throw new Error(
+                `Export surface ${width} × ${height} needs an estimated ${neededMiB} MiB optical working set, above Drift's ${limitMiB} MiB browser-stability guard. Reduce the master dimensions and try again.`,
+              );
+            }
+          }
+          '''
+              source = source.replace(anchor, guard + anchor, 1)
+
+          call = "    assertExportSurfaceSupported(width, height, this.capabilities);\n"
+          if "assertExportWorkingSetSupported(width, height);" not in source:
+              if call not in source:
+                  raise SystemExit("Could not find beginExport surface-preflight anchor.")
+              source = source.replace(call, call + "    assertExportWorkingSetSupported(width, height);\n", 1)
+          engine.write_text(source)
+
+          test = Path("tests/exportWorkingSet.test.ts")
+          test.write_text(r'''import { describe, expect, it } from "vitest";
+          import {
+            DEFAULT_EXPORT_WORKING_SET_LIMIT,
+            assertExportWorkingSetSupported,
+            estimateExportWorkingSetBytes,
+          } from "../src/engine/CinematicCarousel";
+
+          describe("optical export working-set preflight", () => {
+            it("keeps common social and 4K masters inside the browser guard", () => {
+              expect(() => assertExportWorkingSetSupported(1080, 1920)).not.toThrow();
+              expect(() => assertExportWorkingSetSupported(2160, 3840)).not.toThrow();
+              expect(estimateExportWorkingSetBytes(2160, 3840)).toBeLessThan(DEFAULT_EXPORT_WORKING_SET_LIMIT);
+            });
+
+            it("blocks 8K-class full-frame optical surfaces before allocation", () => {
+              expect(estimateExportWorkingSetBytes(4320, 7680)).toBeGreaterThan(DEFAULT_EXPORT_WORKING_SET_LIMIT);
+              expect(() => assertExportWorkingSetSupported(4320, 7680)).toThrow(/estimated .* MiB optical working set/i);
+            });
+
+            it("rejects malformed dimensions and malformed budgets honestly", () => {
+              expect(estimateExportWorkingSetBytes(0, 1920)).toBe(Number.POSITIVE_INFINITY);
+              expect(() => assertExportWorkingSetSupported(1080, 1920, 0)).toThrow(/positive number of bytes/i);
+            });
+          });
+          '''.replace("          ", ""))
+
+      - name: Verify typed and deterministic gates
+        run: |
+          npm ci
+          npm run check
+
+      - name: Remove temporary delivery hook and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/harden-export-memory.yml
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: preflight full-frame optical memory"
+          git push origin HEAD:gauntlet/directors-cut-optical-pipeline
