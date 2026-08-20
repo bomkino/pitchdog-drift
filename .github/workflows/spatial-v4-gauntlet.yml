@@ -87,3 +87,5 @@ jobs:
           if [ -n "$pr_url" ]; then
             gh pr comment "$pr_url" --body $'Spatial fabric v4 gauntlet passed.\n\n- refresh-rate-invariant preview physics\n- deterministic exported motion character\n- exact seamless position, velocity, and acceleration closure\n- compatibility-safe legacy hydration\n- typecheck, unit suite, production build, and rendered-browser suite\n- one-shot machinery removed'
           fi
+
+# staged spatial v4 execution
