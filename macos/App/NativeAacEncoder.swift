@@ -120,7 +120,7 @@ private final class NativeAacSession {
             repeating: 0,
             count: bytes.count / MemoryLayout<Float>.size
         )
-        samples.withUnsafeMutableBytes { destination in
+        _ = samples.withUnsafeMutableBytes { destination in
             bytes.copyBytes(to: destination)
         }
         guard samples.allSatisfy(\.isFinite) else {
@@ -452,7 +452,7 @@ private enum NativeAacAudioToolbox {
                 UInt32(MemoryLayout.size(ofValue: formatID)),
                 &formatID,
                 &byteCount,
-                bytes.baseAddress
+                bytes.baseAddress!
             )
         }
         try requireNoErr(getStatus, operation: "AudioFormatGetProperty(kAudioFormatProperty_Encoders)")
@@ -684,7 +684,7 @@ private enum NativeAacAudioToolbox {
                 converter,
                 kAudioConverterCompressionMagicCookie,
                 &byteCount,
-                bytes.baseAddress
+                bytes.baseAddress!
             )
         }
         try requireNoErr(status, operation: "get AAC magic cookie")
