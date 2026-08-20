@@ -4,10 +4,10 @@ export interface ImportableFileLike {
   webkitRelativePath?: string;
 }
 
-const NATURAL_COLLATOR = new Intl.Collator(undefined, {
+const NATURAL_COLLATOR = new Intl.Collator("en", {
   numeric: true,
   sensitivity: "base",
-  punctuation: false,
+  ignorePunctuation: false,
 });
 
 function sourcePath(file: ImportableFileLike): string {
