@@ -1,0 +1,109 @@
+name: Polish creator journey gauntlet
+
+on:
+  push:
+    branches:
+      - gauntlet/cinematic-atmosphere-lab
+    paths:
+      - scripts/polishCreatorJourney.py
+      - .github/workflows/polish-creator-journey.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: creator-journey-polish
+  cancel-in-progress: false
+
+jobs:
+  polish-and-prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Apply second-pass fixes
+        run: python3 scripts/polishCreatorJourney.py
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Type, unit, and build gate
+        run: npm run check
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Full Chromium and WebGL gate
+        run: npm run test:e2e
+
+      - name: Capture visual evidence
+        run: |
+          mkdir -p visual-evidence
+          npm run dev -- --host 127.0.0.1 --port 4179 > /tmp/drift-vite.log 2>&1 &
+          SERVER_PID=$!
+          for attempt in {1..80}; do
+            if curl -fsS http://127.0.0.1:4179 >/dev/null; then break; fi
+            sleep .25
+          done
+          node --input-type=module <<'EOF'
+          import { chromium } from '@playwright/test';
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
+          const errors = [];
+          page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+          page.on('pageerror', error => errors.push(error.message));
+          await page.goto('http://127.0.0.1:4179', { waitUntil: 'networkidle' });
+          await page.locator('.director-dock').waitFor({ state: 'visible' });
+          await page.getByRole('button', { name: 'Pace: Editorial' }).click();
+          await page.getByRole('slider', { name: 'Master timeline' }).fill('1');
+          await page.getByLabel('Platform guide').selectOption('social');
+          await page.screenshot({ path: 'visual-evidence/director-desk-open.png', fullPage: true });
+          await page.locator('.director-dock > summary').click();
+          await page.screenshot({ path: 'visual-evidence/director-desk-collapsed.png', fullPage: true });
+          if (errors.length) throw new Error(errors.join('\n'));
+          await browser.close();
+          EOF
+          kill "$SERVER_PID" || true
+
+      - name: Upload visual evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: creator-journey-visual-evidence
+          path: visual-evidence
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Diff hygiene
+        run: git diff --check
+
+      - name: Remove one-shot automation
+        run: |
+          rm scripts/polishCreatorJourney.py
+          rm .github/workflows/polish-creator-journey.yml
+          rm -rf visual-evidence
+
+      - name: Commit proven polish
+        id: commit
+        run: |
+          git config user.name "pitch.dog gauntlet"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git commit -m "test: prove the creator journey under real delivery conditions"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git push origin HEAD:gauntlet/cinematic-atmosphere-lab
+
+      - name: Publish second-pass receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          gh pr comment 2 --repo bomkino/pitchdog-drift --body "Second creator-journey gauntlet passed on \`${HEAD_SHA}\`. Added exact-frame PNG dimension proof, deterministic playhead frame difference, guide-to-export pixel neutrality, phone-viewport fit, collapse behaviour, unambiguous pacing controls, and output-edge preflight. Visual evidence is attached to this workflow run."
