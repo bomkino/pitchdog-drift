@@ -1,4 +1,5 @@
 import {
+  DEFAULT_SETTINGS,
   ENGINE_VERSION,
   SCHEMA_VERSION,
   SHADER_VERSION,
@@ -110,6 +111,8 @@ const DIRECTIONS = [-1, 1] as const;
 const FLOWS = ["straight", "arc", "ribbon", "cylinder", "tunnel"] as const;
 const IMAGE_FITS = ["cover", "contain"] as const;
 const BACKGROUNDS = ["transparent", "solid", "gradient", "aura", "paper", "void"] as const;
+const LIGHTING_PRESETS = ["custom", "studio-soft", "window-rake", "projector-haze", "noir-slice", "golden-hour", "electric-rim"] as const;
+const LIGHT_GOBOS = ["softbox", "window", "projector", "slit", "sunset", "edge"] as const;
 const THEMES = [
   "editorial-drift",
   "road-memory",
@@ -123,7 +126,9 @@ const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
 /**
  * Validates the complete current settings schema and rebuilds it field by
  * field. Unknown keys never cross the trust boundary; missing or malformed
- * known keys never receive a silent default.
+ * known keys never receive a silent default. The only compatibility
+ * exception is the additive v1 lighting section: projects written before
+ * it existed inherit the old slide shadow values and the current neutral rig.
  */
 export function validateStudioSettings(value: unknown): StudioSettings {
   const source = record(value, "settings");
@@ -172,6 +177,16 @@ export function validateStudioSettings(value: unknown): StudioSettings {
     invalid("settings.presenter.enabled", "must agree with whether pinned media is selected");
   }
 
+  const slideShadowOpacity = number(slide.shadowOpacity, "settings.slide.shadowOpacity", { min: 0, max: 0.8 });
+  const slideShadowSoftness = number(slide.shadowSoftness, "settings.slide.shadowSoftness", { min: 4, max: 96 });
+  const lighting = source.lighting === undefined
+    ? {
+        ...DEFAULT_SETTINGS.lighting,
+        shadowOpacity: slideShadowOpacity,
+        shadowSoftness: slideShadowSoftness,
+      }
+    : record(source.lighting, "settings.lighting");
+
   return {
     schemaVersion: SCHEMA_VERSION,
     engineVersion: ENGINE_VERSION,
@@ -216,8 +231,8 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       borderWidth: number(slide.borderWidth, "settings.slide.borderWidth", { min: 0, max: 16 }),
       borderColor: hexColour(slide.borderColor, "settings.slide.borderColor"),
       borderOpacity: number(slide.borderOpacity, "settings.slide.borderOpacity", { min: 0, max: 1 }),
-      shadowOpacity: number(slide.shadowOpacity, "settings.slide.shadowOpacity", { min: 0, max: 0.8 }),
-      shadowSoftness: number(slide.shadowSoftness, "settings.slide.shadowSoftness", { min: 4, max: 96 }),
+      shadowOpacity: slideShadowOpacity,
+      shadowSoftness: slideShadowSoftness,
     },
     background: {
       style: backgroundStyle,
@@ -229,6 +244,28 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       grain: number(background.grain, "settings.background.grain", { min: 0, max: 0.6 }),
       vignette: number(background.vignette, "settings.background.vignette", { min: 0, max: 1 }),
       seed: number(background.seed, "settings.background.seed", { min: 0, max: 1_000_000, integer: true }),
+    },
+    lighting: {
+      preset: oneOf(lighting.preset, "settings.lighting.preset", LIGHTING_PRESETS),
+      enabled: boolean(lighting.enabled, "settings.lighting.enabled"),
+      keyColor: hexColour(lighting.keyColor, "settings.lighting.keyColor"),
+      fillColor: hexColour(lighting.fillColor, "settings.lighting.fillColor"),
+      shadowColor: hexColour(lighting.shadowColor, "settings.lighting.shadowColor"),
+      azimuth: number(lighting.azimuth, "settings.lighting.azimuth", { min: -180, max: 180 }),
+      elevation: number(lighting.elevation, "settings.lighting.elevation", { min: 5, max: 85 }),
+      keyIntensity: number(lighting.keyIntensity, "settings.lighting.keyIntensity", { min: 0, max: 2 }),
+      fillIntensity: number(lighting.fillIntensity, "settings.lighting.fillIntensity", { min: 0, max: 1 }),
+      rimIntensity: number(lighting.rimIntensity, "settings.lighting.rimIntensity", { min: 0, max: 1 }),
+      sheen: number(lighting.sheen, "settings.lighting.sheen", { min: 0, max: 1 }),
+      roughness: number(lighting.roughness, "settings.lighting.roughness", { min: 0, max: 1 }),
+      shadowOpacity: number(lighting.shadowOpacity, "settings.lighting.shadowOpacity", { min: 0, max: 0.9 }),
+      shadowSoftness: number(lighting.shadowSoftness, "settings.lighting.shadowSoftness", { min: 2, max: 180 }),
+      shadowDistance: number(lighting.shadowDistance, "settings.lighting.shadowDistance", { min: 0, max: 180 }),
+      contactStrength: number(lighting.contactStrength, "settings.lighting.contactStrength", { min: 0, max: 1 }),
+      backgroundSpill: number(lighting.backgroundSpill, "settings.lighting.backgroundSpill", { min: 0, max: 1 }),
+      spillFocus: number(lighting.spillFocus, "settings.lighting.spillFocus", { min: 0.15, max: 1.5 }),
+      breath: number(lighting.breath, "settings.lighting.breath", { min: 0, max: 1 }),
+      gobo: oneOf(lighting.gobo, "settings.lighting.gobo", LIGHT_GOBOS),
     },
     presenter: {
       enabled: presenterEnabled,

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { resolveLightingFrame, type ResolvedLightingFrame } from "../lighting";
 import type { StudioAsset, StudioSettings } from "../model";
 import {
   distanceAtTime,
@@ -158,6 +159,17 @@ function createSlideMaterial(placeholder: THREE.Texture): THREE.ShaderMaterial {
       uAxis: { value: 0 },
       uPhase: { value: 0 },
       uTime: { value: 0 },
+      uLightingEnabled: { value: 1 },
+      uKeyDirection: { value: new THREE.Vector3(0.35, 0.45, 0.82).normalize() },
+      uKeyColor: { value: new THREE.Color("#fff1dc") },
+      uFillColor: { value: new THREE.Color("#b9c9e8") },
+      uKeyIntensity: { value: 0.78 },
+      uFillIntensity: { value: 0.54 },
+      uRimIntensity: { value: 0.14 },
+      uSheen: { value: 0.16 },
+      uRoughness: { value: 0.72 },
+      uLightPhase: { value: 0 },
+      uLightBreath: { value: 0.1 },
     },
   });
 }
@@ -170,11 +182,17 @@ function createShadowMaterial(): THREE.ShaderMaterial {
     depthTest: true,
     depthWrite: false,
     uniforms: {
-      uSizePx: { value: new THREE.Vector2(800, 450) },
+      uCanvasSizePx: { value: new THREE.Vector2(900, 550) },
+      uShapeSizePx: { value: new THREE.Vector2(800, 450) },
+      uShadowOffsetPx: { value: new THREE.Vector2(18, -18) },
+      uShadowColor: { value: new THREE.Color("#100c12") },
       uRadiusPx: { value: 24 },
       uSmoothing: { value: 0.6 },
-      uSoftnessPx: { value: 32 },
-      uOpacity: { value: 0.35 },
+      uSoftnessPx: { value: 52 },
+      uContactStrength: { value: 0.58 },
+      uOpacity: { value: 0.34 },
+      uLightPhase: { value: 0 },
+      uLightBreath: { value: 0.1 },
     },
   });
 }
@@ -293,6 +311,14 @@ export class CinematicCarousel {
         uVignette: { value: settings.background.vignette },
         uPhase: { value: 0 },
         uSeed: { value: settings.background.seed },
+        uLightingEnabled: { value: settings.lighting.enabled ? 1 : 0 },
+        uLightColor: { value: new THREE.Color(settings.lighting.keyColor) },
+        uLightDirection: { value: new THREE.Vector2(0.7, 0.7).normalize() },
+        uLightSpill: { value: settings.lighting.backgroundSpill },
+        uLightFocus: { value: settings.lighting.spillFocus },
+        uLightGobo: { value: 0 },
+        uLightPhase: { value: 0 },
+        uLightBreath: { value: settings.lighting.breath },
       },
     });
     this.backgroundMesh = new THREE.Mesh(this.backgroundGeometry, this.backgroundMaterial);
@@ -331,7 +357,7 @@ export class CinematicCarousel {
     const shadow = new THREE.Mesh(this.geometry, shadowMaterial);
     slide.renderOrder = index * 2 + 2;
     shadow.renderOrder = index * 2 + 1;
-    shadow.position.set(10, -14, -8);
+    shadow.position.set(0, 0, -8);
     group.add(shadow, slide);
     group.visible = false;
     if (index < MAX_POOL_SIZE) this.track.add(group);
@@ -688,6 +714,7 @@ export class CinematicCarousel {
     const geometry = getSlideGeometry(this.settings);
     const slotCount = getLogicalSlotCount(this.assets.length, geometry);
     const normalizedVelocity = this.reducedMotionPreview && !exportMode ? 0 : THREE.MathUtils.clamp(velocity / Math.max(1, geometry.stride), -1, 1);
+    const lighting = this.resolveLightFrame(time, exportMode);
     const visible: VisibleItem[] = [];
 
     for (let logicalIndex = 0; logicalIndex < slotCount; logicalIndex += 1) {
@@ -707,11 +734,11 @@ export class CinematicCarousel {
         continue;
       }
       keepTextureKeys.add(this.textureKey(visibleItem.asset));
-      this.updatePoolItem(item, visibleItem, geometry.width, geometry.height, time, normalizedVelocity);
+      this.updatePoolItem(item, visibleItem, geometry.width, geometry.height, time, normalizedVelocity, lighting);
     }
 
-    this.updatePresenterGeometry(time);
-    this.updateBackground(time, exportMode);
+    this.updatePresenterGeometry(time, lighting);
+    this.updateBackground(time, exportMode, lighting);
     if (this.renderCounter % 90 === 0) this.evictTextures(keepTextureKeys);
     this.renderCounter += 1;
 
@@ -725,6 +752,17 @@ export class CinematicCarousel {
     this.renderer.render(this.scene, this.camera);
   }
 
+  private resolveLightFrame(time: number, exportMode: boolean): ResolvedLightingFrame {
+    const reduced = exportMode ? this.settings.motion.reducedMotionOutput : this.reducedMotionPreview;
+    return resolveLightingFrame(this.settings.lighting, {
+      time,
+      reduced,
+      seamless: exportMode && this.settings.motion.seamless,
+      duration: this.settings.output.duration,
+      loops: this.settings.motion.seamlessLoops,
+    });
+  }
+
   private updatePoolItem(
     item: SlidePoolItem,
     visible: VisibleItem,
@@ -732,6 +770,7 @@ export class CinematicCarousel {
     height: number,
     time: number,
     velocity: number,
+    lighting: ResolvedLightingFrame,
   ): void {
     const { evaluated, asset, logicalIndex } = visible;
     item.group.visible = true;
@@ -740,9 +779,14 @@ export class CinematicCarousel {
     item.group.rotation.set(evaluated.rotationX, evaluated.rotationY, evaluated.rotationZ);
     item.group.scale.setScalar(evaluated.scale);
     item.slide.scale.set(width, height, 1);
-    const shadowMargin = Math.min(84, this.settings.slide.shadowSoftness * 1.35);
-    item.shadow.scale.set(width + shadowMargin * 2, height + shadowMargin * 2, 1);
-    item.shadow.position.set(10, -14, -8);
+    const shadowMargin = Math.min(
+      460,
+      Math.ceil(Math.hypot(...lighting.shadowOffset) + this.settings.lighting.shadowSoftness * 1.35 + 4),
+    );
+    const shadowWidth = width + shadowMargin * 2;
+    const shadowHeight = height + shadowMargin * 2;
+    item.shadow.scale.set(shadowWidth, shadowHeight, 1);
+    item.shadow.position.set(0, 0, -8);
 
     const uniforms = item.material.uniforms;
     uniforms.uPlaneAspect!.value = width / height;
@@ -760,13 +804,32 @@ export class CinematicCarousel {
     uniforms.uAxis!.value = this.settings.motion.axis === "horizontal" ? 0 : 1;
     uniforms.uPhase!.value = logicalIndex;
     uniforms.uTime!.value = time;
+    uniforms.uLightingEnabled!.value = this.settings.lighting.enabled ? 1 : 0;
+    uniforms.uKeyDirection!.value.set(...lighting.direction);
+    uniforms.uKeyColor!.value.set(this.settings.lighting.keyColor);
+    uniforms.uFillColor!.value.set(this.settings.lighting.fillColor);
+    uniforms.uKeyIntensity!.value = this.settings.lighting.keyIntensity;
+    uniforms.uFillIntensity!.value = this.settings.lighting.fillIntensity;
+    uniforms.uRimIntensity!.value = this.settings.lighting.rimIntensity;
+    uniforms.uSheen!.value = this.settings.lighting.sheen;
+    uniforms.uRoughness!.value = this.settings.lighting.roughness;
+    uniforms.uLightPhase!.value = lighting.phase;
+    uniforms.uLightBreath!.value = this.settings.lighting.breath;
 
     const shadowUniforms = item.shadowMaterial.uniforms;
-    shadowUniforms.uSizePx!.value.set(width + shadowMargin * 2, height + shadowMargin * 2);
-    shadowUniforms.uRadiusPx!.value = this.settings.slide.radius + shadowMargin * 0.35;
+    shadowUniforms.uCanvasSizePx!.value.set(shadowWidth, shadowHeight);
+    shadowUniforms.uShapeSizePx!.value.set(width, height);
+    shadowUniforms.uShadowOffsetPx!.value.set(...lighting.shadowOffset);
+    shadowUniforms.uShadowColor!.value.set(this.settings.lighting.shadowColor);
+    shadowUniforms.uRadiusPx!.value = Math.min(this.settings.slide.radius, Math.min(width, height) / 2);
     shadowUniforms.uSmoothing!.value = this.settings.slide.smoothing;
-    shadowUniforms.uSoftnessPx!.value = this.settings.slide.shadowSoftness;
-    shadowUniforms.uOpacity!.value = this.settings.slide.shadowOpacity * evaluated.opacity;
+    shadowUniforms.uSoftnessPx!.value = this.settings.lighting.shadowSoftness;
+    shadowUniforms.uContactStrength!.value = this.settings.lighting.contactStrength;
+    shadowUniforms.uOpacity!.value = this.settings.lighting.enabled
+      ? this.settings.lighting.shadowOpacity * evaluated.opacity
+      : 0;
+    shadowUniforms.uLightPhase!.value = lighting.phase;
+    shadowUniforms.uLightBreath!.value = this.settings.lighting.breath;
 
     const assetKey = this.textureKey(asset);
     if (item.assetKey !== assetKey) {
@@ -798,7 +861,10 @@ export class CinematicCarousel {
     }
   }
 
-  private updatePresenterGeometry(time = this.elapsed): void {
+  private updatePresenterGeometry(
+    time = this.elapsed,
+    lighting = this.resolveLightFrame(time, this.exportActive),
+  ): void {
     const settings = this.settings.presenter;
     const shouldShow = settings.enabled && Boolean(this.presenterAsset) && Boolean(this.presenterMaterial.uniforms.uMap!.value);
     this.presenterGroup.visible = shouldShow;
@@ -811,9 +877,15 @@ export class CinematicCarousel {
     this.presenterGroup.rotation.set(0, 0, 0);
     this.presenterGroup.scale.setScalar(1);
     this.presenterSlide.scale.set(width, height, 1);
-    const margin = 54;
-    this.presenterShadow.scale.set(width + margin * 2, height + margin * 2, 1);
-    this.presenterShadow.position.set(12, -18, -10);
+    const presenterOffset: [number, number] = [lighting.shadowOffset[0] * 0.72, lighting.shadowOffset[1] * 0.72];
+    const margin = Math.min(
+      420,
+      Math.ceil(Math.hypot(...presenterOffset) + this.settings.lighting.shadowSoftness * 1.25 + 4),
+    );
+    const shadowWidth = width + margin * 2;
+    const shadowHeight = height + margin * 2;
+    this.presenterShadow.scale.set(shadowWidth, shadowHeight, 1);
+    this.presenterShadow.position.set(0, 0, -10);
 
     const uniforms = this.presenterMaterial.uniforms;
     uniforms.uPlaneAspect!.value = width / height;
@@ -829,18 +901,31 @@ export class CinematicCarousel {
     uniforms.uVelocity!.value = 0;
     uniforms.uDistortion!.value = 0;
     uniforms.uAxis!.value = 0;
+    uniforms.uPhase!.value = 0;
     uniforms.uTime!.value = time;
+    // Presenter footage stays optically neutral. The rig integrates it through
+    // directional shadow and atmosphere without colour-grading a person's face.
+    uniforms.uLightingEnabled!.value = 0;
+    uniforms.uLightPhase!.value = lighting.phase;
+    uniforms.uLightBreath!.value = 0;
 
     const shadowUniforms = this.presenterShadowMaterial.uniforms;
-    shadowUniforms.uSizePx!.value.set(width + margin * 2, height + margin * 2);
-    shadowUniforms.uRadiusPx!.value = settings.radius + margin * 0.3;
+    shadowUniforms.uCanvasSizePx!.value.set(shadowWidth, shadowHeight);
+    shadowUniforms.uShapeSizePx!.value.set(width, height);
+    shadowUniforms.uShadowOffsetPx!.value.set(...presenterOffset);
+    shadowUniforms.uShadowColor!.value.set(this.settings.lighting.shadowColor);
+    shadowUniforms.uRadiusPx!.value = Math.min(settings.radius, Math.min(width, height) / 2);
     shadowUniforms.uSmoothing!.value = settings.smoothing;
-    shadowUniforms.uSoftnessPx!.value = 48;
-    shadowUniforms.uOpacity!.value = settings.shadowOpacity;
+    shadowUniforms.uSoftnessPx!.value = Math.max(2, this.settings.lighting.shadowSoftness * 0.92);
+    shadowUniforms.uContactStrength!.value = this.settings.lighting.contactStrength * 0.9;
+    shadowUniforms.uOpacity!.value = this.settings.lighting.enabled ? settings.shadowOpacity : 0;
+    shadowUniforms.uLightPhase!.value = lighting.phase;
+    shadowUniforms.uLightBreath!.value = this.settings.lighting.breath;
   }
 
   private updateSettingsUniforms(): void {
     const background = this.settings.background;
+    const lighting = this.resolveLightFrame(0, false);
     this.backgroundMaterial.uniforms.uColorA!.value.set(background.colorA);
     this.backgroundMaterial.uniforms.uColorB!.value.set(background.colorB);
     this.backgroundMaterial.uniforms.uAccent!.value.set(background.accent);
@@ -850,15 +935,35 @@ export class CinematicCarousel {
     this.backgroundMaterial.uniforms.uGrain!.value = background.grain;
     this.backgroundMaterial.uniforms.uVignette!.value = background.vignette;
     this.backgroundMaterial.uniforms.uSeed!.value = background.seed;
+    this.backgroundMaterial.uniforms.uLightingEnabled!.value = this.settings.lighting.enabled ? 1 : 0;
+    this.backgroundMaterial.uniforms.uLightColor!.value.set(this.settings.lighting.keyColor);
+    this.backgroundMaterial.uniforms.uLightDirection!.value.set(...lighting.screenDirection);
+    this.backgroundMaterial.uniforms.uLightSpill!.value = this.settings.lighting.backgroundSpill;
+    this.backgroundMaterial.uniforms.uLightFocus!.value = this.settings.lighting.spillFocus;
+    this.backgroundMaterial.uniforms.uLightGobo!.value = lighting.goboMode;
+    this.backgroundMaterial.uniforms.uLightPhase!.value = lighting.phase;
+    this.backgroundMaterial.uniforms.uLightBreath!.value = this.settings.lighting.breath;
   }
 
-  private updateBackground(time: number, exportMode: boolean): void {
+  private updateBackground(
+    time: number,
+    exportMode: boolean,
+    lighting = this.resolveLightFrame(time, exportMode),
+  ): void {
     const reduced = exportMode ? this.settings.motion.reducedMotionOutput : this.reducedMotionPreview;
     let phase = reduced ? 0 : time * this.settings.background.motion * 0.72;
     if (exportMode && this.settings.motion.seamless && !reduced) {
       phase = (time / Math.max(0.001, this.settings.output.duration)) * Math.PI * 2 * Math.max(1, Math.round(this.settings.motion.seamlessLoops));
     }
     this.backgroundMaterial.uniforms.uPhase!.value = phase;
+    this.backgroundMaterial.uniforms.uLightingEnabled!.value = this.settings.lighting.enabled ? 1 : 0;
+    this.backgroundMaterial.uniforms.uLightColor!.value.set(this.settings.lighting.keyColor);
+    this.backgroundMaterial.uniforms.uLightDirection!.value.set(...lighting.screenDirection);
+    this.backgroundMaterial.uniforms.uLightSpill!.value = this.settings.lighting.backgroundSpill;
+    this.backgroundMaterial.uniforms.uLightFocus!.value = this.settings.lighting.spillFocus;
+    this.backgroundMaterial.uniforms.uLightGobo!.value = lighting.goboMode;
+    this.backgroundMaterial.uniforms.uLightPhase!.value = lighting.phase;
+    this.backgroundMaterial.uniforms.uLightBreath!.value = this.settings.lighting.breath;
     this.backgroundMaterial.uniforms.uResolution!.value.set(
       this.exportActive ? this.settings.output.width : this.settings.stage.width,
       this.exportActive ? this.settings.output.height : this.settings.stage.height,

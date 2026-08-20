@@ -84,3 +84,9 @@ The current recovery protocol is single-tab. Independent tabs writing the same p
 ## Privacy
 
 The production application contains no fetch/XHR/WebSocket path and no runtime service integration. Vite is only a local development server. Imported media, saved projects, and renders remain on the device unless the user deliberately moves an exported file.
+
+## Authored lighting extension
+
+`src/lighting.ts` is the pure lighting compiler. It turns the first-class settings object and an explicit timeline into a normalized view-space key direction, screen direction, shadow offset, gobo index, and closed animation phase. The renderer calls it once per frame and passes the result to moving cards, their analytical shadows, the optional presenter shadow, and the opaque background.
+
+The cards recover their normals from derivatives of the vertex-deformed view position. Shadows remain SDF meshes inside the existing resident pool: one broad cast lobe plus one tight contact lobe, no shadow map or blur target. The pinned presenter bypasses surface lighting but receives the rig’s directional environmental shadow. See [`CINEMATIC_LIGHTING.md`](CINEMATIC_LIGHTING.md) for the trade-offs and acceptance gates.

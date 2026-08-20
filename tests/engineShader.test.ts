@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assertExportSurfaceSupported, selectRenderableItems } from "../src/engine/CinematicCarousel";
 import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
 import { evaluateSlide, getLogicalSlotCount, getSlideGeometry, isPotentiallyVisible } from "../src/engine/evaluate";
-import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader } from "../src/engine/shaders";
+import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader, slideVertexShader } from "../src/engine/shaders";
 
 const LIMITS = {
   maxTextureSize: 8_192,
@@ -62,5 +62,44 @@ describe("bounded renderer pool", () => {
     expect(renderable.map((item) => item.evaluated.z)).toEqual(
       [...renderable].sort((a, b) => a.evaluated.z - b.evaluated.z).map((item) => item.evaluated.z),
     );
+  });
+});
+
+describe("cinematic lighting shader contract", () => {
+  it("lights the actual deformed slide surface rather than an undeformed proxy", () => {
+    expect(slideVertexShader).toContain("varying vec3 vViewPosition");
+    expect(slideVertexShader).toContain("vViewPosition = viewPosition.xyz");
+    expect(slideFragmentShader).toContain("dFdx(vViewPosition)");
+    expect(slideFragmentShader).toContain("dFdy(vViewPosition)");
+    expect(slideFragmentShader).toContain("gl_FrontFacing");
+    expect(slideFragmentShader).toContain("uRoughness");
+    expect(slideFragmentShader).toContain("uRimIntensity");
+  });
+
+  it("keeps slide and background grain spatial instead of wall-clock driven", () => {
+    expect(slideFragmentShader).toContain("floor(vUv * uSizePx)");
+    expect(slideFragmentShader).not.toContain("fract(uTime)");
+    expect(backgroundFragmentShader).toContain("hash12(gl_FragCoord.xy)");
+    expect(backgroundFragmentShader).not.toContain("hash12(gl_FragCoord.xy +");
+  });
+
+  it("builds a directional coloured cast plus a separate contact-hardening lobe", () => {
+    expect(shadowFragmentShader).toContain("uShadowOffsetPx");
+    expect(shadowFragmentShader).toContain("uShadowColor");
+    expect(shadowFragmentShader).toContain("contactSoftness");
+    expect(shadowFragmentShader).toContain("contactDistance");
+    expect(shadowFragmentShader).toContain("1.0 - (1.0 - castLayer) * (1.0 - contactLayer)");
+  });
+
+  it("offers six structural background light fields and a defined vignette", () => {
+    expect(backgroundFragmentShader).toContain("authoredLightField");
+    expect(backgroundFragmentShader).toContain("uLightGobo");
+    expect(backgroundFragmentShader).toContain("float window =");
+    expect(backgroundFragmentShader).toContain("float projector =");
+    expect(backgroundFragmentShader).toContain("float slit =");
+    expect(backgroundFragmentShader).toContain("float sunset =");
+    expect(backgroundFragmentShader).toContain("float edge =");
+    expect(backgroundFragmentShader).toContain("smoothstep(0.18, 0.88, dot(p, p))");
+    expect(backgroundFragmentShader).not.toContain("smoothstep(0.88, 0.18");
   });
 });

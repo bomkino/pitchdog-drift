@@ -9,6 +9,8 @@ export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel";
 export type ImageFit = "cover" | "contain";
 export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
 export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
+export type LightingPresetId = "custom" | "studio-soft" | "window-rake" | "projector-haze" | "noir-slice" | "golden-hour" | "electric-rim";
+export type LightGobo = "softbox" | "window" | "projector" | "slit" | "sunset" | "edge";
 
 export interface StageSettings {
   width: number;
@@ -63,6 +65,29 @@ export interface BackgroundSettings {
   seed: number;
 }
 
+export interface LightingSettings {
+  preset: LightingPresetId;
+  enabled: boolean;
+  keyColor: string;
+  fillColor: string;
+  shadowColor: string;
+  azimuth: number;
+  elevation: number;
+  keyIntensity: number;
+  fillIntensity: number;
+  rimIntensity: number;
+  sheen: number;
+  roughness: number;
+  shadowOpacity: number;
+  shadowSoftness: number;
+  shadowDistance: number;
+  contactStrength: number;
+  backgroundSpill: number;
+  spillFocus: number;
+  breath: number;
+  gobo: LightGobo;
+}
+
 export interface PresenterSettings {
   enabled: boolean;
   assetId: string | null;
@@ -102,6 +127,7 @@ export interface StudioSettings {
   motion: MotionSettings;
   slide: SlideSettings;
   background: BackgroundSettings;
+  lighting: LightingSettings;
   presenter: PresenterSettings;
   output: OutputSettings;
 }
@@ -192,6 +218,28 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     grain: 0.12,
     vignette: 0.48,
     seed: 17,
+  },
+  lighting: {
+    preset: "studio-soft",
+    enabled: true,
+    keyColor: "#fff1dc",
+    fillColor: "#b9c9e8",
+    shadowColor: "#100c12",
+    azimuth: 42,
+    elevation: 56,
+    keyIntensity: 0.78,
+    fillIntensity: 0.54,
+    rimIntensity: 0.14,
+    sheen: 0.16,
+    roughness: 0.72,
+    shadowOpacity: 0.34,
+    shadowSoftness: 52,
+    shadowDistance: 54,
+    contactStrength: 0.58,
+    backgroundSpill: 0.28,
+    spillFocus: 0.78,
+    breath: 0.1,
+    gobo: "softbox",
   },
   presenter: {
     enabled: false,

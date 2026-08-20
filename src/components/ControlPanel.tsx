@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
-import type { StudioSettings, ThemeId } from "../model";
+import type { LightGobo, LightingPresetId, StudioSettings, ThemeId } from "../model";
+import { applyLightingPreset, LIGHTING_PRESETS } from "../lighting";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
 
@@ -31,6 +32,12 @@ export function ControlPanel({
       ...settings,
       [key]: { ...(settings[key] as object), ...values },
     } as StudioSettings);
+  };
+  const patchLighting = (values: Partial<StudioSettings["lighting"]>) => {
+    onSettings({
+      ...settings,
+      lighting: { ...settings.lighting, ...values, preset: "custom" },
+    });
   };
   const setStagePreset = (width: number, height: number) => {
     onSettings({
@@ -170,8 +177,66 @@ export function ControlPanel({
         <RangeField label="Border" value={settings.slide.borderWidth} min={0} max={16} step={0.5} decimals={1} unit=" px" onChange={(borderWidth) => patch("slide", { borderWidth })} />
         <ColorField label="Border colour" value={settings.slide.borderColor} onChange={(borderColor) => patch("slide", { borderColor })} />
         <RangeField label="Border presence" value={settings.slide.borderOpacity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { borderOpacity: value / 100 })} />
-        <RangeField label="Shadow" value={settings.slide.shadowOpacity * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("slide", { shadowOpacity: value / 100 })} />
-        <RangeField label="Shadow softness" value={settings.slide.shadowSoftness} min={4} max={96} step={1} unit=" px" onChange={(shadowSoftness) => patch("slide", { shadowSoftness })} />
+      </InspectorGroup>
+
+      <InspectorGroup
+        title="Lighting"
+        eyebrow={settings.lighting.enabled
+          ? (LIGHTING_PRESETS.find((preset) => preset.id === settings.lighting.preset)?.name ?? "Custom rig")
+          : "OFF"}
+        open
+      >
+        <SwitchField
+          label="Cinematic lighting"
+          checked={settings.lighting.enabled}
+          hint="One deterministic rig drives the cards, cast shadows, and environmental spill."
+          onChange={(enabled) => patch("lighting", { enabled })}
+        />
+        <SelectField<LightingPresetId>
+          label="Light character"
+          value={settings.lighting.preset}
+          options={[
+            ...LIGHTING_PRESETS.map((preset) => ({ value: preset.id as LightingPresetId, label: preset.name })),
+            { value: "custom", label: "Custom rig" },
+          ]}
+          onChange={(preset) => {
+            if (preset === "custom") patchLighting({});
+            else onSettings({ ...settings, lighting: applyLightingPreset(settings.lighting, preset) });
+          }}
+        />
+        <ColorField label="Key colour" value={settings.lighting.keyColor} onChange={(keyColor) => patchLighting({ keyColor })} />
+        <ColorField label="Fill colour" value={settings.lighting.fillColor} onChange={(fillColor) => patchLighting({ fillColor })} />
+        <RangeField label="Key angle" value={settings.lighting.azimuth} min={-180} max={180} step={1} unit="°" onChange={(azimuth) => patchLighting({ azimuth })} />
+        <RangeField label="Key elevation" value={settings.lighting.elevation} min={5} max={85} step={1} unit="°" hint="Low light lengthens the cast; high light compresses it." onChange={(elevation) => patchLighting({ elevation })} />
+        <RangeField label="Key intensity" value={settings.lighting.keyIntensity * 100} min={0} max={200} step={1} unit="%" onChange={(value) => patchLighting({ keyIntensity: value / 100 })} />
+        <RangeField label="Fill" value={settings.lighting.fillIntensity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchLighting({ fillIntensity: value / 100 })} />
+        <RangeField label="Rim" value={settings.lighting.rimIntensity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchLighting({ rimIntensity: value / 100 })} />
+        <RangeField label="Sheen" value={settings.lighting.sheen * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchLighting({ sheen: value / 100 })} />
+        <RangeField label="Surface roughness" value={settings.lighting.roughness * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchLighting({ roughness: value / 100 })} />
+        <RangeField label="Light breath" value={settings.lighting.breath * 100} min={0} max={100} step={1} unit="%" hint="Subtle only. Seamless masters close this motion exactly; reduced motion freezes it." onChange={(value) => patchLighting({ breath: value / 100 })} />
+      </InspectorGroup>
+
+      <InspectorGroup title="Shadow & spill" eyebrow={settings.lighting.gobo}>
+        <ColorField label="Shadow colour" value={settings.lighting.shadowColor} onChange={(shadowColor) => patchLighting({ shadowColor })} />
+        <RangeField label="Shadow density" value={settings.lighting.shadowOpacity * 100} min={0} max={90} step={1} unit="%" onChange={(value) => patchLighting({ shadowOpacity: value / 100 })} />
+        <RangeField label="Shadow reach" value={settings.lighting.shadowDistance} min={0} max={180} step={1} unit=" px" hint="Elevation shortens the resolved reach like a real source." onChange={(shadowDistance) => patchLighting({ shadowDistance })} />
+        <RangeField label="Shadow softness" value={settings.lighting.shadowSoftness} min={2} max={180} step={1} unit=" px" onChange={(shadowSoftness) => patchLighting({ shadowSoftness })} />
+        <RangeField label="Contact anchor" value={settings.lighting.contactStrength * 100} min={0} max={100} step={1} unit="%" hint="Keeps a tight dark lobe near the card while the cast shadow blooms away." onChange={(value) => patchLighting({ contactStrength: value / 100 })} />
+        <SelectField<LightGobo>
+          label="Light shape"
+          value={settings.lighting.gobo}
+          options={[
+            { value: "softbox", label: "Softbox pool" },
+            { value: "window", label: "Window panes" },
+            { value: "projector", label: "Projector aperture" },
+            { value: "slit", label: "Noir slit" },
+            { value: "sunset", label: "Sunset rake" },
+            { value: "edge", label: "Edge wash" },
+          ]}
+          onChange={(gobo) => patchLighting({ gobo })}
+        />
+        <RangeField label="Background spill" value={settings.lighting.backgroundSpill * 100} min={0} max={100} step={1} unit="%" hint="Opaque worlds receive the light field. Transparent output keeps only compositable card shadows." onChange={(value) => patchLighting({ backgroundSpill: value / 100 })} />
+        <RangeField label="Spill focus" value={settings.lighting.spillFocus * 100} min={15} max={150} step={1} unit="%" onChange={(value) => patchLighting({ spillFocus: value / 100 })} />
       </InspectorGroup>
 
       <InspectorGroup title="Atmosphere" eyebrow={settings.background.style}>

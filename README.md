@@ -13,7 +13,8 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 - Horizontal and vertical infinite tracks with straight, arc, ribbon, cylinder, and tunnel paths.
 - Drag, wheel, keyboard, autoplay, pause, reverse, inertia, and seamless-output lock.
 - Custom stage, output, slide, and pinned-frame ratios.
-- Cover/contain fit, focal point, scale, spacing, depth, tilt, velocity bend, continuous corners, borders, and shadows.
+- Cover/contain fit, focal point, scale, spacing, depth, tilt, velocity bend, continuous corners, and borders.
+- Six authored cinematic lighting rigs with deformed-surface response, coloured contact-hardening shadows, background gobos, and exact seamless/reduced-motion behaviour.
 - Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL.
 - Six authored motion worlds: Editorial Drift, Road Memory, Dread, Noir Contact, Tender Light, and Chrome Dream.
 - One optional pinned image or presenter video, off by default.
@@ -51,7 +52,7 @@ The default master is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque 
 - File export writes through a rollback-aware target. Cancelled work is aborted or neutralised instead of being presented as a valid master.
 - MP4 completion includes container readback, dimensions, frame count, duration, codec, colour, decoded probe frames, and audio timing checks.
 
-See [the architecture](docs/ARCHITECTURE.md), [research notes](docs/RESEARCH.md), [product contract](docs/PRODUCT_CONTRACT.md), and [QA receipt](docs/QA_REPORT.md) for the boundaries behind those claims.
+See [the architecture](docs/ARCHITECTURE.md), [cinematic lighting notes](docs/CINEMATIC_LIGHTING.md), [research notes](docs/RESEARCH.md), [product contract](docs/PRODUCT_CONTRACT.md), and [QA receipt](docs/QA_REPORT.md) for the boundaries behind those claims.
 
 ## Browser support
 

@@ -1187,3 +1187,48 @@ test("a pinned image outside the moving mesh pool is awaited before export", asy
   expect(receipt.pixel[1]).toBeLessThan(50);
   expect(receipt.pixel[2]).toBeLessThan(50);
 });
+
+test("authored lighting changes real WebGL pixels and remains still when directed", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+
+  await waitForStudio(page);
+  await page.getByRole("button", { name: /Road Memory/ }).click();
+  const lightCharacter = page.getByRole("combobox", { name: "Light character" });
+  await expect(lightCharacter).toHaveValue("window-rake");
+
+  await page.getByRole("button", { name: "Pause preview" }).click();
+  await page.getByRole("button", { name: "Next slide" }).click();
+  await page.getByRole("slider", { name: "Light breath" }).fill("0");
+
+  const atmosphere = page.locator("details").filter({ has: page.locator("summary", { hasText: "Atmosphere" }) });
+  if (!(await atmosphere.evaluate((element) => (element as HTMLDetailsElement).open))) {
+    await atmosphere.locator("summary").click();
+  }
+  await page.getByRole("slider", { name: "Background breath" }).fill("0");
+
+  const canvas = page.locator("[data-testid=webgl-stage]");
+  await page.waitForTimeout(150);
+  const windowPixels = await canvas.screenshot();
+
+  await lightCharacter.selectOption("noir-slice");
+  await expect(lightCharacter).toHaveValue("noir-slice");
+  await page.getByRole("slider", { name: "Light breath" }).fill("0");
+  await page.waitForTimeout(150);
+  const noirPixels = await canvas.screenshot();
+  expect(noirPixels.equals(windowPixels)).toBe(false);
+
+  const lightingSwitch = page.getByRole("switch", { name: "Cinematic lighting" });
+  await lightingSwitch.uncheck();
+  await page.waitForTimeout(150);
+  const unlitPixels = await canvas.screenshot();
+  expect(unlitPixels.equals(noirPixels)).toBe(false);
+
+  await page.waitForTimeout(250);
+  const unlitPixelsLater = await canvas.screenshot();
+  expect(unlitPixelsLater.equals(unlitPixels)).toBe(true);
+  expect(errors).toEqual([]);
+});
