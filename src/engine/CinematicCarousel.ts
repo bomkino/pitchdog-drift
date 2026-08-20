@@ -23,10 +23,17 @@ const TEXTURE_CACHE_LIMIT = 24;
 const PREVIEW_TEXTURE_EDGE = 2048;
 const CAMERA_FOV = 35;
 
+export type CarouselSonicEvent = Readonly<{
+  type: "passage" | "grab" | "release";
+  intensity: number;
+  pan: number;
+}>;
+
 interface EngineCallbacks {
   onError?: (message: string) => void;
   onContextState?: (state: "ready" | "lost" | "restored") => void;
   onFrame?: (fps: number) => void;
+  onSonicEvent?: (event: CarouselSonicEvent) => void;
 }
 
 interface TextureRecord {
@@ -231,6 +238,7 @@ export class CinematicCarousel {
   private exportActive = false;
   private blobTextureKeyCounter = 0;
   private presenterRequestGeneration = 0;
+  private lastSonicStep: number | null = null;
 
   private readonly onPointerDownBound = (event: PointerEvent) => this.onPointerDown(event);
   private readonly onPointerMoveBound = (event: PointerEvent) => this.onPointerMove(event);
@@ -362,6 +370,7 @@ export class CinematicCarousel {
 
   setSettings(settings: StudioSettings): void {
     this.settings = settings;
+    this.lastSonicStep = null;
     this.updateCamera();
     this.updateSettingsUniforms();
     this.updatePresenterGeometry();
@@ -371,6 +380,7 @@ export class CinematicCarousel {
   async setAssets(assets: StudioAsset[]): Promise<void> {
     const previousKeys = new Set(this.assets.map((asset) => this.textureKey(asset)));
     this.assets = assets.filter((asset) => asset.kind === "image");
+    this.lastSonicStep = null;
     this.pruneInactiveTextures();
     const activeKeys = new Set(this.assets.map((asset) => this.textureKey(asset)));
     for (const item of this.pool) {
@@ -585,6 +595,7 @@ export class CinematicCarousel {
         this.renderer.setSize(previousSize.x, previousSize.y, false);
         this.updateCamera();
         this.setPresenterExportFrame(null);
+        this.lastSonicStep = null;
         this.renderPreview();
       },
     };
@@ -681,7 +692,26 @@ export class CinematicCarousel {
 
   private renderPreview(): void {
     if (this.contextLost || this.disposed || this.exportActive) return;
+    const geometry = getSlideGeometry(this.settings);
+    this.emitPassageCue(geometry.stride);
     this.renderInternal(this.elapsed, this.motionPosition, this.motionVelocity, false);
+  }
+
+  private emitPassageCue(stride: number): void {
+    if (!this.callbacks.onSonicEvent || stride <= 0 || this.assets.length === 0) return;
+    const step = Math.round(this.motionPosition / stride);
+    if (this.lastSonicStep === null) {
+      this.lastSonicStep = step;
+      return;
+    }
+    if (step === this.lastSonicStep) return;
+    const delta = step - this.lastSonicStep;
+    this.lastSonicStep = step;
+    const intensity = THREE.MathUtils.clamp(Math.abs(this.motionVelocity) / Math.max(1, stride * 0.72), 0.32, 1);
+    const pan = this.settings.motion.axis === "horizontal"
+      ? THREE.MathUtils.clamp(-Math.sign(delta) * (0.32 + intensity * 0.2), -0.72, 0.72)
+      : 0;
+    this.callbacks.onSonicEvent({ type: "passage", intensity, pan });
   }
 
   private renderInternal(time: number, distance: number, velocity: number, exportMode: boolean): void {
@@ -990,6 +1020,7 @@ export class CinematicCarousel {
     this.lastPointerTime = performance.now();
     this.canvas.setPointerCapture(event.pointerId);
     this.canvas.dataset.dragging = "true";
+    this.callbacks.onSonicEvent?.({ type: "grab", intensity: 0.46, pan: 0 });
   }
 
   private onPointerMove(event: PointerEvent): void {
@@ -1015,6 +1046,12 @@ export class CinematicCarousel {
     this.dragPointerId = null;
     this.canvas.dataset.dragging = "false";
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+    const geometry = getSlideGeometry(this.settings);
+    const intensity = THREE.MathUtils.clamp(Math.abs(this.motionVelocity) / Math.max(1, geometry.stride), 0.34, 1);
+    const pan = this.settings.motion.axis === "horizontal"
+      ? THREE.MathUtils.clamp(-Math.sign(this.motionVelocity) * 0.38, -0.62, 0.62)
+      : 0;
+    this.callbacks.onSonicEvent?.({ type: "release", intensity, pan });
   }
 
   private onWheel(event: WheelEvent): void {

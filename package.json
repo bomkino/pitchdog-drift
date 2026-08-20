@@ -22,7 +22,8 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check": "npm run typecheck && npm run test && npm run build"
+    "check": "npm run typecheck && npm run test && npm run build",
+    "sound:verify": "python3 scripts/vendor-sonic-assets.py --verify"
   },
   "dependencies": {
     "@mediabunny/aac-encoder": "1.55.1",

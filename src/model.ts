@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1 as const;
+export const SCHEMA_VERSION = 2 as const;
 export const ENGINE_VERSION = "1.0.0";
 export const SHADER_VERSION = "1.0.0";
 export const THEME_VERSION = "1.0.0";
@@ -9,6 +9,7 @@ export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel";
 export type ImageFit = "cover" | "contain";
 export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
 export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
+export type SonicPalette = "studio" | "cinematic" | "paper";
 
 export interface StageSettings {
   width: number;
@@ -63,6 +64,18 @@ export interface BackgroundSettings {
   seed: number;
 }
 
+export interface SonicSettings {
+  previewEnabled: boolean;
+  exportEnabled: boolean;
+  palette: SonicPalette;
+  masterGain: number;
+  motionGain: number;
+  interfaceGain: number;
+  density: number;
+  variation: number;
+  duckUnderPresenter: number;
+}
+
 export interface PresenterSettings {
   enabled: boolean;
   assetId: string | null;
@@ -102,6 +115,7 @@ export interface StudioSettings {
   motion: MotionSettings;
   slide: SlideSettings;
   background: BackgroundSettings;
+  sound: SonicSettings;
   presenter: PresenterSettings;
   output: OutputSettings;
 }
@@ -138,6 +152,28 @@ export interface ExportProgress {
   total: number;
   message: string;
 }
+
+export const DEFAULT_SONIC_SETTINGS: SonicSettings = {
+  previewEnabled: true,
+  exportEnabled: false,
+  palette: "studio",
+  masterGain: 0.56,
+  motionGain: 0.68,
+  interfaceGain: 0.22,
+  density: 0.72,
+  variation: 0.24,
+  duckUnderPresenter: 0.42,
+};
+
+/**
+ * Existing silent projects must not begin making sound after a schema upgrade.
+ * Users opt in deliberately through the same controls as a new project.
+ */
+export const MIGRATED_SONIC_SETTINGS: SonicSettings = {
+  ...DEFAULT_SONIC_SETTINGS,
+  previewEnabled: false,
+  exportEnabled: false,
+};
 
 export const DEFAULT_SETTINGS: StudioSettings = {
   schemaVersion: SCHEMA_VERSION,
@@ -193,6 +229,7 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     vignette: 0.48,
     seed: 17,
   },
+  sound: { ...DEFAULT_SONIC_SETTINGS },
   presenter: {
     enabled: false,
     assetId: null,

@@ -1,4 +1,6 @@
 import {
+  DEFAULT_SONIC_SETTINGS,
+  MIGRATED_SONIC_SETTINGS,
   ENGINE_VERSION,
   SCHEMA_VERSION,
   SHADER_VERSION,
@@ -119,6 +121,7 @@ const THEMES = [
   "chrome-dream",
 ] as const;
 const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
+const SONIC_PALETTES = ["studio", "cinematic", "paper"] as const;
 
 /**
  * Validates the complete current settings schema and rebuilds it field by
@@ -127,7 +130,11 @@ const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
  */
 export function validateStudioSettings(value: unknown): StudioSettings {
   const source = record(value, "settings");
-  literal(source.schemaVersion, "settings.schemaVersion", SCHEMA_VERSION);
+  const sourceSchemaVersion = oneOf(
+    source.schemaVersion,
+    "settings.schemaVersion",
+    [1, SCHEMA_VERSION] as const,
+  );
   literal(source.engineVersion, "settings.engineVersion", ENGINE_VERSION);
   literal(source.shaderVersion, "settings.shaderVersion", SHADER_VERSION);
 
@@ -135,6 +142,9 @@ export function validateStudioSettings(value: unknown): StudioSettings {
   const motion = record(source.motion, "settings.motion");
   const slide = record(source.slide, "settings.slide");
   const background = record(source.background, "settings.background");
+  const sound = sourceSchemaVersion === 1 && source.sound === undefined
+    ? record(MIGRATED_SONIC_SETTINGS, "settings.sound")
+    : record(source.sound, "settings.sound");
   const presenter = record(source.presenter, "settings.presenter");
   const output = record(source.output, "settings.output");
 
@@ -229,6 +239,21 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       grain: number(background.grain, "settings.background.grain", { min: 0, max: 0.6 }),
       vignette: number(background.vignette, "settings.background.vignette", { min: 0, max: 1 }),
       seed: number(background.seed, "settings.background.seed", { min: 0, max: 1_000_000, integer: true }),
+    },
+    sound: {
+      previewEnabled: boolean(sound.previewEnabled, "settings.sound.previewEnabled"),
+      exportEnabled: boolean(sound.exportEnabled, "settings.sound.exportEnabled"),
+      palette: oneOf(sound.palette, "settings.sound.palette", SONIC_PALETTES),
+      masterGain: number(sound.masterGain, "settings.sound.masterGain", { min: 0, max: 1 }),
+      motionGain: number(sound.motionGain, "settings.sound.motionGain", { min: 0, max: 1 }),
+      interfaceGain: number(sound.interfaceGain, "settings.sound.interfaceGain", { min: 0, max: 1 }),
+      density: number(sound.density, "settings.sound.density", { min: 0, max: 1 }),
+      variation: number(sound.variation, "settings.sound.variation", { min: 0, max: 1 }),
+      duckUnderPresenter: number(
+        sound.duckUnderPresenter,
+        "settings.sound.duckUnderPresenter",
+        { min: 0, max: 1 },
+      ),
     },
     presenter: {
       enabled: presenterEnabled,

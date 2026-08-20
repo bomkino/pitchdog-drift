@@ -120,6 +120,7 @@ export function applyTheme(current: StudioSettings, theme: ThemePreset): StudioS
       transparent: theme.settings.background.style === "transparent",
     },
     output: { ...current.output },
+    sound: { ...current.sound },
     presenter: { ...current.presenter },
   };
 }

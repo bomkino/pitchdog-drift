@@ -9,7 +9,8 @@ import {
 import { ControlPanel } from "./components/ControlPanel";
 import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
-import { CinematicCarousel } from "./engine/CinematicCarousel";
+import { CinematicCarousel, type CarouselSonicEvent } from "./engine/CinematicCarousel";
+import { SonicEngine, type SonicRuntimeState } from "./sonic/SonicEngine";
 import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
 import { createDemoSlides } from "./lib/demoSlides";
 import type { ExportProgress as EncoderProgress } from "./lib/exportStudio";
@@ -181,7 +182,7 @@ function encoderProgress(progress: EncoderProgress): ExportProgress {
   const label = {
     preparing: "Preparing deterministic timeline",
     video: "Encoding fixed-step video",
-    audio: "Aligning presenter audio",
+    audio: "Mixing and verifying audio",
     rendering: "Rendering exact frames",
     writing: "Writing frames to disk",
     finalizing: "Closing and verifying output",
@@ -210,6 +211,7 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<CinematicCarousel | null>(null);
+  const sonicRef = useRef<SonicEngine | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
@@ -239,6 +241,7 @@ export function App() {
   const [saveState, setSaveState] = useState<"loading" | "saving" | "saved" | "failed" | "recovery">("loading");
   const [projectBusy, setProjectBusy] = useState(false);
   const [mp4Supported, setMp4Supported] = useState<boolean | null>(null);
+  const [sonicState, setSonicState] = useState<SonicRuntimeState>("idle");
 
   settingsRef.current = settings;
   assetsRef.current = assets;
@@ -254,6 +257,8 @@ export function App() {
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
     setNotice(message);
     setNoticeKind(kind);
+    if (kind === "good") sonicRef.current?.play("success", { intensity: 0.55 });
+    else if (kind === "error") sonicRef.current?.play("failure", { intensity: 0.62 });
     noticeTimerRef.current = window.setTimeout(() => {
       setNotice(null);
       noticeTimerRef.current = null;
@@ -466,6 +471,38 @@ export function App() {
   }, [announce, enqueueProjectOperation, replaceProjectState]);
 
   useEffect(() => {
+    const sonic = new SonicEngine(
+      settingsRef.current.sound,
+      setSonicState,
+      (message) => announce(message, "error"),
+    );
+    sonicRef.current = sonic;
+    let armed = false;
+    const arm = () => {
+      if (armed || !settingsRef.current.sound.previewEnabled) return;
+      armed = true;
+      void sonic.unlock();
+      window.removeEventListener("pointerdown", arm, true);
+      window.removeEventListener("keydown", arm, true);
+    };
+    const onVisibility = () => void sonic.suspendForVisibility(document.hidden);
+    window.addEventListener("pointerdown", arm, true);
+    window.addEventListener("keydown", arm, true);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pointerdown", arm, true);
+      window.removeEventListener("keydown", arm, true);
+      document.removeEventListener("visibilitychange", onVisibility);
+      sonic.dispose();
+      if (sonicRef.current === sonic) sonicRef.current = null;
+    };
+  }, [announce]);
+
+  useEffect(() => {
+    sonicRef.current?.setSettings(settings.sound);
+  }, [settings.sound]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     const frame = frameRef.current;
     if (!canvas || !frame) return;
@@ -475,6 +512,9 @@ export function App() {
         onError: (message) => announce(message, "error"),
         onContextState: setContextState,
         onFrame: setFps,
+        onSonicEvent: (event: CarouselSonicEvent) => {
+          sonicRef.current?.play(event.type, { intensity: event.intensity, pan: event.pan });
+        },
       });
       engineRef.current = engine;
       setWebglError(null);
@@ -552,6 +592,7 @@ export function App() {
         event.preventDefault();
         const isPaused = engineRef.current?.togglePaused() ?? paused;
         setPaused(isPaused);
+        sonicRef.current?.play("control", { intensity: 0.32 });
       } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
         event.preventDefault();
         engineRef.current?.stepSlides(-1);
@@ -560,6 +601,7 @@ export function App() {
         engineRef.current?.stepSlides(1);
       } else if (event.key.toLowerCase() === "f") {
         setFocusMode((value) => !value);
+        sonicRef.current?.play("control", { intensity: 0.28 });
       } else if (event.key === "Escape") {
         setFocusMode(false);
       }
@@ -691,12 +733,14 @@ export function App() {
     const surface = engine.beginExport(output.width, output.height);
     const controller = new AbortController();
     abortRef.current = controller;
+    sonicRef.current?.setSuppressed(true);
     setExportProgress({ phase: "preparing", completed: 0, total: 1_000, message: "Preparing deterministic timeline" });
     return { engine, controller, surface, output };
   }, []);
 
   const endExport = useCallback((surface: { restore: () => void }) => {
     surface.restore();
+    sonicRef.current?.setSuppressed(false);
     abortRef.current = null;
     window.setTimeout(() => setExportProgress(null), 650);
   }, []);
@@ -732,7 +776,27 @@ export function App() {
     try {
       session = beginExport();
       const pinnedVideo = settingsRef.current.presenter.enabled && pinnedAsset?.kind === "video" ? pinnedAsset : null;
-      const { createFileSystemMp4Target, exportMp4 } = await import("./lib/exportStudio");
+      const [
+        { createFileSystemMp4Target, exportMp4, getExportFrameCount },
+        { renderSonicSoundtrack },
+      ] = await Promise.all([
+        import("./lib/exportStudio"),
+        import("./sonic/renderSoundtrack"),
+      ]);
+      const encodedDuration = getExportFrameCount({
+        fps: session.output.fps,
+        duration: session.output.duration,
+      }) / session.output.fps;
+      const exportProjectSettings: StudioSettings = {
+        ...settingsRef.current,
+        output: { ...settingsRef.current.output, duration: encodedDuration },
+      };
+      const soundtrack = await renderSonicSoundtrack(
+        exportProjectSettings,
+        assetsRef.current.length,
+        encodedDuration,
+        session.controller.signal,
+      );
       const target = fileHandle ? await createFileSystemMp4Target(fileHandle, session.controller.signal) : undefined;
       const result = await exportMp4({
         canvas: session.engine.canvas,
@@ -745,6 +809,8 @@ export function App() {
         },
         presenter: pinnedVideo?.blob,
         includePresenterAudio: !settingsRef.current.presenter.muted,
+        soundtrack: soundtrack ?? undefined,
+        soundtrackGainWhenMixed: settingsRef.current.sound.duckUnderPresenter,
         signal: session.controller.signal,
         onProgress: (progress) => setExportProgress(encoderProgress(progress)),
         target,
@@ -907,12 +973,26 @@ export function App() {
   const togglePause = useCallback(() => {
     const next = engineRef.current?.togglePaused() ?? !paused;
     setPaused(next);
+    sonicRef.current?.play("control", { intensity: 0.32 });
   }, [paused]);
 
   const onTheme = useCallback((id: ThemeId) => {
     setSettings((current) => applyTheme(current, getTheme(id)));
+    sonicRef.current?.play("control", { intensity: 0.38 });
     announce(`${getTheme(id).name} is now directing the scene.`);
   }, [announce]);
+
+  const directSound = useCallback((patch: Partial<StudioSettings["sound"]>) => {
+    if (patch.previewEnabled === true) void sonicRef.current?.unlock();
+    setSettings((current) => ({
+      ...current,
+      sound: { ...current.sound, ...patch },
+    }));
+  }, []);
+
+  const auditionSound = useCallback(() => {
+    void sonicRef.current?.audition();
+  }, []);
 
   const capabilityLabel = webglError
     ? "DOM fallback"
@@ -941,7 +1021,10 @@ export function App() {
 
       <nav className="mobile-tabs" aria-label="Studio panels">
         {(["media", "stage", "director"] as const).map((panel) => (
-          <button type="button" key={panel} onClick={() => setActivePanel(panel)} aria-pressed={activePanel === panel}>
+          <button type="button" key={panel} onClick={() => {
+            setActivePanel(panel);
+            sonicRef.current?.play("control", { intensity: 0.24 });
+          }} aria-pressed={activePanel === panel}>
             {panel}
           </button>
         ))}
@@ -973,9 +1056,16 @@ export function App() {
           exportProgress={exportProgress}
           onTogglePause={togglePause}
           onStep={(amount) => engineRef.current?.stepSlides(amount)}
-          onToggleFocus={() => setFocusMode((value) => !value)}
+          onToggleFocus={() => {
+            setFocusMode((value) => !value);
+            sonicRef.current?.play("control", { intensity: 0.28 });
+          }}
           onDropImages={addImages}
           onCancelExport={() => abortRef.current?.abort("Canceled by user")}
+          sound={settings.sound}
+          sonicState={sonicState}
+          onSound={directSound}
+          onAuditionSound={auditionSound}
           busy={interactionBusy}
         />
         <ControlPanel
@@ -1024,7 +1114,7 @@ export function App() {
             </span>
           </div>
         </details>
-        <span>THREE.JS / RAW GLSL / FIXED-STEP OUTPUT</span>
+        <span>THREE.JS / RAW GLSL / FIXED-STEP PICTURE + SOUND</span>
       </footer>
     </main>
   );

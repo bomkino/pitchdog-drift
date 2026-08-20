@@ -84,3 +84,13 @@ The current recovery protocol is single-tab. Independent tabs writing the same p
 ## Privacy
 
 The production application contains no fetch/XHR/WebSocket path and no runtime service integration. Vite is only a local development server. Imported media, saved projects, and renders remain on the device unless the user deliberately moves an exported file.
+
+## Sonic path
+
+Sound follows the same state-first rule as the renderer. `src/sonic/plan.ts` derives semantic passage times from saved motion settings, asset count, slide geometry, and the pure distance evaluator. It does not inspect animation frames or record real-time preview.
+
+Preview uses a lazy, user-gesture-unlocked `AudioContext` with a bounded voice pool. Export uses `OfflineAudioContext` to render the same passage vocabulary into an exact 48 kHz stereo bed. Editor-only grab, release, control, success, and failure cues are excluded from the master.
+
+MP4 contains at most one AAC track. When presenter speech and sound design coexist, decoded presenter PCM is mixed sample-by-sample with the effects bed before AAC encoding. The mixer owns timestamp mapping, interpolation, channel mapping, gain, and clipping. Completed output passes the existing codec, duration, sync, and decoded-probe readback gates.
+
+All cue bytes are local, pinned, and hash-ledgered. Vite compiles committed WAV recordings inline; production sound has no runtime network path. See [Sonic design](SONIC_DESIGN.md).

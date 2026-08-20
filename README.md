@@ -18,7 +18,8 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 - Six authored motion worlds: Editorial Drift, Road Memory, Dread, Noir Contact, Tender Light, and Chrome Dream.
 - One optional pinned image or presenter video, off by default.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
-- AAC presenter audio at 48 kHz stereo with an explicit A/V-sync gate.
+- Authentic CC0 card, paper, cloth, leather, wood, and metal foley for semantic motion and controls—bundled locally, never music or generated UI bleeps.
+- One verified AAC track at 48 kHz stereo: presenter speech, authored sound design, or a sample-aligned mix of both.
 - IndexedDB autosave and portable `.pitched` project bundles with SHA-256 asset verification.
 - Visible DOM fallback when WebGL2 is unavailable. It keeps media and project management usable while refusing to fake cinematic export.
 - No analytics, cloud upload, remote font, runtime API, or hidden network request.
@@ -39,19 +40,20 @@ Then open the local URL Vite prints. Replace the built-in study slides, direct t
 ```bash
 npm run check      # TypeScript, deterministic tests, production build
 npm run test:e2e   # Real-browser media, WebGL, fallback, and portability checks
+python3 scripts/vendor-sonic-assets.py --verify  # Pinned CC0 foley integrity
 ```
 
 ## Export truth
 
-The default master is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque H.264 at 16 Mbit/s. When the pinned video has audio, Drift uses AAC at 48 kHz stereo and 192 kbit/s.
+The default master is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque H.264 at 16 Mbit/s. Tactile preview is available after a trusted gesture, while exported effects start off. When effects or presenter speech are present, Drift writes one AAC track at 48 kHz stereo and 192 kbit/s.
 
 - H.264 does not preserve alpha. Transparent masters use PNG stills or PNG sequences.
 - PNG sequences stream to a chosen directory when File System Access is available. The ZIP fallback has a strict memory cap.
-- Presenter audio is allowed at 24, 25, or 30 fps. At 50/60 fps, mute presenter audio or export fails visibly. This is an honest guard around current browser AAC priming behaviour, not an arbitrary UI limit.
+- Audio-bearing output is allowed at 24, 25, or 30 fps. At 50/60 fps, disable exported effects and mute presenter audio or export fails visibly. This is an honest guard around current browser AAC priming behaviour, not an arbitrary UI limit.
 - File export writes through a rollback-aware target. Cancelled work is aborted or neutralised instead of being presented as a valid master.
 - MP4 completion includes container readback, dimensions, frame count, duration, codec, colour, decoded probe frames, and audio timing checks.
 
-See [the architecture](docs/ARCHITECTURE.md), [research notes](docs/RESEARCH.md), [product contract](docs/PRODUCT_CONTRACT.md), and [QA receipt](docs/QA_REPORT.md) for the boundaries behind those claims.
+See [the architecture](docs/ARCHITECTURE.md), [sonic design](docs/SONIC_DESIGN.md), [sonic gauntlet](docs/SONIC_GAUNTLET.md), [research notes](docs/RESEARCH.md), [product contract](docs/PRODUCT_CONTRACT.md), and [QA receipt](docs/QA_REPORT.md) for the boundaries behind those claims.
 
 ## Browser support
 

@@ -1,5 +1,7 @@
 import type { RefObject } from "react";
-import type { ExportProgress, StudioAsset, StudioSettings } from "../model";
+import type { ExportProgress, SonicSettings, StudioAsset, StudioSettings } from "../model";
+import { SonicDock } from "./SonicDock";
+import type { SonicRuntimeState } from "../sonic/SonicEngine";
 
 interface StageProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -17,6 +19,10 @@ interface StageProps {
   onToggleFocus: () => void;
   onDropImages: (files: File[]) => void;
   onCancelExport: () => void;
+  sound: SonicSettings;
+  sonicState: SonicRuntimeState;
+  onSound: (patch: Partial<SonicSettings>) => void;
+  onAuditionSound: () => void;
   busy: boolean;
 }
 
@@ -36,6 +42,10 @@ export function Stage({
   onToggleFocus,
   onDropImages,
   onCancelExport,
+  sound,
+  sonicState,
+  onSound,
+  onAuditionSound,
   busy,
 }: StageProps) {
   const transparent = settings.stage.transparent || settings.background.style === "transparent";
@@ -117,6 +127,13 @@ export function Stage({
         <button type="button" disabled={busy} onClick={() => onStep(1)} aria-label="Next slide">→</button>
         <span className="transport-divider" />
         <span className="transport-copy">Drag · wheel · space</span>
+        <SonicDock
+          settings={sound}
+          state={sonicState}
+          disabled={busy}
+          onSettings={onSound}
+          onAudition={onAuditionSound}
+        />
         <button type="button" disabled={busy} className="focus-button" onClick={onToggleFocus}>{focusMode ? "Exit full frame" : "Full frame"}</button>
       </div>
     </section>

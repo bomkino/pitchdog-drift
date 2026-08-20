@@ -707,6 +707,7 @@ a:focus-visible {
 .export-overlay button { margin-top: 5px; border: 0; color: #b8b0a5; background: transparent; text-decoration: underline; cursor: pointer; }
 
 .transport {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1407,5 +1408,272 @@ a:focus-visible {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+.sonic-dock {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+}
+
+.transport .sonic-mute,
+.sonic-dock summary {
+  min-width: auto;
+  height: 27px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  color: #7e786f;
+  background: transparent;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+}
+
+.transport .sonic-mute {
+  padding: 0 7px;
+}
+
+.sonic-dock[data-state="ready"] .sonic-mute,
+.sonic-dock[data-state="ready"] summary span {
+  color: #d9c2a7;
+}
+
+.sonic-dock[data-state="unavailable"] {
+  opacity: 0.48;
+}
+
+.sonic-dock details {
+  position: static;
+}
+
+.sonic-dock summary {
+  gap: 6px;
+  padding: 0 5px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.sonic-dock summary::-webkit-details-marker {
+  display: none;
+}
+
+.sonic-dock summary i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.025);
+}
+
+.sonic-dock[data-state="ready"] summary i {
+  box-shadow: 0 0 10px rgba(216, 170, 124, 0.52);
+}
+
+.sonic-popover {
+  position: absolute;
+  right: 54px;
+  bottom: 39px;
+  z-index: 60;
+  width: min(370px, calc(100vw - 28px));
+  max-height: min(620px, calc(100vh - 105px));
+  display: grid;
+  gap: 15px;
+  padding: 18px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background:
+    radial-gradient(circle at 85% 0, rgba(165, 93, 53, 0.12), transparent 38%),
+    rgba(16, 15, 14, 0.985);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(20px);
+}
+
+.sonic-popover header {
+  display: grid;
+  gap: 5px;
+}
+
+.sonic-popover header > span,
+.sonic-palettes legend {
+  color: var(--rust-light);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+}
+
+.sonic-popover header strong {
+  color: #d8d0c4;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  font-weight: 400;
+}
+
+.sonic-popover header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.sonic-palettes {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.sonic-palettes legend {
+  margin-bottom: 8px;
+}
+
+.sonic-palettes > div {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+.sonic-palettes label {
+  position: relative;
+}
+
+.sonic-palettes input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sonic-palettes span {
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  color: #787269;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.sonic-palettes input:checked + span {
+  border-color: rgba(197, 126, 80, 0.72);
+  color: #ead6c0;
+  background: rgba(164, 84, 43, 0.12);
+}
+
+.sonic-palettes input:focus-visible + span {
+  outline: 2px solid var(--rust-light);
+  outline-offset: 2px;
+}
+
+.sonic-ranges {
+  display: grid;
+  gap: 9px;
+}
+
+.sonic-range {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: 8px;
+  color: #9b948a;
+  font-size: 9px;
+}
+
+.sonic-range input {
+  width: 100%;
+  accent-color: var(--rust-light);
+}
+
+.sonic-range output {
+  color: #6f6961;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  text-align: right;
+}
+
+.sonic-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.sonic-switch > span {
+  display: grid;
+  gap: 4px;
+}
+
+.sonic-switch strong {
+  color: #bbb3a8;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.sonic-switch small {
+  color: var(--faint);
+  font-size: 8px;
+}
+
+.sonic-switch input {
+  width: 30px;
+  accent-color: var(--rust-light);
+}
+
+.transport .sonic-audition {
+  width: 100%;
+  height: 34px;
+  border-radius: 0;
+  border-color: rgba(197, 126, 80, 0.42);
+  color: #d7c1aa;
+  font-size: 9px;
+}
+
+.sonic-popover footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #5d5851;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .transport-copy {
+    display: none;
+  }
+
+  .sonic-dock {
+    margin-left: 3px;
+  }
+
+  .sonic-popover {
+    right: 8px;
+    bottom: 42px;
+    width: min(360px, calc(100vw - 16px));
+  }
+}
+
+@media (max-width: 390px) {
+  .sonic-dock summary span {
+    display: none;
+  }
+
+  .transport .sonic-mute {
+    padding-inline: 4px;
+  }
+
+  .sonic-popover {
+    right: 4px;
+    width: calc(100vw - 8px);
   }
 }

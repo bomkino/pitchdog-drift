@@ -77,3 +77,15 @@ Viewers should feel a deck unfolding as a filmic sequence rather than watching s
 ## Stop conditions
 
 Stop when frozen bar is directly checked, five total builder-critic rounds are exhausted, two consecutive rounds yield no material accepted gain, or missing browser/hardware evidence prevents an honest claim. Never lower the bar to manufacture completion.
+
+## Sonic extension
+
+- Motion receives short tactile cues, never music or an ambient loop.
+- Sound is visible, mutable project state with one-action preview mute and independent MP4 inclusion.
+- Preview never autoplays before a trusted gesture and sound is never the only carrier of meaning.
+- Export cue times derive from the same deterministic carousel geometry as picture.
+- Presenter speech and effects share one sample-aligned AAC track; speech remains primary through an explicit under-voice gain.
+- The bundled corpus is licence-safe, local, pinned to an exact revision, and verified by SHA-256.
+- Reduced-motion output is silent; seamless output has no doubled sonic seam.
+- Audio-bearing 50/60 fps masters fail visibly rather than dropping audio.
+- Sound-only and mixed output must pass MP4 audio readback and decode probes.

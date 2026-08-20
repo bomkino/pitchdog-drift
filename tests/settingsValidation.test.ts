@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_SONIC_SETTINGS,
+  MIGRATED_SONIC_SETTINGS,
   ENGINE_VERSION,
   SCHEMA_VERSION,
   SHADER_VERSION,
@@ -433,5 +435,71 @@ describe("validateStudioSettings", () => {
 
     expect(error.message).toContain("settings.output.fps");
     expect(error.message).toContain("24, 25, 30, 50, 60");
+  });
+});
+
+describe("sound settings schema", () => {
+  it("keeps new projects preview-ready while exported effects start off", () => {
+    expect(DEFAULT_SONIC_SETTINGS.previewEnabled).toBe(true);
+    expect(DEFAULT_SONIC_SETTINGS.exportEnabled).toBe(false);
+    expect(MIGRATED_SONIC_SETTINGS.previewEnabled).toBe(false);
+    expect(MIGRATED_SONIC_SETTINGS.exportEnabled).toBe(false);
+  });
+
+  it("migrates a complete v1 project to authored v2 sound defaults", () => {
+    const source = settings();
+    source.schemaVersion = 1;
+    delete source.sound;
+
+    const migrated = validateStudioSettings(source);
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(migrated.sound).toEqual(MIGRATED_SONIC_SETTINGS);
+    expect(migrated.sound).not.toBe(MIGRATED_SONIC_SETTINGS);
+  });
+
+  it("accepts every palette and bounded sound control", () => {
+    for (const palette of ["studio", "cinematic", "paper"]) {
+      const source = settings();
+      source.sound.palette = palette;
+      Object.assign(source.sound, {
+        masterGain: palette === "studio" ? 0 : 1,
+        motionGain: 1,
+        interfaceGain: 0,
+        density: 1,
+        variation: 0,
+        duckUnderPresenter: 1,
+      });
+      expect(validateStudioSettings(source).sound.palette).toBe(palette);
+    }
+  });
+
+  it("rejects missing v2 sound state, malformed booleans, palettes, and gains", () => {
+    const missing = settings();
+    delete missing.sound;
+    expectInvalid(missing, "sound");
+
+    for (const [path, value] of [
+      ["sound.previewEnabled", "yes"],
+      ["sound.exportEnabled", 1],
+      ["sound.palette", "plastic"],
+      ["sound.masterGain", -0.001],
+      ["sound.motionGain", 1.001],
+      ["sound.interfaceGain", Number.NaN],
+      ["sound.density", Number.POSITIVE_INFINITY],
+      ["sound.variation", -1],
+      ["sound.duckUnderPresenter", 2],
+    ] as const) {
+      const source = settings();
+      setPath(source, path, value);
+      expectInvalid(source, path);
+    }
+  });
+
+  it("returns an independent sound object", () => {
+    const source = cloneSettings(DEFAULT_SETTINGS);
+    const validated = validateStudioSettings(source);
+    expect(validated.sound).not.toBe(source.sound);
+    validated.sound.masterGain = 0;
+    expect(source.sound.masterGain).toBe(DEFAULT_SETTINGS.sound.masterGain);
   });
 });

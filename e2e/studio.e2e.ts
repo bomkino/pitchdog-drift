@@ -1187,3 +1187,87 @@ test("a pinned image outside the moving mesh pool is awaited before export", asy
   expect(receipt.pixel[1]).toBeLessThan(50);
   expect(receipt.pixel[2]).toBeLessThan(50);
 });
+
+test("tactile sound direction persists locally without external requests", async ({ page }) => {
+  const externalRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    const isNetworkRequest = url.protocol === "http:" || url.protocol === "https:";
+    if (
+      isNetworkRequest
+      && url.hostname !== "127.0.0.1"
+      && url.hostname !== "localhost"
+    ) externalRequests.push(request.url());
+  });
+
+  await waitForStudio(page);
+  await page.getByLabel("Open sound direction controls").click();
+  await expect(page.getByRole("group", { name: "Sound direction" })).toBeVisible();
+  await page.getByRole("radio", { name: "Cinema", exact: true }).check();
+  await page.getByRole("slider", { name: "Sound level", exact: true }).fill("0.41");
+  await page.getByRole("switch", { name: /Include in MP4/ }).uncheck();
+  await page.getByRole("button", { name: "Audition gesture" }).click();
+  await expect(page.getByText("armed", { exact: true })).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Mute tactile preview sound" }).click();
+  await expect(page.getByText("muted", { exact: true })).toBeVisible();
+  await expect(page.locator(".header-status")).toContainText("saved locally", { timeout: 10_000 });
+
+  await page.reload();
+  await expect(page.getByText("Local project reopened with verified media.")).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("Open sound direction controls").click();
+  await expect(page.getByRole("radio", { name: "Cinema", exact: true })).toBeChecked();
+  await expect(page.getByRole("slider", { name: "Sound level", exact: true })).toHaveValue("0.41");
+  await expect(page.getByRole("switch", { name: /Include in MP4/ })).not.toBeChecked();
+  await expect(page.getByRole("button", { name: "Enable tactile preview sound" })).toBeVisible();
+  expect(externalRequests).toEqual([]);
+});
+
+test("sound-design-only MP4 produces one verified AAC track", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const { exportMp4 } = await import("/src/lib/exportStudio.ts");
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    const context = canvas.getContext("2d")!;
+    const duration = 3;
+    const soundtrack = new AudioBuffer({
+      length: duration * 48_000,
+      numberOfChannels: 2,
+      sampleRate: 48_000,
+    });
+    for (let channel = 0; channel < soundtrack.numberOfChannels; channel += 1) {
+      const data = soundtrack.getChannelData(channel);
+      for (let index = 0; index < data.length; index += 1) {
+        const phase = (index % 12_000) / 12_000;
+        data[index] = phase < 0.03 ? Math.sin(phase * Math.PI / 0.03) * 0.12 : 0;
+      }
+    }
+
+    const result = await exportMp4({
+      canvas,
+      settings: { width: 256, height: 256, fps: 24, duration },
+      soundtrack,
+      renderAt(time) {
+        context.fillStyle = "#11100f";
+        context.fillRect(0, 0, 256, 256);
+        context.fillStyle = "#c26d3f";
+        context.fillRect(24 + Math.round(time * 20), 90, 80, 80);
+      },
+    });
+    return {
+      size: result.blob?.size ?? 0,
+      audio: result.audio,
+      verificationAudio: result.verification.audio,
+    };
+  });
+
+  expect(receipt.size).toBeGreaterThan(0);
+  expect(receipt.audio).toMatchObject({
+    codec: "aac",
+    sampleRate: 48_000,
+    channels: 2,
+    source: "sound-design",
+  });
+  expect(receipt.verificationAudio).toMatchObject({ codec: "aac", decoded: true });
+});
