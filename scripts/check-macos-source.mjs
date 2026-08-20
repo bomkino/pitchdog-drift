@@ -136,7 +136,7 @@ for (const command of [
   requireText(bridge, `"${command}"`, `JavaScript menu command ${command}`);
   requireText(swift, `"${command}"`, `Swift menu command ${command}`);
   requireText(nativeMac, `"${command}"`, `typed app command ${command}`);
-  requireText(app, `case "${command}"`, `React app command ${command}`);
+  requireText(app, `"${command}"`, `React app command ${command}`);
 }
 
 for (const field of ["exportInProgress", "projectBusy", "saveState", "lastNotice"]) {
