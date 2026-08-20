@@ -1,0 +1,150 @@
+.director-look-library {
+  display: grid;
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+
+.director-look-save {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.director-look-save > label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.director-look-save > label > span {
+  color: #827a70;
+  font-size: 8px;
+}
+
+.director-look-save input {
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 2px;
+  color: #ded6cb;
+  background: rgba(0, 0, 0, 0.24);
+  font: 9px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+.director-look-save input::placeholder {
+  color: #514c46;
+}
+
+.director-look-save > button {
+  align-self: end;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(225, 155, 106, 0.24);
+  border-radius: 2px;
+  color: #c79878;
+  background: rgba(225, 155, 106, 0.035);
+  font-size: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.director-look-save > small {
+  grid-column: 1 / -1;
+  color: #5f5952;
+  font-size: 7px;
+  line-height: 1.45;
+}
+
+.director-look-list {
+  display: grid;
+  gap: 5px;
+}
+
+.director-look-list article {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.director-look-apply {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 0;
+  color: #bcb4a9;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.director-look-apply:hover {
+  background: rgba(225, 155, 106, 0.035);
+}
+
+.director-look-apply strong,
+.director-look-apply span,
+.director-look-apply small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.director-look-apply strong {
+  color: #ded6cb;
+  font-size: 9px;
+  font-weight: 610;
+}
+
+.director-look-apply span {
+  color: #8b8379;
+  font-size: 8px;
+}
+
+.director-look-apply small {
+  color: #5f5952;
+  font-size: 7px;
+}
+
+.director-look-remove {
+  align-self: stretch;
+  border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.055);
+  color: #655f58;
+  background: transparent;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.director-look-remove:hover {
+  color: #c47f66;
+  background: rgba(178, 79, 58, 0.045);
+}
+
+.director-look-empty {
+  margin: 0;
+  padding: 11px;
+  border: 1px dashed rgba(255, 255, 255, 0.075);
+  color: #69635b;
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+@media (max-width: 420px) {
+  .director-look-save {
+    grid-template-columns: 1fr;
+  }
+
+  .director-look-save > button {
+    justify-self: start;
+  }
+}
