@@ -1,5 +1,7 @@
-import { readFileSync } from "node:fs";
+/// <reference types="vite/client" />
+
 import { describe, expect, it } from "vitest";
+import readme from "../README.md?raw";
 import { THEMES } from "../src/themes";
 
 function renderingFingerprint(theme: (typeof THEMES)[number]): string {
@@ -64,7 +66,6 @@ describe("authored film-world contract", () => {
   });
 
   it("keeps public documentation aligned with the registry", () => {
-    const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
     expect(readme).toContain("Twelve authored film worlds");
     expect(readme).not.toMatch(/\b18\s+authored\s+film\s+worlds\b/i);
   });
