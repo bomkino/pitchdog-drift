@@ -26,6 +26,11 @@ describe("director session safety", () => {
     current.output.duration = 19;
     current.presenter.enabled = true;
     current.presenter.assetId = "presenter";
+    current.motion.autoplay = false;
+    current.motion.dragSensitivity = 2.4;
+    current.motion.seamless = true;
+    current.motion.seamlessLoops = 3;
+    current.motion.reducedMotionOutput = true;
 
     const recalled = applyDirectorLook(current, look);
     expect(recalled.motion.speed).toBe(0.77);
@@ -33,6 +38,7 @@ describe("director session safety", () => {
     expect(recalled.stage).toMatchObject({ width: 1920, height: 1080 });
     expect(recalled.output.duration).toBe(19);
     expect(recalled.presenter).toMatchObject({ enabled: true, assetId: "presenter" });
+    expect(recalled.motion).toMatchObject({ autoplay: false, dragSensitivity: 2.4, seamless: true, seamlessLoops: 3, reducedMotionOutput: true });
   });
 
   it("coalesces one slider gesture into one undo step", () => {

@@ -242,6 +242,10 @@ export function App() {
   presenterRef.current = presenter;
 
   const allAssets = useMemo(() => presenter ? [...assets, presenter] : assets, [assets, presenter]);
+  const mediaRevision = useMemo(
+    () => [...assets.map((asset) => asset.id), `presenter:${presenter?.id ?? ""}`].join("\u0000"),
+    [assets, presenter],
+  );
   const pinnedAsset = useMemo(
     () => allAssets.find((asset) => asset.id === settings.presenter.assetId) ?? null,
     [allAssets, settings.presenter.assetId],
@@ -1040,6 +1044,8 @@ export function App() {
           onExportProject={savePortableProject}
           onImportProject={() => importInputRef.current?.click()}
           exporting={interactionBusy}
+          mediaRevision={mediaRevision}
+          sourceSlideCount={assets.length}
         />
       </div>
 

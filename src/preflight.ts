@@ -12,10 +12,36 @@ export interface DeliveryCheck {
 export interface DeliveryReceipt {
   frameCount: number;
   megapixelsPerFrame: number;
+  sourceSlideCount: number;
+  effectiveSlidesPerSecond: number;
+  estimatedMp4Bytes: number;
   checks: DeliveryCheck[];
 }
 
-export function buildDeliveryReceipt(settings: StudioSettings): DeliveryReceipt {
+export function effectiveSlidesPerSecond(
+  settings: StudioSettings,
+  sourceSlideCount: number,
+): number {
+  if (!settings.motion.autoplay) return 0;
+  if (settings.motion.seamless && sourceSlideCount > 0) {
+    return sourceSlideCount
+      * Math.max(1, Math.round(settings.motion.seamlessLoops))
+      / Math.max(0.001, settings.output.duration);
+  }
+  return settings.motion.speed;
+}
+
+export function estimateMp4Bytes(settings: StudioSettings): number {
+  const audio = settings.presenter.enabled && !settings.presenter.muted
+    ? settings.output.audioBitrate
+    : 0;
+  return Math.ceil(settings.output.duration * (settings.output.videoBitrate + audio) / 8);
+}
+
+export function buildDeliveryReceipt(
+  settings: StudioSettings,
+  sourceSlideCount = 0,
+): DeliveryReceipt {
   const frameCount = Math.round(settings.output.duration * settings.output.fps);
   const megapixelsPerFrame = (settings.output.width * settings.output.height) / 1_000_000;
   const transparent = settings.stage.transparent || settings.background.style === "transparent";
@@ -23,6 +49,8 @@ export function buildDeliveryReceipt(settings: StudioSettings): DeliveryReceipt 
     && !settings.presenter.muted
     && settings.output.fps > 30;
   const largeSurface = megapixelsPerFrame > 12;
+  const pace = effectiveSlidesPerSecond(settings, sourceSlideCount);
+  const estimatedMp4Bytes = estimateMp4Bytes(settings);
 
   const checks: DeliveryCheck[] = [
     {
@@ -31,12 +59,29 @@ export function buildDeliveryReceipt(settings: StudioSettings): DeliveryReceipt 
       label: `${frameCount} exact frames`,
       detail: `${settings.output.duration} s at ${settings.output.fps} fps. Frame n renders at n / fps.`,
     },
+    !settings.motion.autoplay
+      ? {
+          id: "pace",
+          level: "note",
+          label: "Moving slides held",
+          detail: "The deck stays on its opening composition. Background atmosphere and pinned presenter media may still move.",
+        }
+      : {
+          id: "pace",
+          level: "ready",
+          label: `${pace.toFixed(2)} slides/s`,
+          detail: settings.motion.seamless
+            ? `${sourceSlideCount} authored slide${sourceSlideCount === 1 ? "" : "s"} × ${settings.motion.seamlessLoops} complete cycle${settings.motion.seamlessLoops === 1 ? "" : "s"} across ${settings.output.duration} s.`
+            : "Free-run pace comes directly from the Speed control.",
+        },
     settings.motion.seamless
       ? {
           id: "closure",
-          level: "ready",
+          level: sourceSlideCount > 0 ? "ready" : "note",
           label: `${settings.motion.seamlessLoops} closed loop${settings.motion.seamlessLoops === 1 ? "" : "s"}`,
-          detail: "Track and atmosphere return to their opening state at the master boundary.",
+          detail: sourceSlideCount > 0
+            ? "Only authored source slides count. Invisible renderer-padding copies are ignored."
+            : "Closure is armed, but there are no authored moving slides yet.",
         }
       : {
           id: "closure",
@@ -85,7 +130,20 @@ export function buildDeliveryReceipt(settings: StudioSettings): DeliveryReceipt 
           label: `${megapixelsPerFrame.toFixed(1)} MP per frame`,
           detail: `${settings.output.width} × ${settings.output.height} stays within the normal social-master range.`,
         },
+    {
+      id: "size",
+      level: "note",
+      label: `About ${(estimatedMp4Bytes / 1_000_000).toFixed(1)} MB`,
+      detail: "Estimate from selected duration and fixed video/audio bitrates. Container overhead and encoder behaviour can move the final size slightly.",
+    },
   ];
 
-  return { frameCount, megapixelsPerFrame, checks };
+  return {
+    frameCount,
+    megapixelsPerFrame,
+    sourceSlideCount,
+    effectiveSlidesPerSecond: pace,
+    estimatedMp4Bytes,
+    checks,
+  };
 }

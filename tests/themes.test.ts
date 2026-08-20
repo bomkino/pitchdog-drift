@@ -10,6 +10,7 @@ describe("theme application", () => {
     current.stage = { width: 1200, height: 1500, transparent: true };
     current.background.style = "transparent";
     current.output.duration = 13;
+    Object.assign(current.motion, { autoplay: false, dragSensitivity: 2.6, seamless: true, seamlessLoops: 4, reducedMotionOutput: true });
     current.presenter.enabled = true;
 
     const themed = applyTheme(current, getTheme("road-memory"));
@@ -18,6 +19,7 @@ describe("theme application", () => {
     expect(themed.background.style).toBe("gradient");
     expect(themed.stage).toEqual({ width: 1200, height: 1500, transparent: false });
     expect(themed.output.duration).toBe(13);
+    expect(themed.motion).toMatchObject({ autoplay: false, dragSensitivity: 2.6, seamless: true, seamlessLoops: 4, reducedMotionOutput: true });
     expect(themed.presenter.enabled).toBe(true);
   });
 

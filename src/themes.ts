@@ -1,3 +1,4 @@
+import { applyMotionSession, captureMotionSession } from "./lookFields";
 import { DEFAULT_SETTINGS, type StudioSettings, type ThemeId } from "./model";
 
 export interface ThemePreset {
@@ -251,6 +252,7 @@ export function applyTheme(current: StudioSettings, theme: ThemePreset): StudioS
       height: current.stage.height,
       transparent: theme.settings.background.style === "transparent",
     },
+    motion: applyMotionSession(theme.settings.motion, captureMotionSession(current.motion)),
     output: { ...current.output },
     presenter: { ...current.presenter },
   };

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -34,7 +35,13 @@ import {
   type OpticsPresetId,
 } from "../optics";
 import { buildDeliveryReceipt } from "../preflight";
-import { THEMES } from "../themes";
+import { getTheme, THEMES } from "../themes";
+import {
+  THEME_INTENT_OPTIONS,
+  filterThemes,
+  themeLookIsModified,
+  type ThemeIntent,
+} from "../themeLibrary";
 import {
   WORKFLOW_PRESETS,
   applyWorkflowPreset,
@@ -51,6 +58,8 @@ interface ControlPanelProps {
   onExportProject: () => void;
   onImportProject: () => void;
   exporting: boolean;
+  mediaRevision: string;
+  sourceSlideCount: number;
 }
 
 export function ControlPanel({
@@ -63,14 +72,20 @@ export function ControlPanel({
   onExportProject,
   onImportProject,
   exporting,
+  mediaRevision,
+  sourceSlideCount,
 }: ControlPanelProps) {
   const historyRef = useRef<DirectorHistory>({ ...EMPTY_DIRECTOR_HISTORY });
   const previousSettingsRef = useRef(settings);
+  const previousMediaRevisionRef = useRef(mediaRevision);
+  const themeSearchRef = useRef<HTMLInputElement>(null);
   const expectedSettingsRef = useRef<StudioSettings | null>(null);
   const expectedExternalRef = useRef(false);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [lookA, setLookA] = useState<DirectorLook | null>(null);
   const [lookB, setLookB] = useState<DirectorLook | null>(null);
+  const [themeQuery, setThemeQuery] = useState("");
+  const [themeIntent, setThemeIntent] = useState<ThemeIntent>("all");
 
   const bumpHistory = useCallback(() => setHistoryRevision((value) => value + 1), []);
 
@@ -86,6 +101,31 @@ export function ControlPanel({
     }
     previousSettingsRef.current = settings;
   }, [bumpHistory, settings]);
+
+  useEffect(() => {
+    if (previousMediaRevisionRef.current === mediaRevision) return;
+    previousMediaRevisionRef.current = mediaRevision;
+    historyRef.current = { ...EMPTY_DIRECTOR_HISTORY };
+    expectedSettingsRef.current = null;
+    expectedExternalRef.current = false;
+    bumpHistory();
+  }, [bumpHistory, mediaRevision]);
+
+  useEffect(() => {
+    const onWorldSearchShortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !target?.closest("input, textarea, select, [contenteditable=true]")) {
+        event.preventDefault();
+        themeSearchRef.current?.focus();
+      } else if (event.key === "Escape" && document.activeElement === themeSearchRef.current) {
+        event.preventDefault();
+        setThemeQuery("");
+        themeSearchRef.current?.blur();
+      }
+    };
+    window.addEventListener("keydown", onWorldSearchShortcut);
+    return () => window.removeEventListener("keydown", onWorldSearchShortcut);
+  }, []);
 
   const commit = useCallback((next: StudioSettings, signature?: string) => {
     if (settingsEqual(settings, next)) return;
@@ -173,7 +213,13 @@ export function ControlPanel({
   const backgroundScene = backgroundSceneId ? getBackgroundScene(backgroundSceneId) : null;
   const opticsPresetId = activeOpticsPresetId(settings);
   const opticsPreset = opticsPresetId ? getOpticsPreset(opticsPresetId) : null;
-  const delivery = buildDeliveryReceipt(settings);
+  const delivery = buildDeliveryReceipt(settings, sourceSlideCount);
+  const activeTheme = getTheme(settings.themeId);
+  const activeThemeModified = themeLookIsModified(settings, activeTheme);
+  const visibleThemes = useMemo(
+    () => filterThemes(THEMES, themeQuery, themeIntent),
+    [themeIntent, themeQuery],
+  );
   const canUndo = historyRef.current.past.length > 0;
   const canRedo = historyRef.current.future.length > 0;
   void historyRevision;
@@ -228,13 +274,51 @@ export function ControlPanel({
         <p className="workflow-note">Starting cuts are coherent defaults, not locks. Undo them, bend them, or store two competing looks before choosing.</p>
       </section>
 
-      <section className="theme-section" aria-labelledby="themes-title">
+      <section className="theme-section theme-library" aria-labelledby="themes-title">
+        <div className="theme-current" data-modified={activeThemeModified}>
+          <span className="theme-swatch" aria-hidden="true" style={{ "--theme-a": activeTheme.settings.background.colorA, "--theme-b": activeTheme.settings.background.accent } as CSSProperties} />
+          <span>
+            <small>CURRENT WORLD · {activeThemeModified ? "MODIFIED" : "AUTHORED"}</small>
+            <strong>{activeTheme.name}</strong>
+            <em>{activeThemeModified ? "Your changes are live. Restore only the world look; delivery intent stays yours." : activeTheme.description}</em>
+          </span>
+          <button
+            type="button"
+            disabled={exporting || !activeThemeModified}
+            onClick={() => commitExternal(`theme.restore.${activeTheme.id}`, () => onTheme(activeTheme.id))}
+          >
+            Restore look
+          </button>
+        </div>
+        <label className="theme-search">
+          <span className="visually-hidden">Search film worlds</span>
+          <input
+            ref={themeSearchRef}
+            type="search"
+            value={themeQuery}
+            placeholder="Search 18 worlds · press /"
+            onChange={(event) => setThemeQuery(event.currentTarget.value)}
+          />
+        </label>
+        <div className="theme-intents" role="group" aria-label="World intent">
+          {THEME_INTENT_OPTIONS.map((intent) => (
+            <button
+              type="button"
+              key={intent.id}
+              data-active={themeIntent === intent.id}
+              aria-pressed={themeIntent === intent.id}
+              onClick={() => setThemeIntent(intent.id)}
+            >
+              {intent.label}
+            </button>
+          ))}
+        </div>
         <div className="section-heading-row">
           <h3 id="themes-title">Film worlds</h3>
-          <span>{THEMES.length}</span>
+          <span>{visibleThemes.length}/{THEMES.length}</span>
         </div>
         <div className="theme-grid">
-          {THEMES.map((theme) => (
+          {visibleThemes.map((theme) => (
             <button
               type="button"
               className="theme-card"
@@ -254,6 +338,12 @@ export function ControlPanel({
             </button>
           ))}
         </div>
+        {visibleThemes.length === 0 ? (
+          <div className="theme-empty" role="status">
+            <strong>No world answers that search.</strong>
+            <small>Clear the search or choose another intent. The current world remains active.</small>
+          </div>
+        ) : null}
       </section>
 
       <InspectorGroup title="Composition" eyebrow={stageLabel} open>
@@ -514,8 +604,8 @@ export function ControlPanel({
         </div>
         <div className="output-spec">
           <span>MASTER</span>
-          <strong>H.264 · SDR sRGB · {delivery.frameCount} frames</strong>
-          <small>{(settings.output.videoBitrate / 1_000_000).toFixed(0)} Mbit/s · AAC 48 kHz at 24–30 fps · mute presenter audio for 50/60 fps</small>
+          <strong>H.264 · SDR sRGB · {delivery.frameCount} frames · about {(delivery.estimatedMp4Bytes / 1_000_000).toFixed(1)} MB</strong>
+          <small>{sourceSlideCount} source slide{sourceSlideCount === 1 ? "" : "s"} · {settings.motion.autoplay ? `${delivery.effectiveSlidesPerSecond.toFixed(2)} slides/s` : "moving slides held"} · fixed 16 Mbit/s video</small>
         </div>
         <div className="delivery-checks" aria-label="Delivery preflight">
           {delivery.checks.map((check) => (

@@ -23,6 +23,7 @@ describe("authored starting cuts", () => {
       expect(validateStudioSettings(result)).toEqual(result);
       expect(result.stage.width).toBe(result.output.width);
       expect(result.stage.height).toBe(result.output.height);
+      expect(result.motion.autoplay).toBe(true);
       expect(source).toEqual(DEFAULT_SETTINGS);
     }
   });

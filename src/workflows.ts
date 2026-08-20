@@ -180,7 +180,7 @@ export function applyWorkflowPreset(
       height: preset.stage.height,
       transparent: themed.background.style === "transparent",
     },
-    motion: { ...themed.motion, ...preset.motion },
+    motion: { ...themed.motion, autoplay: true, ...preset.motion },
     slide: { ...themed.slide, ...preset.slide },
     presenter,
     output: {

@@ -547,3 +547,47 @@
     display: none;
   }
 }
+
+
+.theme-library { display: grid; gap: 10px; }
+.theme-current {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.022);
+}
+.theme-current[data-modified="true"] { border-color: rgba(225, 155, 106, 0.48); }
+.theme-current > span:nth-child(2) { min-width: 0; display: grid; gap: 3px; }
+.theme-current small { color: var(--rust-light); font-family: ui-monospace, monospace; font-size: 7px; letter-spacing: 0.08em; }
+.theme-current strong { font-size: 11px; }
+.theme-current em { overflow: hidden; color: var(--muted); font-size: 8px; font-style: normal; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.theme-current button { min-height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); color: #bbb3a7; background: transparent; font-size: 8px; cursor: pointer; }
+.theme-current button:disabled { opacity: 0.38; cursor: default; }
+.theme-search input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 2px; color: var(--ink); background: rgba(0, 0, 0, 0.22); font-size: 9px; }
+.theme-intents { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.theme-intents::-webkit-scrollbar { display: none; }
+.theme-intents button { flex: 0 0 auto; min-height: 25px; padding: 0 8px; border: 1px solid var(--line); color: var(--muted); background: transparent; font-size: 8px; cursor: pointer; }
+.theme-intents button[data-active="true"] { border-color: rgba(225, 155, 106, 0.45); color: var(--ink); background: rgba(225, 155, 106, 0.07); }
+.theme-empty { display: grid; gap: 4px; padding: 14px 10px; border: 1px dashed var(--line-strong); text-align: center; }
+.theme-empty strong { font-size: 10px; }
+.theme-empty small { color: var(--muted); font-size: 8px; line-height: 1.45; }
+
+/* Dense does not have to mean microscopic. The original inspector dropped
+   critical labels and explanations to 8 px with very low contrast. */
+.control-label,
+.select-field > span,
+.switch-field > span > span:first-child,
+.color-field > span:first-child,
+.segmented-field legend { font-size: 10px; }
+.control-label output { font-size: 9px; }
+.control-field > small,
+.switch-field small { color: #817a70; font-size: 9px; line-height: 1.5; }
+.segmented-control span,
+.select-field select { font-size: 9px; }
+.inspector-group summary > span { font-size: 12px; }
+.inspector-group summary > small { font-size: 8px; }
+.theme-card small { font-size: 9px; }
+.output-spec small { color: #8a8378; font-size: 9px; line-height: 1.45; }

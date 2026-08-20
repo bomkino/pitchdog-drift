@@ -1,8 +1,14 @@
+import {
+  applyMotionLook,
+  captureMotionLook,
+  motionLookEqual,
+  type MotionLook,
+} from "../lookFields";
 import { cloneSettings, type StudioSettings } from "../model";
 
 export interface DirectorLook {
   themeId: StudioSettings["themeId"];
-  motion: StudioSettings["motion"];
+  motion: MotionLook;
   slide: StudioSettings["slide"];
   background: StudioSettings["background"];
 }
@@ -24,10 +30,17 @@ export const EMPTY_DIRECTOR_HISTORY: DirectorHistory = {
 export function captureDirectorLook(settings: StudioSettings): DirectorLook {
   return {
     themeId: settings.themeId,
-    motion: structuredClone(settings.motion),
+    motion: captureMotionLook(settings.motion),
     slide: structuredClone(settings.slide),
     background: structuredClone(settings.background),
   };
+}
+
+export function directorLookEqual(a: DirectorLook, b: DirectorLook): boolean {
+  return a.themeId === b.themeId
+    && motionLookEqual(a.motion, b.motion)
+    && JSON.stringify(a.slide) === JSON.stringify(b.slide)
+    && JSON.stringify(a.background) === JSON.stringify(b.background);
 }
 
 export function applyDirectorLook(
@@ -41,7 +54,7 @@ export function applyDirectorLook(
       ...current.stage,
       transparent: look.background.style === "transparent",
     },
-    motion: structuredClone(look.motion),
+    motion: applyMotionLook(current.motion, look.motion),
     slide: structuredClone(look.slide),
     background: structuredClone(look.background),
   };
