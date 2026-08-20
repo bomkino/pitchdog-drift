@@ -30,3 +30,11 @@ new_import = 'import { backgroundFragmentShader, shadowFragmentShader, slideFrag
 if test_source.count(old_import) != 1:
     raise RuntimeError("Expected one shader test import to upgrade")
 test_path.write_text(test_source.replace(old_import, new_import, 1), encoding="utf-8")
+
+lighting_path = HERE.parent / "src" / "lighting.ts"
+lighting_source = lighting_path.read_text(encoding="utf-8")
+old_distance = "  const distance = settings.shadowDistance * elevationScale * pulse;"
+new_distance = "  const distance = Math.min(settings.shadowDistance, settings.shadowDistance * elevationScale * pulse);"
+if lighting_source.count(old_distance) != 1:
+    raise RuntimeError("Expected one lighting distance expression to bound")
+lighting_path.write_text(lighting_source.replace(old_distance, new_distance, 1), encoding="utf-8")
