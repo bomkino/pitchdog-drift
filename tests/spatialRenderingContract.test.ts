@@ -17,6 +17,8 @@ describe("spatial rendering contract", () => {
     ]) {
       expect(slideVertexShader).toContain(`uniform float ${uniform}`);
     }
+    expect(slideVertexShader).toContain("uniform vec2 uSizePx");
+    expect(slideVertexShader).toContain("min(uSizePx.x, uSizePx.y)");
     expect(slideVertexShader).not.toContain("uniform float uTime");
     expect(slideVertexShader).toContain("abs(acceleration) > 0.025");
     expect(slideVertexShader).toContain("Card: rigid stock");
@@ -25,11 +27,20 @@ describe("spatial rendering contract", () => {
     expect(slideVertexShader).toContain("Gel: coherent elastic mass");
   });
 
+  it("keeps artwork registered to the deformed surface", () => {
+    expect(slideFragmentShader).toContain("Artwork remains glued to the material");
+    expect(slideFragmentShader).not.toContain("textureUv +=");
+    expect(slideFragmentShader).not.toContain("flowAxis");
+    expect(slideFragmentShader).not.toContain("uniform float uVelocity");
+    expect(slideFragmentShader).not.toContain("uniform float uDistortion");
+  });
+
   it("derives restrained surface light from deformed geometry", () => {
     expect(slideFragmentShader).toContain("dFdx(vViewPosition)");
     expect(slideFragmentShader).toContain("dFdy(vViewPosition)");
     expect(slideFragmentShader).toContain("gl_FrontFacing");
     expect(slideFragmentShader).toContain("Slide-locked grain");
+    expect(slideFragmentShader).toContain("deformationScale");
     expect(slideFragmentShader).not.toContain("fract(uTime)");
   });
 
