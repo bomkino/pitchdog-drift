@@ -1,4 +1,5 @@
 import { useEffect, useState, type RefObject } from "react";
+import { orderImportedImageFiles } from "../lib/importOrder";
 import type { ExportProgress, StudioAsset, StudioSettings } from "../model";
 
 type GuideMode = "off" | "edge" | "copy" | "reels";
@@ -71,7 +72,7 @@ export function Stage({
   };
 
   const acceptDroppedFiles = (files: FileList) => {
-    const images = Array.from(files).filter((file) => file.type.startsWith("image/"));
+    const images = orderImportedImageFiles(Array.from(files));
     if (images.length) onDropImages(images);
   };
 
@@ -147,9 +148,9 @@ export function Stage({
 
           {dropActive ? (
             <div className="stage-drop-target" aria-hidden="true">
-              <span>REPLACE THE STUDY</span>
+              <span>{demoMode ? "REPLACE THE STUDY" : "ADD TO THE SEQUENCE"}</span>
               <strong>Drop your deck.</strong>
-              <small>Images are decoded locally, ordered by selection, and copied into the project.</small>
+              <small>Images are decoded locally, natural-sorted by filename, and copied into the project.</small>
             </div>
           ) : null}
 
