@@ -1,8 +1,8 @@
 name: Final source snapshot
 
 on:
-  push:
-    branches: [tmp/directors-cut-final-source]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
