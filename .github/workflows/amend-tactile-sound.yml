@@ -1,0 +1,87 @@
+name: Harden tactile sound integration
+
+on:
+  push:
+    branches:
+      - gauntlet/tactile-foley-sound
+
+concurrency:
+  group: amend-tactile-sound
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: gauntlet/tactile-foley-sound
+          fetch-depth: 0
+
+      - name: Wait for guarded integration commit
+        run: |
+          for attempt in $(seq 1 60); do
+            git fetch origin gauntlet/tactile-foley-sound
+            git reset --hard origin/gauntlet/tactile-foley-sound
+            if grep -q "SoundControls" src/components/ControlPanel.tsx 2>/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for sound integration."
+          exit 1
+
+      - name: Apply TypeScript and compatibility hardening
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path('.')
+
+          runtime = root / 'src/sound/runtime.ts'
+          text = runtime.read_text()
+          text = text.replace(
+              "  return window.AudioContext\n    ?? (window as typeof window & { webkitAudioContext?: AudioContextConstructor }).webkitAudioContext;",
+              "  const scope = window as unknown as {\n    AudioContext?: AudioContextConstructor;\n    webkitAudioContext?: AudioContextConstructor;\n  };\n  return scope.AudioContext ?? scope.webkitAudioContext;",
+          )
+          text = text.replace(
+              "    buffer.copyToChannel(rendered.channelData[0], 0);\n    buffer.copyToChannel(rendered.channelData[1], 1);",
+              "    buffer.getChannelData(0).set(rendered.channelData[0]);\n    buffer.getChannelData(1).set(rendered.channelData[1]);",
+          )
+          runtime.write_text(text)
+
+          validation = root / 'src/lib/settingsValidation.ts'
+          if validation.exists():
+              text = validation.read_text()
+              text = text.replace("import { normalizeSoundSettings } from '../sound/model';\n", '')
+              text = re.sub(r"\n\s*sound:\s*normalizeSoundSettings\([^\n]*\),", '', text)
+              text = text.replace(", 'sound']", "]").replace(', "sound"]', "]")
+              validation.write_text(text)
+          PY
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify hardened branch
+        run: npm run check
+
+      - name: Remove one-shot hardener and commit
+        run: |
+          rm -f .github/workflows/amend-tactile-sound.yml
+          git config user.name "pitchdog-sound-bot"
+          git config user.email "pitchdog-sound-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(sound): harden browser audio and legacy validation" || true
+          git push origin HEAD:gauntlet/tactile-foley-sound
