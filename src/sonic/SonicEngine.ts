@@ -90,7 +90,7 @@ export class SonicEngine {
     ) {
       void this.loadPalette(settings.palette)
         .then(() => this.publishState())
-        .catch((error: unknown) => this.fail(error));
+        .catch((error: unknown) => this.reportError(error));
     }
     this.publishState();
   }
@@ -109,8 +109,9 @@ export class SonicEngine {
     try {
       if (!this.context) {
         if (typeof AudioContext === "undefined") {
-          this.unavailable = true;
-          this.publishState();
+          this.markUnavailable(
+            "This browser does not expose Web Audio, so tactile preview is unavailable.",
+          );
           return;
         }
         const context = new AudioContext({ latencyHint: "interactive" });
@@ -132,7 +133,10 @@ export class SonicEngine {
       this.updateMasterGain();
       this.publishState();
     } catch (error) {
-      this.fail(error);
+      // Local asset delivery, decoding, and a temporarily blocked AudioContext
+      // are recoverable. Keep the engine idle so the next trusted gesture can
+      // try again instead of poisoning the session permanently.
+      this.reportError(error);
     }
   }
 
@@ -320,13 +324,18 @@ export class SonicEngine {
     master.gain.setTargetAtTime(target, context.currentTime, 0.012);
   }
 
-  private fail(error: unknown): void {
-    this.unavailable = true;
+  private reportError(error: unknown): void {
     this.onError?.(
       error instanceof Error
         ? error.message
-        : "Tactile sound could not start in this browser.",
+        : "Tactile sound could not start. Try the gesture again.",
     );
+    this.publishState();
+  }
+
+  private markUnavailable(message: string): void {
+    this.unavailable = true;
+    this.onError?.(message);
     this.publishState();
   }
 
