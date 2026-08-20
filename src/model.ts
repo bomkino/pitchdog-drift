@@ -3,12 +3,44 @@ export const ENGINE_VERSION = "1.0.0";
 export const SHADER_VERSION = "1.0.0";
 export const THEME_VERSION = "1.0.0";
 
+export const FLOW_IDS = [
+  "straight",
+  "arc",
+  "ribbon",
+  "cylinder",
+  "tunnel",
+  "helix",
+  "cascade",
+  "orbit",
+] as const;
+
+export const THEME_IDS = [
+  "editorial-drift",
+  "road-memory",
+  "dread",
+  "noir-contact",
+  "tender-light",
+  "chrome-dream",
+  "projector-bloom",
+  "midnight-run",
+  "salt-air",
+  "winter-celluloid",
+  "folklore-ember",
+  "acid-matinee",
+  "archival-blue",
+  "desert-heat",
+  "lunar-signal",
+  "velvet-crime",
+  "body-static",
+  "daylight-intimacy",
+] as const;
+
 export type Axis = "horizontal" | "vertical";
 export type Direction = 1 | -1;
-export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel";
+export type Flow = (typeof FLOW_IDS)[number];
 export type ImageFit = "cover" | "contain";
 export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
-export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
+export type ThemeId = (typeof THEME_IDS)[number];
 
 export interface StageSettings {
   width: number;
