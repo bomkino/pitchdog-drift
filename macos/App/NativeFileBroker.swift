@@ -6,6 +6,11 @@ private let driftRenameExclusiveFlag: UInt32 = 0x00000004 // RENAME_EXCL
 private struct FileIdentity: Equatable {
     let device: UInt64
     let inode: UInt64
+    let size: UInt64
+    let modificationSeconds: Int64
+    let modificationNanoseconds: Int64
+    let changeSeconds: Int64
+    let changeNanoseconds: Int64
 }
 
 private final class SecurityScope {
@@ -595,7 +600,15 @@ final class NativeFileBroker {
                 "Drift could not verify the committed file identity: \(String(cString: strerror(code)))."
             )
         }
-        return FileIdentity(device: UInt64(metadata.st_dev), inode: UInt64(metadata.st_ino))
+        return FileIdentity(
+            device: UInt64(metadata.st_dev),
+            inode: UInt64(metadata.st_ino),
+            size: metadata.st_size >= 0 ? UInt64(metadata.st_size) : 0,
+            modificationSeconds: Int64(metadata.st_mtimespec.tv_sec),
+            modificationNanoseconds: Int64(metadata.st_mtimespec.tv_nsec),
+            changeSeconds: Int64(metadata.st_ctimespec.tv_sec),
+            changeNanoseconds: Int64(metadata.st_ctimespec.tv_nsec)
+        )
     }
 
     private func cleanupFailedWriteSession(sessionToken: String, session: WriteSession) {
@@ -851,6 +864,41 @@ final class NativeFileBroker {
             }
         }
 
+        let modifiedURL = root.appendingPathComponent("drift_000005.png")
+        let modifiedDescriptor = try broker.directoryFile([
+            "token": directoryToken,
+            "name": modifiedURL.lastPathComponent,
+            "create": true,
+        ])
+        let modifiedToken = modifiedDescriptor["token"] as! String
+        let modifiedOpen = try broker.openWriteSession(["token": modifiedToken, "keepExistingData": false])
+        let modifiedSession = modifiedOpen["session"] as! String
+        let originalSameSizeBytes = Data(repeating: 0x41, count: 16)
+        _ = try broker.writeChunk([
+            "session": modifiedSession,
+            "position": 0,
+            "data": originalSameSizeBytes.base64EncodedString(),
+        ])
+        _ = try broker.closeWriteSession(["session": modifiedSession])
+        let inPlaceMutation = Data(repeating: 0x42, count: originalSameSizeBytes.count)
+        let mutationHandle = try FileHandle(forWritingTo: modifiedURL)
+        try mutationHandle.seek(toOffset: 0)
+        try mutationHandle.write(contentsOf: inPlaceMutation)
+        try mutationHandle.synchronize()
+        try mutationHandle.close()
+        try manager.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_700_000_123)],
+            ofItemAtPath: modifiedURL.path
+        )
+        do {
+            _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": modifiedURL.lastPathComponent])
+            throw BridgeFailure("DataError", "Rollback deleted an in-place modified committed frame.")
+        } catch let failure as BridgeFailure where failure.name == "InvalidModificationError" {
+            guard try Data(contentsOf: modifiedURL) == inPlaceMutation else {
+                throw BridgeFailure("DataError", "In-place modified frame bytes changed during rollback.")
+            }
+        }
+
         let abortedFrameURL = root.appendingPathComponent("drift_000003.png")
         let abortedDescriptor = try broker.directoryFile([
             "token": directoryToken,
@@ -872,7 +920,7 @@ final class NativeFileBroker {
 
         _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": frameURL.lastPathComponent])
         guard !manager.fileExists(atPath: frameURL.path) else {
-            throw BridgeFailure("DataError", "Owned sequence-frame cleanup did not remove its exact committed inode.")
+            throw BridgeFailure("DataError", "Owned sequence-frame cleanup did not remove its exact committed identity.")
         }
 
         do {
@@ -922,6 +970,6 @@ final class NativeFileBroker {
             // Expected.
         }
 
-        print("Drift native file broker self-test passed: staged replacement, exclusive sequence commits, inode-owned rollback, collision preservation, one-shot frame readback grants, abort cleanup, capability revocation, traversal rejection, and readback hold.")
+        print("Drift native file broker self-test passed: staged replacement, exclusive sequence commits, full-metadata-owned rollback, collision and mutation preservation, one-shot frame readback grants, abort cleanup, capability revocation, traversal rejection, and readback hold.")
     }
 }
