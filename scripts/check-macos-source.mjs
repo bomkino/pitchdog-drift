@@ -239,7 +239,9 @@ for (const marker of ["*.wasm", "@mediabunny/aac-encoder", "libavcodec"]) {
 }
 requireEvery(verify, [
   "--smoke-test", "--native-self-test", "--webview-self-test", "BuildManifest.txt",
-  "system-codecs-only", "otool -L", "flags=.*runtime", "LaunchServices",
+  "Video: WKWebView H.264, capability-gated and output-verified",
+  "Audio: Apple software AAC-LC through AudioToolbox; no FFmpeg WASM",
+  "otool -L", "flags=.*runtime", "LaunchServices",
 ], "Mac verifier");
 requireEvery(packageDmg, [
   "Install Drift.txt", "-readonly", "verify-macos-app.sh", "verify-macos-dmg.sh", ".sha256",
