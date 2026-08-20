@@ -1,0 +1,63 @@
+name: Spatial gauntlet repair
+
+on:
+  workflow_run:
+    workflows:
+      - Spatial gauntlet bootstrap
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+concurrency:
+  group: spatial-gauntlet-repair
+  cancel-in-progress: true
+
+jobs:
+  settle-branch:
+    if: ${{ github.event.workflow_run.head_branch == 'gauntlet/spatial-fabric-dynamics' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gauntlet/spatial-fabric-dynamics
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        if: ${{ github.event.workflow_run.conclusion != 'success' }}
+        with:
+          node-version: 22
+          cache: npm
+      - name: Repair failed bootstrap
+        if: ${{ github.event.workflow_run.conclusion != 'success' }}
+        run: python3 scripts/apply_spatial_gauntlet_repair.py
+      - name: Install
+        if: ${{ github.event.workflow_run.conclusion != 'success' }}
+        run: npm ci
+      - name: Typecheck
+        if: ${{ github.event.workflow_run.conclusion != 'success' }}
+        run: npm run typecheck
+      - name: Unit tests
+        if: ${{ github.event.workflow_run.conclusion != 'success' }}
+        run: npm test -- --run
+      - name: Production build
+        if: ${{ github.event.workflow_run.conclusion != 'success' }}
+        run: npm run build
+      - name: Remove repair scaffolding after successful first run
+        if: ${{ github.event.workflow_run.conclusion == 'success' }}
+        run: rm -f .github/workflows/spatial-gauntlet-repair.yml scripts/apply_spatial_gauntlet_repair.py
+      - name: Commit settled branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+            git commit -m "chore: remove spatial bootstrap scaffolding"
+          else
+            git commit -m "feat: spatial gauntlet applied"
+          fi
+          git push origin HEAD:gauntlet/spatial-fabric-dynamics
