@@ -2,7 +2,7 @@ import type { DynamicsMode, SurfaceMode } from "../model";
 
 const TAU = Math.PI * 2;
 const MAX_FRAME_DELTA = 0.05;
-const MAX_SUBSTEP = 1 / 120;
+const MATRIX_EPSILON = 1e-10;
 
 export const FABRIC_TURNS_PER_TRACK = 2;
 
@@ -105,6 +105,19 @@ export const SURFACE_PROFILES: Readonly<Record<SurfaceMode, SurfaceProfile>> = O
   }),
 });
 
+interface Matrix2 {
+  m00: number;
+  m01: number;
+  m10: number;
+  m11: number;
+}
+
+interface LinearMotionReceipt {
+  velocity: number;
+  acceleration: number;
+  displacement: number;
+}
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
@@ -126,6 +139,78 @@ function sanitizeMotionState(
 }
 
 /**
+ * Exact exponential of a real 2 × 2 matrix. The closed form avoids a hidden
+ * dependency on display refresh rate while keeping the solver allocation-free.
+ */
+function exponential2x2(
+  a00: number,
+  a01: number,
+  a10: number,
+  a11: number,
+  duration: number,
+): Matrix2 {
+  const halfTrace = (a00 + a11) * 0.5;
+  const centered00 = a00 - halfTrace;
+  const centered11 = a11 - halfTrace;
+  const discriminant = centered00 * centered00 + a01 * a10;
+  const envelope = Math.exp(halfTrace * duration);
+
+  let cosineLike: number;
+  let sineLike: number;
+  if (discriminant > MATRIX_EPSILON) {
+    const root = Math.sqrt(discriminant);
+    cosineLike = Math.cosh(root * duration);
+    sineLike = Math.sinh(root * duration) / root;
+  } else if (discriminant < -MATRIX_EPSILON) {
+    const root = Math.sqrt(-discriminant);
+    cosineLike = Math.cos(root * duration);
+    sineLike = Math.sin(root * duration) / root;
+  } else {
+    cosineLike = 1;
+    sineLike = duration;
+  }
+
+  return {
+    m00: envelope * (cosineLike + sineLike * centered00),
+    m01: envelope * sineLike * a01,
+    m10: envelope * sineLike * a10,
+    m11: envelope * (cosineLike + sineLike * centered11),
+  };
+}
+
+/**
+ * Evolves velocity and acceleration exactly for one constant-target interval.
+ * The displacement integral comes from A⁻¹(exp(AΔt) − I), so position and
+ * velocity share the same continuous solution instead of accumulating Euler
+ * error at different monitor refresh rates.
+ */
+function evolveLinearMotion(
+  velocity: number,
+  acceleration: number,
+  duration: number,
+  a00: number,
+  a01: number,
+  a10: number,
+  a11: number,
+): LinearMotionReceipt {
+  const matrix = exponential2x2(a00, a01, a10, a11, duration);
+  const nextVelocity = matrix.m00 * velocity + matrix.m01 * acceleration;
+  const nextAcceleration = matrix.m10 * velocity + matrix.m11 * acceleration;
+  const deltaVelocity = nextVelocity - velocity;
+  const deltaAcceleration = nextAcceleration - acceleration;
+  const determinant = a00 * a11 - a01 * a10;
+  const displacement = Math.abs(determinant) > MATRIX_EPSILON
+    ? (a11 * deltaVelocity - a01 * deltaAcceleration) / determinant
+    : (velocity + nextVelocity) * duration * 0.5;
+
+  return {
+    velocity: finite(nextVelocity),
+    acceleration: finite(nextAcceleration),
+    displacement: finite(displacement),
+  };
+}
+
+/**
  * Keeps long-running preview state close to the origin without changing the
  * carousel arrangement. Surface phase also closes on a whole track, so the
  * rebase is visually invisible.
@@ -140,7 +225,8 @@ export function rebaseLoopPosition(position: number, loopLength: number): number
 }
 
 /**
- * Semi-implicit, bounded, fixed-substep integration for interactive preview.
+ * Bounded exact second-order integration for interactive preview. The same
+ * gesture therefore has the same physical character at 60, 120, or 240 Hz.
  * Export never depends on this state; exported distance remains analytic.
  */
 export function integrateMotionState(
@@ -158,40 +244,57 @@ export function integrateMotionState(
   const duration = clamp(finite(deltaSeconds), 0, MAX_FRAME_DELTA);
   if (duration <= 0) return sanitized;
 
-  const steps = Math.max(1, Math.ceil(duration / MAX_SUBSTEP));
-  const step = duration / steps;
-  const target = clamp(finite(targetVelocity), -maximumVelocity, maximumVelocity);
-  const targetIsStill = Math.abs(target) < safeStride * 0.000_001;
-  let { position, velocity, acceleration } = sanitized;
+  const requestedTarget = clamp(finite(targetVelocity), -maximumVelocity, maximumVelocity);
+  const targetIsStill = Math.abs(requestedTarget) < safeStride * 0.000_001;
+  const spring = profile.response * profile.accelerationDamping;
+  let receipt: LinearMotionReceipt;
+  let target = requestedTarget;
 
-  for (let index = 0; index < steps; index += 1) {
-    const accelerationTarget = clamp(
-      (target - velocity) * profile.response,
-      -maximumAcceleration,
-      maximumAcceleration,
+  if (targetIsStill) {
+    // Coast drag is part of the continuous system rather than a second
+    // per-frame multiplier, preserving the semigroup property of the update.
+    receipt = evolveLinearMotion(
+      sanitized.velocity,
+      sanitized.acceleration,
+      duration,
+      -profile.coastDrag,
+      1,
+      -spring,
+      -(profile.accelerationDamping + profile.coastDrag * 0.5),
     );
-    const accelerationResponse = 1 - Math.exp(-profile.accelerationDamping * step);
-    acceleration += (accelerationTarget - acceleration) * accelerationResponse;
-    velocity += acceleration * step;
-
-    if (targetIsStill) {
-      const drag = Math.exp(-profile.coastDrag * step);
-      velocity *= drag;
-      acceleration *= Math.sqrt(drag);
-    }
-
-    velocity = clamp(velocity, -maximumVelocity, maximumVelocity);
-    acceleration = clamp(acceleration, -maximumAcceleration, maximumAcceleration);
-    position += velocity * step;
+  } else {
+    // Bound the initial restoring force without clipping the authored target.
+    const maximumError = maximumAcceleration / Math.max(profile.response, 0.000_001);
+    const error = clamp(sanitized.velocity - requestedTarget, -maximumError, maximumError);
+    target = sanitized.velocity - error;
+    receipt = evolveLinearMotion(
+      sanitized.velocity - target,
+      sanitized.acceleration,
+      duration,
+      0,
+      1,
+      -spring,
+      -profile.accelerationDamping,
+    );
+    receipt.velocity += target;
+    receipt.displacement += target * duration;
   }
 
+  const velocity = clamp(receipt.velocity, -maximumVelocity, maximumVelocity);
+  const acceleration = clamp(receipt.acceleration, -maximumAcceleration, maximumAcceleration);
+  const maximumDisplacement = maximumVelocity * duration;
+  const displacement = clamp(receipt.displacement, -maximumDisplacement, maximumDisplacement);
+
   if (targetIsStill && Math.abs(velocity) < safeStride * 0.000_002) {
-    velocity = 0;
-    acceleration = 0;
+    return {
+      position: finite(sanitized.position + displacement),
+      velocity: 0,
+      acceleration: 0,
+    };
   }
 
   return {
-    position: finite(position),
+    position: finite(sanitized.position + displacement),
     velocity: finite(velocity),
     acceleration: finite(acceleration),
   };
