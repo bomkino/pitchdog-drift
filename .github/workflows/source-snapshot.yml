@@ -92,6 +92,25 @@ jobs:
       - name: Make every material card a real radio hit target
         run: python3 scripts/fix-sonic-hit-target.py
 
+      - name: Scope the browser test to the sound master slider
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("e2e/studio.e2e.ts")
+          source = path.read_text(encoding="utf-8")
+          before = 'page.getByLabel("Master")'
+          after = 'page.getByRole("slider", { name: "Master", exact: true })'
+          count = source.count(before)
+          if count != 1:
+              raise RuntimeError(
+                  f"Expected exactly one ambiguous sound-master locator, found {count}."
+              )
+          path.write_text(source.replace(before, after), encoding="utf-8")
+          PY
+
       - name: Keep the asset test outside the browser TypeScript project
         shell: bash
         run: |
@@ -180,6 +199,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -f \
+            .github/workflows/source-snapshot.yml \
             scripts/apply-authentic-sonic.py \
             scripts/sonic-builder.mjs \
             scripts/sonic-export-builder.mjs \
