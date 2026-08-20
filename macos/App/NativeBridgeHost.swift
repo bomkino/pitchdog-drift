@@ -182,12 +182,14 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                     return
                 }
                 let descriptor = try self.broker.registerFile(selected, mode: .readOnly)
+                let descriptorToken = descriptor["token"] as? String
                 DispatchQueue.main.async {
                     self.invokeJavaScript(
                         function: "window.__driftNativeImportGranted",
                         arguments: [descriptor, kind.rawValue]
                     ) { [weak self] error in
                         guard let self, let error else { return }
+                        self.releaseFileGrant(descriptorToken)
                         self.releaseExternalProjectReservationIfNeeded(kind)
                         self.presentError(error, title: "Project could not be delivered")
                     }
@@ -215,6 +217,13 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func releaseFileGrant(_ token: String?) {
+        guard let token else { return }
+        brokerQueue.async { [weak self] in
+            _ = try? self?.broker.releaseFile(["token": token])
+        }
     }
 
     private func releaseExternalProjectReservationIfNeeded(_ kind: DriftImportKind) {
@@ -352,13 +361,21 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                 return
             }
             self.brokerQueue.async {
+                var descriptors: [JSONDictionary] = []
                 do {
                     let urls = try self.validateOpenPanelSelection(panel.urls, kind: kind)
-                    let descriptors = try urls.map { try self.broker.registerFile($0, mode: .readOnly) }
+                    for url in urls {
+                        descriptors.append(try self.broker.registerFile(url, mode: .readOnly))
+                    }
                     DispatchQueue.main.async {
                         replyHandler(successEnvelope(["cancelled": false, "files": descriptors]), nil)
                     }
                 } catch {
+                    for descriptor in descriptors {
+                        if let token = descriptor["token"] as? String {
+                            _ = try? self.broker.releaseFile(["token": token])
+                        }
+                    }
                     DispatchQueue.main.async { replyHandler(failureEnvelope(error), nil) }
                 }
             }
