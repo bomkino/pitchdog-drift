@@ -86,7 +86,7 @@ export function SonicDock({ settings, state, disabled, onSettings, onAudition }:
                     checked={settings.palette === palette}
                     onChange={() => onSettings({ palette })}
                   />
-                  <span>{SONIC_PALETTE_LABELS[palette].name}</span>
+                  <span style={{ pointerEvents: "none" }}>{SONIC_PALETTE_LABELS[palette].name}</span>
                 </label>
               ))}
             </div>
@@ -124,7 +124,7 @@ export function SonicDock({ settings, state, disabled, onSettings, onAudition }:
             Audition gesture
           </button>
           <footer>
-            <span>CC0 field recordings · bundled locally</span>
+            <span>CC0 source audio · bundled locally</span>
             <span>Audio master · 24 / 25 / 30 fps</span>
           </footer>
         </div>
