@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
+import { DEFAULT_SETTINGS, FLOW_IDS, cloneSettings } from "../src/model";
 import {
   distanceAtTime,
   evaluateSlide,
@@ -34,6 +34,28 @@ describe("deterministic carousel evaluation", () => {
     expect(evaluateSlide(3, slots, distance, settings, geometry)).toEqual(
       evaluateSlide(3, slots, distance, settings, geometry),
     );
+  });
+
+  it("keeps every authored path finite across horizontal and vertical stages", () => {
+    for (const axis of ["horizontal", "vertical"] as const) {
+      for (const flow of FLOW_IDS) {
+        const settings = cloneSettings(DEFAULT_SETTINGS);
+        settings.motion.axis = axis;
+        settings.motion.flow = flow;
+        settings.motion.curvature = 0.73;
+        settings.motion.depth = 0.68;
+        settings.motion.tilt = 18;
+        const geometry = getSlideGeometry(settings);
+        const slots = getLogicalSlotCount(11, geometry);
+        for (let index = 0; index < slots; index += 1) {
+          const evaluated = evaluateSlide(index, slots, geometry.stride * 1.731, settings, geometry);
+          expect(Object.values(evaluated).every(Number.isFinite)).toBe(true);
+          expect(evaluated.opacity).toBeGreaterThanOrEqual(0.08);
+          expect(evaluated.opacity).toBeLessThanOrEqual(1);
+          expect(evaluated.scale).toBeGreaterThanOrEqual(1);
+        }
+      }
+    }
   });
 
   it("shares analytic preview speed with ordinary export", () => {
