@@ -47,33 +47,72 @@ export function getSlideGeometry(settings: StudioSettings): SlideGeometry {
 export function getLogicalSlotCount(assetCount: number, geometry: SlideGeometry): number {
   if (assetCount <= 0) return 0;
   const minimum = Math.ceil(geometry.axisExtent / Math.max(1, geometry.stride)) + 5;
-  // The virtual strip must end on a complete asset cycle. Otherwise a padded
-  // strip of 9 slots for 8 assets produces ...7,0,0,1... at the wrap seam.
+  // The renderer may need more physical instances than the deck has source
+  // slides. Keep that virtual strip on complete asset cycles so its seam never
+  // produces ...7,0,0,1... for awkward counts. Motion cadence, however, is
+  // based on source slides—not this rendering padding.
   return Math.max(assetCount, Math.ceil(minimum / assetCount) * assetCount);
 }
 
-export function distanceAtTime(settings: StudioSettings, time: number, slotCount: number, stride: number, exportMode: boolean): number {
+function completeLoopDistance(
+  settings: StudioSettings,
+  sourceSlideCount: number,
+  stride: number,
+): number {
+  if (sourceSlideCount <= 0) return 0;
+  return sourceSlideCount
+    * stride
+    * Math.max(1, Math.round(settings.motion.seamlessLoops));
+}
+
+export function slidesPerSecondForPreview(
+  settings: StudioSettings,
+  sourceSlideCount: number,
+): number {
+  if (settings.motion.seamless && sourceSlideCount > 0) {
+    return sourceSlideCount
+      * Math.max(1, Math.round(settings.motion.seamlessLoops))
+      / Math.max(0.001, settings.output.duration);
+  }
+  return settings.motion.speed;
+}
+
+export function velocityForPreview(
+  settings: StudioSettings,
+  sourceSlideCount: number,
+  stride: number,
+): number {
+  return settings.motion.direction
+    * slidesPerSecondForPreview(settings, sourceSlideCount)
+    * stride;
+}
+
+export function distanceAtTime(
+  settings: StudioSettings,
+  time: number,
+  sourceSlideCount: number,
+  stride: number,
+  exportMode: boolean,
+): number {
   if (settings.motion.reducedMotionOutput && exportMode) return 0;
   const direction = settings.motion.direction;
-  if (exportMode && settings.motion.seamless && slotCount > 0) {
+  if (exportMode && settings.motion.seamless && sourceSlideCount > 0) {
     const phase = time / Math.max(0.001, settings.output.duration);
-    return direction * slotCount * stride * Math.max(1, Math.round(settings.motion.seamlessLoops)) * phase;
+    return direction * completeLoopDistance(settings, sourceSlideCount, stride) * phase;
   }
   return direction * settings.motion.speed * stride * Math.max(0, time);
 }
 
 export function velocityAtTime(
   settings: StudioSettings,
-  slotCount: number,
+  sourceSlideCount: number,
   stride: number,
   exportMode: boolean,
 ): number {
   if (exportMode && settings.motion.reducedMotionOutput) return 0;
-  if (exportMode && settings.motion.seamless && slotCount > 0) {
+  if (exportMode && settings.motion.seamless && sourceSlideCount > 0) {
     return settings.motion.direction
-      * slotCount
-      * stride
-      * Math.max(1, Math.round(settings.motion.seamlessLoops))
+      * completeLoopDistance(settings, sourceSlideCount, stride)
       / Math.max(0.001, settings.output.duration);
   }
   return settings.motion.direction * settings.motion.speed * stride;
