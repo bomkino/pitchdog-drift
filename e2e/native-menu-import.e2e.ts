@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const onePixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X1R1WQAAAABJRU5ErkJggg==";
+const decodablePng = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8UKHxn4GBgYGJAQoAJ/ACkwNUsCoAAAAASUVORK5CYII=";
 
 async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page): Promise<void> {
   await page.addInitScript(({ pngBase64 }) => {
@@ -60,7 +60,7 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
         }];
       },
     });
-  }, { pngBase64: onePixelPng });
+  }, { pngBase64: decodablePng });
 
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("data-drift-native-file-input-bridge", "ready");
