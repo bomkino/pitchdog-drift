@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: director-desk-v2-${{ github.event.pull_request.number }}
+  group: director-desk-v3-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
@@ -22,20 +22,22 @@ jobs:
           ref: gauntlet/directors-cut-optical-pipeline
           fetch-depth: 0
 
-      - name: Reconstruct and verify sealed product archive
+      - name: Reconstruct and verify sealed product archive from immutable history
         shell: bash
         run: |
           set -euo pipefail
-          payload_dir=.github/director-desk-payload-v2
+          payload_commit=5eccabaab54f230cdf4032204c96d689263b79ce
+          base_commit=6c450add8a68d32df1cad75aeff334ba1bf8a4fa
           expected_bytes=73052
           expected_sha=63b9c56fed5d69a8bd37c88f3fe6164534325c8404160a10d84a255857036961
 
-          test "$(find "$payload_dir" -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')" = "7"
+          git cat-file -e "$payload_commit^{commit}"
+          git cat-file -e "$base_commit^{commit}"
+          : > /tmp/director-desk-product-v2.b64
           for index in 00 01 02 03 04 05 06; do
-            test -s "$payload_dir/part-$index"
+            git show "$payload_commit:.github/director-desk-payload-v2/part-$index" >> /tmp/director-desk-product-v2.b64
           done
 
-          cat "$payload_dir"/part-{00,01,02,03,04,05,06} > /tmp/director-desk-product-v2.b64
           test "$(wc -c < /tmp/director-desk-product-v2.b64 | tr -d ' ')" = "$expected_bytes"
           base64 --decode /tmp/director-desk-product-v2.b64 > /tmp/director-desk-product-v2.tgz
           echo "$expected_sha  /tmp/director-desk-product-v2.tgz" | sha256sum --check --strict -
@@ -74,8 +76,8 @@ jobs:
           rm -f .github/workflows/apply-director-desk-manifest.yml
           rm -f .github/workflows/audit-snapshot.yml
 
-          # Restore the ordinary CI workflow in the product commit.
-          git show HEAD^:.github/workflows/ci.yml > .github/workflows/ci.yml
+          # Restore the ordinary CI workflow from the PR's exact base commit.
+          git show "$base_commit:.github/workflows/ci.yml" > .github/workflows/ci.yml
 
           test "$(find .github/workflows -maxdepth 1 -type f -printf '%f\n' | sort)" = "ci.yml"
           test ! -e .github/director-desk-payload-v2
