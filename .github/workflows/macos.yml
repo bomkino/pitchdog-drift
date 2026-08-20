@@ -1,36 +1,57 @@
 name: macOS standalone app
 
 on:
-  pull_request:
+  push:
+    branches: [main, feat/native-macos-studio]
     paths:
-      - ".github/workflows/macos.yml"
       - "macos/**"
       - "scripts/build-macos-app.sh"
       - "scripts/check-macos-source.mjs"
       - "scripts/generate-macos-icon.py"
       - "scripts/package-macos-dmg.sh"
+      - "scripts/probe-macos-packaged-webview.sh"
+      - "scripts/release-macos-app.sh"
       - "scripts/verify-macos-app.sh"
-      - "docs/MACOS_*.md"
+      - "scripts/verify-macos-release.sh"
       - "src/**"
-      - "index.html"
+      - "tests/**"
+      - "docs/MACOS_*.md"
       - "package.json"
       - "package-lock.json"
       - "vite.config.ts"
-      - "tsconfig*.json"
+      - ".github/workflows/macos.yml"
+  pull_request:
+    paths:
+      - "macos/**"
+      - "scripts/build-macos-app.sh"
+      - "scripts/check-macos-source.mjs"
+      - "scripts/generate-macos-icon.py"
+      - "scripts/package-macos-dmg.sh"
+      - "scripts/probe-macos-packaged-webview.sh"
+      - "scripts/release-macos-app.sh"
+      - "scripts/verify-macos-app.sh"
+      - "scripts/verify-macos-release.sh"
+      - "src/**"
+      - "tests/**"
+      - "docs/MACOS_*.md"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - ".github/workflows/macos.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: macos-standalone-${{ github.event.pull_request.number || github.ref }}
+  group: macos-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  source-contract:
-    name: Native source contract
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  native-tests:
+    name: Native source and broker gauntlet
+    runs-on: macos-15
+    timeout-minutes: 15
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,14 +65,35 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Enforce canonical Mac architecture
+      - name: Verify native source contract
         run: npm run check:mac-source
 
-  universal-app:
-    name: Universal signed app and mounted DMG
-    needs: source-contract
+      - name: Compile and run native file-broker gauntlet
+        run: |
+          set -euo pipefail
+          SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
+          xcrun --sdk macosx swiftc \
+            -parse-as-library \
+            -O \
+            -whole-module-optimization \
+            -sdk "$SDK_PATH" \
+            -target "arm64-apple-macos13.3" \
+            -framework AppKit \
+            -framework AudioToolbox \
+            -framework Foundation \
+            -framework UniformTypeIdentifiers \
+            macos/App/NativeModels.swift \
+            macos/App/NativeFileBroker.swift \
+            macos/App/NativeAacEncoder.swift \
+            macos/App/NativeGauntlet.swift \
+            macos/NativeGauntletMain.swift \
+            -o "$RUNNER_TEMP/DriftNativeGauntlet"
+          "$RUNNER_TEMP/DriftNativeGauntlet"
+
+  mac-build:
+    name: Build and falsify universal signed app
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 35
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,40 +107,67 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Verify shared web engine and native source
-        run: npm run check
-
-      - name: Build the system-codec-only universal app
+      - name: Build universal signed app
+        id: app_build
+        continue-on-error: true
         env:
-          DRIFT_SKIP_WEB_CHECKS: "1"
+          DRIFT_MACOS_ARCHS: "arm64 x86_64"
+          DRIFT_EXPECT_ARCHS: "arm64 x86_64"
           DRIFT_BUILD_NUMBER: ${{ github.run_number }}
           DRIFT_SOURCE_REVISION: ${{ github.sha }}
-          DRIFT_EXPECT_ARCHS: arm64 x86_64
         run: npm run build:mac
 
-      - name: Re-run the signed bundle gauntlet
+      - name: Falsify packaged WebKit across signing and sandbox boundaries
+        id: webview_matrix
+        if: always()
+        continue-on-error: true
         env:
-          DRIFT_EXPECT_ARCHS: arm64 x86_64
-        run: npm run verify:mac
+          DRIFT_WEBVIEW_MATRIX_TIMEOUT: "100"
+        run: scripts/probe-macos-packaged-webview.sh build/macos/Drift.app
 
-      - name: Package, mount, and verify the install image
+      - name: Preserve packaged WebKit evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-packaged-webview-evidence-${{ github.run_id }}
+          path: build/macos/packaged-webview/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Require the production sandboxed lifecycle
+        if: always()
         env:
-          DRIFT_SKIP_APP_BUILD: "1"
-          DRIFT_DMG_OUTPUT: ${{ github.workspace }}/build/macos/Drift.dmg
-          DRIFT_EXPECT_ARCHS: arm64 x86_64
-        run: npm run package:mac:dmg
-
-      - name: Inspect local evidence without publishing it
-        shell: bash
+          BUILD_OUTCOME: ${{ steps.app_build.outcome }}
+          MATRIX_OUTCOME: ${{ steps.webview_matrix.outcome }}
         run: |
           set -euo pipefail
-          test -d build/macos/Drift.app
-          test -f build/macos/Drift.dmg
-          test -f build/macos/Drift.dmg.sha256
-          grep -Fx "source_revision=${GITHUB_SHA}" build/macos/Drift.app/Contents/Resources/BuildReceipt.txt
-          (
-            cd build/macos
-            shasum -a 256 -c Drift.dmg.sha256
-          )
-          git diff --exit-code
-          echo "The runner proved the app and install image, then retained no downloadable binary artifact."
+          test -d build/macos/Drift.app || {
+            echo "The universal app was never produced; build outcome: $BUILD_OUTCOME" >&2
+            exit 1
+          }
+          if [[ "$MATRIX_OUTCOME" != "success" ]]; then
+            echo "The production sandboxed/ad-hoc app did not survive its packaged WebKit lifecycle." >&2
+            echo "The uploaded matrix distinguishes signature, sandbox, and general package failures." >&2
+            cat build/macos/packaged-webview/matrix-summary.json >&2 || true
+            exit 1
+          fi
+
+      - name: Re-run the complete signed-bundle gauntlet
+        env:
+          DRIFT_EXPECT_ARCHS: "arm64 x86_64"
+        run: npm run verify:mac
+
+      - name: Create and mount-check local DMG
+        run: npm run package:mac
+
+      - name: Verify local release artifact
+        run: npm run verify:mac-release
+
+      - name: Prove release guard rejects non-Developer-ID signing
+        run: |
+          set -euo pipefail
+          if npm run release:mac; then
+            echo "Release guard unexpectedly accepted an ad-hoc build." >&2
+            exit 1
+          fi
+          test ! -e build/macos/release/Drift.dmg
