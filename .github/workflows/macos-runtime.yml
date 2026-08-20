@@ -1,0 +1,105 @@
+name: macOS WKWebView runtime
+
+on:
+  push:
+    branches: [main, feat/native-macos-studio]
+    paths:
+      - "macos/**"
+      - "scripts/**macos**"
+      - "scripts/**probe**"
+      - "src/lib/exportStudio.ts"
+      - "src/lib/macosAacEncoder.ts"
+      - "tests/macos-export-probe.html"
+      - "tests/macosExportProbe.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/macos-runtime.yml"
+  pull_request:
+    paths:
+      - "macos/**"
+      - "scripts/**macos**"
+      - "scripts/**probe**"
+      - "src/lib/exportStudio.ts"
+      - "src/lib/macosAacEncoder.ts"
+      - "tests/macos-export-probe.html"
+      - "tests/macosExportProbe.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/macos-runtime.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wkwebview-runtime:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Record runtime identity
+        run: |
+          set -euo pipefail
+          mkdir -p build/macos
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "runner=${RUNNER_NAME}"
+            echo "arch=$(uname -m)"
+            sw_vers
+            xcodebuild -version
+            xcrun swiftc --version
+            system_profiler SPHardwareDataType SPSoftwareDataType
+          } > build/macos/runtime-identity.txt
+
+      - name: Prove WebGL, PNG, AVC, and AAC inside WKWebView
+        env:
+          DRIFT_REQUIRE_NATIVE_MP4: "1"
+          DRIFT_CODEC_REPORT: ${{ github.workspace }}/build/macos/codec-capabilities.json
+        run: scripts/probe-macos-codecs.sh
+
+      - name: Require actual native AAC packet output
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('build/macos/codec-capabilities.json', 'utf8'));
+          if (report.aac?.encoded !== true) {
+            console.error('WKWebView did not produce a native AAC packet. Presenter audio cannot be called release-ready.');
+            console.error(JSON.stringify(report.aac, null, 2));
+            process.exit(1);
+          }
+          console.log(`Native AAC encoded ${report.aac.chunks.length} packet(s).`);
+          NODE
+
+      - name: Render and verify real deterministic outputs inside WKWebView
+        env:
+          DRIFT_EXPORT_PROBE_REPORT: ${{ github.workspace }}/build/macos/export-probe-result.json
+          DRIFT_EXPORT_PROBE_TIMEOUT: "240"
+        run: scripts/run-macos-export-probe.sh
+
+      - name: Upload runtime receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-wkwebview-runtime-${{ github.run_id }}
+          path: |
+            build/macos/runtime-identity.txt
+            build/macos/codec-capabilities.json
+            build/macos/export-probe-result.json
+            build/macos/export-probe/ProbeBundleReceipt.json
+          if-no-files-found: warn
+          retention-days: 14
