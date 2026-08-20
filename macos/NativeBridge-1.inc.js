@@ -190,6 +190,8 @@
 
     void (async () => {
       document.documentElement.dataset.driftNativeSave = "active";
+      nativeSaveActive = true;
+      scheduleClientStateReport();
       const dismissProgress = showNativeToast(`Choose where to save ${anchor.download || "the export"}…`, "quiet", true);
       window.dispatchEvent(new CustomEvent("drift-native-save", {
         detail: { status: "started", name: anchor.download },
@@ -207,4 +209,3 @@
       } catch (error) {
         dismissProgress();
         const cancelled = error?.name === "AbortError";
-        showNativeToast(

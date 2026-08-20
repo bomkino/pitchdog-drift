@@ -1,3 +1,4 @@
+        showNativeToast(
           cancelled ? "Save cancelled. No completed file was written." : (error?.message || "The export could not be saved."),
           cancelled ? "quiet" : "error",
         );
@@ -6,6 +7,8 @@
           detail: { status: cancelled ? "cancelled" : "failed", name: anchor.download },
         }));
       } finally {
+        nativeSaveActive = false;
+        scheduleClientStateReport();
         window.setTimeout(() => {
           delete document.documentElement.dataset.driftNativeSave;
         }, 4500);
@@ -156,7 +159,7 @@
     return {
       ready: Boolean(document.getElementById("studio")),
       exporting: Boolean(document.querySelector(".export-overlay")),
-      saving: header.includes("saving locally"),
+      saving: nativeSaveActive || header.includes("saving locally"),
     };
   }
 

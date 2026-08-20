@@ -11,6 +11,7 @@
   const nativeToastTimers = new Set();
   let lastReportedState = "";
   let stateReportScheduled = false;
+  let nativeSaveActive = false;
 
   function nativeError(raw) {
     const name = typeof raw?.name === "string" ? raw.name : "InvalidStateError";
