@@ -53,7 +53,7 @@ const host = requireMarkers("macos/App/NativeBridgeHost.swift", [
   "aacBroker.closeAll()",
   "inputIntent = nil",
   "clientState = ClientState()",
-  "clientStateDidChange?(clientState)",
+  "only React may unlock the",
   "This covers manual reload",
 ]);
 const resetStart = host.indexOf("private func resetCapabilitiesForDocumentBoot()");
@@ -61,6 +61,9 @@ const resetEnd = host.indexOf("private func runtimeInfo()", resetStart);
 const resetBody = host.slice(resetStart, resetEnd);
 for (const marker of ["exportActivityGuard.end()", "broker.abortAll()", "aacBroker.closeAll()", "inputIntent = nil", "clientState = ClientState()"]) {
   if (!resetBody.includes(marker)) fail(`document-boot reset lost ${JSON.stringify(marker)}`);
+}
+if (resetBody.includes("clientStateDidChange")) {
+  fail("document-boot reset must not impersonate an authoritative React state report");
 }
 
 const bridge = read("macos/NativeBridge.js");
@@ -105,5 +108,5 @@ requireMarkers("e2e/native-menu-import.e2e.ts", [
 ]);
 
 console.log(
-  "macOS hardening contract passed: PNG sequence commits are exclusive and crash-clean, document boots revoke stale capabilities, and File-menu imports have static, unit, and real-browser evidence.",
+  "macOS hardening contract passed: PNG sequence commits are exclusive and crash-clean, document boots revoke stale capabilities without faking renderer readiness, and File-menu imports have static, unit, and real-browser evidence.",
 );
