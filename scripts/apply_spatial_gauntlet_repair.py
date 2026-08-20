@@ -18,14 +18,24 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
 def main() -> None:
     source = SOURCE.read_text(encoding="utf-8")
 
-    # The repository intentionally infers the FLOWS tuple type with `as const`.
-    # Accept both inferred and explicitly annotated declarations instead of
-    # coupling the migration to one formatting shape.
+    # Accept both the repository's inferred `as const` declaration and an
+    # explicitly annotated tuple. Migration code must follow the project, not
+    # demand that the project follow one formatter shape.
     source = replace_once(
         source,
         "r'const FLOWS:[^=]*=\\s*\\[[\\s\\S]*?\\];'",
         "r'const FLOWS(?:\\s*:[^=]+)?\\s*=\\s*\\[[\\s\\S]*?\\](?:\\s+as\\s+const)?;'",
         "FLOWS declaration matcher",
+    )
+
+    # The current trust boundary uses `oneOf` and `number`; an older patcher
+    # expected `readEnum` and `readNumber`. Support both without weakening
+    # validation of explicitly supplied values.
+    source = replace_once(
+        source,
+        "r'^(read(?:Enum|Number)\\()([^,\\n]+),'",
+        "r'^((?:read(?:Enum|Number)|oneOf|number)\\()([^,\\n]+),'",
+        "legacy extension validator matcher",
     )
 
     # A cloned percentage formatter may otherwise remove JSX closing braces.
