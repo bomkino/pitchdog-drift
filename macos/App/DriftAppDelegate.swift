@@ -78,8 +78,26 @@ final class DriftAppDelegate: NSObject,
             )
             return
         }
+        if receivedAuthoritativeClientState,
+           let state = nativeBridge?.clientState,
+           state.hasProtectedWork {
+            application.reply(toOpenOrPrint: .failure)
+            presentWarning(
+                title: "Finish the current studio operation first",
+                message: "\(state.protectionReason) Drift did not queue this project to replace your work later. Open it again after the current operation finishes."
+            )
+            return
+        }
+        guard pendingProjectURLs.isEmpty else {
+            application.reply(toOpenOrPrint: .failure)
+            presentWarning(
+                title: "A project is already waiting to open",
+                message: "Drift accepts one launch-time project at a time. Let the current project verify and settle before opening another."
+            )
+            return
+        }
 
-        pendingProjectURLs.append(project)
+        pendingProjectURLs = [project]
         showMainWindowIfNeeded()
         deliverPendingProjectsIfPossible()
         application.reply(toOpenOrPrint: .success)
@@ -101,6 +119,7 @@ final class DriftAppDelegate: NSObject,
         invalidateRecoveryStabilityWindow()
         nativeBridge?.abortAllWrites()
         removeNativeMessageHandler()
+        pendingProjectURLs.removeAll()
         webRuntimeReady = false
         receivedAuthoritativeClientState = false
         webRootURL = nil
@@ -278,10 +297,10 @@ final class DriftAppDelegate: NSObject,
         guard webRuntimeReady,
               let bridge = nativeBridge,
               !bridge.clientState.exportInProgress,
-              !bridge.clientState.projectBusy else { return }
-        let pending = pendingProjectURLs
+              !bridge.clientState.projectBusy,
+              let pending = pendingProjectURLs.first else { return }
         pendingProjectURLs.removeAll()
-        for url in pending { bridge.importExternalFile(url, kind: .project) }
+        bridge.importExternalFile(pending, kind: .project)
     }
 
     private func refreshMenuState() {
@@ -327,6 +346,7 @@ final class DriftAppDelegate: NSObject,
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        nativeBridge?.abortAllWrites()
         webRuntimeReady = false
         receivedAuthoritativeClientState = false
         invalidateRecoveryStabilityWindow()
@@ -334,6 +354,7 @@ final class DriftAppDelegate: NSObject,
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        nativeBridge?.abortAllWrites()
         webRuntimeReady = false
         receivedAuthoritativeClientState = false
         invalidateRecoveryStabilityWindow()
@@ -725,6 +746,7 @@ final class DriftAppDelegate: NSObject,
             )
             return
         }
+        nativeBridge?.abortAllWrites()
         invalidateRecoveryStabilityWindow()
         webRuntimeReady = false
         receivedAuthoritativeClientState = false
