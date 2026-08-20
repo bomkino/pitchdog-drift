@@ -19,7 +19,9 @@ final class DriftAppDelegate: NSObject,
     private var webRuntimeReady = false
     private var pendingProjectURLs: [URL] = []
     private var approvedClose = false
-    private var revealLastExportItem: NSMenuItem?
+    private var revealLastSavedFileItem: NSMenuItem?
+    private var lastWebContentTerminationAt: Date?
+    private let webContentRecoveryWindow: TimeInterval = 60
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = nil
@@ -64,8 +66,16 @@ final class DriftAppDelegate: NSObject,
             )
             return
         }
+        guard projects.count == 1, let project = projects.first else {
+            application.reply(toOpenOrPrint: .failure)
+            presentWarning(
+                title: "Open one project at a time",
+                message: "Drift has one current project. Open a single .pitched file, let it verify and settle, then open another if needed."
+            )
+            return
+        }
 
-        pendingProjectURLs.append(contentsOf: projects)
+        pendingProjectURLs.append(project)
         showMainWindowIfNeeded()
         deliverPendingProjectsIfPossible()
         application.reply(toOpenOrPrint: .success)
@@ -92,6 +102,7 @@ final class DriftAppDelegate: NSObject,
         nativeBridge = nil
         window = nil
         approvedClose = false
+        lastWebContentTerminationAt = nil
     }
 
     private func removeNativeMessageHandler() {
@@ -178,7 +189,7 @@ final class DriftAppDelegate: NSObject,
             self?.deliverPendingProjectsIfPossible()
         }
         bridge.lastCommittedFileDidChange = { [weak self] _ in
-            self?.revealLastExportItem?.isEnabled = true
+            self?.revealLastSavedFileItem?.isEnabled = true
         }
         controller.addScriptMessageHandler(bridge, contentWorld: .page, name: driftBridgeName)
         nativeBridge = bridge
@@ -278,10 +289,27 @@ final class DriftAppDelegate: NSObject,
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         nativeBridge?.abortAllWrites()
         webRuntimeReady = false
+
+        let now = Date()
+        let repeatedTermination = lastWebContentTerminationAt.map {
+            now.timeIntervalSince($0) < webContentRecoveryWindow
+        } ?? false
+        lastWebContentTerminationAt = now
+
         let alert = NSAlert()
         alert.alertStyle = .critical
+        if repeatedTermination {
+            alert.messageText = "The visual engine stopped twice"
+            alert.informativeText = "Drift stopped the automatic recovery loop. Incomplete native writes were rolled back. Quit, reopen the app, and use the autosaved project or a portable .pitched backup."
+            alert.addButton(withTitle: "Quit Drift")
+            alert.runModal()
+            approvedClose = true
+            NSApp.terminate(nil)
+            return
+        }
+
         alert.messageText = "The visual engine stopped unexpectedly"
-        alert.informativeText = "Any incomplete native export was rolled back. Drift can reload the locally saved project from its app container."
+        alert.informativeText = "Any incomplete native export was rolled back. Drift can make one recovery attempt from the locally saved project in its app container."
         alert.addButton(withTitle: "Reload Drift")
         alert.addButton(withTitle: "Quit")
         if alert.runModal() == .alertFirstButtonReturn {
@@ -488,10 +516,10 @@ final class DriftAppDelegate: NSObject,
         exportFrames.keyEquivalentModifierMask = [.command, .option]
         exportFrames.target = self
         menu.addItem(.separator())
-        let reveal = menu.addItem(withTitle: "Reveal Last Export in Finder", action: #selector(revealLastExport(_:)), keyEquivalent: "")
+        let reveal = menu.addItem(withTitle: "Reveal Last Saved File in Finder", action: #selector(revealLastSavedFile(_:)), keyEquivalent: "")
         reveal.target = self
         reveal.isEnabled = false
-        revealLastExportItem = reveal
+        revealLastSavedFileItem = reveal
         menu.addItem(.separator())
         menu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         return item
@@ -576,7 +604,7 @@ final class DriftAppDelegate: NSObject,
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let exporting = nativeBridge?.clientState.exportInProgress == true
-        let protected = exporting || nativeBridge?.clientState.projectBusy == true
+        let protected = nativeBridge?.clientState.hasProtectedWork == true
         switch menuItem.action {
         case #selector(openProject(_:)), #selector(addSlides(_:)), #selector(addPresenter(_:)),
              #selector(savePortableProject(_:)), #selector(exportMP4(_:)), #selector(exportStill(_:)),
@@ -586,8 +614,8 @@ final class DriftAppDelegate: NSObject,
             return webRuntimeReady && !protected
         case #selector(cancelExport(_:)):
             return webRuntimeReady && exporting
-        case #selector(revealLastExport(_:)):
-            return revealLastExportItem?.isEnabled == true
+        case #selector(revealLastSavedFile(_:)):
+            return revealLastSavedFileItem?.isEnabled == true
         default:
             return true
         }
@@ -606,8 +634,8 @@ final class DriftAppDelegate: NSObject,
     @objc private func toggleFocus(_ sender: Any?) { dispatchNativeCommand("toggle-focus") }
     @objc private func cancelExport(_ sender: Any?) { dispatchNativeCommand("cancel-export") }
 
-    @objc private func revealLastExport(_ sender: Any?) {
-        nativeBridge?.revealLastExportInFinder()
+    @objc private func revealLastSavedFile(_ sender: Any?) {
+        nativeBridge?.revealLastCommittedFileInFinder()
     }
 
     @objc private func actualSize(_ sender: Any?) {
@@ -625,8 +653,11 @@ final class DriftAppDelegate: NSObject,
     }
 
     @objc private func reload(_ sender: Any?) {
-        guard nativeBridge?.clientState.exportInProgress != true else {
-            NSSound.beep()
+        if let state = nativeBridge?.clientState, state.hasProtectedWork {
+            presentWarning(
+                title: "Drift cannot reload while work is protected",
+                message: "\(state.protectionReason) Finish or cancel that operation before reloading the studio."
+            )
             return
         }
         webRuntimeReady = false
@@ -658,7 +689,7 @@ final class DriftAppDelegate: NSObject,
         Export active: \(state.exportInProgress)
         Project operation active: \(state.projectBusy)
         Local save state: \(state.saveState)
-        Last notice: \(state.lastNotice ?? "none")
+        Recent notice signal: \(state.lastNotice ?? "none")
         """
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(diagnostics, forType: .string)
