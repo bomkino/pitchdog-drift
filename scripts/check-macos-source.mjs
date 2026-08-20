@@ -22,6 +22,7 @@ const swiftFiles = [
   "macos/App/DriftAppDelegate.swift",
   "macos/App/DriftMain.swift",
   "macos/App/NativeAacEncoder.swift",
+  "macos/App/NativeBridgeHost+Finder.swift",
   "macos/App/NativeBridgeHost.swift",
   "macos/App/NativeFileBroker.swift",
   "macos/App/NativeGauntlet.swift",
@@ -85,12 +86,23 @@ for (const path of [
 }
 const rootSwift = readdirSync(at("macos")).filter((name) => name.endsWith(".swift"));
 if (rootSwift.length) fail(`Swift source must live in macos/App or macos/Probes; found root files ${rootSwift.join(", ")}`);
+const actualAppSwiftFiles = readdirSync(at("macos/App"))
+  .filter((name) => name.endsWith(".swift"))
+  .map((name) => `macos/App/${name}`)
+  .sort();
+const declaredAppSwiftFiles = [...swiftFiles].sort();
+if (JSON.stringify(actualAppSwiftFiles) !== JSON.stringify(declaredAppSwiftFiles)) {
+  fail(`canonical Swift graph differs from macos/App: expected ${declaredAppSwiftFiles.join(", ")}; found ${actualAppSwiftFiles.join(", ")}`);
+}
 
 const swift = swiftFiles.map(read).join("\n");
+const appDelegate = read("macos/App/DriftAppDelegate.swift");
+const finderIntegration = read("macos/App/NativeBridgeHost+Finder.swift");
 const bridge = read("macos/NativeBridge.js");
 const app = read("src/App.tsx");
 const mediaLibrary = read("src/components/MediaLibrary.tsx");
 const nativeMac = read("src/lib/nativeMac.ts");
+const nativeMacTests = read("tests/nativeMac.test.ts");
 const nativeAacSwift = read("macos/App/NativeAacEncoder.swift");
 const nativeAac = read("src/lib/macosAacEncoder.ts");
 const nativeAacTests = read("tests/macosAacEncoder.test.ts");
@@ -116,7 +128,12 @@ const releaseWorkflow = read(".github/workflows/macos-release.yml");
 const packageJson = JSON.parse(read("package.json"));
 
 new Script(bridge, { filename: "macos/NativeBridge.js" });
-requireEvery(bridge, ["DRIFT_NATIVE_BRIDGE_VERSION = 2", "__driftNativeInstallAppBridge", "__driftNativeSaveBlob"], "JavaScript bridge");
+requireEvery(bridge, [
+  "DRIFT_NATIVE_BRIDGE_VERSION = 2", "__driftNativeInstallAppBridge", "__driftNativeSaveBlob",
+  "function assertSafeLeafName", "await abortNativeSession(error)",
+  "Reveal Last Saved File in Finder", "state.status = \"closed\"",
+], "JavaScript bridge");
+forbidText(bridge, 'name: clampFilename(name, "frame.png")', "directory leaf handling");
 requireText(swift, "let driftBridgeVersion = 2", "Swift bridge version");
 requireText(info, "<integer>2</integer>", "Info.plist bridge version");
 
@@ -151,6 +168,10 @@ requireEvery(app, [
   "imageInputRef={imageInputRef}", "presenterInputRef={presenterInputRef}",
 ], "React native contract");
 requireEvery(mediaLibrary, ["imageInputRef: RefObject", "presenterInputRef: RefObject"], "external media input refs");
+requireText(nativeMac, 'lastNotice: state.lastNotice ? "present" : null', "web-side diagnostic redaction");
+requireEvery(nativeMacTests, [
+  "without carrying confidential notice text into AppKit", "Secret Deck", "not.toContain(\"/Users/\")",
+], "native diagnostic privacy tests");
 for (const forbidden of [
   "function clickByText", "function readClientState", "querySelectorAll(\"button\")",
   ".header-status span", ".export-overlay", "MutationObserver", "queuedCommands",
@@ -161,6 +182,13 @@ requireEvery(swift, [
   "itemReplacementDirectory", "Darwin.rename", "driftMaximumNativeOutputBytes: UInt64 = 512 * 1024 * 1024",
   "Cancel Export", "candidate.path.hasPrefix(rootPath)", "present (content withheld)",
 ], "Swift safety invariant");
+requireEvery(appDelegate, [
+  "Open one project at a time", "hasProtectedWork", "webContentRecoveryWindow: TimeInterval = 60",
+  "The visual engine stopped twice", "Reveal Last Saved File in Finder", "Recent notice signal",
+], "AppKit lifecycle contract");
+requireEvery(finderIntegration, [
+  "revealLastCommittedFileInFinder", "revealLastExportInFinder()", "never staging bytes",
+], "Finder committed-file contract");
 requireEvery(nativeGauntlet, [
   "commit destination changed to a directory", "idempotent abort", "confidential renderer notice text",
 ], "native rollback and privacy gauntlet");
@@ -248,5 +276,5 @@ requireEvery(runtimeWorkflow, [
 requireEvery(releaseWorkflow, ["workflow_dispatch", "macos-release-candidate"], "Mac release workflow");
 
 console.log(
-  `macOS source contract passed: ${swiftFiles.length} canonical Swift files, one typed React↔AppKit bridge, staged native writes, privacy-redacted diagnostics, AudioToolbox AAC, receipt-verified WKWebView exports, and explicit unsigned/release gates.`,
+  `macOS source contract passed: ${swiftFiles.length} canonical Swift files, one typed React↔AppKit bridge, exact directory capabilities, staged rollback after failed close, privacy-redacted diagnostics, bounded crash recovery, AudioToolbox AAC, receipt-verified WKWebView exports, and explicit unsigned/release gates.`,
 );
