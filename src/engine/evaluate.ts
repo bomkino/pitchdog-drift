@@ -314,7 +314,7 @@ export function evaluateSlide(
   const tangentRoll = Math.atan2(tangent.cross, Math.max(0.001, tangent.primary));
   const tangentPitch = Math.atan2(-tangent.z, Math.max(0.001, tangent.primary));
   const softTwist = Math.sin(normalized * Math.PI) * tilt * 0.18;
-  const bankStrength = 0.28 + bank * 0.72;
+  const bankStrength = bank;
 
   let rotationX = 0;
   let rotationY = 0;
@@ -326,7 +326,7 @@ export function evaluateSlide(
   }
   if (settings.motion.flow === "helix" || settings.motion.flow === "orbit") {
     rotationZ = clamp(
-      rotationZ + Math.sin(normalized * Math.PI * 1.15) * maximumBank * 0.34,
+      rotationZ + Math.sin(normalized * Math.PI * 1.15) * maximumBank * 0.34 * bank,
       -maximumBank,
       maximumBank,
     );
