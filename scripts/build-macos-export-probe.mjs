@@ -26,7 +26,10 @@ await build({
     emptyOutDir: true,
     target: "es2022",
     sourcemap: false,
-    minify: "esbuild",
+    // Vite 8 no longer installs esbuild as an internal implementation detail.
+    // Use its native Oxc minifier instead of asking the probe for an undeclared
+    // package that the production application does not need.
+    minify: "oxc",
     rollupOptions: {
       input,
     },
