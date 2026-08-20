@@ -1,0 +1,245 @@
+name: Finalize creator-journey gauntlet
+
+on:
+  push:
+    branches: [gauntlet/directors-cut-optical-pipeline]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-director-product-pass
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out latest source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/directors-cut-optical-pipeline
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Wait for hardened command surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 90); do
+            git fetch origin gauntlet/directors-cut-optical-pipeline
+            if git show origin/gauntlet/directors-cut-optical-pipeline:src/lib/directorCommands.ts 2>/dev/null | grep -q "director-command-launcher"; then
+              git reset --hard origin/gauntlet/directors-cut-optical-pipeline
+              exit 0
+            fi
+            if [ "$attempt" -eq 90 ]; then
+              echo "Hardened director command surface never reached the branch." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Remove temporary delivery machinery and write creator documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/source-snapshot-continued.yml
+          rm -f .github/workflows/director-command-pass.yml
+          rm -f .github/workflows/director-command-hardening.yml
+          rm -f .github/workflows/finalize-director-product-pass.yml
+          find .github/workflows -maxdepth 1 -type f \( -iname '*visual*evidence*.yml' -o -iname '*source*snapshot*.yml' \) -delete
+
+          cat > docs/CREATOR_JOURNEY.md <<'MD'
+          # Creator journey
+
+          Drift is not meant to reward the person who understands the renderer. It is meant to help a deck-maker reach a deliberate cut quickly, interrogate it honestly, and export it without crossing their fingers.
+
+          ## The directing path
+
+          1. **Slides** — import the deck, repair ordering, and read the source-health warnings before styling it.
+          2. **World** — choose one authored film world as a coherent starting position. A world owns motion, atmosphere, surface and optics together.
+          3. **Direct** — choose a pressure level, make non-compounding new takes, then tune only the decisions that matter.
+          4. **Master** — choose the publishing frame, inspect guides, set the poster moment, resolve readiness blockers, and export with a receipt.
+
+          `⌘/Ctrl + K` or `?` opens the Director Commands palette. It accepts creator language rather than requiring exact control names: “variation”, “before after”, “social safe”, “output”, “undo”.
+
+          ## Fast path
+
+          - Import slides.
+          - Apply a film world.
+          - Choose the restrained, directed or heightened pressure.
+          - Use **New take** until the spatial rhythm feels authored rather than merely random.
+          - Hold **Clean lens** to check whether the optics are improving the work or concealing it.
+          - Cycle thirds, title-safe and social-interface-safe guides.
+          - Read deck health and output readiness.
+          - Export only after blockers are resolved.
+
+          ## What Drift protects
+
+          - **Legibility:** readability pressure names aggressive velocity, smear, chromatic separation, defocus, bend and frame reduction without pretending to understand the slide's prose.
+          - **Source truth:** mixed ratios and insufficient source resolution stay visible. Drift suggests repairs; it does not silently rewrite the deck.
+          - **Reversibility:** undo/redo coalesces a slider gesture into one human decision. New takes do not compound mutations. Clean comparison is temporary.
+          - **Export truth:** transparent H.264, missing slides, unavailable encoders and unverifiable 50/60 fps presenter audio fail before a file picker opens.
+          - **Accessibility:** the command palette is searchable, keyboard navigable, focus trapped, screen-reader announced and available from a visible launcher.
+          - **Determinism:** poster moments, seamless motion, procedural worlds and optical treatment share the same evaluated scene in preview and export.
+
+          ## Deliberate boundaries
+
+          Drift does not auto-design the deck. It does not infer story meaning from pixels. It does not promise that maximum cinematic pressure is tasteful. It gives the creator coherent starting positions, honest comparisons, reversible decisions and concrete warnings.
+
+          The moving strip remains image-first. One pinned presenter video keeps decoder load, audio timing and failure states legible. A full nonlinear video editor would weaken the product rather than complete it.
+          MD
+
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('README.md')
+          text = path.read_text()
+          section = '''## Directing path
+
+          Drift now has a fast route through the depth of the editor: **Slides → World → Direct → Master**. Apply one of 18 authored film worlds, choose a direction pressure, generate non-compounding takes, compare against clean glass, inspect deck health and social-safe guides, then resolve output readiness before export.
+
+          Press `⌘/Ctrl + K` or `?` anywhere outside a text field to open **Director Commands**. Search in creator language—“variation”, “before after”, “social safe”, “output”, “undo”—rather than memorising the panel architecture. A visible launcher keeps the command surface discoverable for mouse and touch users.
+
+          See [the creator journey](docs/CREATOR_JOURNEY.md) for the intended workflow and product boundaries.
+
+          '''
+          if '## Directing path' not in text:
+              marker = '## Run it\n'
+              if marker not in text:
+                  raise SystemExit('README run section not found')
+              text = text.replace(marker, section + marker)
+          path.write_text(text)
+          PY
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run machine-readable unit gauntlet
+        run: npx vitest run --reporter=json --outputFile=/tmp/vitest.json
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run complete creator-journey browser gauntlet
+        run: npx playwright test --reporter=json > /tmp/playwright.json
+
+      - name: Capture hydrated studio and command surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/media
+          npm run dev -- --port 4179 > /tmp/drift-vite.log 2>&1 &
+          SERVER_PID=$!
+          cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:4179/ >/dev/null; then break; fi
+            if [ "$attempt" -eq 60 ]; then cat /tmp/drift-vite.log; exit 1; fi
+            sleep 1
+          done
+          node --input-type=module <<'JS'
+          import { chromium } from "@playwright/test";
+          const browser = await chromium.launch({
+            headless: true,
+            args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"],
+          });
+          const page = await browser.newPage({ viewport: { width: 1600, height: 1100 }, deviceScaleFactor: 1 });
+          await page.goto("http://127.0.0.1:4179/", { waitUntil: "networkidle" });
+          await page.locator("canvas").first().waitFor({ state: "visible" });
+          await page.getByRole("button", { name: /Commands/i }).waitFor({ state: "visible" });
+          await page.screenshot({ path: "docs/media/director-journey-studio.png", fullPage: true });
+          await page.getByRole("button", { name: /Commands/i }).click();
+          await page.getByRole("searchbox", { name: "Search director commands" }).fill("before after");
+          await page.getByRole("option", { name: /Compare against clean glass/i }).waitFor({ state: "visible" });
+          await page.screenshot({ path: "docs/media/director-command-palette.png", fullPage: true });
+          await browser.close();
+          JS
+
+      - name: Write exact QA receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from datetime import datetime, timezone
+
+          vitest = json.loads(Path('/tmp/vitest.json').read_text())
+          playwright = json.loads(Path('/tmp/playwright.json').read_text())
+
+          unit_total = vitest.get('numTotalTests')
+          unit_passed = vitest.get('numPassedTests')
+          unit_failed = vitest.get('numFailedTests')
+          if unit_total is None:
+              assertions = [a for file in vitest.get('testResults', []) for a in file.get('assertionResults', [])]
+              unit_total = len(assertions)
+              unit_passed = sum(1 for a in assertions if a.get('status') == 'passed')
+              unit_failed = sum(1 for a in assertions if a.get('status') == 'failed')
+
+          stats = playwright.get('stats', {})
+          browser_passed = int(stats.get('expected', 0))
+          browser_failed = int(stats.get('unexpected', 0))
+          browser_flaky = int(stats.get('flaky', 0))
+          browser_skipped = int(stats.get('skipped', 0))
+          browser_total = browser_passed + browser_failed + browser_flaky + browser_skipped
+          now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+
+          body = f'''# Second-pass QA receipt
+
+          Verified from a clean GitHub Actions checkout on **{now}**.
+
+          | Gate | Result |
+          | --- | --- |
+          | TypeScript project build | Passed |
+          | Unit and contract tests | **{unit_passed}/{unit_total} passed** |
+          | Unit failures | {unit_failed} |
+          | Production Vite build | Passed |
+          | Chromium creator journeys | **{browser_passed}/{browser_total} passed** |
+          | Browser failures | {browser_failed} |
+          | Browser flaky | {browser_flaky} |
+          | Browser skipped | {browser_skipped} |
+          | Hydrated studio capture | Passed |
+          | Director command capture | Passed |
+
+          ## Covered product risks
+
+          - Settings migration and malformed project rejection.
+          - Deterministic procedural worlds and non-compounding recuts.
+          - Optical alpha, colour-space and resolution invariants.
+          - Mixed-ratio and source-resolution deck health.
+          - Readability-pressure warnings.
+          - Undo/redo coalescing and removed-presenter safety.
+          - Poster moment and export-only guide exclusion.
+          - Transparent H.264, encoder and presenter-audio preflight.
+          - Export cancellation, stale timers and verified completion.
+          - Command search, keyboard access, visible launcher and focus containment.
+          - Full media, project portability, WebGL and fallback browser journeys.
+
+          The screenshots use bundled study slides. No private deck material is committed.
+          '''
+          Path('docs/QA_SECOND_PASS.md').write_text(body)
+          PY
+
+      - name: Commit the verified product pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: finalize creator journey and clean QA receipt"
+          git pull --rebase origin gauntlet/directors-cut-optical-pipeline
+          git push origin HEAD:gauntlet/directors-cut-optical-pipeline
