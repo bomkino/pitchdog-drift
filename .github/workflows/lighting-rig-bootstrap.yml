@@ -1,0 +1,58 @@
+name: Build cinematic lighting rig
+
+on:
+  push:
+    branches:
+      - feat/cinematic-lighting-rig
+    paths:
+      - .gauntlet/build-cinematic-lighting.py
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lighting-rig-bootstrap-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply authored lighting system
+        run: python .gauntlet/build-cinematic-lighting.py
+
+      - name: Reject malformed diffs
+        run: git diff --check
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck, test, and build
+        run: npm run check
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run real-browser gauntlet
+        run: npm run test:e2e
+
+      - name: Commit verified implementation
+        run: |
+          git config user.name "pitch.dog lighting gauntlet"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: authored cinematic lighting and analytical shadows [lighting-built]"
+          git push origin HEAD:${GITHUB_REF_NAME}
