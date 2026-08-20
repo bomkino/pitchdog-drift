@@ -15,6 +15,7 @@ final class DriftAppDelegate: NSObject,
     private var webRootURL: URL?
     private var nativeBridge: NativeBridgeHost?
     private var contentRuleList: WKContentRuleList?
+    private var preparingRuntime = false
     private var webRuntimeReady = false
     private var pendingProjectURLs: [URL] = []
     private var approvedClose = false
@@ -36,13 +37,7 @@ final class DriftAppDelegate: NSObject,
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if let window {
-            window.makeKeyAndOrderFront(nil)
-        } else if let ruleList = contentRuleList {
-            openWindow(ruleList: ruleList)
-        } else {
-            prepareLocalRuntime()
-        }
+        showMainWindowIfNeeded()
         return true
     }
 
@@ -71,6 +66,7 @@ final class DriftAppDelegate: NSObject,
         }
 
         pendingProjectURLs.append(contentsOf: projects)
+        showMainWindowIfNeeded()
         deliverPendingProjectsIfPossible()
         application.reply(toOpenOrPrint: .success)
     }
@@ -105,8 +101,22 @@ final class DriftAppDelegate: NSObject,
         )
     }
 
+    private func showMainWindowIfNeeded() {
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        if let ruleList = contentRuleList {
+            openWindow(ruleList: ruleList)
+        } else {
+            prepareLocalRuntime()
+        }
+    }
+
     private func prepareLocalRuntime() {
-        guard window == nil else { return }
+        guard window == nil, !preparingRuntime else { return }
+        preparingRuntime = true
         let networkRules = """
         [
           {"trigger":{"url-filter":"^https?://.*","resource-type":["document","image","style-sheet","script","font","media","raw","svg-document","popup"]},"action":{"type":"block"}},
@@ -121,6 +131,7 @@ final class DriftAppDelegate: NSObject,
         ) { [weak self] ruleList, error in
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.preparingRuntime = false
                 guard let ruleList else {
                     self.presentFatalError(
                         "The local-only network boundary could not be installed. \(error?.localizedDescription ?? "Unknown WebKit error.")"
@@ -164,6 +175,7 @@ final class DriftAppDelegate: NSObject,
         let bridge = NativeBridgeHost()
         bridge.clientStateDidChange = { [weak self] _ in
             self?.refreshMenuState()
+            self?.deliverPendingProjectsIfPossible()
         }
         bridge.lastCommittedFileDidChange = { [weak self] _ in
             self?.revealLastExportItem?.isEnabled = true
@@ -239,7 +251,10 @@ final class DriftAppDelegate: NSObject,
     }
 
     private func deliverPendingProjectsIfPossible() {
-        guard webRuntimeReady, let bridge = nativeBridge else { return }
+        guard webRuntimeReady,
+              let bridge = nativeBridge,
+              !bridge.clientState.exportInProgress,
+              !bridge.clientState.projectBusy else { return }
         let pending = pendingProjectURLs
         pendingProjectURLs.removeAll()
         for url in pending { bridge.importExternalFile(url, kind: .project) }
