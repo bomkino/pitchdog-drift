@@ -25,14 +25,26 @@ const forbidMarkers = (path, markers) => {
 
 const broker = requireMarkers("macos/App/NativeFileBroker.swift", [
   "private let driftRenameExclusiveFlag: UInt32 = 0x00000004",
+  "private struct FileIdentity: Equatable",
+  "var committedEntries: [String: FileIdentity] = [:]",
+  "releaseAfterFullRead: Bool",
   "enum WriteDisposition",
   "case createOnly",
   "writeDisposition: .createOnly",
   "Darwin.renamex_np(sourcePath, destinationPath, driftRenameExclusiveFlag)",
+  "directory.committedEntries[session.destinationURL.lastPathComponent] = try identity(at: session.destinationURL)",
   "guard !exists else { throw frameCollision(name) }",
   "Existing PNG sequence files are never overwritten.",
+  "Drift only removes numbered frames committed by this export. An unowned file was preserved.",
+  "The numbered frame changed after Drift committed it. The replacement file was preserved.",
+  "Darwin.lstat(path, &metadata)",
+  "if grant.releaseAfterFullRead && end >= totalSize",
   "create:true leaked an empty sequence frame before commit",
   "Commit-time frame collision unexpectedly overwrote a file",
+  "Rollback deleted an unowned commit-time collision",
+  "Rollback deleted a frame replaced after Drift committed it",
+  "A fully read sequence-frame grant remained live",
+  "Owned sequence-frame cleanup did not remove its exact committed inode",
   "Aborted sequence write left a final frame behind",
   "fileGrants.removeAll()",
   "directoryGrants.removeAll()",
@@ -41,9 +53,13 @@ const broker = requireMarkers("macos/App/NativeFileBroker.swift", [
 if ((broker.match(/Darwin\.renamex_np/g) ?? []).length !== 1) {
   fail("create-only sequence commit must have exactly one exclusive rename path");
 }
+if ((broker.match(/Darwin\.lstat/g) ?? []).length !== 1) {
+  fail("rollback ownership must be based on exactly one lstat identity implementation");
+}
 forbidMarkers("macos/App/NativeFileBroker.swift", [
   "if !exists && create && !fileManager.createFile(atPath: fileURL.path",
   "return try registerFile(fileURL, mode: .readWrite)\n    }\n\n    func removeDirectoryEntry",
+  "try fileManager.removeItem(at: fileURL)\n        fileGrants = fileGrants.filter",
 ]);
 
 const host = requireMarkers("macos/App/NativeBridgeHost.swift", [
@@ -117,6 +133,9 @@ for (const method of [
 const reloadStart = appDelegate.indexOf("@objc private func reload(_ sender: Any?)");
 const reloadEnd = appDelegate.indexOf("@objc private func openUserGuide", reloadStart);
 const reloadBody = appDelegate.slice(reloadStart, reloadEnd);
+if (!reloadBody.includes("nativeBridge?.abortAllWrites()") || !reloadBody.includes("webView?.reload()")) {
+  fail("manual reload lost its native cleanup or WebKit navigation");
+}
 if (reloadBody.indexOf("nativeBridge?.abortAllWrites()") > reloadBody.indexOf("webView?.reload()")) {
   fail("manual reload must revoke native capabilities before WebKit navigates");
 }
@@ -163,5 +182,5 @@ requireMarkers("e2e/native-menu-import.e2e.ts", [
 ]);
 
 console.log(
-  "macOS hardening contract passed: PNG sequence commits are exclusive and crash-clean; document boots, reloads, and failed navigations revoke capabilities; Finder projects cannot queue a surprise replacement; native import grants are transactional; and File-menu imports have static, unit, and real-browser evidence.",
+  "macOS hardening contract passed: sequence commits are exclusive; rollback is inode-owned and preserves races or replacements; frame readback grants self-revoke; document boots, reloads, and failed navigations revoke capabilities; Finder projects cannot queue surprise replacement; native import grants are transactional; and File-menu imports have static, unit, and real-browser evidence.",
 );
