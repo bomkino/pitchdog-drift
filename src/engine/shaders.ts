@@ -6,6 +6,7 @@ export const slideVertexShader = /* glsl */ `
   varying float vSurfaceEnergy;
   varying vec3 vViewPosition;
 
+  uniform vec2 uSizePx;
   uniform float uVelocity;
   uniform float uAcceleration;
   uniform float uDistortion;
@@ -36,6 +37,7 @@ export const slideVertexShader = /* glsl */ `
     float edgeAcross = sin(uv.y * PI);
     float envelope = max(0.0, edgeAlong * edgeAcross);
     float phase = uTravelPhase + fract(uSlideSeed) * TAU;
+    float materialScale = clamp(min(uSizePx.x, uSizePx.y), 96.0, 4096.0);
     float energy = clamp(
       airflow * 0.34 + impulse * 0.78 + pathBend * 0.26,
       0.0,
@@ -47,31 +49,63 @@ export const slideVertexShader = /* glsl */ `
     if (uSurface < 0.5) {
       // Card: rigid stock. Acceleration yields a restrained bow and torsion.
       float cardEnergy = energy * (0.16 + impulse * 0.42);
-      float bow = (1.0 - across * across * 4.0) * (1.0 - along * along * 3.4);
-      warp = (bow * 13.0 + across * along * direction * 22.0) * cardEnergy;
+      float bow = (1.0 - across * across * 4.0)
+        * (1.0 - along * along * 3.4);
+      warp = (
+        bow * 0.027
+        + across * along * direction * 0.046
+      ) * materialScale * cardEnergy;
       shear = across * direction * cardEnergy * 0.0035;
     } else if (uSurface < 1.5) {
       // Paper: cylindrical curl, one broad buckle, and curvature memory.
-      float curl = direction * along * abs(along) * (38.0 + impulse * 34.0);
-      float buckle = sin(along * 7.2 + phase + across * 1.6) * envelope * 18.0;
-      float pathCurl = along * along * pathBend * 28.0;
-      warp = (curl + buckle + pathCurl) * energy * (0.7 + edgeAcross * 0.3);
+      float curl = direction
+        * along
+        * abs(along)
+        * (0.08 + impulse * 0.072)
+        * materialScale;
+      float buckle = sin(along * 7.2 + phase + across * 1.6)
+        * envelope
+        * materialScale
+        * 0.038;
+      float pathCurl = along
+        * along
+        * pathBend
+        * materialScale
+        * 0.059;
+      warp = (curl + buckle + pathCurl)
+        * energy
+        * (0.7 + edgeAcross * 0.3);
       shear = sin(across * 4.0 + phase) * envelope * energy * 0.006;
     } else if (uSurface < 2.5) {
       // Silk: broad travelling folds, diagonal bias, and quiet pinned edges.
       float foldA = sin(along * 8.8 - phase + across * 2.4);
       float foldB = sin(along * 4.1 + phase * 1.7 - across * 6.4) * 0.46;
       float diagonal = sin((along + across) * 5.2 - phase * 0.62) * 0.24;
-      warp = (foldA + foldB + diagonal) * envelope * energy * 49.0;
+      warp = (foldA + foldB + diagonal)
+        * envelope
+        * energy
+        * materialScale
+        * 0.103;
       shear = (foldB + diagonal) * envelope * energy * 0.011;
     } else {
       // Gel: coherent elastic mass. Impulse shifts the bulge behind the hand.
       vec2 gelPoint = vec2(along - direction * impulse * 0.08, across);
       float radius = length(vec2(gelPoint.x * 1.16, gelPoint.y));
-      float bulge = cos(radius * 7.0 - phase) * (1.0 - smoothstep(0.0, 0.72, radius));
-      float lag = acceleration * along * 34.0 + velocity * along * 12.0;
-      warp = (bulge * 42.0 + lag + pathBend * 16.0) * energy * envelope;
-      shear = (acceleration * across * 0.009 + velocity * across * 0.004) * energy;
+      float bulge = cos(radius * 7.0 - phase)
+        * (1.0 - smoothstep(0.0, 0.72, radius));
+      float lag = (
+        acceleration * along * 0.072
+        + velocity * along * 0.025
+      ) * materialScale;
+      warp = (
+        bulge * materialScale * 0.089
+        + lag
+        + pathBend * materialScale * 0.034
+      ) * energy * envelope;
+      shear = (
+        acceleration * across * 0.009
+        + velocity * across * 0.004
+      ) * energy;
     }
 
     // The boundary stays attached to the rounded sidewall. Motion lives in
@@ -113,9 +147,6 @@ export const slideFragmentShader = /* glsl */ `
   uniform vec3 uBorderColor;
   uniform float uBorderOpacity;
   uniform float uOpacity;
-  uniform float uVelocity;
-  uniform float uDistortion;
-  uniform float uAxis;
   uniform float uSurface;
   uniform float uSlideSeed;
 
@@ -175,16 +206,11 @@ export const slideFragmentShader = /* glsl */ `
     );
     float borderMask = max(0.0, outerMask - innerMask);
 
+    // Artwork remains glued to the material. Geometry, perspective, and its
+    // deformed normal create the motion; the printed pixels never swim inside it.
     vec2 textureUv = uFit < 0.5
       ? coverUv(vUv, uPlaneAspect, uTextureAspect, uFocal)
       : containUv(vUv, uPlaneAspect, uTextureAspect, uFocal);
-
-    vec2 flowAxis = uAxis < 0.5 ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-    float optical = clamp(uVelocity, -1.0, 1.0) * uDistortion;
-    textureUv += flowAxis
-      * sin((uAxis < 0.5 ? vUv.y : vUv.x) * 3.14159265359)
-      * optical
-      * 0.022;
 
     bool outsideTexture = textureUv.x < 0.0
       || textureUv.x > 1.0
@@ -226,7 +252,12 @@ export const slideFragmentShader = /* glsl */ `
       highlight = halfSpecular * 0.026 + rim * 0.008;
     }
 
-    float deformationGate = clamp(vSurfaceEnergy * 1.3 + abs(vWarp) / 90.0, 0.0, 1.0);
+    float deformationScale = max(1.0, min(uSizePx.x, uSizePx.y) * 0.18);
+    float deformationGate = clamp(
+      vSurfaceEnergy * 1.3 + abs(vWarp) / deformationScale,
+      0.0,
+      1.0
+    );
     sampled.rgb *= 1.0 + (diffuse - 0.5) * shadeRange * deformationGate;
     sampled.rgb += highlight * deformationGate;
 
