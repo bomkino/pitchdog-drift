@@ -58,4 +58,23 @@ writeFileSync(
   "utf8",
 );
 
+const evaluator = "src/engine/evaluate.ts";
+replaceRequired(
+  evaluator,
+  "export function velocityForPreview(\n  settings: StudioSettings,\n  sourceSlideCount: number,\n  stride: number,\n): number {\n  return settings.motion.direction\n    * slidesPerSecondForPreview(settings, sourceSlideCount)\n    * stride;\n}\n",
+  "export function velocityForPreview(\n  settings: StudioSettings,\n  sourceSlideCount: number,\n  stride: number,\n): number {\n  const slidesPerSecond = slidesPerSecondForPreview(settings, sourceSlideCount);\n  if (slidesPerSecond === 0) return 0;\n  return settings.motion.direction * slidesPerSecond * stride;\n}\n",
+);
+
+const naming = "src/lib/naming.ts";
+replaceRequired(
+  naming,
+  "  const leaf = name.replace(/\\\\/gu, \"/\").split(\"/\").at(-1) ?? name;\n",
+  "  // File.name is already a leaf. Treat slashes as unsafe punctuation rather\n  // than silently discarding the human project name before them.\n  const leaf = name;\n",
+);
+replaceRequired(
+  naming,
+  "    .replace(/[\\u0300-\\u036f]/gu, \"\")\n    .replace(/[^a-zA-Z0-9]+/gu, \"-\")\n",
+  "    .replace(/[\\u0300-\\u036f]/gu, \"\")\n    .replace(/['’`]/gu, \"\")\n    .replace(/[^a-zA-Z0-9]+/gu, \"-\")\n",
+);
+
 rmSync("scripts/gauntlet-fix-generated.mjs", { force: true });
