@@ -29,7 +29,7 @@ Moving-track media is deliberately image-only in v1. One pinned video keeps deco
 
 ## Directing path
 
-Drift has a fast route through the editor: **Slides → World → Direct → Master**. Apply one of 18 authored film worlds, choose a direction pressure, generate non-compounding takes, compare against clean glass, inspect deck health and social-safe guides, then resolve output readiness before export.
+Drift has a fast route through the editor: **Slides → World → Direct → Master**. Apply one authored film world, choose a direction pressure, generate non-compounding takes, compare against clean glass, inspect deck health and social-safe guides, then resolve output readiness before export.
 
 Press `⌘/Ctrl + K` or `?` outside a text field to open **Director Commands**. Search in creator language—“variation”, “before after”, “social safe”, “output”, “undo”—instead of memorising panel architecture. A visible launcher keeps it discoverable for mouse and touch users.
 
