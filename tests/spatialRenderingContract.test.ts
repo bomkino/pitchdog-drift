@@ -45,11 +45,14 @@ describe("spatial rendering contract", () => {
     expect(engineSource).not.toContain("activeExportMode");
   });
 
-  it("shares one shell geometry across the bounded resident pool", () => {
+  it("regenerates one shared shell geometry and disposes ownership exactly once", () => {
     const engineSource = readFileSync("src/engine/CinematicCarousel.ts", "utf8");
-    expect(engineSource).toContain("private shellGeometry");
-    expect(engineSource).toContain("item.shell.geometry = nextGeometry");
-    expect(engineSource).toContain("this.shellGeometry.dispose()");
-    expect(engineSource).not.toContain("item.shell.geometry.dispose()");
+    expect(engineSource).toContain("private sharedShellGeometry");
+    expect(engineSource.match(/createRoundedSlideShellGeometry\(/g)).toHaveLength(1);
+    expect(engineSource).toMatch(/item\.shell\.geometry\s*=\s*next/);
+    expect(engineSource).toContain("previous?.dispose()");
+    expect(engineSource).toContain("this.sharedShellGeometry?.dispose()");
+    expect(engineSource).toContain("item.shell?.material.dispose()");
+    expect(engineSource).not.toMatch(/item\.shell\.geometry\.dispose\(/);
   });
 });
