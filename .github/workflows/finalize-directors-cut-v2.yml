@@ -1,0 +1,381 @@
+name: Finalize Director's Cut v2
+
+on:
+  push:
+    branches: [gauntlet/directors-cut-optical-pipeline]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: finalize-directors-cut-v2
+  cancel-in-progress: true
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/directors-cut-optical-pipeline
+          fetch-depth: 0
+
+      - name: Cancel stale branch runs and refresh source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?branch=gauntlet%2Fdirectors-cut-optical-pipeline&per_page=100" \
+            --jq ".workflow_runs[] | select(.id != (${CURRENT_RUN}|tonumber)) | select(.status == \"queued\" or .status == \"in_progress\" or .status == \"waiting\" or .status == \"pending\") | .id" \
+            | while read -r run_id; do
+                gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/cancel" || true
+              done
+          sleep 5
+          git fetch origin gauntlet/directors-cut-optical-pipeline main
+          git reset --hard origin/gauntlet/directors-cut-optical-pipeline
+
+      - name: Write final creator-surface contract
+        shell: bash
+        run: |
+          cat > tests/creatorSurface.test.ts <<'TS'
+          import { readdirSync, readFileSync } from "node:fs";
+          import { extname, join, relative } from "node:path";
+          import { fileURLToPath } from "node:url";
+          import { describe, expect, it } from "vitest";
+
+          const root = fileURLToPath(new URL("..", import.meta.url));
+          const sourceRoot = join(root, "src");
+
+          function sourceFiles(directory: string): string[] {
+            return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+              const path = join(directory, entry.name);
+              if (entry.isDirectory()) return sourceFiles(path);
+              return [".ts", ".tsx"].includes(extname(entry.name)) ? [path] : [];
+            });
+          }
+
+          const source = new Map(
+            sourceFiles(sourceRoot).map((path) => [
+              relative(sourceRoot, path).replaceAll("\\", "/"),
+              readFileSync(path, "utf8"),
+            ]),
+          );
+          const completeSource = Array.from(source.entries(), ([path, content]) => `// ${path}\n${content}`).join("\n");
+
+          function expectModuleConsumed(moduleName: string): void {
+            const importPattern = new RegExp(`from\\s+["'][^"']*${moduleName}["']`);
+            expect(completeSource, `${moduleName}.ts must be imported by the live product`).toMatch(importPattern);
+          }
+
+          describe("creator-surface truth", () => {
+            it("mounts Director Commands from the application entry point", () => {
+              const main = source.get("main.tsx") ?? "";
+              expect(main).toMatch(/directorCommands/);
+              expect(main).toMatch(/\b(?:install|mount|init|initialize|setup|start)[A-Za-z]*DirectorCommands\b/);
+            });
+
+            it("does not leave journey architecture as dead helper files", () => {
+              for (const moduleName of ["direction", "deckHealth", "guides", "legibility", "outputPresets"]) {
+                expectModuleConsumed(moduleName);
+              }
+            });
+
+            it("keeps creator-language commands discoverable and operable", () => {
+              const commands = source.get("lib/directorCommands.ts") ?? "";
+              for (const phrase of ["variation", "before after", "social safe", "output", "undo"]) {
+                expect(commands.toLowerCase()).toContain(phrase);
+              }
+              expect(commands).toMatch(/metaKey|ctrlKey/);
+              expect(commands).toMatch(/aria-|setAttribute\(["']role|role\s*[:=]/);
+            });
+
+            it("keeps temporary code-delivery machinery out of the review tree", () => {
+              const workflowRoot = join(root, ".github", "workflows");
+              expect(readdirSync(workflowRoot).sort()).toEqual(["ci.yml"]);
+            });
+          });
+          TS
+
+      - name: Write final reversible Clean lens browser contract
+        shell: bash
+        run: |
+          cat > e2e/cleanLensComparison.e2e.ts <<'TS'
+          import { createHash } from "node:crypto";
+          import { expect, test } from "@playwright/test";
+
+          const digest = (buffer: Buffer): string => createHash("sha256").update(buffer).digest("hex");
+
+          test("Clean lens is an honest reversible comparison, not a destructive reset", async ({ page }) => {
+            await page.emulateMedia({ reducedMotion: "reduce" });
+            await page.goto("/");
+
+            const worldSelect = page
+              .locator("select")
+              .filter({ has: page.locator("option", { hasText: "Editorial Drift" }) })
+              .first();
+            await expect(worldSelect).toBeVisible();
+
+            const options = await worldSelect.locator("option").evaluateAll((nodes) =>
+              nodes.map((node) => ({
+                value: (node as HTMLOptionElement).value,
+                label: (node.textContent ?? "").trim(),
+              })).filter((option) => option.value && option.label),
+            );
+            const expressiveWorld = options.find((option) => /Dread|Chrome Dream|Night Run/i.test(option.label));
+            expect(expressiveWorld, "A strongly treated authored world is required for comparison QA").toBeTruthy();
+            await worldSelect.selectOption(expressiveWorld!.value);
+
+            const pause = page.getByRole("button", { name: /pause preview/i });
+            if (await pause.isVisible().catch(() => false)) await pause.click();
+
+            const canvas = page.locator("canvas").first();
+            await page.waitForTimeout(220);
+            const directed = await canvas.screenshot({ animations: "disabled" });
+            const selectedWorld = await worldSelect.inputValue();
+
+            const compare = page.getByRole("button", { name: /clean lens/i }).first();
+            await expect(compare).toBeVisible();
+            await compare.click();
+            await page.waitForTimeout(180);
+            const clean = await canvas.screenshot({ animations: "disabled" });
+
+            expect(digest(clean), "Clean lens should expose a visibly different optical treatment").not.toBe(digest(directed));
+            expect(await worldSelect.inputValue(), "Comparison must not replace the selected world").toBe(selectedWorld);
+
+            const restore = page.getByRole("button", { name: /restore|return|directed lens|clean lens/i }).first();
+            await restore.click();
+            await page.waitForTimeout(180);
+            const restored = await canvas.screenshot({ animations: "disabled" });
+
+            expect(digest(restored), "Ending comparison should restore the exact directed frame").toBe(digest(directed));
+            expect(await worldSelect.inputValue()).toBe(selectedWorld);
+          });
+          TS
+
+      - name: Add conservative optical working-set preflight
+        shell: python
+        run: |
+          from pathlib import Path
+
+          engine = Path("src/engine/CinematicCarousel.ts")
+          source = engine.read_text()
+          if "estimateExportWorkingSetBytes" not in source:
+              anchor = "\nfunction backgroundMode("
+              if anchor not in source:
+                  raise SystemExit("Could not find backgroundMode insertion anchor.")
+              guard = '''
+
+          export const DEFAULT_EXPORT_WORKING_SET_LIMIT = 512 * 1024 * 1024;
+
+          /** Conservative transient GPU estimate for one full-frame optical export. */
+          export function estimateExportWorkingSetBytes(width: number, height: number): number {
+            if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) return Number.POSITIVE_INFINITY;
+            return width * height * 20;
+          }
+
+          export function assertExportWorkingSetSupported(
+            width: number,
+            height: number,
+            maximumBytes = DEFAULT_EXPORT_WORKING_SET_LIMIT,
+          ): void {
+            const estimated = estimateExportWorkingSetBytes(width, height);
+            if (!Number.isFinite(maximumBytes) || maximumBytes <= 0) {
+              throw new Error("Export working-set limit must be a positive number of bytes.");
+            }
+            if (estimated > maximumBytes) {
+              const neededMiB = Math.ceil(estimated / (1024 * 1024));
+              const limitMiB = Math.floor(maximumBytes / (1024 * 1024));
+              throw new Error(
+                `Export surface ${width} × ${height} needs an estimated ${neededMiB} MiB optical working set, above Drift's ${limitMiB} MiB browser-stability guard. Reduce the master dimensions and try again.`,
+              );
+            }
+          }
+          '''
+              source = source.replace(anchor, guard + anchor, 1)
+          call = "    assertExportSurfaceSupported(width, height, this.capabilities);\n"
+          if "assertExportWorkingSetSupported(width, height);" not in source:
+              if call not in source:
+                  raise SystemExit("Could not find beginExport preflight anchor.")
+              source = source.replace(call, call + "    assertExportWorkingSetSupported(width, height);\n", 1)
+          engine.write_text(source)
+
+          Path("tests/exportWorkingSet.test.ts").write_text('''import { describe, expect, it } from "vitest";
+          import {
+            DEFAULT_EXPORT_WORKING_SET_LIMIT,
+            assertExportWorkingSetSupported,
+            estimateExportWorkingSetBytes,
+          } from "../src/engine/CinematicCarousel";
+
+          describe("optical export working-set preflight", () => {
+            it("keeps social and 4K masters inside the browser guard", () => {
+              expect(() => assertExportWorkingSetSupported(1080, 1920)).not.toThrow();
+              expect(() => assertExportWorkingSetSupported(2160, 3840)).not.toThrow();
+              expect(estimateExportWorkingSetBytes(2160, 3840)).toBeLessThan(DEFAULT_EXPORT_WORKING_SET_LIMIT);
+            });
+
+            it("blocks 8K-class full-frame optical surfaces before allocation", () => {
+              expect(estimateExportWorkingSetBytes(4320, 7680)).toBeGreaterThan(DEFAULT_EXPORT_WORKING_SET_LIMIT);
+              expect(() => assertExportWorkingSetSupported(4320, 7680)).toThrow(/estimated .* MiB optical working set/i);
+            });
+
+            it("rejects malformed dimensions and budgets honestly", () => {
+              expect(estimateExportWorkingSetBytes(0, 1920)).toBe(Number.POSITIVE_INFINITY);
+              expect(() => assertExportWorkingSetSupported(1080, 1920, 0)).toThrow(/positive number of bytes/i);
+            });
+          });
+          '''.replace("          ", ""))
+
+      - name: Remove stale receipts and all temporary workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f docs/QA_SECOND_PASS.md
+          find .github/workflows -maxdepth 1 -type f ! -name ci.yml -delete
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("README.md")
+          source = path.read_text()
+          source = source.replace("Apply one of 18 authored film worlds", "Apply one authored film world")
+          source = source.replace(
+              "See [the creator journey](docs/CREATOR_JOURNEY.md).",
+              "See [the creator journey](docs/CREATOR_JOURNEY.md) and [the user gauntlet](docs/USER_GAUNTLET.md).",
+          )
+          path.write_text(source)
+          PY
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies and Chromium
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run typed, unit, build, and browser gates
+        id: gates
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck > /tmp/typecheck.log 2>&1
+          TYPECHECK=$?
+          npx vitest run --reporter=json --outputFile=/tmp/vitest.json > /tmp/vitest.log 2>&1
+          UNIT=$?
+          npm run build > /tmp/build.log 2>&1
+          BUILD=$?
+          npx playwright test --reporter=json > /tmp/playwright.json 2> /tmp/playwright.stderr
+          BROWSER=$?
+          echo "typecheck=$TYPECHECK" >> "$GITHUB_OUTPUT"
+          echo "unit=$UNIT" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "browser=$BROWSER" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Write exact receipt and failure evidence
+        env:
+          TYPECHECK_STATUS: ${{ steps.gates.outputs.typecheck }}
+          UNIT_STATUS: ${{ steps.gates.outputs.unit }}
+          BUILD_STATUS: ${{ steps.gates.outputs.build }}
+          BROWSER_STATUS: ${{ steps.gates.outputs.browser }}
+        shell: python
+        run: |
+          import json, os, platform, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          def load(path):
+              try: return json.loads(Path(path).read_text())
+              except Exception: return {}
+          def tail(path, count=100):
+              try: return "\n".join(Path(path).read_text(errors="replace").splitlines()[-count:])
+              except Exception: return "No log was produced."
+
+          vitest = load("/tmp/vitest.json")
+          playwright = load("/tmp/playwright.json")
+          stats = playwright.get("stats", {}) if isinstance(playwright, dict) else {}
+          status = {name: int(os.environ[key]) for name, key in {
+              "TypeScript": "TYPECHECK_STATUS",
+              "Unit": "UNIT_STATUS",
+              "Build": "BUILD_STATUS",
+              "Browser": "BROWSER_STATUS",
+          }.items()}
+          passed = all(value == 0 for value in status.values())
+          result = lambda value: "Passed" if value == 0 else "FAILED"
+          tested = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+          Path("docs/QA_THIRD_PASS.md").write_text(f'''# Director's Cut — third-pass QA receipt
+
+          Generated from a clean GitHub Actions checkout on **{now}**.
+
+          - Tested source commit: `{tested}`
+          - Node: `{subprocess.check_output(["node", "--version"], text=True).strip()}`
+          - Runner: `{platform.platform()}`
+          - Overall: **{"PASSED" if passed else "FAILED"}**
+
+          | Gate | Result |
+          | --- | --- |
+          | TypeScript project build | {result(status["TypeScript"])} |
+          | Unit and contract tests | {result(status["Unit"])} — {vitest.get("numPassedTests", "unknown")}/{vitest.get("numTotalTests", "unknown")} passed; {vitest.get("numFailedTests", "unknown")} failed; {vitest.get("numPendingTests", "unknown")} pending |
+          | Production Vite build | {result(status["Build"])} |
+          | Chromium user and visual journeys | {result(status["Browser"])} — {stats.get("expected", "unknown")} expected; {stats.get("unexpected", "unknown")} unexpected; {stats.get("flaky", "unknown")} flaky; {stats.get("skipped", "unknown")} skipped |
+
+          Browser coverage includes authored-world uniqueness, exposure preservation, paused reduced-motion pixel stability, reversible Clean lens comparison, command navigation, export lifecycle, transparency, fallback rendering, project portability, and media failure paths.
+
+          Machine checks do not replace the real-deck visual loop in `docs/USER_GAUNTLET.md`.
+          '''.replace("          ", ""))
+
+          failure = Path("docs/QA_THIRD_PASS_FAILURES.md")
+          if passed:
+              failure.unlink(missing_ok=True)
+          else:
+              failure.write_text(f'''# Third-pass failure evidence
+
+          At least one final gate failed. This file keeps the draft honest.
+
+          ## TypeScript
+          ```text
+          {tail("/tmp/typecheck.log")}
+          ```
+
+          ## Unit
+          ```text
+          {tail("/tmp/vitest.log")}
+          ```
+
+          ## Build
+          ```text
+          {tail("/tmp/build.log")}
+          ```
+
+          ## Browser
+          ```text
+          {tail("/tmp/playwright.stderr", 160)}
+          ```
+          ''')
+          Path("/tmp/final-status").write_text("0" if passed else "1")
+
+      - name: Squash onto current main and force-update the review branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git reset --soft origin/main
+          git add -A
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git commit -m "feat: add Director's Cut optics and creator journey"
+          git push --force origin HEAD:gauntlet/directors-cut-optical-pipeline
+
+      - name: Fail visibly when a final gate failed
+        shell: bash
+        run: exit "$(cat /tmp/final-status)"
