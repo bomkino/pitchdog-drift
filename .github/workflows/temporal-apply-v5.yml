@@ -1,0 +1,165 @@
+name: Apply temporal direction source v5
+
+on:
+  push:
+    branches:
+      - gauntlet/temporal-feel-direction
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: temporal-source-v5-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Check out latest branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/temporal-feel-direction
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Materialize every temporal pass
+        shell: bash
+        run: |
+          if [[ ! -f src/engine/temporalDirection.ts ]]; then
+            python scripts/apply_temporal_feel.py
+            python scripts/refine_temporal_feel.py
+          fi
+          if ! grep -q 'runway: number' src/model.ts; then
+            python scripts/refine_temporal_master.py
+          fi
+          if [[ ! -f src/components/TemporalFingerprint.tsx ]]; then
+            python scripts/refine_temporal_fingerprint.py
+          fi
+          python scripts/refine_temporal_journey.py
+          git diff --check
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck, unit-test, and build
+        run: npm run check
+
+      - name: Install Chromium runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run real-browser gauntlet
+        run: npm run test:e2e
+
+      - name: Remove every recovery scaffold
+        shell: bash
+        run: |
+          rm -rf .github/temporal-payload
+          rm -f .github/temporal-payload.ready
+          rm -f scripts/apply_temporal_feel.py
+          rm -f scripts/refine_temporal_feel.py
+          rm -f scripts/refine_temporal_master.py
+          rm -f scripts/refine_temporal_fingerprint.py
+          rm -f scripts/refine_temporal_journey.py
+          rm -f .github/workflows/temporal-source-snapshot.yml
+          rm -f .github/workflows/temporal-apply-v2.yml
+          rm -f .github/workflows/temporal-apply-v3.yml
+          rm -f .github/workflows/temporal-apply-v4.yml
+          rm -f .github/workflows/temporal-apply-v5.yml
+          git fetch origin main --depth=1
+          git checkout origin/main -- .github/workflows/ci.yml
+          git diff --check
+
+      - name: Commit verified source
+        shell: bash
+        run: |
+          git config user.name "pitch.dog temporal gauntlet"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: direct cinematic temporal feel"
+          git pull --rebase origin gauntlet/temporal-feel-direction
+          git push origin HEAD:gauntlet/temporal-feel-direction
+
+      - name: Publish review receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/pr-body.md" <<EOF
+          ## Actual goal
+
+          Make Drift's carousel feel **directed in time**, not merely moved through space. This branch stays deliberately separate from the competing optics, atmosphere, lighting, sound, and physics branches.
+
+          ## Director journey
+
+          - Six authored temporal signatures: Long Take, Cut on Breath, Twelve-Frame Hand, Silk Dolly, Held Nerve, and Forward Rush.
+          - Signature changes are reversible auditions; a tuned custom direction can be restored in one action.
+          - Continuous, 24 fps, 18 fps, and 12 fps scene cadence without throttling the renderer or lowering the delivery master.
+          - Honest even/mixed hold reporting for the selected master frame rate.
+          - A live timing fingerprint exposes acceleration, focal dwell, release, cadence, and master handles.
+          - Real effective speed and seconds-per-slide reporting.
+          - Seamless mode disables Speed and Master runway because whole-track loops supersede them.
+
+          ## Temporal craft
+
+          - Weight controls acceleration.
+          - Focal linger creates readable arrival beats through a periodic monotonic phase warp.
+          - Release directs landing character and settling.
+          - Master runway adds exact head/tail handles and integrated ramps to non-looping exports while preserving total travel.
+          - Overlap delays secondary depth and rotation behind primary travel.
+          - Imperfection uses seeded, whole-track harmonics; takes are different but deterministic and loop-safe.
+          - Direct manipulation bypasses held cadence while the user is touching the stage.
+          - The moving scene and background share the held clock; the pinned presenter remains temporally independent.
+
+          ## Compatibility and invariants
+
+          - Existing schema-v1 projects migrate at the validation boundary into a neutral temporal profile.
+          - Existing projects retain continuous linear travel, zero runway, zero overlap, and zero imperfection unless the user opts in.
+          - Reduced-motion masters still freeze exactly.
+          - Seamless endpoints remain whole-track exact.
+          - No new runtime dependency.
+          - No full-frame postprocessing target.
+
+          ## Gauntlet
+
+          - Monotonic phase sweep across the full linger/release domain.
+          - Exact positive and negative whole-slide boundaries.
+          - 12/18/24 fps cadence checks across delivery-master hold patterns.
+          - Deterministic take and loop-closure tests.
+          - Master runway monotonicity, exact total travel, and two-frame handle tests.
+          - Legacy settings migration tests.
+          - Real Chromium journey through signatures, cadence, custom tuning, take recasting, reversible audition, seamless truthfulness, and timing fingerprint.
+          - \`npm run check\` and \`npm run test:e2e\` passed in the application workflow.
+
+          Verification receipt: $RUN_URL
+
+          ## Review focus
+
+          1. Reading comfort across real dense deck slides.
+          2. Whether each signature feels materially different at ordinary Instagram durations.
+          3. 12 fps motion in 24 fps versus 30 fps masters.
+          4. Signature audition and restore behaviour.
+          5. Reconciliation strategy with the overlapping optics PRs; do not mechanically merge their renderer changes.
+          EOF
+          gh pr edit 7 --title "Direct Drift's cinematic temporal feel" --body-file "$RUNNER_TEMP/pr-body.md"
+          gh pr ready 7 || true
+
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: temporal-direction-v5-failure-evidence
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
