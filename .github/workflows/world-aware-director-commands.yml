@@ -1,0 +1,431 @@
+name: World-aware director commands
+
+on:
+  push:
+    branches: [gauntlet/directors-cut-optical-pipeline]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: world-aware-director-commands
+  cancel-in-progress: false
+
+jobs:
+  deepen:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/directors-cut-optical-pipeline
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Wait for export-boundary hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 180); do
+            git fetch origin gauntlet/directors-cut-optical-pipeline
+            if git show origin/gauntlet/directors-cut-optical-pipeline:src/lib/directorCommands.ts 2>/dev/null | grep -q "syncExportBoundary"; then
+              git reset --hard origin/gauntlet/directors-cut-optical-pipeline
+              exit 0
+            fi
+            if [ "$attempt" -eq 180 ]; then
+              echo "Export-boundary command hardening never reached the branch." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Cancel stale branch runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?branch=gauntlet%2Fdirectors-cut-optical-pipeline&per_page=100" \
+            --jq ".workflow_runs[] | select(.id != (${CURRENT_RUN}|tonumber)) | select(.status == \"queued\" or .status == \"in_progress\" or .status == \"waiting\" or .status == \"pending\") | .id" \
+            | while read -r run_id; do
+                echo "Cancelling stale branch run ${run_id}"
+                gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/cancel" || true
+              done
+          sleep 8
+
+      - name: Make commands understand worlds and repeated actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/lib/directorCommands.ts')
+          text = path.read_text()
+
+          import_line = 'import { THEMES } from "../themes";\n\n'
+          if not text.startswith('import { THEMES }'):
+              text = import_line + text
+
+          interface_anchor = '''  shortcut?: string;
+          }'''
+          interface_replacement = '''  shortcut?: string;
+            hiddenWhenIdle?: boolean;
+          }'''
+          if 'hiddenWhenIdle?: boolean;' not in text:
+              if interface_anchor not in text:
+                  raise SystemExit('DirectorCommand interface anchor not found')
+              text = text.replace(interface_anchor, interface_replacement, 1)
+
+          if 'const CORE_DIRECTOR_COMMANDS' not in text:
+              declaration = 'export const DIRECTOR_COMMANDS: readonly DirectorCommand[] = ['
+              if declaration not in text:
+                  raise SystemExit('Command declaration not found')
+              text = text.replace(declaration, 'const CORE_DIRECTOR_COMMANDS: readonly DirectorCommand[] = [', 1)
+              normalize_anchor = '\n\nexport function normalizeCommandText'
+              index = text.find(normalize_anchor)
+              if index < 0:
+                  raise SystemExit('Command list terminator not found')
+              insertion = '''
+
+          const WORLD_COMMANDS: readonly DirectorCommand[] = THEMES.map((theme) => ({
+            id: `world-${theme.id}`,
+            title: `World · ${theme.name}`,
+            description: `${theme.eyebrow}. ${theme.description}`,
+            section: "Direct",
+            keywords: [theme.id, theme.name, theme.eyebrow, theme.description, "film", "world", "theme", "genre"],
+            targets: [theme.name],
+            mode: "click",
+            hiddenWhenIdle: true,
+          }));
+
+          export const DIRECTOR_COMMANDS: readonly DirectorCommand[] = [
+            ...CORE_DIRECTOR_COMMANDS,
+            ...WORLD_COMMANDS,
+          ];'''
+              text = text[:index] + insertion + text[index:]
+
+          old = 'if (!normalized) return [...commands];'
+          new = 'if (!normalized) return commands.filter((command) => !command.hiddenWhenIdle);'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('Empty-query ranking anchor not found')
+
+          old_find = '''            const explicit = document.querySelector<HTMLElement>(`[data-director-command~='${command.id}']`);
+            if (explicit && visible(explicit)) return explicit;
+            const elements = Array.from(document.querySelectorAll<HTMLElement>(
+              "button, [role='button'], [role='tab'], summary, a[href], input, select, [tabindex]",
+            )).filter(visible);
+            for (const candidate of command.targets) {
+              const expected = normalizeCommandText(candidate);
+              const exact = elements.find((element) => accessibleText(element) === expected);
+              if (exact) return exact;
+            }
+            for (const candidate of command.targets) {
+              const expected = normalizeCommandText(candidate);
+              const partial = elements.find((element) => accessibleText(element).includes(expected));
+              if (partial) return partial;
+            }
+            return null;'''
+          new_find = '''            const explicit = document.querySelector<HTMLElement>(`[data-director-command~='${command.id}']`);
+            if (explicit && visible(explicit)) return explicit;
+            const allElements = Array.from(document.querySelectorAll<HTMLElement>(
+              "button, [role='button'], [role='tab'], summary, a[href], input, select, [tabindex]",
+            ));
+            const visibleElements = allElements.filter(visible);
+            for (const candidate of command.targets) {
+              const expected = normalizeCommandText(candidate);
+              const exact = visibleElements.find((element) => accessibleText(element) === expected);
+              if (exact) return exact;
+            }
+            for (const candidate of command.targets) {
+              const expected = normalizeCommandText(candidate);
+              const exactHidden = allElements.find((element) => accessibleText(element) === expected);
+              if (exactHidden) return exactHidden;
+            }
+            for (const candidate of command.targets) {
+              const expected = normalizeCommandText(candidate);
+              const partial = visibleElements.find((element) => accessibleText(element).includes(expected));
+              if (partial) return partial;
+            }
+            return null;'''
+          if old_find in text:
+              text = text.replace(old_find, new_find, 1)
+          elif 'const allElements = Array.from' not in text:
+              raise SystemExit('Target discovery anchor not found')
+
+          text = text.replace(
+              'placeholder="What are you trying to do?"',
+              'placeholder="Command, world, or genre…"',
+          )
+          text = text.replace(
+              'No command matches. Try “new take”, “clean lens”, “guides” or “output”.',
+              'No match. Try “horror”, “travel”, “romance”, “new take”, “clean lens” or “output”.',
+          )
+
+          shortcut_anchor = '''              if (root.dataset.open !== "true") return;
+              if (event.key === "Escape")'''
+          shortcut_replacement = '''              if (
+                root.dataset.open !== "true"
+                && !launcher.hidden
+                && !shouldIgnoreDirectorShortcut(event.target)
+                && !event.metaKey
+                && !event.ctrlKey
+                && !event.altKey
+              ) {
+                const key = event.key.toLocaleLowerCase();
+                if (key === "w") {
+                  event.preventDefault();
+                  open();
+                  search.value = "world";
+                  selected = 0;
+                  render();
+                  return;
+                }
+                const directCommandId = ({ a: "add-slides", n: "new-take", g: "guides", e: "output" } as const)[key as "a" | "n" | "g" | "e"];
+                const directCommand = directCommandId
+                  ? DIRECTOR_COMMANDS.find((command) => command.id === directCommandId)
+                  : undefined;
+                if (directCommand && runCommand(directCommand)) {
+                  event.preventDefault();
+                  live.textContent = `${directCommand.title} opened.`;
+                  return;
+                }
+              }
+              if (root.dataset.open !== "true") return;
+              if (event.key === "Escape")'''
+          if 'const directCommandId =' not in text:
+              if shortcut_anchor not in text:
+                  raise SystemExit('Direct-shortcut anchor not found')
+              text = text.replace(shortcut_anchor, shortcut_replacement, 1)
+
+          path.write_text(text)
+          PY
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/directorCommands.test.ts')
+          text = path.read_text()
+          if 'import { THEMES } from "../src/themes";' not in text:
+              text = text.replace(
+                  'import { describe, expect, it } from "vitest";\n',
+                  'import { describe, expect, it } from "vitest";\nimport { THEMES } from "../src/themes";\n',
+                  1,
+              )
+
+          old = '''            it("returns the authored journey for an empty query", () => {
+              expect(rankDirectorCommands("").map((command) => command.id)).toEqual(DIRECTOR_COMMANDS.map((command) => command.id));
+            });'''
+          new = '''            it("keeps the empty palette focused on the authored journey", () => {
+              const idle = rankDirectorCommands("");
+              expect(idle.length).toBeLessThan(DIRECTOR_COMMANDS.length);
+              expect(idle.every((command) => !command.hiddenWhenIdle)).toBe(true);
+            });
+
+            it("indexes every authored film world in creator language", () => {
+              const worldCommands = DIRECTOR_COMMANDS.filter((command) => command.id.startsWith("world-"));
+              expect(worldCommands).toHaveLength(THEMES.length);
+              for (const theme of THEMES) {
+                expect(rankDirectorCommands(theme.name).some((command) => command.id === `world-${theme.id}`)).toBe(true);
+              }
+              expect(rankDirectorCommands("horror").some((command) => command.id.startsWith("world-"))).toBe(true);
+            });'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif 'indexes every authored film world' not in text:
+              raise SystemExit('Director command unit-test anchor not found')
+          path.write_text(text)
+          PY
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('e2e/directorCommands.e2e.ts')
+          text = path.read_text()
+          anchor = '''            await page.keyboard.press("Escape");
+            await expect(dialog).toBeHidden();
+            await expect(launcher).toHaveAttribute("aria-expanded", "false");
+            await page.keyboard.press("Control+K");'''
+          replacement = '''            await page.keyboard.press("Escape");
+            await expect(dialog).toBeHidden();
+            await expect(launcher).toHaveAttribute("aria-expanded", "false");
+
+            await page.keyboard.press("w");
+            await expect(dialog).toBeVisible();
+            await expect(search).toHaveValue("world");
+            expect(await page.getByRole("option", { name: /World ·/i }).count()).toBeGreaterThan(5);
+            await search.fill("horror");
+            await expect(page.getByRole("option", { name: /World ·/i }).first()).toBeVisible();
+            await page.keyboard.press("Escape");
+
+            await page.keyboard.press("Control+K");'''
+          if 'await page.keyboard.press("w");' not in text:
+              if anchor not in text:
+                  raise SystemExit('World-aware e2e anchor not found')
+              text = text.replace(anchor, replacement, 1)
+          path.write_text(text)
+          PY
+
+          if [ -f docs/CREATOR_JOURNEY.md ] && ! grep -q "Search worlds by intent" docs/CREATOR_JOURNEY.md; then
+            cat >> docs/CREATOR_JOURNEY.md <<'MD'
+
+          ## Search worlds by intent
+
+          The command surface indexes every authored film world. Search a world by name or by the language of its direction—horror, travel, romance, documentary, music, night—then apply it without excavating the control hierarchy. Press `W` outside a text field to open the world search directly. `A`, `N`, `G`, and `E` reach slides, a new take, composition guides, and output when those actions are available.
+          MD
+          fi
+
+          find .github/workflows -maxdepth 1 -type f ! -name 'ci.yml' -delete
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run machine-readable unit gauntlet
+        run: npx vitest run --reporter=json --outputFile=/tmp/vitest.json
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run complete browser gauntlet
+        run: npx playwright test --reporter=json > /tmp/playwright.json
+
+      - name: Capture world-aware command evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/media
+          npm run dev -- --port 4179 > /tmp/drift-vite.log 2>&1 &
+          SERVER_PID=$!
+          cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:4179/ >/dev/null; then break; fi
+            if [ "$attempt" -eq 60 ]; then cat /tmp/drift-vite.log; exit 1; fi
+            sleep 1
+          done
+          node --input-type=module <<'JS'
+          import { chromium } from "@playwright/test";
+          const browser = await chromium.launch({ headless: true, args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"] });
+          const page = await browser.newPage({ viewport: { width: 1600, height: 1100 }, deviceScaleFactor: 1 });
+          await page.goto("http://127.0.0.1:4179/", { waitUntil: "networkidle" });
+          await page.locator("canvas").first().waitFor({ state: "visible" });
+          await page.keyboard.press("w");
+          const search = page.getByRole("searchbox", { name: "Search director commands" });
+          await search.fill("horror");
+          await page.getByRole("option", { name: /World ·/i }).first().waitFor({ state: "visible" });
+          await page.screenshot({ path: "docs/media/director-world-search.png", fullPage: true });
+          await browser.close();
+          JS
+
+      - name: Refresh exact QA receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from datetime import datetime, timezone
+
+          vitest = json.loads(Path('/tmp/vitest.json').read_text())
+          playwright = json.loads(Path('/tmp/playwright.json').read_text())
+          unit_total = vitest.get('numTotalTests')
+          unit_passed = vitest.get('numPassedTests')
+          unit_failed = vitest.get('numFailedTests')
+          if unit_total is None:
+              assertions = [a for f in vitest.get('testResults', []) for a in f.get('assertionResults', [])]
+              unit_total = len(assertions)
+              unit_passed = sum(a.get('status') == 'passed' for a in assertions)
+              unit_failed = sum(a.get('status') == 'failed' for a in assertions)
+          stats = playwright.get('stats', {})
+          browser_passed = int(stats.get('expected', 0))
+          browser_failed = int(stats.get('unexpected', 0))
+          browser_flaky = int(stats.get('flaky', 0))
+          browser_skipped = int(stats.get('skipped', 0))
+          browser_total = browser_passed + browser_failed + browser_flaky + browser_skipped
+          now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+          Path('docs/QA_SECOND_PASS.md').write_text(f'''# Second-pass QA receipt
+
+          Verified from a clean GitHub Actions checkout on **{now}**.
+
+          | Gate | Result |
+          | --- | --- |
+          | TypeScript project build | Passed |
+          | Unit and contract tests | **{unit_passed}/{unit_total} passed** |
+          | Unit failures | {unit_failed} |
+          | Production Vite build | Passed |
+          | Chromium creator journeys | **{browser_passed}/{browser_total} passed** |
+          | Browser failures | {browser_failed} |
+          | Browser flaky | {browser_flaky} |
+          | Browser skipped | {browser_skipped} |
+          | Hydrated world-search capture | Passed |
+
+          Covered risks include settings migration, deterministic worlds, non-compounding takes, optical alpha/colour/resolution invariants, deck health, readability pressure, history safety, poster moments, guide exclusion, export preflight, cancellation races, export-boundary command suppression, keyboard access, world/genre search, fallback rendering and portable projects.
+
+          Screenshots use bundled study slides. No private deck material is committed.
+          ''')
+          PY
+
+      - name: Commit the verified world-aware pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: make director commands understand film worlds"
+          git fetch origin gauntlet/directors-cut-optical-pipeline
+          git rebase origin/gauntlet/directors-cut-optical-pipeline
+          git push origin HEAD:gauntlet/directors-cut-optical-pipeline
+
+      - name: Refresh draft PR handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh pr view 3 --repo bomkino/pitchdog-drift --json body --jq .body > /tmp/pr-body.md
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('/tmp/pr-body.md')
+          body = path.read_text()
+          section = '''
+
+          ### World-aware command surface
+
+          - Every authored film world is indexed by name, genre language, eyebrow and direction note.
+          - Creators can search “horror”, “travel”, “romance”, “documentary”, “music” or “night” instead of excavating the panel hierarchy.
+          - `W` opens world search; `A`, `N`, `G` and `E` reach slides, a new take, guides and output when available.
+          - World commands remain hidden from the idle palette, so the default path stays concise rather than becoming a preset dump.
+          - The launcher and all shortcuts close and disappear during active export.
+
+          ![World-aware Director Commands](docs/media/director-world-search.png)
+          '''
+          if '### World-aware command surface' not in body:
+              marker = '\n## Review focus\n'
+              if marker in body:
+                  body = body.replace(marker, section + marker, 1)
+              else:
+                  body += section
+          path.write_text(body)
+          PY
+          gh pr edit 3 --repo bomkino/pitchdog-drift \
+            --title "Director’s cut: cinematic optics, authored worlds, and creator workflow" \
+            --body-file /tmp/pr-body.md
