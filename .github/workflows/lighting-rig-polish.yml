@@ -6,6 +6,13 @@ on:
       - feat/cinematic-lighting-rig
     paths:
       - .gauntlet/fix-cinematic-lighting.py
+      - .github/workflows/lighting-rig-polish.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .gauntlet/fix-cinematic-lighting.py
+      - .github/workflows/lighting-rig-polish.yml
 
 permissions:
   contents: write
@@ -43,13 +50,7 @@ jobs:
       - name: Typecheck, unit test, and build
         run: npm run check
 
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Run complete real-browser gauntlet
-        run: npm run test:e2e
-
-      - name: Commit only the verified result
+      - name: Commit ordinary reviewable source
         run: |
           git config user.name "pitch.dog lighting gauntlet"
           git config user.email "111725271+bomkino@users.noreply.github.com"
@@ -57,3 +58,9 @@ jobs:
           git diff --cached --check
           git commit -m "fix: preserve lighting fidelity and export contracts"
           git push origin HEAD:feat/cinematic-lighting-rig
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run complete real-browser gauntlet
+        run: npm run test:e2e
