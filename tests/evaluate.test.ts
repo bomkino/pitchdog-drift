@@ -5,8 +5,11 @@ import {
   evaluateSlide,
   getLogicalSlotCount,
   getSlideGeometry,
+  isPotentiallyVisible,
   positiveModulo,
+  slidesPerSecondForPreview,
   velocityAtTime,
+  velocityForPreview,
 } from "../src/engine/evaluate";
 
 describe("deterministic carousel evaluation", () => {
@@ -30,7 +33,7 @@ describe("deterministic carousel evaluation", () => {
     const settings = cloneSettings(DEFAULT_SETTINGS);
     const geometry = getSlideGeometry(settings);
     const slots = getLogicalSlotCount(8, geometry);
-    const distance = distanceAtTime(settings, 2.125, slots, geometry.stride, true);
+    const distance = distanceAtTime(settings, 2.125, 8, geometry.stride, true);
     expect(evaluateSlide(3, slots, distance, settings, geometry)).toEqual(
       evaluateSlide(3, slots, distance, settings, geometry),
     );
@@ -40,31 +43,65 @@ describe("deterministic carousel evaluation", () => {
     const settings = cloneSettings(DEFAULT_SETTINGS);
     settings.motion.seamless = false;
     const geometry = getSlideGeometry(settings);
-    const slots = getLogicalSlotCount(8, geometry);
-    expect(velocityAtTime(settings, slots, geometry.stride, true)).toBe(
-      velocityAtTime(settings, slots, geometry.stride, false),
+    expect(velocityAtTime(settings, 8, geometry.stride, true)).toBe(
+      velocityForPreview(settings, 8, geometry.stride),
     );
+    expect(slidesPerSecondForPreview(settings, 8)).toBe(settings.motion.speed);
   });
 
-  it("lands seamless output on an exact whole-track cycle", () => {
+  it("derives complete-loop preview and export cadence from source slides, not render padding", () => {
     const settings = cloneSettings(DEFAULT_SETTINGS);
     settings.motion.seamless = true;
     settings.motion.seamlessLoops = 2;
     settings.output.duration = 8;
     const geometry = getSlideGeometry(settings);
-    const slots = getLogicalSlotCount(8, geometry);
-    const start = distanceAtTime(settings, 0, slots, geometry.stride, true);
-    const end = distanceAtTime(settings, settings.output.duration, slots, geometry.stride, true);
-    expect(Math.abs(end - start)).toBe(slots * geometry.stride * 2);
-    expect(velocityAtTime(settings, slots, geometry.stride, true) * settings.output.duration).toBe(end);
+    const sourceSlides = 8;
+    const virtualSlots = getLogicalSlotCount(sourceSlides, geometry);
+    expect(virtualSlots).toBeGreaterThan(sourceSlides);
+
+    const start = distanceAtTime(settings, 0, sourceSlides, geometry.stride, true);
+    const end = distanceAtTime(settings, settings.output.duration, sourceSlides, geometry.stride, true);
+    expect(Math.abs(end - start)).toBe(sourceSlides * geometry.stride * 2);
+    expect(velocityAtTime(settings, sourceSlides, geometry.stride, true) * settings.output.duration).toBe(end);
+    expect(velocityForPreview(settings, sourceSlides, geometry.stride)).toBe(
+      velocityAtTime(settings, sourceSlides, geometry.stride, true),
+    );
+    expect(slidesPerSecondForPreview(settings, sourceSlides)).toBe(2);
   });
 
-  it("freezes both distance and optical velocity for reduced-motion masters", () => {
+  it("returns the same visible source composition after one source-slide cycle", () => {
+    const settings = cloneSettings(DEFAULT_SETTINGS);
+    const geometry = getSlideGeometry(settings);
+    const sourceSlides = 8;
+    const virtualSlots = getLogicalSlotCount(sourceSlides, geometry);
+
+    const composition = (distance: number) => Array.from({ length: virtualSlots }, (_, logicalIndex) => ({
+      assetIndex: logicalIndex % sourceSlides,
+      evaluated: evaluateSlide(logicalIndex, virtualSlots, distance, settings, geometry),
+    }))
+      .filter((entry) => isPotentiallyVisible(entry.evaluated, geometry))
+      .sort((a, b) => a.evaluated.primary - b.evaluated.primary)
+      .map((entry) => ({
+        assetIndex: entry.assetIndex,
+        primary: Number(entry.evaluated.primary.toFixed(8)),
+        cross: Number(entry.evaluated.cross.toFixed(8)),
+        z: Number(entry.evaluated.z.toFixed(8)),
+        rotationX: Number(entry.evaluated.rotationX.toFixed(8)),
+        rotationY: Number(entry.evaluated.rotationY.toFixed(8)),
+        rotationZ: Number(entry.evaluated.rotationZ.toFixed(8)),
+        scale: Number(entry.evaluated.scale.toFixed(8)),
+        opacity: Number(entry.evaluated.opacity.toFixed(8)),
+      }));
+
+    expect(composition(sourceSlides * geometry.stride)).toEqual(composition(0));
+  });
+
+  it("freezes both distance and optical velocity for reduced-motion masters without changing preview intent", () => {
     const settings = cloneSettings(DEFAULT_SETTINGS);
     settings.motion.reducedMotionOutput = true;
     const geometry = getSlideGeometry(settings);
-    const slots = getLogicalSlotCount(8, geometry);
-    expect(distanceAtTime(settings, 4, slots, geometry.stride, true)).toBe(0);
-    expect(velocityAtTime(settings, slots, geometry.stride, true)).toBe(0);
+    expect(distanceAtTime(settings, 4, 8, geometry.stride, true)).toBe(0);
+    expect(velocityAtTime(settings, 8, geometry.stride, true)).toBe(0);
+    expect(velocityForPreview(settings, 8, geometry.stride)).not.toBe(0);
   });
 });
