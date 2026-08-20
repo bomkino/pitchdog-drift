@@ -137,6 +137,32 @@ export function evaluateSlide(
       rotationX = settings.motion.axis === "vertical" ? normalized * tilt : 0;
       rotationZ = Math.sign(normalized) * tilt * Math.pow(abs, 1.4) * 0.46;
       break;
+    case "helix": {
+      const angle = normalized * Math.PI * (0.9 + curve * 1.15);
+      cross = Math.sin(angle) * curve * geometry.crossExtent * 0.115;
+      z = -depth * (0.42 + Math.cos(angle) * 0.38 + abs * 0.34);
+      rotationZ = Math.sin(angle) * tilt * 0.52;
+      rotationY = settings.motion.axis === "horizontal" ? -Math.cos(angle) * tilt * 0.74 : normalized * tilt * 0.18;
+      rotationX = settings.motion.axis === "vertical" ? Math.cos(angle) * tilt * 0.74 : 0;
+      break;
+    }
+    case "cascade":
+      cross = normalized * curve * geometry.crossExtent * 0.13;
+      z = -depth * (0.12 + abs * 0.88);
+      rotationZ = -normalized * tilt * 0.78;
+      rotationY = settings.motion.axis === "horizontal" ? -normalized * tilt * 0.38 : 0;
+      rotationX = settings.motion.axis === "vertical" ? normalized * tilt * 0.38 : 0;
+      break;
+    case "orbit": {
+      const angle = normalized * Math.PI * (0.72 + curve * 0.72);
+      const nearSide = 0.5 + 0.5 * Math.cos(angle);
+      cross = Math.sin(angle) * curve * geometry.crossExtent * 0.14;
+      z = -depth * (0.24 + (1 - nearSide) * 0.92 + abs * 0.18);
+      rotationZ = -Math.sin(angle) * tilt * 0.32;
+      rotationY = settings.motion.axis === "horizontal" ? -angle * 0.46 : Math.sin(angle) * tilt * 0.22;
+      rotationX = settings.motion.axis === "vertical" ? angle * 0.46 : 0;
+      break;
+    }
     case "straight":
     default:
       z = -depth * normalized * normalized * 0.28;
