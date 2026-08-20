@@ -176,15 +176,49 @@ enum NativeGauntlet {
             let newest = try broker.fileInfo(["token": newestToken])
             try require((newest["size"] as? Int) == 1, "newest native grant was evicted instead of an old inactive grant")
         }
+
+        // `create: true` deliberately grants an absent frame path. It must not
+        // leak an empty, convincing PNG before bytes are ready. After grant
+        // pressure, prove that the retained directory can still create,
+        // atomically commit, inspect, and remove one real child file.
+        let createdName = "after-eviction.png"
+        let createdURL = root.appendingPathComponent(createdName, isDirectory: false)
         let createdAfterEviction = try broker.directoryFile([
             "token": directoryToken,
-            "name": "after-eviction.png",
+            "name": createdName,
             "create": true,
         ])
         let createdToken = try token(from: createdAfterEviction)
+        try require(
+            !manager.fileExists(atPath: createdURL.path),
+            "create:true leaked an empty sequence frame after grant pressure"
+        )
+        let createdOpen = try broker.openWriteSession([
+            "token": createdToken,
+            "keepExistingData": false,
+        ])
+        let createdSession = try sessionToken(from: createdOpen)
+        let committedBytes = Data([0xA5])
+        _ = try broker.writeChunk([
+            "session": createdSession,
+            "position": 0,
+            "data": committedBytes.base64EncodedString(),
+        ])
+        _ = try broker.closeWriteSession(["session": createdSession])
         let createdInfo = try broker.fileInfo(["token": createdToken])
-        try require((createdInfo["size"] as? Int) == 0, "selected directory grant did not survive file-grant pressure")
-        _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": "after-eviction.png"])
+        try require(
+            (createdInfo["size"] as? Int) == committedBytes.count,
+            "selected directory grant committed the wrong child size after file-grant pressure"
+        )
+        try require(
+            try Data(contentsOf: createdURL) == committedBytes,
+            "selected directory grant committed the wrong child bytes after file-grant pressure"
+        )
+        _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": createdName])
+        try require(
+            !manager.fileExists(atPath: createdURL.path),
+            "directory entry removal left a committed test frame behind"
+        )
 
         print("Drift extended native gauntlet passed.")
     }
