@@ -1,8 +1,7 @@
 name: Materialize audit workspace
 
 on:
-  push:
-    branches: [feat/tactile-sound-system-v2]
+  pull_request:
 
 permissions:
   contents: read
