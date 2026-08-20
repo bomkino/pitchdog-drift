@@ -7,6 +7,8 @@ interface MediaLibraryProps {
   pinnedAssetId: string | null;
   imageInputRef: RefObject<HTMLInputElement | null>;
   presenterInputRef: RefObject<HTMLInputElement | null>;
+  onRequestImages: () => void;
+  onRequestPresenter: () => void;
   onAddImages: (files: File[]) => void;
   onPresenter: (file: File) => void;
   onRemove: (id: string) => void;
@@ -22,6 +24,8 @@ export function MediaLibrary({
   pinnedAssetId,
   imageInputRef,
   presenterInputRef,
+  onRequestImages,
+  onRequestPresenter,
   onAddImages,
   onPresenter,
   onRemove,
@@ -62,14 +66,14 @@ export function MediaLibrary({
       <input ref={presenterInputRef} hidden tabIndex={-1} disabled={busy} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={addPresenter} />
 
       <div className="media-add-row">
-        <button type="button" className="media-add" disabled={busy} onClick={() => imageInputRef.current?.click()}>
+        <button type="button" className="media-add" disabled={busy} onClick={onRequestImages}>
           <span aria-hidden="true">＋</span> Add slides
         </button>
-        <button type="button" className="media-add subtle" disabled={busy} onClick={() => presenterInputRef.current?.click()}>
+        <button type="button" className="media-add subtle" disabled={busy} onClick={onRequestPresenter}>
           Presenter
         </button>
       </div>
-      <p className="media-note">Images move. One optional video can stay pinned. Files remain on this device.</p>
+      <p className="media-note">Images move. One optional video can stay pinned. Original media: 64 MiB each, 80 MiB total. Files remain on this device.</p>
 
       <ol className="asset-list" aria-label="Slide order">
         {assets.map((asset, index) => (
@@ -133,9 +137,9 @@ export function MediaLibrary({
             <button type="button" disabled={busy} onClick={onRemovePresenter} aria-label="Remove presenter video">×</button>
           </div>
         ) : (
-          <button type="button" className="empty-presenter" disabled={busy} onClick={() => presenterInputRef.current?.click()}>
+          <button type="button" className="empty-presenter" disabled={busy} onClick={onRequestPresenter}>
             <span>Drop in your talking-head video</span>
-            <small>MP4, WebM, or MOV · one active decoder</small>
+            <small>MP4, WebM, or MOV · 64 MiB maximum · one active decoder</small>
           </button>
         )}
       </section>
