@@ -1,0 +1,42 @@
+.director-status-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding-right: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.director-status-row .director-status {
+  border-bottom: 0;
+}
+
+.director-status-row > button {
+  padding: 7px 9px;
+  border: 1px solid rgba(225, 155, 106, 0.24);
+  border-radius: 2px;
+  color: #c39070;
+  background: rgba(225, 155, 106, 0.035);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 7px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+@media (max-width: 420px) {
+  .director-status-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0 13px 10px;
+  }
+
+  .director-status-row .director-status {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .director-status-row > button {
+    justify-self: start;
+  }
+}
