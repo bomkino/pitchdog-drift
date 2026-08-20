@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 
+private let driftRenameExclusiveFlag: UInt32 = 0x00000004 // RENAME_EXCL
+
 private final class SecurityScope {
     let url: URL
     private let active: Bool
@@ -15,19 +17,34 @@ private final class SecurityScope {
     }
 }
 
+private enum WriteDisposition: Equatable {
+    /// A save-panel destination may replace an existing file after verified staging.
+    case replaceOrCreate
+    /// A sequence-frame destination must remain absent until its atomic commit.
+    case createOnly
+}
+
 private final class FileGrant {
     let token: String
     let url: URL
     let mimeType: String
     let mode: GrantMode
+    let writeDisposition: WriteDisposition
     let scope: SecurityScope
     let createdAt = Date()
 
-    init(token: String, url: URL, mimeType: String, mode: GrantMode) {
+    init(
+        token: String,
+        url: URL,
+        mimeType: String,
+        mode: GrantMode,
+        writeDisposition: WriteDisposition
+    ) {
         self.token = token
         self.url = url
         self.mimeType = mimeType
         self.mode = mode
+        self.writeDisposition = writeDisposition
         self.scope = SecurityScope(url: url)
     }
 }
@@ -51,6 +68,7 @@ private final class WriteSession {
     let stagingURL: URL
     let destinationURL: URL
     let replacementDirectory: URL
+    let writeDisposition: WriteDisposition
     var handle: FileHandle?
 
     init(
@@ -59,6 +77,7 @@ private final class WriteSession {
         stagingURL: URL,
         destinationURL: URL,
         replacementDirectory: URL,
+        writeDisposition: WriteDisposition,
         handle: FileHandle
     ) {
         self.token = token
@@ -66,6 +85,7 @@ private final class WriteSession {
         self.stagingURL = stagingURL
         self.destinationURL = destinationURL
         self.replacementDirectory = replacementDirectory
+        self.writeDisposition = writeDisposition
         self.handle = handle
     }
 }
@@ -91,6 +111,20 @@ final class NativeFileBroker {
         mode: GrantMode,
         suppliedMimeType: String? = nil
     ) throws -> JSONDictionary {
+        try registerFile(
+            rawURL,
+            mode: mode,
+            suppliedMimeType: suppliedMimeType,
+            writeDisposition: .replaceOrCreate
+        )
+    }
+
+    private func registerFile(
+        _ rawURL: URL,
+        mode: GrantMode,
+        suppliedMimeType: String? = nil,
+        writeDisposition: WriteDisposition
+    ) throws -> JSONDictionary {
         let url = try ensureLocalFileURL(rawURL)
         let exists = fileManager.fileExists(atPath: url.path)
         try rejectSymlink(url, allowMissing: mode == .readWrite)
@@ -108,7 +142,8 @@ final class NativeFileBroker {
             token: token,
             url: url,
             mimeType: suppliedMimeType ?? mimeType(for: url),
-            mode: mode
+            mode: mode,
+            writeDisposition: writeDisposition
         )
         fileGrants[token] = grant
         return try descriptor(for: grant)
@@ -164,10 +199,23 @@ final class NativeFileBroker {
         let parent = destinationURL.deletingLastPathComponent().standardizedFileURL
         try requireDirectory(parent)
 
-        // Foundation can derive a same-volume replacement directory from an
-        // existing item. A brand-new save target has no item yet, so anchor the
-        // request to its verified parent instead. This keeps first exports and
-        // replacement exports on the same atomic commit path.
+        let keepExistingData = (payload["keepExistingData"] as? Bool) == true
+        if grant.writeDisposition == .createOnly {
+            guard !keepExistingData else {
+                throw BridgeFailure(
+                    "InvalidModificationError",
+                    "Numbered sequence frames are create-only and cannot preserve or replace existing bytes."
+                )
+            }
+            guard !fileManager.fileExists(atPath: destinationURL.path) else {
+                throw frameCollision(destinationURL.lastPathComponent)
+            }
+        }
+
+        // Foundation derives a same-volume item-replacement directory from an
+        // existing item. A new destination has no item, so use its verified
+        // parent as the anchor. Both first saves and replacements therefore
+        // remain on one staged, same-volume commit path.
         let replacementAnchor = fileManager.fileExists(atPath: destinationURL.path)
             ? destinationURL
             : parent
@@ -181,7 +229,6 @@ final class NativeFileBroker {
         if !destinationURL.pathExtension.isEmpty {
             stagingURL.appendPathExtension(destinationURL.pathExtension)
         }
-        let keepExistingData = (payload["keepExistingData"] as? Bool) == true
 
         do {
             if keepExistingData && fileManager.fileExists(atPath: destinationURL.path) {
@@ -199,6 +246,7 @@ final class NativeFileBroker {
                 stagingURL: stagingURL,
                 destinationURL: destinationURL,
                 replacementDirectory: replacementDirectory,
+                writeDisposition: grant.writeDisposition,
                 handle: handle
             )
             return [
@@ -272,22 +320,35 @@ final class NativeFileBroker {
             let parent = session.destinationURL.deletingLastPathComponent().standardizedFileURL
             try requireDirectory(parent)
 
-            let renameResult = session.stagingURL.path.withCString { sourcePath in
-                session.destinationURL.path.withCString { destinationPath in
-                    Darwin.rename(sourcePath, destinationPath)
+            let renameResult: Int32
+            switch session.writeDisposition {
+            case .replaceOrCreate:
+                renameResult = session.stagingURL.path.withCString { sourcePath in
+                    session.destinationURL.path.withCString { destinationPath in
+                        Darwin.rename(sourcePath, destinationPath)
+                    }
+                }
+            case .createOnly:
+                renameResult = session.stagingURL.path.withCString { sourcePath in
+                    session.destinationURL.path.withCString { destinationPath in
+                        Darwin.renamex_np(sourcePath, destinationPath, driftRenameExclusiveFlag)
+                    }
                 }
             }
             guard renameResult == 0 else {
                 let code = errno
+                if session.writeDisposition == .createOnly && code == EEXIST {
+                    throw frameCollision(session.destinationURL.lastPathComponent)
+                }
                 throw BridgeFailure(
                     code == EACCES || code == EPERM ? "NotAllowedError" : "InvalidModificationError",
-                    "The staged export could not replace its destination: \(String(cString: strerror(code)))."
+                    "The staged export could not commit its destination: \(String(cString: strerror(code)))."
                 )
             }
 
             // Best-effort directory sync narrows the crash window after the
-            // atomic rename. The committed file remains valid if the platform
-            // refuses a directory fsync on a particular volume.
+            // atomic rename. A valid committed file remains usable if a volume
+            // refuses directory fsync.
             let directoryDescriptor = Darwin.open(parent.path, O_RDONLY)
             if directoryDescriptor >= 0 {
                 _ = Darwin.fsync(directoryDescriptor)
@@ -302,11 +363,7 @@ final class NativeFileBroker {
                 "size": Int(try fileSize(at: session.destinationURL, fileManager: fileManager)),
             ]
         } catch {
-            try? session.handle?.close()
-            session.handle = nil
-            writeSessions.removeValue(forKey: sessionToken)
-            try? fileManager.removeItem(at: session.stagingURL)
-            try? fileManager.removeItem(at: session.replacementDirectory)
+            cleanupFailedWriteSession(sessionToken: sessionToken, session: session)
             throw error
         }
     }
@@ -316,12 +373,7 @@ final class NativeFileBroker {
         guard let session = writeSessions.removeValue(forKey: sessionToken) else {
             return ["aborted": true]
         }
-        try? session.handle?.close()
-        session.handle = nil
-        if fileManager.fileExists(atPath: session.stagingURL.path) {
-            try fileManager.removeItem(at: session.stagingURL)
-        }
-        try? fileManager.removeItem(at: session.replacementDirectory)
+        cleanupStaging(session)
         return ["aborted": true]
     }
 
@@ -387,14 +439,26 @@ final class NativeFileBroker {
             throw BridgeFailure("TypeMismatchError", "The requested frame name belongs to a directory.")
         }
         if exists { try rejectSymlink(fileURL, allowMissing: false) }
-        if !exists && !create {
-            throw BridgeFailure("NotFoundError", "The requested file does not exist.")
-        }
-        if !exists && create && !fileManager.createFile(atPath: fileURL.path, contents: Data()) {
-            throw BridgeFailure("NotAllowedError", "macOS could not create \(name) in the selected folder.")
+
+        if create {
+            guard !exists else { throw frameCollision(name) }
+            // Do not create an empty destination here. The returned capability
+            // points at an absent path; bytes remain in same-volume staging
+            // until an exclusive atomic commit. A renderer crash therefore
+            // cannot leave plausible or empty numbered frames behind.
+            return try registerFile(
+                fileURL,
+                mode: .readWrite,
+                writeDisposition: .createOnly
+            )
         }
 
-        return try registerFile(fileURL, mode: .readWrite)
+        guard exists else {
+            throw BridgeFailure("NotFoundError", "The requested file does not exist.")
+        }
+        // Existing sequence entries may be inspected for collision/readback,
+        // but a directory grant never turns them into replacement targets.
+        return try registerFile(fileURL, mode: .readOnly)
     }
 
     func removeDirectoryEntry(_ payload: JSONDictionary) throws -> JSONDictionary {
@@ -407,6 +471,9 @@ final class NativeFileBroker {
         let fileURL = directory.url.appendingPathComponent(name, isDirectory: false).standardizedFileURL
         guard fileURL.deletingLastPathComponent() == directory.url.standardizedFileURL else {
             throw BridgeFailure("SecurityError", "Directory traversal is not permitted.")
+        }
+        guard !writeSessions.values.contains(where: { $0.destinationURL == fileURL }) else {
+            throw BridgeFailure("InvalidStateError", "That directory file is still being written.")
         }
         guard fileManager.fileExists(atPath: fileURL.path) else {
             throw BridgeFailure("NotFoundError", "The requested file does not exist.")
@@ -421,12 +488,12 @@ final class NativeFileBroker {
     func abortAll() {
         let sessions = Array(writeSessions.values)
         writeSessions.removeAll()
-        for session in sessions {
-            try? session.handle?.close()
-            session.handle = nil
-            try? fileManager.removeItem(at: session.stagingURL)
-            try? fileManager.removeItem(at: session.replacementDirectory)
-        }
+        for session in sessions { cleanupStaging(session) }
+        // A WebContent process termination destroys the only legitimate holder
+        // of these opaque tokens. Revoke the native capabilities as well as the
+        // writes so stale security-scoped access cannot survive a renderer.
+        fileGrants.removeAll()
+        directoryGrants.removeAll()
     }
 
     private func descriptor(for grant: FileGrant) throws -> JSONDictionary {
@@ -450,6 +517,25 @@ final class NativeFileBroker {
             throw BridgeFailure("InvalidStateError", "The writable stream is no longer open.")
         }
         return session
+    }
+
+    private func frameCollision(_ name: String) -> BridgeFailure {
+        BridgeFailure(
+            "InvalidModificationError",
+            "The selected folder already contains \(name). Existing PNG sequence files are never overwritten."
+        )
+    }
+
+    private func cleanupFailedWriteSession(sessionToken: String, session: WriteSession) {
+        writeSessions.removeValue(forKey: sessionToken)
+        cleanupStaging(session)
+    }
+
+    private func cleanupStaging(_ session: WriteSession) {
+        try? session.handle?.close()
+        session.handle = nil
+        try? fileManager.removeItem(at: session.stagingURL)
+        try? fileManager.removeItem(at: session.replacementDirectory)
     }
 
     private func rejectSymlink(_ url: URL, allowMissing: Bool) throws {
@@ -479,7 +565,7 @@ final class NativeFileBroker {
             throw BridgeFailure("NotFoundError", "The selected folder no longer exists.")
         }
         if isSymbolicLink(url) {
-            throw BridgeFailure("SecurityError", "Symbolic-link folders are not accepted as native targets.")
+            throw BridgeFailure("SecurityError", "Symbol-link folders are not accepted as native targets.")
         }
     }
 
@@ -528,8 +614,6 @@ final class NativeFileBroker {
             throw BridgeFailure("DataError", "Atomic replacement self-test produced the wrong bytes.")
         }
 
-        // A save panel normally returns a path that does not exist yet. Prove
-        // the same staged/atomic path works without an existing destination.
         let freshDestination = root.appendingPathComponent("first-master.bin")
         let freshDescriptor = try broker.registerFile(freshDestination, mode: .readWrite)
         let freshToken = freshDescriptor["token"] as! String
@@ -556,6 +640,19 @@ final class NativeFileBroker {
         guard try String(contentsOf: destination, encoding: .utf8) == "new-master" else {
             throw BridgeFailure("DataError", "Abort self-test changed the committed destination.")
         }
+        _ = try broker.abortWriteSession(["session": abortSession])
+
+        let cappedOpen = try broker.openWriteSession(["token": token, "keepExistingData": false])
+        let cappedSession = cappedOpen["session"] as! String
+        do {
+            _ = try broker.truncateWriteSession([
+                "session": cappedSession,
+                "size": driftMaximumNativeOutputBytes + 1,
+            ])
+            throw BridgeFailure("DataError", "Output cap self-test unexpectedly succeeded.")
+        } catch let failure as BridgeFailure where failure.name == "QuotaExceededError" {
+            _ = try broker.abortWriteSession(["session": cappedSession])
+        }
 
         let directoryDescriptor = try broker.registerDirectory(root)
         let directoryToken = directoryDescriptor["token"] as! String
@@ -565,8 +662,8 @@ final class NativeFileBroker {
             "name": frameURL.lastPathComponent,
             "create": true,
         ])
-        guard manager.fileExists(atPath: frameURL.path) else {
-            throw BridgeFailure("DataError", "create:true did not create the directory entry immediately.")
+        guard !manager.fileExists(atPath: frameURL.path) else {
+            throw BridgeFailure("DataError", "create:true leaked an empty sequence frame before commit.")
         }
         let frameToken = frameDescriptor["token"] as! String
         let frameOpen = try broker.openWriteSession(["token": frameToken, "keepExistingData": false])
@@ -586,6 +683,80 @@ final class NativeFileBroker {
         guard Data(base64Encoded: read["data"] as! String) == frameBytes else {
             throw BridgeFailure("DataError", "Native readback self-test changed the output bytes.")
         }
+
+        let priorBytes = try Data(contentsOf: frameURL)
+        do {
+            _ = try broker.directoryFile([
+                "token": directoryToken,
+                "name": frameURL.lastPathComponent,
+                "create": true,
+            ])
+            throw BridgeFailure("DataError", "Existing sequence-frame collision unexpectedly succeeded.")
+        } catch let failure as BridgeFailure where failure.name == "InvalidModificationError" {
+            guard try Data(contentsOf: frameURL) == priorBytes else {
+                throw BridgeFailure("DataError", "Collision check changed an existing sequence frame.")
+            }
+        }
+
+        let readOnlyFrame = try broker.directoryFile([
+            "token": directoryToken,
+            "name": frameURL.lastPathComponent,
+            "create": false,
+        ])
+        do {
+            _ = try broker.openWriteSession([
+                "token": readOnlyFrame["token"] as! String,
+                "keepExistingData": false,
+            ])
+            throw BridgeFailure("DataError", "Existing directory entry became writable.")
+        } catch let failure as BridgeFailure where failure.name == "NotAllowedError" {
+            // Expected.
+        }
+
+        let racedURL = root.appendingPathComponent("drift_000002.png")
+        let racedDescriptor = try broker.directoryFile([
+            "token": directoryToken,
+            "name": racedURL.lastPathComponent,
+            "create": true,
+        ])
+        let racedToken = racedDescriptor["token"] as! String
+        let racedOpen = try broker.openWriteSession(["token": racedToken, "keepExistingData": false])
+        let racedSession = racedOpen["session"] as! String
+        _ = try broker.writeChunk([
+            "session": racedSession,
+            "position": 0,
+            "data": Data("generated".utf8).base64EncodedString(),
+        ])
+        let intruder = Data("existing-wins".utf8)
+        try intruder.write(to: racedURL)
+        do {
+            _ = try broker.closeWriteSession(["session": racedSession])
+            throw BridgeFailure("DataError", "Commit-time frame collision unexpectedly overwrote a file.")
+        } catch let failure as BridgeFailure where failure.name == "InvalidModificationError" {
+            guard try Data(contentsOf: racedURL) == intruder else {
+                throw BridgeFailure("DataError", "Exclusive sequence commit changed the colliding file.")
+            }
+        }
+
+        let abortedFrameURL = root.appendingPathComponent("drift_000003.png")
+        let abortedDescriptor = try broker.directoryFile([
+            "token": directoryToken,
+            "name": abortedFrameURL.lastPathComponent,
+            "create": true,
+        ])
+        let abortedToken = abortedDescriptor["token"] as! String
+        let abortedOpen = try broker.openWriteSession(["token": abortedToken, "keepExistingData": false])
+        let abortedSession = abortedOpen["session"] as! String
+        _ = try broker.writeChunk([
+            "session": abortedSession,
+            "position": 0,
+            "data": Data("partial-frame".utf8).base64EncodedString(),
+        ])
+        _ = try broker.abortWriteSession(["session": abortedSession])
+        guard !manager.fileExists(atPath: abortedFrameURL.path) else {
+            throw BridgeFailure("DataError", "Aborted sequence write left a final frame behind.")
+        }
+
         _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": frameURL.lastPathComponent])
 
         do {
@@ -616,6 +787,7 @@ final class NativeFileBroker {
         let disposableDescriptor = try broker.registerFile(disposable, mode: .readOnly)
         let disposableToken = disposableDescriptor["token"] as! String
         _ = try broker.releaseFile(["token": disposableToken])
+        _ = try broker.releaseFile(["token": disposableToken])
         do {
             _ = try broker.fileInfo(["token": disposableToken])
             throw BridgeFailure("DataError", "Released file permission remained usable.")
@@ -623,6 +795,17 @@ final class NativeFileBroker {
             // Expected.
         }
 
-        print("Drift native file broker self-test passed.")
+        let revokeBroker = NativeFileBroker(fileManager: manager)
+        let revokeDescriptor = try revokeBroker.registerFile(destination, mode: .readOnly)
+        let revokeToken = revokeDescriptor["token"] as! String
+        revokeBroker.abortAll()
+        do {
+            _ = try revokeBroker.fileInfo(["token": revokeToken])
+            throw BridgeFailure("DataError", "abortAll left a stale file capability usable.")
+        } catch let failure as BridgeFailure where failure.name == "NotAllowedError" {
+            // Expected.
+        }
+
+        print("Drift native file broker self-test passed: staged replacement, exclusive sequence commits, collision preservation, abort cleanup, capability revocation, traversal rejection, and readback hold.")
     }
 }
