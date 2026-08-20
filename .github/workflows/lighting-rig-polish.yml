@@ -38,6 +38,26 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Correct the two-surface patch guard
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.gauntlet/fix-cinematic-lighting.py')
+          source = path.read_text(encoding='utf-8')
+          old = '''    count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"Expected one {label} in {relative}; found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")'''.replace('          ', '')
+          new = '''    count = text.count(old)
+              expected = 2 if label == "moving-shadow duplicate phase upload" else 1
+              if count != expected:
+                  raise RuntimeError(f"Expected {expected} {label} in {relative}; found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")'''.replace('          ', '')
+          if source.count(old) != 1:
+              raise RuntimeError('Could not isolate the exact-count guard')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
+
       - name: Apply regression fixes and remove bootstrap machinery
         run: python .gauntlet/fix-cinematic-lighting.py
 
