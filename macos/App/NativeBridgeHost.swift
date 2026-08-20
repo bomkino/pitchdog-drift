@@ -197,7 +197,9 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         // NativeBridge.js calls runtime-info once for each new local document.
         // Tear down capabilities from the previous WebContent process before
         // acknowledging the replacement document. This covers manual reload,
-        // not only quit and process-termination callbacks.
+        // not only quit and process-termination callbacks. Do not emit the
+        // authoritative client-state callback here; only React may unlock the
+        // recovery budget and menus after its project store has settled.
         exportActivityGuard.end()
         brokerQueue.sync {
             broker.abortAll()
@@ -205,7 +207,6 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         }
         inputIntent = nil
         clientState = ClientState()
-        clientStateDidChange?(clientState)
     }
 
     private func runtimeInfo() -> JSONDictionary {
