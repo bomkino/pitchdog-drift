@@ -96,6 +96,9 @@ jobs:
           test -f build/macos/Drift.dmg
           test -f build/macos/Drift.dmg.sha256
           grep -Fx "source_revision=${GITHUB_SHA}" build/macos/Drift.app/Contents/Resources/BuildReceipt.txt
-          shasum -a 256 -c build/macos/Drift.dmg.sha256
+          (
+            cd build/macos
+            shasum -a 256 -c Drift.dmg.sha256
+          )
           git diff --exit-code
           echo "The runner proved the app and install image, then retained no downloadable binary artifact."
