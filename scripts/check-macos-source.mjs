@@ -210,8 +210,10 @@ requireMarkers("macos/Probes/NativeGauntletMain.swift", [
   "NativeAacEncoderBroker.runSelfTest()",
 ]);
 requireMarkers("macos/App/NativeFileBroker.swift", [
-  "cleanupFailedWriteSession(session)",
-  "writeSessions.removeValue(forKey: session.id)",
+  "let replacementDirectory = try fileManager.url(",
+  "Darwin.rename",
+  "writeSessions.removeValue(forKey: sessionToken)",
+  "try? fileManager.removeItem(at: session.stagingURL)",
 ]);
 
 requireMarkers("macos/App/NativeAacEncoder.swift", [
