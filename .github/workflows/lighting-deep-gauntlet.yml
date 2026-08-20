@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - .gauntlet/lighting-next.py
+      - .gauntlet/lighting-seam-fix.py
 
 permissions:
   contents: write
@@ -32,7 +33,9 @@ jobs:
           cache: npm
 
       - name: Apply one atomic lighting gauntlet stage
-        run: python .gauntlet/lighting-next.py
+        run: |
+          python .gauntlet/lighting-next.py
+          python .gauntlet/lighting-seam-fix.py
 
       - name: Reject malformed diffs
         run: git diff --check
