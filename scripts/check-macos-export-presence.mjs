@@ -76,6 +76,16 @@ if ((host.match(/exportActivityGuard\.end\(\)/g) ?? []).length < 3) {
   fail("quit, document reset, and native abort must all clear export presence");
 }
 
+requireMarkers("docs/MACOS_EXPORT_PRESENCE.md", [
+  "The badge reads **EXPORT** only while Drift reports an authoritative active export.",
+  "The badge is presence, not progress.",
+  "No new renderer message, timer, DOM observer, polling loop, or high-frequency bridge event was added.",
+  "completion, cancellation, native abort, document reload, WebKit content-process termination, window teardown, and app termination",
+  "EXPORT\nclear",
+  "Physical-Mac review",
+  "is Drift still exporting?",
+]);
+
 console.log(
-  "macOS export-presence contract passed: one privacy-safe EXPORT badge follows authoritative native export protection, deduplicates updates, and clears through every shared terminal path.",
+  "macOS export-presence contract passed: one privacy-safe EXPORT badge follows authoritative native export protection, deduplicates updates, clears through every shared terminal path, and has explicit physical-Mac falsification steps.",
 );
