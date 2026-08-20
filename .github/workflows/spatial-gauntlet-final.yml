@@ -1,0 +1,90 @@
+name: Spatial gauntlet final verifier
+
+on:
+  push:
+    branches:
+      - gauntlet/spatial-fabric-dynamics
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: spatial-gauntlet-final-verifier
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: ${{ !contains(github.event.head_commit.message, 'spatial gauntlet verified') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Let branch bootstrap and settler finish
+        run: sleep 150
+      - uses: actions/checkout@v4
+        with:
+          ref: gauntlet/spatial-fabric-dynamics
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Assert final product surface
+        run: |
+          test -f src/engine/spatialDynamics.ts
+          test -f docs/SPATIAL_FABRIC_GAUNTLET.md
+          grep -q '"switchback"' src/model.ts
+          grep -q '"silk"' src/model.ts
+          grep -q 'integrateMotionState' src/engine/CinematicCarousel.ts
+          grep -q 'new THREE.BoxGeometry' src/engine/CinematicCarousel.ts
+          grep -q 'Card: mostly rigid' src/engine/shaders.ts
+          grep -q 'Figure eight' src/components/ControlPanel.tsx
+          test ! -f scripts/spatial_templates.py
+          test ! -f scripts/apply_spatial_gauntlet.py
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test -- --run
+      - name: Production build
+        run: npm run build
+      - name: Install Chromium
+        run: |
+          if npm run | grep -q 'test:e2e'; then
+            npx playwright install --with-deps chromium
+          fi
+      - name: Browser gauntlet
+        run: |
+          if npm run | grep -q 'test:e2e'; then
+            npm run test:e2e
+          fi
+      - name: Mark pull request verified
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr_url="$(gh pr list --repo bomkino/pitchdog-drift --head gauntlet/spatial-fabric-dynamics --state open --json url --jq '.[0].url')"
+          if [ -n "$pr_url" ]; then
+            gh pr comment "$pr_url" --body $'Spatial gauntlet passed.\n\n- typecheck\n- unit suite\n- production build\n- Playwright browser suite when configured\n- no bootstrap scaffolding left in the branch'
+          fi
+      - name: Remove verifier and stale scaffolding
+        run: |
+          rm -f \
+            .github/workflows/spatial-gauntlet-final.yml \
+            .github/workflows/spatial-gauntlet-bootstrap.yml \
+            .github/workflows/spatial-gauntlet-bootstrap-v2.yml \
+            .github/workflows/spatial-gauntlet-repair.yml \
+            scripts/apply_spatial_gauntlet.py \
+            scripts/apply_spatial_gauntlet_fixed.py \
+            scripts/apply_spatial_gauntlet_repair.py \
+            scripts/spatial_templates.py
+      - name: Commit verified branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "chore: spatial gauntlet verified"
+          git push origin HEAD:gauntlet/spatial-fabric-dynamics
