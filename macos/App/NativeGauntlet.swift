@@ -2,6 +2,19 @@ import Foundation
 
 enum NativeGauntlet {
     static func run() throws {
+        // Renderer notices can contain confidential project names. The native
+        // process needs a state signal, not the notice body.
+        var diagnosticState = ClientState()
+        diagnosticState.update(from: [
+            "lastNotice": "/Users/example/Clients/Unannounced Film/Secret Deck.pitched could not open",
+        ])
+        try require(
+            diagnosticState.lastNotice == "present (content withheld)",
+            "native client state retained confidential renderer notice text"
+        )
+        diagnosticState.update(from: ["lastNotice": "   "])
+        try require(diagnosticState.lastNotice == nil, "blank renderer notice was not cleared")
+
         let manager = FileManager.default
         let root = manager.temporaryDirectory.appendingPathComponent(
             "drift-native-gauntlet-\(UUID().uuidString)",
@@ -38,6 +51,29 @@ enum NativeGauntlet {
         guard let encoded = readback["data"] as? String, Data(base64Encoded: encoded) == edited else {
             throw BridgeFailure("DataError", "Chunked native readback did not match the committed file.")
         }
+
+        // A native close can fail after bytes have been staged—for example when
+        // the selected destination changes type before commit. Failure must
+        // remove the write session so an idempotent abort and a later retry do
+        // not inherit stranded staging state.
+        let closeFailureOpen = try broker.openWriteSession(["token": fileToken, "keepExistingData": true])
+        let closeFailureSession = try sessionToken(from: closeFailureOpen)
+        _ = try broker.writeChunk([
+            "session": closeFailureSession,
+            "position": 0,
+            "data": Data("staged-but-never-committed".utf8).base64EncodedString(),
+        ])
+        try manager.removeItem(at: destination)
+        try manager.createDirectory(at: destination, withIntermediateDirectories: false)
+        try expectFailure("TypeMismatchError", label: "commit destination changed to a directory") {
+            _ = try broker.closeWriteSession(["session": closeFailureSession])
+        }
+        _ = try broker.abortWriteSession(["session": closeFailureSession])
+        try manager.removeItem(at: destination)
+        try edited.write(to: destination)
+        let retryOpen = try broker.openWriteSession(["token": fileToken, "keepExistingData": true])
+        _ = try broker.abortWriteSession(["session": try sessionToken(from: retryOpen)])
+        try require(try Data(contentsOf: destination) == edited, "failed close or idempotent abort changed the restored destination")
 
         // A rejected truncate is non-destructive and remains abortable.
         let oversizedTruncate = try broker.openWriteSession(["token": fileToken, "keepExistingData": true])
