@@ -3,12 +3,14 @@ name: Sonic branch gauntlet
 on:
   push:
     branches: [feat/editorial-sonic-system]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 concurrency:
-  group: sonic-builder-${{ github.ref }}
+  group: sonic-builder-single
   cancel-in-progress: true
 
 jobs:
