@@ -37,20 +37,21 @@ function RangeRow({
         value={value}
         disabled={disabled}
         aria-label={label}
+        aria-valuetext={`${percentage}%`}
         onChange={(event) => onChange(Number(event.currentTarget.value))}
       />
-      <output>{percentage}</output>
+      <output>{percentage}%</output>
     </label>
   );
 }
 
 function stateLabel(state: SonicRuntimeState): string {
   switch (state) {
-    case "ready": return "armed";
-    case "muted": return "muted";
-    case "unavailable": return "unavailable";
+    case "ready": return "preview armed";
+    case "muted": return "preview muted";
+    case "unavailable": return "sound unavailable";
     case "idle":
-    default: return "tap to arm";
+    default: return "ready after input";
   }
 }
 
@@ -72,7 +73,11 @@ export function SonicDock({
             ? "Mute tactile preview sound"
             : "Enable tactile preview sound"
         }
-        aria-pressed={!settings.previewEnabled}
+        title={
+          settings.previewEnabled
+            ? "Mute tactile preview"
+            : "Enable tactile preview"
+        }
         onClick={() => onSettings({
           previewEnabled: !settings.previewEnabled,
         })}
@@ -94,7 +99,7 @@ export function SonicDock({
             <strong>Motion with physical consequence.</strong>
             <p>
               Recorded cards, paper, cloth, leather, wood and metal. No music,
-              generated bleeps, hover chatter or runtime network requests.
+              generated bleeps, hover chatter or third-party sound requests.
             </p>
           </header>
 
