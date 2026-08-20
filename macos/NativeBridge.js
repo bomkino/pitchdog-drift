@@ -61,6 +61,26 @@
     return [...leaf].slice(0, 240).join("");
   }
 
+  function assertSafeLeafName(value) {
+    if (typeof value !== "string" || value.length === 0) {
+      throw new DOMException("A directory file name must be a non-empty string.", "TypeError");
+    }
+    const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+    if (
+      cleaned !== value
+      || value === "."
+      || value === ".."
+      || /[\\/]/.test(value)
+      || [...value].length > 240
+    ) {
+      throw new DOMException(
+        "Directory file names may not be rewritten, traversed, or contain separators or control characters.",
+        "TypeError",
+      );
+    }
+    return value;
+  }
+
   function normalizePickerOptions(options = {}) {
     const extensions = [];
     const mimeTypes = [];
@@ -136,19 +156,38 @@
         position: 0,
         session: null,
         opening: null,
-        finished: false,
+        status: "opening",
       };
       state.opening = callNative("write-open", {
         token: fileToken,
         keepExistingData: options.keepExistingData === true,
       }).then((result) => {
         state.session = result.session;
+        state.status = "open";
         return result;
       });
 
+      const abortNativeSession = async (reason) => {
+        if (state.status === "closed" || state.status === "aborted") return;
+        try {
+          const opened = await state.opening;
+          await callNative("write-abort", {
+            session: state.session ?? opened.session,
+            reason: reason instanceof Error ? reason.message : String(reason ?? "aborted"),
+          });
+        } catch {
+          // If opening failed there is no staging file. If close committed but
+          // its reply was lost, native abort is intentionally idempotent.
+        } finally {
+          state.status = "aborted";
+        }
+      };
+
       super({
         async write(chunk) {
-          if (state.finished) throw new DOMException("The writable file is already closed.", "InvalidStateError");
+          if (state.status === "closed" || state.status === "aborted") {
+            throw new DOMException("The writable file is already closed.", "InvalidStateError");
+          }
           const opened = await state.opening;
           const session = state.session ?? opened.session;
 
@@ -175,23 +214,19 @@
           state.position = await writeBytes(session, await toBytes(chunk), state.position);
         },
         async close() {
-          if (state.finished) return;
+          if (state.status === "closed" || state.status === "aborted") return;
           const opened = await state.opening;
-          state.finished = true;
-          await callNative("write-close", { session: state.session ?? opened.session });
+          const session = state.session ?? opened.session;
+          try {
+            await callNative("write-close", { session });
+            state.status = "closed";
+          } catch (error) {
+            await abortNativeSession(error);
+            throw error;
+          }
         },
         async abort(reason) {
-          if (state.finished) return;
-          state.finished = true;
-          try {
-            const opened = await state.opening;
-            await callNative("write-abort", {
-              session: state.session ?? opened.session,
-              reason: reason instanceof Error ? reason.message : String(reason ?? "aborted"),
-            });
-          } catch {
-            // If opening failed, no native staging file exists to roll back.
-          }
+          await abortNativeSession(reason);
         },
       });
     }
@@ -273,7 +308,7 @@
     async getFileHandle(name, options = {}) {
       const result = await callNative("directory-get-file", {
         token: this._token,
-        name: clampFilename(name, "frame.png"),
+        name: assertSafeLeafName(name),
         create: options.create === true,
       });
       return new NativeFileHandle(
@@ -291,7 +326,7 @@
       }
       await callNative("directory-remove-entry", {
         token: this._token,
-        name: clampFilename(name, "frame.png"),
+        name: assertSafeLeafName(name),
       });
     }
 
@@ -361,7 +396,7 @@
         await writable.abort(error).catch(() => undefined);
         throw error;
       }
-      showNativeStatus("Saved. Use File → Reveal Last Export in Finder.", "complete");
+      showNativeStatus("Saved. Use File → Reveal Last Saved File in Finder.", "complete");
     } catch (error) {
       if (error?.name === "AbortError") {
         showNativeStatus("Save cancelled. No file was written.", "quiet");
@@ -523,7 +558,7 @@
       projectBusy: raw?.projectBusy === true,
       saveState: VALID_SAVE_STATES.has(raw?.saveState) ? raw.saveState : "loading",
       lastNotice: typeof raw?.lastNotice === "string"
-        ? [...raw.lastNotice].slice(0, 2_000).join("")
+        ? [...raw.lastNotice].slice(0, 64).join("")
         : null,
     };
   }
