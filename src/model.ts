@@ -1,6 +1,7 @@
 export const SCHEMA_VERSION = 1 as const;
 export const ENGINE_VERSION = "1.0.0";
-export const SHADER_VERSION = "1.0.0";
+export const PRE_LIGHTING_SHADER_VERSION = "1.0.0";
+export const SHADER_VERSION = "1.1.0";
 export const THEME_VERSION = "1.0.0";
 export const LIGHTING_VERSION = 2 as const;
 

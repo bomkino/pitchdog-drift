@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SETTINGS,
   ENGINE_VERSION,
+  PRE_LIGHTING_SHADER_VERSION,
   SCHEMA_VERSION,
   SHADER_VERSION,
   clearPinnedAssetIfRemoved,
@@ -219,7 +220,23 @@ describe("validateStudioSettings", () => {
     expect(validateStudioSettings(source)).toEqual(source);
   });
 
-  it("rejects unsupported schema, engine, and shader versions", () => {
+  it("accepts only the pre-lighting shader as a migratable visual contract", () => {
+    const source = settings();
+    source.shaderVersion = PRE_LIGHTING_SHADER_VERSION;
+    source.slide.shadowOpacity = 0.47;
+    source.slide.shadowSoftness = 81;
+    delete source.lighting;
+
+    const result = validateStudioSettings(source);
+    expect(result.shaderVersion).toBe(SHADER_VERSION);
+    expect(result.lighting).toMatchObject({
+      preset: "custom",
+      shadowOpacity: 0.47,
+      shadowSoftness: 81,
+    });
+  });
+
+  it("rejects unsupported schema, engine, and unknown shader versions", () => {
     for (const [path, bad] of [
       ["schemaVersion", SCHEMA_VERSION + 1],
       ["engineVersion", `${ENGINE_VERSION}-future`],

@@ -393,8 +393,10 @@ export class CinematicCarousel {
     const shadowMaterial = createShadowMaterial();
     const slide = new THREE.Mesh(this.geometry, material);
     const shadow = new THREE.Mesh(this.geometry, shadowMaterial);
-    slide.renderOrder = index * 2 + 2;
-    shadow.renderOrder = index * 2 + 1;
+    // Analytical shadows are one global back layer. A cast from one card
+    // must never tint another card face in the transparent stack.
+    shadow.renderOrder = index + 1;
+    slide.renderOrder = MAX_POOL_SIZE + index + 1;
     shadow.position.set(0, 0, -8);
     group.add(shadow, slide);
     group.visible = false;
@@ -898,9 +900,11 @@ export class CinematicCarousel {
     shadowUniforms.uSmoothing!.value = this.settings.slide.smoothing;
     shadowUniforms.uSoftnessPx!.value = this.settings.lighting.shadowSoftness;
     shadowUniforms.uContactStrength!.value = this.settings.lighting.contactStrength;
-    shadowUniforms.uOpacity!.value = this.settings.lighting.enabled
+    const shadowOpacity = this.settings.lighting.enabled
       ? this.settings.lighting.shadowOpacity * evaluated.opacity
       : 0;
+    item.shadow.visible = shadowOpacity > 0.001;
+    shadowUniforms.uOpacity!.value = shadowOpacity;
 
     const assetKey = this.textureKey(asset);
     if (item.assetKey !== assetKey) {
@@ -992,7 +996,9 @@ export class CinematicCarousel {
     shadowUniforms.uSmoothing!.value = settings.smoothing;
     shadowUniforms.uSoftnessPx!.value = Math.max(2, this.settings.lighting.shadowSoftness * 0.92);
     shadowUniforms.uContactStrength!.value = this.settings.lighting.contactStrength * 0.9;
-    shadowUniforms.uOpacity!.value = this.settings.lighting.enabled ? settings.shadowOpacity : 0;
+    const presenterShadowOpacity = this.settings.lighting.enabled ? settings.shadowOpacity : 0;
+    this.presenterShadow.visible = presenterShadowOpacity > 0.001;
+    shadowUniforms.uOpacity!.value = presenterShadowOpacity;
   }
 
   private updateSettingsUniforms(): void {

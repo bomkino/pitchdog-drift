@@ -113,6 +113,8 @@ Every manual edit converts the recipe to `Custom rig`. Recipes vary attachment, 
 - No dynamic shadow-map allocation.
 - No extra scene render per light.
 - Existing bounded pool remains 24 moving slide groups plus the optional presenter.
+- Moving analytical shadows form one back layer beneath every moving card, so a cast cannot tint another slide face.
+- Disabled or effectively transparent shadow meshes are culled before rasterization.
 - Lighting uniforms update inside the existing render path.
 - H.264 remains opaque.
 - Transparent PNG output omits the full-screen background and spill but preserves compositable card and presenter shadows.
@@ -121,11 +123,11 @@ Every manual edit converts the recipe to `Custom rig`. Recipes vary attachment, 
 
 ## Portable-project compatibility
 
-The portable settings schema remains version 1 because the extension is additive. A project written before lighting existed has no `lighting` object. The validator hydrates the neutral Studio Soft rig and copies the project’s legacy slide shadow opacity and softness into it.
+The portable settings schema remains version 1 because the settings extension is additive, but the visual contract advances honestly to `SHADER_VERSION 1.1.0`. A current build accepts the single pre-lighting shader version, `1.0.0`, upgrades it to `1.1.0`, and rejects unknown shader versions. A pre-lighting build therefore refuses a new lighting project instead of pretending it can reproduce it.
 
-This bridge applies only when the complete lighting object is absent. If a project supplies a malformed or partial lighting object, validation fails visibly instead of inventing values.
+A project written before lighting existed has no `lighting` object. The validator copies its visible legacy slide shadow opacity and softness into the new rig and labels the result `Custom rig`; inherited values are not misrepresented as an untouched Studio Soft recipe. This bridge applies only when the complete lighting object is absent. A malformed supplied lighting object still fails visibly instead of receiving invented values.
 
-Legacy `slide.shadowOpacity` and `slide.shadowSoftness` remain in the schema for round-trip compatibility. New rendering and controls use the first-class lighting section.
+Legacy `slide.shadowOpacity` and `slide.shadowSoftness` remain in schema v1 for round-trip compatibility. Current rendering and controls use the first-class lighting section.
 
 ## Gauntlet gates
 

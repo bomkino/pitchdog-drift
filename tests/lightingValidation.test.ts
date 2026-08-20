@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SETTINGS,
   LIGHTING_VERSION,
+  PRE_LIGHTING_SHADER_VERSION,
+  SHADER_VERSION,
   cloneSettings,
 } from "../src/model";
 import {
@@ -35,15 +37,18 @@ function expectLightingInvalid(path: string, value: unknown): void {
 }
 
 describe("lighting settings trust boundary", () => {
-  it("hydrates pre-lighting schema-v1 projects from their visible legacy shadow values", () => {
+  it("upgrades pre-lighting schema-v1 projects as honest custom rigs", () => {
     const source = candidate();
+    source.shaderVersion = PRE_LIGHTING_SHADER_VERSION;
     source.slide.shadowOpacity = 0.61;
     source.slide.shadowSoftness = 73;
     delete source.lighting;
 
     const result = validateStudioSettings(source);
+    expect(result.shaderVersion).toBe(SHADER_VERSION);
     expect(result.lighting).toEqual({
       ...DEFAULT_SETTINGS.lighting,
+      preset: "custom",
       shadowOpacity: 0.61,
       shadowSoftness: 73,
     });

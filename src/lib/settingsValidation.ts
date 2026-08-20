@@ -2,6 +2,7 @@ import {
   DEFAULT_SETTINGS,
   ENGINE_VERSION,
   LIGHTING_VERSION,
+  PRE_LIGHTING_SHADER_VERSION,
   SCHEMA_VERSION,
   SHADER_VERSION,
   type StudioSettings,
@@ -153,6 +154,7 @@ const THEMES = [
   "chrome-dream",
 ] as const;
 const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
+const SUPPORTED_SHADER_VERSIONS = [PRE_LIGHTING_SHADER_VERSION, SHADER_VERSION] as const;
 
 /**
  * Validates the complete current settings schema and rebuilds it field by
@@ -167,7 +169,7 @@ export function validateStudioSettings(value: unknown): StudioSettings {
   const source = record(value, "settings");
   literal(source.schemaVersion, "settings.schemaVersion", SCHEMA_VERSION);
   literal(source.engineVersion, "settings.engineVersion", ENGINE_VERSION);
-  literal(source.shaderVersion, "settings.shaderVersion", SHADER_VERSION);
+  oneOf(source.shaderVersion, "settings.shaderVersion", SUPPORTED_SHADER_VERSIONS);
 
   const stage = record(source.stage, "settings.stage");
   const motion = record(source.motion, "settings.motion");
@@ -215,6 +217,7 @@ export function validateStudioSettings(value: unknown): StudioSettings {
   const lighting = source.lighting === undefined
     ? {
         ...DEFAULT_SETTINGS.lighting,
+        preset: "custom",
         shadowOpacity: slideShadowOpacity,
         shadowSoftness: slideShadowSoftness,
       }
