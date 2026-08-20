@@ -10,10 +10,10 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 
 ## What is here
 
-- Horizontal and vertical infinite tracks with straight, arc, ribbon, cylinder, and tunnel paths.
-- Drag, wheel, keyboard, autoplay, pause, reverse, inertia, and seamless-output lock.
+- Horizontal and vertical infinite tracks with ten tangent-led paths, from restrained strips to helix, orbit, figure eight, and switchback.
+- Drag, wheel, keyboard, autoplay, pause, reverse, four motion characters, and seamless-output lock.
 - Custom stage, output, slide, and pinned-frame ratios.
-- Cover/contain fit, focal point, scale, spacing, depth, tilt, velocity bend, continuous corners, borders, and shadows.
+- Cover/contain fit, focal point, scale, spacing, path depth and banking, four material deformations, continuous-corner thickness, borders, and shadows.
 - Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL.
 - Six authored motion worlds: Editorial Drift, Road Memory, Dread, Noir Contact, Tender Light, and Chrome Dream.
 - One optional pinned image or presenter video, off by default.
@@ -82,4 +82,4 @@ Fork it. Study it. Change it. Share the changes. Do not use the pitch.dog marks 
 
 ## Spatial fabric dynamics
 
-The `gauntlet/spatial-fabric-dynamics` line adds tangent-led spatial paths, four authored material surfaces, bounded inertial preview physics, and scene-space slide thickness while preserving timestamp-deterministic export. See [`docs/SPATIAL_FABRIC_GAUNTLET.md`](docs/SPATIAL_FABRIC_GAUNTLET.md) for the architecture, guardrails, and acceptance gates.
+The `gauntlet/spatial-fabric-dynamics` line adds ten tangent-led paths, four authored material surfaces, refresh-rate-invariant hand physics, analytic motion character in exported masters, and continuous-corner scene-space thickness while preserving timestamp-deterministic output. See [`docs/SPATIAL_FABRIC_GAUNTLET.md`](docs/SPATIAL_FABRIC_GAUNTLET.md) for the architecture, guardrails, and acceptance gates.

@@ -43,7 +43,7 @@ test("spatial controls form one tactile, pause-stable rendered system", async ({
   await waitForStudio(page);
   const canvas = page.locator("[data-testid=webgl-stage]");
   await page.getByRole("combobox", { name: "Path", exact: true }).selectOption("helix");
-  await page.getByRole("combobox", { name: "Physics", exact: true }).selectOption("spring");
+  await page.getByRole("combobox", { name: "Motion character", exact: true }).selectOption("spring");
   await openGroup(page, "Surface");
   await openGroup(page, "Atmosphere");
   await page.getByRole("combobox", { name: "Material", exact: true }).selectOption("silk");
@@ -104,8 +104,8 @@ test("spatial help copy explains consequences instead of exposing mystery knobs"
   await expect(page.getByText("Harder lateral reversals with depth carried through every turn."))
     .toBeVisible();
 
-  await page.getByRole("combobox", { name: "Physics", exact: true }).selectOption("drift");
-  await expect(page.getByText("Long coast and the least resistance after the hand lets go."))
+  await page.getByRole("combobox", { name: "Motion character", exact: true }).selectOption("drift");
+  await expect(page.getByText("Long hand coast; the master breathes broadly around its mean pace."))
     .toBeVisible();
 
   const surfaceGroup = page.locator("details").filter({

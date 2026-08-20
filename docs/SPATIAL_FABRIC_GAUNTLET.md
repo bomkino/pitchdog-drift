@@ -20,7 +20,7 @@ A director should be able to:
 
 1. Pick a film world and immediately see a coherent path, response, material,
    and edge depth.
-2. Drag or wheel the stage and feel the selected physics character in the hand.
+2. Drag or wheel the stage and feel the selected character in the hand, then see that character remain legible in the exported master.
 3. Pause and see the entire material freeze without a phase jump.
 4. Set `Curve`, `Depth`, `Banking`, `Fabric flex`, or `3D thickness` to zero and
    receive a truthful zero state.
@@ -72,10 +72,13 @@ bounded impulse model:
 - **Spring** — faster recovery with visible but bounded overshoot.
 - **Drift** — the longest coast and least resistance after release.
 
-Preview integration is semi-implicit and split into fixed substeps no larger
-than `1 / 120 s`. Frame gaps are capped. Velocity, acceleration, displacement,
-and release impulses are bounded relative to slide stride. Invalid values are
-sanitised before they can poison the render loop.
+Preview velocity and acceleration are solved as a bounded continuous
+second-order system. A closed-form 2 × 2 matrix exponential advances both the
+state and its displacement integral, so Direct, Weighted, Spring, and Drift
+converge to the same result at 60, 120, or 240 Hz instead of inheriting monitor
+cadence. Frame gaps, velocity, acceleration, displacement, and release impulses
+remain bounded relative to slide stride. Invalid values are sanitised before
+they can poison the render loop.
 
 Pause and reduced-motion preview are hard stops. Manual positioning remains
 available, but kinetic continuation does not sneak past the transport state.
@@ -160,10 +163,21 @@ only needs legible depth.
 
 Preview state never enters export.
 
-Export position and velocity remain analytic functions of settings and
-timestamp. Export acceleration is zero because the authored master travels at
-constant analytic velocity. Material airflow still responds to that velocity.
-Surface phase derives from analytic distance and track length.
+Export distance, velocity, and acceleration are analytic functions of settings
+and timestamp. The four motion characters alter cadence without altering
+average pace or final distance:
+
+- **Direct** keeps constant velocity.
+- **Weighted** starts and ends slower, gathering pace through the middle.
+- **Spring** adds a bounded two-beat velocity pulse.
+- **Drift** starts with a broad release and coasts through the centre.
+
+Each character is defined by a periodic displacement curve. At every whole
+master, offset returns to zero and the first two derivatives match across the
+cut. Seamless position, speed, fabric acceleration, and deformed-surface
+lighting therefore close together. Legacy schema-v1 projects missing the new
+fields hydrate to Direct, zero banking, Card, and zero thickness; they do not
+silently acquire a new physical treatment.
 
 Therefore:
 
@@ -171,7 +185,8 @@ Therefore:
 - Display refresh rate cannot alter an export.
 - A dropped preview frame cannot alter an export.
 - Pausing preview cannot alter an export.
-- Seamless start and end share the same path and surface pose.
+- Motion character is visible without becoming stateful.
+- Seamless start and end share path, velocity, acceleration, and surface pose.
 - Reduced-motion output returns static distance, velocity, acceleration, and
   fabric phase.
 
@@ -202,7 +217,9 @@ texture residency and logical slots, not scene-object count.
 - Honest curve/depth zero state.
 - Banking changes orientation but not path position.
 - Complete asset cycles at the wrap seam.
-- 60 / 120 / 240 Hz physics comparison.
+- Exact 60 / 120 / 240 Hz physics convergence.
+- Four distinct analytic export characters with exact ordinary and seamless end distance.
+- Seamless velocity and acceleration closure; no character reverses authored travel.
 - Invalid state, ten-second frame gaps, and extreme impulses.
 - Distinct drag response for all four physics characters.
 - Long-session coordinate rebasing.

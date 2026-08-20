@@ -1,14 +1,13 @@
 import * as THREE from "three";
 import type { StudioAsset, StudioSettings } from "../model";
 import {
-  distanceAtTime,
   evaluateSlide,
   getLogicalSlotCount,
   getSlideGeometry,
   isPotentiallyVisible,
-  velocityAtTime,
   type EvaluatedSlide,
 } from "./evaluate";
+import { evaluateExportMotion } from "./exportMotion";
 import {
   backgroundFragmentShader,
   backgroundVertexShader,
@@ -681,15 +680,20 @@ export class CinematicCarousel {
   renderAt(time: number): void {
     const geometry = getSlideGeometry(this.settings);
     const slotCount = getLogicalSlotCount(this.assets.length, geometry);
-    const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
-    const velocity = velocityAtTime(this.settings, slotCount, geometry.stride, true);
-    this.renderInternal(time, distance, velocity, true, 0);
+    const motion = evaluateExportMotion(this.settings, time, slotCount, geometry.stride);
+    this.renderInternal(
+      time,
+      motion.distance,
+      motion.velocity,
+      true,
+      motion.acceleration,
+    );
   }
 
   async renderAtAsync(time: number): Promise<void> {
     const geometry = getSlideGeometry(this.settings);
     const slotCount = getLogicalSlotCount(this.assets.length, geometry);
-    const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
+    const distance = evaluateExportMotion(this.settings, time, slotCount, geometry.stride).distance;
     const visible: VisibleItem[] = [];
     for (let logicalIndex = 0; logicalIndex < slotCount; logicalIndex += 1) {
       const asset = this.assets[logicalIndex % Math.max(1, this.assets.length)];

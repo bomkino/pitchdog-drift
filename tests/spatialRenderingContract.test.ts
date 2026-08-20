@@ -39,6 +39,8 @@ describe("spatial rendering contract", () => {
     expect(engineSource).toContain("createPoolItem(1000, false)");
     expect(engineSource).toContain("applyMotionImpulse");
     expect(engineSource).toContain("surfacePhaseAtDistance");
+    expect(engineSource).toContain("evaluateExportMotion");
+    expect(engineSource).toContain("motion.acceleration");
     expect(engineSource).not.toContain("new THREE.BoxGeometry");
     expect(engineSource).not.toContain("new THREE.MeshBasicMaterial");
     expect(engineSource).not.toContain("activeExportMode");

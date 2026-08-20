@@ -24,10 +24,10 @@ const PATH_NOTES: Readonly<Record<Flow, string>> = Object.freeze({
 });
 
 const DYNAMICS_NOTES: Readonly<Record<DynamicsMode, string>> = Object.freeze({
-  direct: "Immediate and restrained; the carousel stops close to the hand.",
-  weighted: "Measured inertia with a confident, editorial release.",
-  spring: "Sharper acceleration and a tactile elastic settle.",
-  drift: "Long coast and the least resistance after the hand lets go.",
+  direct: "Immediate hand response and an unwavering master cadence.",
+  weighted: "Measured hand inertia; the master gathers pace through its middle.",
+  spring: "Elastic hand response with a bounded two-beat pulse in the master.",
+  drift: "Long hand coast; the master breathes broadly around its mean pace.",
 });
 
 const SURFACE_NOTES: Readonly<Record<SurfaceMode, string>> = Object.freeze({
@@ -192,7 +192,7 @@ export function ControlPanel({
           onChange={(flow) => patch("motion", { flow })}
         />
         <SelectField
-          label="Physics"
+          label="Motion character"
           value={settings.motion.dynamics}
           options={[
             { value: "direct", label: "Direct" },

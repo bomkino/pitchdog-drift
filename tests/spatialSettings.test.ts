@@ -24,10 +24,10 @@ describe("spatial settings trust boundary", () => {
     delete legacy.slide.surface;
     delete legacy.slide.thickness;
     const validated = validateStudioSettings(legacy);
-    expect(validated.motion.dynamics).toBe(DEFAULT_SETTINGS.motion.dynamics);
-    expect(validated.motion.bank).toBe(DEFAULT_SETTINGS.motion.bank);
-    expect(validated.slide.surface).toBe(DEFAULT_SETTINGS.slide.surface);
-    expect(validated.slide.thickness).toBe(DEFAULT_SETTINGS.slide.thickness);
+    expect(validated.motion.dynamics).toBe("direct");
+    expect(validated.motion.bank).toBe(0);
+    expect(validated.slide.surface).toBe("card");
+    expect(validated.slide.thickness).toBe(0);
   });
 
   it("accepts every surfaced physics and material value", () => {

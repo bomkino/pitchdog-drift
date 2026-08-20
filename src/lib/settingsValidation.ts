@@ -4,7 +4,6 @@ import {
   SHADER_VERSION,
   MAX_SLIDE_THICKNESS,
   type StudioSettings,
-  DEFAULT_SETTINGS,
   type Flow,
   type DynamicsMode,
   type SurfaceMode,
@@ -14,6 +13,15 @@ import {
 function legacyExtension<T>(value: unknown, fallback: T): unknown | T {
   return value === undefined ? fallback : value;
 }
+
+// New projects start authored. Schema-v1 projects created before this branch
+// stay flat and constant-speed unless their director explicitly opts in.
+const LEGACY_SPATIAL_DEFAULTS = Object.freeze({
+  dynamics: "direct" as DynamicsMode,
+  bank: 0,
+  surface: "card" as SurfaceMode,
+  thickness: 0,
+});
 
 export const STUDIO_SETTINGS_LIMITS = Object.freeze({
   stageDimension: Object.freeze({ min: 256, max: 8_192 }),
@@ -211,12 +219,12 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       autoplay: boolean(motion.autoplay, "settings.motion.autoplay"),
       speed: number(motion.speed, "settings.motion.speed", { min: 0, max: 1.5 }),
       flow: oneOf(motion.flow, "settings.motion.flow", FLOWS),
-      dynamics: oneOf(legacyExtension(motion.dynamics, DEFAULT_SETTINGS.motion.dynamics), "settings.motion.dynamics", DYNAMICS),
+      dynamics: oneOf(legacyExtension(motion.dynamics, LEGACY_SPATIAL_DEFAULTS.dynamics), "settings.motion.dynamics", DYNAMICS),
       gap: number(motion.gap, "settings.motion.gap", { min: 0, max: 1.2 }),
       curvature: number(motion.curvature, "settings.motion.curvature", { min: 0, max: 1 }),
       depth: number(motion.depth, "settings.motion.depth", { min: 0, max: 0.8 }),
       tilt: number(motion.tilt, "settings.motion.tilt", { min: 0, max: 18 }),
-      bank: number(legacyExtension(motion.bank, DEFAULT_SETTINGS.motion.bank), "settings.motion.bank", { min: 0, max: 1 }),
+      bank: number(legacyExtension(motion.bank, LEGACY_SPATIAL_DEFAULTS.bank), "settings.motion.bank", { min: 0, max: 1 }),
       distortion: number(motion.distortion, "settings.motion.distortion", { min: 0, max: 1 }),
       focusScale: number(motion.focusScale, "settings.motion.focusScale", { min: 0, max: 0.24 }),
       edgeFade: number(motion.edgeFade, "settings.motion.edgeFade", { min: 0, max: 1 }),
@@ -238,8 +246,8 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       focalY: number(slide.focalY, "settings.slide.focalY", { min: 0, max: 1 }),
       radius: number(slide.radius, "settings.slide.radius", { min: 0, max: 180 }),
       smoothing: number(slide.smoothing, "settings.slide.smoothing", { min: 0, max: 1 }),
-      surface: oneOf(legacyExtension(slide.surface, DEFAULT_SETTINGS.slide.surface), "settings.slide.surface", SURFACES),
-      thickness: number(legacyExtension(slide.thickness, DEFAULT_SETTINGS.slide.thickness), "settings.slide.thickness", { min: 0, max: MAX_SLIDE_THICKNESS }),
+      surface: oneOf(legacyExtension(slide.surface, LEGACY_SPATIAL_DEFAULTS.surface), "settings.slide.surface", SURFACES),
+      thickness: number(legacyExtension(slide.thickness, LEGACY_SPATIAL_DEFAULTS.thickness), "settings.slide.thickness", { min: 0, max: MAX_SLIDE_THICKNESS }),
       borderWidth: number(slide.borderWidth, "settings.slide.borderWidth", { min: 0, max: 16 }),
       borderColor: hexColour(slide.borderColor, "settings.slide.borderColor"),
       borderOpacity: number(slide.borderOpacity, "settings.slide.borderOpacity", { min: 0, max: 1 }),
