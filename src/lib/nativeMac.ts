@@ -35,6 +35,20 @@ interface NativeMacRuntimeMarker {
   systemCodecsOnly: true;
 }
 
+interface NativeMacFileHandle extends FileSystemFileHandle {
+  _release?: () => Promise<void>;
+}
+
+interface NativeMacPickerWindow extends Window {
+  showOpenFilePicker?: (options?: {
+    multiple?: boolean;
+    types?: Array<{
+      description?: string;
+      accept: Record<string, string[]>;
+    }>;
+  }) => Promise<NativeMacFileHandle[]>;
+}
+
 declare global {
   interface Window {
     __DRIFT_NATIVE_MAC__?: Readonly<NativeMacRuntimeMarker>;
@@ -43,6 +57,36 @@ declare global {
     __driftNativeSaveBlob?: (blob: Blob, suggestedName: string) => Promise<void>;
   }
 }
+
+const NATIVE_PICKER_TYPES: Readonly<Record<NativeMacImportKind, ReadonlyArray<{
+  description: string;
+  accept: Record<string, string[]>;
+}>>> = Object.freeze({
+  slides: [{
+    description: "Pitch-deck images",
+    accept: {
+      "image/png": [".png"],
+      "image/jpeg": [".jpg", ".jpeg"],
+      "image/webp": [".webp"],
+      "image/avif": [".avif"],
+    },
+  }],
+  presenter: [{
+    description: "Presenter video",
+    accept: {
+      "video/mp4": [".mp4"],
+      "video/quicktime": [".mov"],
+      "video/webm": [".webm"],
+    },
+  }],
+  project: [{
+    description: "Drift portable project",
+    accept: {
+      "application/vnd.pitchdog.pitched+zip": [".pitched"],
+      "application/zip": [".pitched"],
+    },
+  }],
+});
 
 export function isNativeMacRuntime(): boolean {
   return typeof window !== "undefined"
@@ -68,6 +112,43 @@ export function reportNativeMacClientState(state: NativeMacClientState): void {
     // only a presence signal for diagnostics; the renderer keeps the real copy.
     lastNotice: state.lastNotice ? "present" : null,
   });
+}
+
+/**
+ * Returns null when Drift is running as an ordinary browser app, an empty list
+ * when the native panel was cancelled, and verified local Files after a native
+ * selection. Opaque native grants are released after their bytes are copied so
+ * repeated imports cannot exhaust the bridge's bounded grant table.
+ */
+export async function pickNativeMacFiles(
+  kind: NativeMacImportKind,
+  multiple = kind === "slides",
+): Promise<File[] | null> {
+  if (!isNativeMacRuntime()) return null;
+  const picker = (window as NativeMacPickerWindow).showOpenFilePicker;
+  if (typeof picker !== "function") return null;
+
+  let handles: NativeMacFileHandle[];
+  try {
+    handles = await picker({
+      multiple: kind === "slides" && multiple,
+      types: NATIVE_PICKER_TYPES[kind].map((type) => ({
+        description: type.description,
+        accept: { ...type.accept },
+      })),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return [];
+    throw error;
+  }
+
+  try {
+    return await Promise.all(handles.map((handle) => handle.getFile()));
+  } finally {
+    await Promise.allSettled(handles.map(async (handle) => {
+      if (typeof handle._release === "function") await handle._release();
+    }));
+  }
 }
 
 /**
