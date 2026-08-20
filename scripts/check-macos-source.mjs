@@ -214,9 +214,17 @@ requireMarkers("macos/App/NativeBridgeHost.swift", [
   "exportPowerAssertionActive",
 ]);
 requireMarkers("macos/App/DriftAppDelegate.swift", [
+  "private var trustedIndexURL: URL?",
+  "navigationAction.targetFrame?.isMainFrame == true",
+  "guard TrustedWebRuntime.acceptsMainFrameURL(webView.url, trustedIndexURL: trustedIndexURL)",
+  "receivedAuthoritativeClientState",
+  "scheduleRecoveryBudgetResetIfNeeded()",
+  ".now() + 30",
+  "didFailProvisionalNavigation",
   "webContentRecoveryPolicy.consumeAttempt()",
   "webContentRecoveryPolicy.reset()",
   "The visual engine stopped twice",
+  "Recovery stability countdown active",
   "Reveal Last Saved File in Finder",
 ]);
 requireMarkers("macos/App/NativeGauntlet.swift", [
@@ -318,5 +326,5 @@ requireMarkers(".github/workflows/macos-release.yml", [
 forbidMarkers(".github/workflows/macos-release.yml", ["ref: ${{ inputs.source_ref }}"]);
 
 console.log(
-  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge trust, export power activity, command parity, sandbox and codec boundaries, explicit native probes, one-attempt recovery wiring, and a non-publishing release-evidence lane.`,
+  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge and surface trust, export power activity, stable-incident recovery, command parity, sandbox and codec boundaries, explicit native probes, and a non-publishing release-evidence lane.`,
 );
