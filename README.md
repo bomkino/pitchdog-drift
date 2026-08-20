@@ -27,6 +27,14 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 
 Moving-track media is deliberately image-only in v1. One pinned video keeps decoder load, export timing, and failure states legible.
 
+## Directing path
+
+Drift has a fast route through the editor: **Slides → World → Direct → Master**. Apply one of 18 authored film worlds, choose a direction pressure, generate non-compounding takes, compare against clean glass, inspect deck health and social-safe guides, then resolve output readiness before export.
+
+Press `⌘/Ctrl + K` or `?` outside a text field to open **Director Commands**. Search in creator language—“variation”, “before after”, “social safe”, “output”, “undo”—instead of memorising panel architecture. A visible launcher keeps it discoverable for mouse and touch users.
+
+See [the creator journey](docs/CREATOR_JOURNEY.md).
+
 ## Run it
 
 Requirements: Node.js 22.12 or newer. Current desktop Chrome is the verified complete export path; Brave is a first-class target but remains capability-gated in this receipt.

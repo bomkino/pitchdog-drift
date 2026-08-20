@@ -1,14 +1,15 @@
 import { expect, test } from "@playwright/test";
 
-test("director command palette exposes the complete creator path", async ({ page }) => {
+test("director commands expose the complete creator path", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("canvas").first()).toBeVisible();
-  await page.keyboard.press("Control+K");
+  const launcher = page.getByRole("button", { name: /Commands/i });
+  await expect(launcher).toBeVisible();
+  await launcher.click();
   const dialog = page.getByRole("dialog", { name: "Director commands" });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("1 · Slides");
   await expect(dialog).toContainText("4 · Master");
-
   const search = page.getByRole("searchbox", { name: "Search director commands" });
   await search.fill("before after");
   await expect(page.getByRole("option", { name: /Compare against clean glass/i })).toBeVisible();
@@ -18,4 +19,8 @@ test("director command palette exposes the complete creator path", async ({ page
   await expect(page.getByRole("option", { name: /Review output readiness/i })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+  await expect(launcher).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("Control+K");
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
 });

@@ -19,13 +19,12 @@ export const DIRECTOR_COMMANDS: readonly DirectorCommand[] = [
     section: "Begin",
     keywords: ["import", "media", "deck", "images"],
     targets: ["Add slides", "Import slides", "Add media", "Media"],
-    mode: "click",
     shortcut: "A",
   },
   {
     id: "choose-world",
     title: "Choose a film world",
-    description: "Move to the authored worlds before touching individual knobs.",
+    description: "Start from one coherent world before touching individual knobs.",
     section: "Begin",
     keywords: ["theme", "genre", "look", "world"],
     targets: ["Worlds", "Film worlds", "Themes", "World"],
@@ -39,27 +38,24 @@ export const DIRECTOR_COMMANDS: readonly DirectorCommand[] = [
     section: "Direct",
     keywords: ["recut", "variation", "random", "take"],
     targets: ["New take", "Recut", "Another take"],
-    mode: "click",
     shortcut: "N",
   },
   {
     id: "clean-lens",
     title: "Compare against clean glass",
-    description: "Temporarily remove the optical treatment and judge what it is actually doing.",
+    description: "Remove the lens temporarily and judge what the treatment is actually doing.",
     section: "Review",
     keywords: ["before", "after", "compare", "lens", "clean"],
     targets: ["Clean lens", "Clean glass", "Compare clean", "Compare"],
-    mode: "click",
     shortcut: "\\",
   },
   {
     id: "playback",
     title: "Play or pause preview",
-    description: "Judge timing in motion, not from a flattering frozen frame.",
+    description: "Judge timing in motion rather than from a flattering frozen frame.",
     section: "Review",
     keywords: ["play", "pause", "motion", "preview"],
     targets: ["Pause preview", "Play preview", "Pause", "Play"],
-    mode: "click",
     shortcut: "Space",
   },
   {
@@ -69,7 +65,6 @@ export const DIRECTOR_COMMANDS: readonly DirectorCommand[] = [
     section: "Review",
     keywords: ["safe", "thirds", "social", "frame", "guides"],
     targets: ["Guides", "Cycle guides", "Composition guides"],
-    mode: "click",
     shortcut: "G",
   },
   {
@@ -89,7 +84,6 @@ export const DIRECTOR_COMMANDS: readonly DirectorCommand[] = [
     section: "Recover",
     keywords: ["back", "history", "undo"],
     targets: ["Undo"],
-    mode: "click",
     shortcut: "⌘Z",
   },
   {
@@ -99,7 +93,6 @@ export const DIRECTOR_COMMANDS: readonly DirectorCommand[] = [
     section: "Recover",
     keywords: ["forward", "history", "redo"],
     targets: ["Redo"],
-    mode: "click",
     shortcut: "⇧⌘Z",
   },
 ];
@@ -122,7 +115,10 @@ export function commandSearchText(command: DirectorCommand): string {
   ].join(" "));
 }
 
-export function rankDirectorCommands(query: string, commands: readonly DirectorCommand[] = DIRECTOR_COMMANDS): DirectorCommand[] {
+export function rankDirectorCommands(
+  query: string,
+  commands: readonly DirectorCommand[] = DIRECTOR_COMMANDS,
+): DirectorCommand[] {
   const normalized = normalizeCommandText(query);
   if (!normalized) return [...commands];
   const terms = normalized.split(" ").filter(Boolean);
@@ -165,16 +161,18 @@ function accessibleText(element: HTMLElement): string {
   ].join(" "));
 }
 
-function findTarget(candidates: readonly string[]): HTMLElement | null {
+function findTarget(command: DirectorCommand): HTMLElement | null {
+  const explicit = document.querySelector<HTMLElement>(`[data-director-command~='${command.id}']`);
+  if (explicit && visible(explicit)) return explicit;
   const elements = Array.from(document.querySelectorAll<HTMLElement>(
     "button, [role='button'], [role='tab'], summary, a[href], input, select, [tabindex]",
   )).filter(visible);
-  for (const candidate of candidates) {
+  for (const candidate of command.targets) {
     const expected = normalizeCommandText(candidate);
     const exact = elements.find((element) => accessibleText(element) === expected);
     if (exact) return exact;
   }
-  for (const candidate of candidates) {
+  for (const candidate of command.targets) {
     const expected = normalizeCommandText(candidate);
     const partial = elements.find((element) => accessibleText(element).includes(expected));
     if (partial) return partial;
@@ -183,25 +181,26 @@ function findTarget(candidates: readonly string[]): HTMLElement | null {
 }
 
 function runCommand(command: DirectorCommand): boolean {
-  if (command.id === "undo" || command.id === "redo") {
-    const target = findTarget(command.targets);
-    if (target) {
-      target.click();
+  const target = findTarget(command);
+  if (!target) {
+    if (command.id === "undo" || command.id === "redo") {
+      document.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "z",
+        metaKey: true,
+        ctrlKey: true,
+        shiftKey: command.id === "redo",
+        bubbles: true,
+      }));
       return true;
     }
-    document.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "z",
-      metaKey: true,
-      shiftKey: command.id === "redo",
-      bubbles: true,
-    }));
-    return true;
+    return false;
   }
-  const target = findTarget(command.targets);
-  if (!target) return false;
   target.scrollIntoView({ block: "center", behavior: "smooth" });
   target.focus({ preventScroll: true });
-  if ((command.mode ?? "click") === "click") target.click();
+  const activatesDestination = target.matches("button, [role='button'], [role='tab'], summary, a[href]");
+  if ((command.mode ?? "click") === "click" || activatesDestination) target.click();
+  target.dataset.directorTarget = "true";
+  window.setTimeout(() => delete target.dataset.directorTarget, 1800);
   return true;
 }
 
@@ -213,26 +212,31 @@ function installStyles(): void {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    .director-command-root { position: fixed; inset: 0; z-index: 10000; display: none; place-items: start center; padding: max(8vh, 56px) 18px 24px; background: rgba(5, 5, 7, .62); backdrop-filter: blur(18px) saturate(.82); }
+    .director-command-launcher { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); z-index: 9000; display: inline-flex; align-items: center; gap: 9px; min-height: 34px; padding: 0 11px; border: 1px solid rgba(255,255,255,.13); border-radius: 999px; background: rgba(16,16,19,.78); color: rgba(245,241,232,.76); box-shadow: 0 12px 36px rgba(0,0,0,.24); backdrop-filter: blur(14px); font: 650 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+    .director-command-launcher:hover, .director-command-launcher:focus-visible { color: #fffaf0; border-color: rgba(255,255,255,.27); outline: none; }
+    .director-command-launcher kbd { padding: 4px 6px; border: 1px solid rgba(255,255,255,.13); border-radius: 7px; background: rgba(255,255,255,.055); font: inherit; }
+    [data-director-target='true'] { outline: 2px solid rgba(255,235,194,.92) !important; outline-offset: 5px !important; }
+    .director-command-live { position: fixed; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .director-command-root { position: fixed; inset: 0; z-index: 10000; display: none; place-items: start center; padding: max(8vh, 56px) 18px 24px; background: rgba(5,5,7,.62); backdrop-filter: blur(18px) saturate(.82); }
     .director-command-root[data-open='true'] { display: grid; }
     .director-command-dialog { width: min(680px, 100%); max-height: min(78vh, 760px); overflow: hidden; border: 1px solid rgba(255,255,255,.16); border-radius: 24px; background: color-mix(in srgb, #151518 92%, transparent); color: #f5f1e8; box-shadow: 0 36px 120px rgba(0,0,0,.58); }
     .director-command-head { padding: 18px 18px 14px; border-bottom: 1px solid rgba(255,255,255,.1); }
     .director-command-kicker { margin: 0 0 8px; font: 600 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; opacity: .58; }
     .director-command-search { box-sizing: border-box; width: 100%; border: 0; outline: 0; background: transparent; color: inherit; font: 500 22px/1.25 system-ui, sans-serif; }
     .director-command-search::placeholder { color: rgba(245,241,232,.42); }
-    .director-command-path { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 10px 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
+    .director-command-path { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; padding: 10px 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
     .director-command-path span { padding: 7px 8px; border-radius: 999px; background: rgba(255,255,255,.055); font: 600 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .09em; text-align: center; text-transform: uppercase; opacity: .72; }
     .director-command-list { overflow: auto; max-height: 54vh; padding: 8px; }
     .director-command-item { display: grid; grid-template-columns: 1fr auto; gap: 16px; width: 100%; padding: 13px 12px; border: 0; border-radius: 15px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
     .director-command-item:hover, .director-command-item[aria-selected='true'] { background: rgba(255,255,255,.095); }
-    .director-command-title { display: block; font: 620 14px/1.3 system-ui, sans-serif; }
-    .director-command-description { display: block; margin-top: 3px; color: rgba(245,241,232,.58); font: 450 11px/1.45 system-ui, sans-serif; }
+    .director-command-title { display: block; font: 620 14px/1.3 system-ui,sans-serif; }
+    .director-command-description { display: block; margin-top: 3px; color: rgba(245,241,232,.58); font: 450 11px/1.45 system-ui,sans-serif; }
     .director-command-meta { align-self: center; display: flex; align-items: center; gap: 7px; }
-    .director-command-section, .director-command-key { border: 1px solid rgba(255,255,255,.12); border-radius: 999px; padding: 5px 7px; font: 600 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; opacity: .58; white-space: nowrap; }
-    .director-command-empty { padding: 34px 18px; text-align: center; color: rgba(245,241,232,.56); font: 500 12px/1.5 system-ui, sans-serif; }
-    .director-command-foot { display: flex; justify-content: space-between; gap: 12px; padding: 11px 18px 13px; border-top: 1px solid rgba(255,255,255,.08); color: rgba(245,241,232,.46); font: 500 9px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; }
-    @media (max-width: 620px) { .director-command-root { padding-top: 18px; } .director-command-dialog { border-radius: 20px; } .director-command-path { grid-template-columns: repeat(2, 1fr); } .director-command-meta { display: none; } }
-    @media (prefers-reduced-motion: reduce) { .director-command-root { backdrop-filter: none; } }
+    .director-command-section, .director-command-key { border: 1px solid rgba(255,255,255,.12); border-radius: 999px; padding: 5px 7px; font: 600 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing: .06em; text-transform: uppercase; opacity: .58; white-space: nowrap; }
+    .director-command-empty { padding: 34px 18px; text-align: center; color: rgba(245,241,232,.56); font: 500 12px/1.5 system-ui,sans-serif; }
+    .director-command-foot { display: flex; justify-content: space-between; gap: 12px; padding: 11px 18px 13px; border-top: 1px solid rgba(255,255,255,.08); color: rgba(245,241,232,.46); font: 500 9px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing: .06em; text-transform: uppercase; }
+    @media (max-width: 620px) { .director-command-root { padding-top: 18px; } .director-command-dialog { border-radius: 20px; } .director-command-path { grid-template-columns: repeat(2,1fr); } .director-command-meta { display: none; } .director-command-launcher span { display: none; } }
+    @media (prefers-reduced-motion: reduce) { .director-command-root, .director-command-launcher { backdrop-filter: none; } }
   `;
   document.head.append(style);
 }
@@ -248,16 +252,23 @@ export function installDirectorCommandPalette(): () => void {
     <section class="director-command-dialog" role="dialog" aria-modal="true" aria-label="Director commands">
       <header class="director-command-head">
         <p class="director-command-kicker">Director path · not another settings panel</p>
-        <input class="director-command-search" type="search" autocomplete="off" spellcheck="false" aria-label="Search director commands" placeholder="What are you trying to do?" />
+        <input class="director-command-search" type="search" autocomplete="off" spellcheck="false" aria-label="Search director commands" aria-controls="director-command-list" placeholder="What are you trying to do?" />
       </header>
-      <div class="director-command-path" aria-label="Recommended workflow">
-        <span>1 · Slides</span><span>2 · World</span><span>3 · Direct</span><span>4 · Master</span>
-      </div>
-      <div class="director-command-list" role="listbox" aria-label="Commands"></div>
+      <div class="director-command-path" aria-label="Recommended workflow"><span>1 · Slides</span><span>2 · World</span><span>3 · Direct</span><span>4 · Master</span></div>
+      <div id="director-command-list" class="director-command-list" role="listbox" aria-label="Commands"></div>
       <footer class="director-command-foot"><span>↑ ↓ choose · ↵ run</span><span>Esc closes · ⌘K opens</span></footer>
-    </section>
-  `;
-  document.body.append(root);
+    </section>`;
+  const launcher = document.createElement("button");
+  launcher.type = "button";
+  launcher.className = "director-command-launcher";
+  launcher.setAttribute("aria-haspopup", "dialog");
+  launcher.setAttribute("aria-expanded", "false");
+  launcher.innerHTML = `<span>Commands</span><kbd>⌘K</kbd>`;
+  const live = document.createElement("div");
+  live.className = "director-command-live";
+  live.setAttribute("role", "status");
+  live.setAttribute("aria-live", "polite");
+  document.body.append(root, launcher, live);
   const search = root.querySelector<HTMLInputElement>(".director-command-search")!;
   const list = root.querySelector<HTMLDivElement>(".director-command-list")!;
   let filtered = [...DIRECTOR_COMMANDS];
@@ -268,28 +279,30 @@ export function installDirectorCommandPalette(): () => void {
     filtered = rankDirectorCommands(search.value);
     selected = Math.max(0, Math.min(selected, Math.max(0, filtered.length - 1)));
     if (filtered.length === 0) {
-      list.innerHTML = `<div class="director-command-empty">No command matches. Try the outcome: “new take”, “clean lens”, “guides” or “output”.</div>`;
+      search.removeAttribute("aria-activedescendant");
+      list.innerHTML = `<div class="director-command-empty">No command matches. Try “new take”, “clean lens”, “guides” or “output”.</div>`;
       return;
     }
     list.innerHTML = filtered.map((command, index) => `
-      <button class="director-command-item" type="button" role="option" aria-selected="${index === selected}" data-command="${command.id}">
+      <button id="director-command-${command.id}" class="director-command-item" type="button" role="option" aria-selected="${index === selected}" data-command="${command.id}">
         <span><span class="director-command-title">${command.title}</span><span class="director-command-description">${command.description}</span></span>
         <span class="director-command-meta"><span class="director-command-section">${command.section}</span>${command.shortcut ? `<span class="director-command-key">${command.shortcut}</span>` : ""}</span>
-      </button>
-    `).join("");
+      </button>`).join("");
+    search.setAttribute("aria-activedescendant", `director-command-${filtered[selected]!.id}`);
     list.querySelector<HTMLElement>(`[data-command='${filtered[selected]!.id}']`)?.scrollIntoView({ block: "nearest" });
   };
-
   const close = (): void => {
     root.dataset.open = "false";
+    launcher.setAttribute("aria-expanded", "false");
     search.value = "";
     selected = 0;
     returnFocus?.focus({ preventScroll: true });
     returnFocus = null;
   };
   const open = (): void => {
-    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : launcher;
     root.dataset.open = "true";
+    launcher.setAttribute("aria-expanded", "true");
     render();
     requestAnimationFrame(() => search.focus());
   };
@@ -297,14 +310,16 @@ export function installDirectorCommandPalette(): () => void {
     close();
     requestAnimationFrame(() => {
       if (!runCommand(command)) {
+        live.textContent = `${command.title} is unavailable in the current project state.`;
         window.dispatchEvent(new CustomEvent("drift:director-command-missed", { detail: command.id }));
         open();
         search.value = command.title;
         render();
+        return;
       }
+      live.textContent = `${command.title} opened.`;
     });
   };
-
   const onInput = (): void => { selected = 0; render(); };
   const onClick = (event: MouseEvent): void => {
     if (event.target === root) { close(); return; }
@@ -323,19 +338,31 @@ export function installDirectorCommandPalette(): () => void {
     }
     if (root.dataset.open !== "true") return;
     if (event.key === "Escape") { event.preventDefault(); close(); return; }
+    if (event.key === "Tab") {
+      const focusable = Array.from(root.querySelectorAll<HTMLElement>("input, button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")).filter(visible);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (first && last && event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (first && last && !event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      return;
+    }
     if (event.key === "ArrowDown") { event.preventDefault(); selected = Math.min(filtered.length - 1, selected + 1); render(); return; }
     if (event.key === "ArrowUp") { event.preventDefault(); selected = Math.max(0, selected - 1); render(); return; }
     if (event.key === "Enter" && filtered[selected]) { event.preventDefault(); execute(filtered[selected]!); }
   };
+  const onLauncherClick = (): void => open();
+  launcher.addEventListener("click", onLauncherClick);
   search.addEventListener("input", onInput);
   root.addEventListener("click", onClick);
   document.addEventListener("keydown", onKeydown);
   render();
-
   return () => {
+    launcher.removeEventListener("click", onLauncherClick);
     search.removeEventListener("input", onInput);
     root.removeEventListener("click", onClick);
     document.removeEventListener("keydown", onKeydown);
     root.remove();
+    launcher.remove();
+    live.remove();
   };
 }
