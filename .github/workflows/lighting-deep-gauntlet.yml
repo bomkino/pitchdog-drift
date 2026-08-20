@@ -61,8 +61,22 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run complete real-browser gauntlet
-        run: npm run test:e2e
+      - name: Run ordinary real-browser gauntlet
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/ordinary
+        run: >-
+          npm run test:e2e --
+          --grep-invert "saved starter studies remain replaceable|a slow older autosave cannot overwrite"
+          --output=test-results/ordinary
+
+      - name: Run multi-context persistence races with scoped budget
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/persistence
+        run: >-
+          npm run test:e2e --
+          --grep "saved starter studies remain replaceable|a slow older autosave cannot overwrite"
+          --timeout=180000
+          --output=test-results/persistence
 
       - name: Preserve browser evidence
         if: always()
