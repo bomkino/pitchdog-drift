@@ -1,5 +1,20 @@
 import type { CSSProperties } from "react";
+import {
+  BACKGROUND_SCENES,
+  activeBackgroundSceneId,
+  applyBackgroundScene,
+  getBackgroundScene,
+  recutBackgroundSeed,
+  type BackgroundSceneId,
+} from "../backgrounds";
 import type { StudioSettings, ThemeId } from "../model";
+import {
+  OPTICS_PRESETS,
+  activeOpticsPresetId,
+  applyOpticsPreset,
+  getOpticsPreset,
+  type OpticsPresetId,
+} from "../optics";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
 
@@ -40,6 +55,10 @@ export function ControlPanel({
     });
   };
   const stageLabel = `${settings.stage.width}:${settings.stage.height}`;
+  const backgroundSceneId = activeBackgroundSceneId(settings.background);
+  const backgroundScene = backgroundSceneId ? getBackgroundScene(backgroundSceneId) : null;
+  const opticsPresetId = activeOpticsPresetId(settings);
+  const opticsPreset = opticsPresetId ? getOpticsPreset(opticsPresetId) : null;
 
   return (
     <aside className="inspector" aria-label="Director controls" aria-busy={exporting} inert={exporting}>
@@ -54,7 +73,7 @@ export function ControlPanel({
       <section className="theme-section" aria-labelledby="themes-title">
         <div className="section-heading-row">
           <h3 id="themes-title">Film worlds</h3>
-          <span>6</span>
+          <span>{THEMES.length}</span>
         </div>
         <div className="theme-grid">
           {THEMES.map((theme) => (
@@ -65,6 +84,7 @@ export function ControlPanel({
               key={theme.id}
               onClick={() => onTheme(theme.id)}
               aria-pressed={settings.themeId === theme.id}
+              title={theme.description}
               style={{ "--theme-a": theme.settings.background.colorA, "--theme-b": theme.settings.background.accent } as CSSProperties}
             >
               <span className="theme-swatch" aria-hidden="true" />
@@ -150,15 +170,58 @@ export function ControlPanel({
           ]}
           onChange={(flow) => patch("motion", { flow })}
         />
+        <SwitchField label="Autoplay" checked={settings.motion.autoplay} hint="Drag, wheel, arrows, and pause remain available." onChange={(autoplay) => patch("motion", { autoplay })} />
         <RangeField label="Speed" value={settings.motion.speed} min={0} max={1.5} step={0.01} decimals={2} unit="×" onChange={(speed) => patch("motion", { speed })} />
         <RangeField label="Curve" value={settings.motion.curvature * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("motion", { curvature: value / 100 })} />
         <RangeField label="Depth" value={settings.motion.depth * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("motion", { depth: value / 100 })} />
         <RangeField label="Tilt" value={settings.motion.tilt} min={0} max={18} step={0.5} decimals={1} unit="°" onChange={(tilt) => patch("motion", { tilt })} />
-        <RangeField label="Optical bend" value={settings.motion.distortion * 100} min={0} max={100} step={1} unit="%" hint="Velocity drives shader deformation; still frames return crisp." onChange={(value) => patch("motion", { distortion: value / 100 })} />
-        <RangeField label="Focus lift" value={settings.motion.focusScale * 100} min={0} max={24} step={1} unit="%" onChange={(value) => patch("motion", { focusScale: value / 100 })} />
+        <RangeField label="Drag weight" value={settings.motion.dragSensitivity} min={0} max={4} step={0.05} decimals={2} unit="×" hint="Pointer and wheel response only; export timing stays deterministic." onChange={(dragSensitivity) => patch("motion", { dragSensitivity })} />
         <SwitchField label="Seamless export lock" checked={settings.motion.seamless} hint="Forces whole loops across master duration." onChange={(seamless) => patch("motion", { seamless })} />
         {settings.motion.seamless ? <RangeField label="Loops per master" value={settings.motion.seamlessLoops} min={1} max={6} step={1} onChange={(seamlessLoops) => patch("motion", { seamlessLoops })} /> : null}
         <SwitchField label="Reduced-motion master" checked={settings.motion.reducedMotionOutput} hint="Independent from your OS preview preference." onChange={(reducedMotionOutput) => patch("motion", { reducedMotionOutput })} />
+      </InspectorGroup>
+
+      <InspectorGroup title="Optics" eyebrow={opticsPreset?.name ?? "CUSTOM"} open>
+        <SelectField<string>
+          label="Lens character"
+          value={opticsPresetId ?? "custom"}
+          options={[
+            { value: "custom", label: "Custom" },
+            ...OPTICS_PRESETS.map((preset) => ({ value: preset.id, label: `${preset.name} · ${preset.eyebrow}` })),
+          ]}
+          onChange={(value) => {
+            if (value === "custom") return;
+            onSettings(applyOpticsPreset(settings, getOpticsPreset(value as OpticsPresetId)));
+          }}
+        />
+        {opticsPreset ? (
+          <div className="output-spec">
+            <span>{opticsPreset.eyebrow}</span>
+            <strong>{opticsPreset.name}</strong>
+            <small>{opticsPreset.description}</small>
+          </div>
+        ) : null}
+        <RangeField
+          label="Lens energy"
+          value={settings.motion.distortion * 100}
+          min={0}
+          max={100}
+          step={1}
+          unit="%"
+          hint="One bounded optical system: geometric bend, velocity blur, and chromatic fringe. At rest, the focal slide returns crisp."
+          onChange={(value) => patch("motion", { distortion: value / 100 })}
+        />
+        <RangeField
+          label="Peripheral softness"
+          value={settings.motion.edgeFade * 100}
+          min={0}
+          max={100}
+          step={1}
+          unit="%"
+          hint="Fades and softly defocuses frames away from the visual centre."
+          onChange={(value) => patch("motion", { edgeFade: value / 100 })}
+        />
+        <RangeField label="Focus lift" value={settings.motion.focusScale * 100} min={0} max={24} step={1} unit="%" onChange={(value) => patch("motion", { focusScale: value / 100 })} />
       </InspectorGroup>
 
       <InspectorGroup title="Surface" eyebrow={`${Math.round(settings.slide.smoothing * 100)}% smoothing`}>
@@ -174,17 +237,41 @@ export function ControlPanel({
         <RangeField label="Shadow softness" value={settings.slide.shadowSoftness} min={4} max={96} step={1} unit=" px" onChange={(shadowSoftness) => patch("slide", { shadowSoftness })} />
       </InspectorGroup>
 
-      <InspectorGroup title="Atmosphere" eyebrow={settings.background.style}>
+      <InspectorGroup title="Atmosphere" eyebrow={backgroundScene?.name ?? "CUSTOM"}>
+        <SelectField<string>
+          label="Authored scene"
+          value={backgroundSceneId ?? "custom"}
+          options={[
+            { value: "custom", label: "Custom" },
+            ...BACKGROUND_SCENES.map((scene) => ({ value: scene.id, label: `${scene.name} · ${scene.eyebrow}` })),
+          ]}
+          onChange={(value) => {
+            if (value === "custom") return;
+            onSettings(applyBackgroundScene(settings, getBackgroundScene(value as BackgroundSceneId)));
+          }}
+        />
+        {backgroundScene ? (
+          <div className="output-spec">
+            <span>{backgroundScene.eyebrow}</span>
+            <strong>{backgroundScene.name}</strong>
+            <small>{backgroundScene.description}</small>
+          </div>
+        ) : null}
+        <div className="project-actions">
+          <button type="button" onClick={() => patch("background", { seed: recutBackgroundSeed(settings.background.seed) })}>
+            Recut atmosphere
+          </button>
+        </div>
         <SelectField
           label="Background"
           value={settings.background.style}
           options={[
             { value: "transparent", label: "Transparent" },
-            { value: "solid", label: "Solid" },
-            { value: "gradient", label: "Gradient" },
-            { value: "aura", label: "Soft aura" },
-            { value: "paper", label: "Paper field" },
-            { value: "void", label: "Breathing void" },
+            { value: "solid", label: "Solid chamber" },
+            { value: "gradient", label: "Horizon field" },
+            { value: "aura", label: "Light and fog" },
+            { value: "paper", label: "Photochemical surface" },
+            { value: "void", label: "Dark phenomena" },
           ]}
           onChange={(style) => onSettings({ ...settings, stage: { ...settings.stage, transparent: style === "transparent" }, background: { ...settings.background, style } })}
         />
@@ -192,8 +279,8 @@ export function ControlPanel({
         <ColorField label="Field" value={settings.background.colorB} onChange={(colorB) => patch("background", { colorB })} />
         <ColorField label="Light" value={settings.background.accent} onChange={(accent) => patch("background", { accent })} />
         <RangeField label="Intensity" value={settings.background.intensity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { intensity: value / 100 })} />
-        <RangeField label="Background breath" value={settings.background.motion * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { motion: value / 100 })} />
-        <RangeField label="Grain" value={settings.background.grain * 100} min={0} max={60} step={1} unit="%" onChange={(value) => patch("background", { grain: value / 100 })} />
+        <RangeField label="Background breath" value={settings.background.motion * 100} min={0} max={100} step={1} unit="%" hint="Slow phase only. Export loops still close exactly." onChange={(value) => patch("background", { motion: value / 100 })} />
+        <RangeField label="Grain" value={settings.background.grain * 100} min={0} max={60} step={1} unit="%" hint="The slide surface keeps its own much finer, fixed-strength texture." onChange={(value) => patch("background", { grain: value / 100 })} />
         <RangeField label="Vignette" value={settings.background.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { vignette: value / 100 })} />
       </InspectorGroup>
 

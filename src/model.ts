@@ -8,7 +8,19 @@ export type Direction = 1 | -1;
 export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel";
 export type ImageFit = "cover" | "contain";
 export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
-export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
+export type ThemeId =
+  | "editorial-drift"
+  | "road-memory"
+  | "dread"
+  | "noir-contact"
+  | "tender-light"
+  | "chrome-dream"
+  | "archive-fever"
+  | "neon-motel"
+  | "alpine-silence"
+  | "ritual-ember"
+  | "ocean-memory"
+  | "daybreak-comedy";
 
 export interface StageSettings {
   width: number;

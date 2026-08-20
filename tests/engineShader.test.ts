@@ -23,6 +23,48 @@ describe("custom shader output contract", () => {
     expect(slideFragmentShader).toContain("scale.y = planeAspect / imageAspect");
     expect(slideFragmentShader).toContain("scale.x = imageAspect / planeAspect");
   });
+
+  it("keeps cinematic optics bounded, velocity-aware, and legible at rest", () => {
+    expect(slideFragmentShader).toContain("float motionBlurPx = min(5.0");
+    expect(slideFragmentShader).toContain("float defocusPx = min(3.5");
+    expect(slideFragmentShader).toContain("float chromaPx = min(2.8");
+    expect(slideFragmentShader).toContain("if (motionBlurPx + defocusPx > 0.05)");
+    expect(slideFragmentShader).toContain("speed * clamp(uDistortion");
+  });
+
+  it("pins microtexture to each slide instead of flickering it over time", () => {
+    expect(slideFragmentShader).toContain("vec2 grainCoordinate = vUv * uSizePx");
+    expect(slideFragmentShader).not.toContain("grainDrift");
+  });
+
+  it("never relies on undefined reversed-edge smoothstep calls", () => {
+    const shaders = `${slideFragmentShader}
+${backgroundFragmentShader}`;
+    const numericCalls = [...shaders.matchAll(/smoothstep\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),/g)];
+    expect(numericCalls.length).toBeGreaterThan(0);
+    for (const call of numericCalls) expect(Number(call[1])).toBeLessThan(Number(call[2]));
+  });
+
+  it("routes atmosphere motion through exact cyclic coordinates", () => {
+    expect(backgroundFragmentShader).toContain("float cycle = uPhase");
+    expect(backgroundFragmentShader).toContain("vec2 loopA = vec2(cos(cycle), sin(cycle))");
+    expect(backgroundFragmentShader).toContain("vec2 loopB = vec2(cos(cycle * 2.0 + 1.7), sin(cycle * 2.0 + 1.7))");
+    const bodyAfterCycleVectors = backgroundFragmentShader.slice(
+      backgroundFragmentShader.indexOf("float variant = mod"),
+    );
+    expect(bodyAfterCycleVectors).not.toMatch(/\bcycle\b/);
+    expect(bodyAfterCycleVectors).not.toContain("uPhase");
+  });
+
+  it("uses every background family as a four-recipe procedural corpus", () => {
+    expect(backgroundFragmentShader).toContain("float variant = mod(floor(abs(uSeed)), 4.0)");
+    expect(backgroundFragmentShader).toContain("// SOLID FAMILY");
+    expect(backgroundFragmentShader).toContain("// GRADIENT FAMILY");
+    expect(backgroundFragmentShader).toContain("// AURA FAMILY");
+    expect(backgroundFragmentShader).toContain("// PAPER FAMILY");
+    expect(backgroundFragmentShader).toContain("// VOID FAMILY");
+    expect(backgroundFragmentShader).toContain("smoothstep(0.18, 0.92, vignetteRadius)");
+  });
 });
 
 describe("export surface preflight", () => {

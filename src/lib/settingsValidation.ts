@@ -117,6 +117,12 @@ const THEMES = [
   "noir-contact",
   "tender-light",
   "chrome-dream",
+  "archive-fever",
+  "neon-motel",
+  "alpine-silence",
+  "ritual-ember",
+  "ocean-memory",
+  "daybreak-comedy",
 ] as const;
 const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
 

@@ -66,8 +66,8 @@ describe("validateStudioSettings", () => {
     expect(source.motion.speed).toBe(DEFAULT_SETTINGS.motion.speed);
   });
 
-  it("accepts all six current film-world themes", () => {
-    expect(THEMES).toHaveLength(6);
+  it("accepts all twelve current film-world themes", () => {
+    expect(THEMES).toHaveLength(12);
     for (const theme of THEMES) {
       expect(validateStudioSettings(theme.settings)).toEqual(theme.settings);
     }
@@ -75,7 +75,20 @@ describe("validateStudioSettings", () => {
 
   it("accepts every current enum and frame-rate choice", () => {
     const choices: Array<[string, readonly (string | number)[]]> = [
-      ["themeId", ["editorial-drift", "road-memory", "dread", "noir-contact", "tender-light", "chrome-dream"]],
+      ["themeId", [
+        "editorial-drift",
+        "road-memory",
+        "dread",
+        "noir-contact",
+        "tender-light",
+        "chrome-dream",
+        "archive-fever",
+        "neon-motel",
+        "alpine-silence",
+        "ritual-ember",
+        "ocean-memory",
+        "daybreak-comedy",
+      ]],
       ["motion.axis", ["horizontal", "vertical"]],
       ["motion.direction", [-1, 1]],
       ["motion.flow", ["straight", "arc", "ribbon", "cylinder", "tunnel"]],
