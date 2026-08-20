@@ -107,9 +107,10 @@ struct DriftMain {
             return 1
         }
 
+        let expectedRevisionLine = "source_revision=\(driftSourceRevision())"
         guard let receiptURL = Bundle.main.url(forResource: "BuildReceipt", withExtension: "txt"),
               let receipt = try? String(contentsOf: receiptURL, encoding: .utf8),
-              receipt.split(separator: "\n").contains("source_revision=\(driftSourceRevision())") else {
+              receipt.split(separator: "\n").contains(where: { $0 == expectedRevisionLine }) else {
             fputs("Drift smoke test failed: Info.plist and build-receipt source revisions disagree.\n", stderr)
             return 1
         }
