@@ -134,6 +134,14 @@
   line-height: 1.5;
 }
 
+.cadence-receipt {
+  margin-top: 8px;
+  border-color: rgba(225, 155, 106, 0.18);
+  background:
+    linear-gradient(135deg, rgba(225, 155, 106, 0.055), transparent 58%),
+    rgba(0, 0, 0, 0.16);
+}
+
 .output-shortcuts {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -385,6 +393,44 @@
 
 .media-library {
   position: relative;
+}
+
+.media-diagnostic {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr);
+  gap: 2px 8px;
+  margin: 0 12px 10px;
+  padding: 8px 9px;
+  border: 1px solid rgba(238, 234, 223, 0.07);
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.media-diagnostic > span {
+  grid-row: 1 / span 2;
+  align-self: start;
+  width: 5px;
+  height: 5px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: #72906e;
+  box-shadow: 0 0 0 3px rgba(114, 144, 110, 0.09);
+}
+
+.media-diagnostic[data-level="note"] > span {
+  background: #a37c55;
+  box-shadow: 0 0 0 3px rgba(163, 124, 85, 0.09);
+}
+
+.media-diagnostic strong {
+  color: #aaa297;
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.media-diagnostic small {
+  color: #5e5952;
+  font-size: 7px;
+  line-height: 1.45;
 }
 
 .media-drop-target {
