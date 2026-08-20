@@ -7,6 +7,7 @@ import {
   getSlideGeometry,
   isPotentiallyVisible,
   velocityAtTime,
+  velocityForPreview,
   type EvaluatedSlide,
 } from "./evaluate";
 import {
@@ -592,16 +593,15 @@ export class CinematicCarousel {
 
   renderAt(time: number): void {
     const geometry = getSlideGeometry(this.settings);
-    const slotCount = getLogicalSlotCount(this.assets.length, geometry);
-    const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
-    const velocity = velocityAtTime(this.settings, slotCount, geometry.stride, true);
+    const distance = distanceAtTime(this.settings, time, this.assets.length, geometry.stride, true);
+    const velocity = velocityAtTime(this.settings, this.assets.length, geometry.stride, true);
     this.renderInternal(time, distance, velocity, true);
   }
 
   async renderAtAsync(time: number): Promise<void> {
     const geometry = getSlideGeometry(this.settings);
     const slotCount = getLogicalSlotCount(this.assets.length, geometry);
-    const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
+    const distance = distanceAtTime(this.settings, time, this.assets.length, geometry.stride, true);
     const visible: VisibleItem[] = [];
     for (let logicalIndex = 0; logicalIndex < slotCount; logicalIndex += 1) {
       const asset = this.assets[logicalIndex % Math.max(1, this.assets.length)];
@@ -671,7 +671,9 @@ export class CinematicCarousel {
   private advanceMotion(delta: number): void {
     const geometry = getSlideGeometry(this.settings);
     const autoplay = this.settings.motion.autoplay && !this.paused && !this.reducedMotionPreview;
-    const desiredVelocity = autoplay ? this.settings.motion.direction * this.settings.motion.speed * geometry.stride : 0;
+    const desiredVelocity = autoplay
+      ? velocityForPreview(this.settings, this.assets.length, geometry.stride)
+      : 0;
     if (!this.dragging) {
       const response = 1 - Math.exp(-delta * (autoplay ? 4.8 : 7.5));
       this.motionVelocity += (desiredVelocity - this.motionVelocity) * response;
@@ -758,7 +760,10 @@ export class CinematicCarousel {
     uniforms.uVelocity!.value = velocity;
     uniforms.uDistortion!.value = this.settings.motion.distortion;
     uniforms.uAxis!.value = this.settings.motion.axis === "horizontal" ? 0 : 1;
-    uniforms.uPhase!.value = logicalIndex;
+    // Virtual padding instances repeat source slides. Their optical phase must
+    // repeat with the source asset too, otherwise an asset-count loop closes in
+    // position but not in mesh deformation.
+    uniforms.uPhase!.value = logicalIndex % Math.max(1, this.assets.length);
     uniforms.uTime!.value = time;
 
     const shadowUniforms = item.shadowMaterial.uniforms;
