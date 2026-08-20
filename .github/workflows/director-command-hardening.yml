@@ -1,0 +1,250 @@
+name: Harden director command surface
+
+on:
+  push:
+    branches: [gauntlet/directors-cut-optical-pipeline]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: director-command-hardening
+  cancel-in-progress: false
+
+jobs:
+  harden:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out latest source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/directors-cut-optical-pipeline
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Wait for the command surface and harden it
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            git fetch origin gauntlet/directors-cut-optical-pipeline
+            if git cat-file -e origin/gauntlet/directors-cut-optical-pipeline:src/lib/directorCommands.ts 2>/dev/null; then
+              git reset --hard origin/gauntlet/directors-cut-optical-pipeline
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "Director command surface never appeared on the branch." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/lib/directorCommands.ts')
+          text = path.read_text()
+
+          old = '''            target.scrollIntoView({ block: "center", behavior: "smooth" });
+            target.focus({ preventScroll: true });
+            if ((command.mode ?? "click") === "click") target.click();
+            return true;'''
+          new = '''            target.scrollIntoView({ block: "center", behavior: "smooth" });
+            target.focus({ preventScroll: true });
+            const activatesDestination = target.matches("button, [role='button'], [role='tab'], summary, a[href]");
+            if ((command.mode ?? "click") === "click" || activatesDestination) target.click();
+            target.dataset.directorTarget = "true";
+            window.setTimeout(() => delete target.dataset.directorTarget, 1800);
+            return true;'''
+          if old not in text:
+              raise SystemExit('Target activation anchor not found')
+          text = text.replace(old, new)
+
+          old = '''              .director-command-root { position: fixed; inset: 0; z-index: 10000; display: none; place-items: start center; padding: max(8vh, 56px) 18px 24px; background: rgba(5, 5, 7, .62); backdrop-filter: blur(18px) saturate(.82); }'''
+          new = '''              .director-command-launcher { position: fixed; right: 16px; bottom: 16px; z-index: 9000; display: inline-flex; align-items: center; gap: 9px; min-height: 34px; padding: 0 11px; border: 1px solid rgba(255,255,255,.13); border-radius: 999px; background: rgba(16,16,19,.78); color: rgba(245,241,232,.76); box-shadow: 0 12px 36px rgba(0,0,0,.24); backdrop-filter: blur(14px); font: 650 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+              .director-command-launcher:hover, .director-command-launcher:focus-visible { color: #fffaf0; border-color: rgba(255,255,255,.27); outline: none; }
+              .director-command-launcher kbd { padding: 4px 6px; border: 1px solid rgba(255,255,255,.13); border-radius: 7px; background: rgba(255,255,255,.055); font: inherit; }
+              [data-director-target='true'] { outline: 2px solid rgba(255,235,194,.92) !important; outline-offset: 5px !important; }
+              .director-command-live { position: fixed; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+              .director-command-root { position: fixed; inset: 0; z-index: 10000; display: none; place-items: start center; padding: max(8vh, 56px) 18px 24px; background: rgba(5, 5, 7, .62); backdrop-filter: blur(18px) saturate(.82); }'''
+          if old not in text:
+              raise SystemExit('Style anchor not found')
+          text = text.replace(old, new)
+
+          old = '''            document.body.append(root);
+            const search = root.querySelector<HTMLInputElement>(".director-command-search")!;'''
+          new = '''            document.body.append(root);
+            const launcher = document.createElement("button");
+            launcher.type = "button";
+            launcher.className = "director-command-launcher";
+            launcher.setAttribute("aria-haspopup", "dialog");
+            launcher.setAttribute("aria-expanded", "false");
+            launcher.innerHTML = `<span>Commands</span><kbd>⌘K</kbd>`;
+            const live = document.createElement("div");
+            live.className = "director-command-live";
+            live.setAttribute("role", "status");
+            live.setAttribute("aria-live", "polite");
+            document.body.append(launcher, live);
+            const search = root.querySelector<HTMLInputElement>(".director-command-search")!;'''
+          if old not in text:
+              raise SystemExit('Launcher anchor not found')
+          text = text.replace(old, new)
+
+          old = '''            const close = (): void => {
+              root.dataset.open = "false";
+              search.value = "";'''
+          new = '''            const close = (): void => {
+              root.dataset.open = "false";
+              launcher.setAttribute("aria-expanded", "false");
+              search.value = "";'''
+          if old not in text:
+              raise SystemExit('Close anchor not found')
+          text = text.replace(old, new)
+
+          old = '''            const open = (): void => {
+              returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+              root.dataset.open = "true";
+              render();'''
+          new = '''            const open = (): void => {
+              returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+              root.dataset.open = "true";
+              launcher.setAttribute("aria-expanded", "true");
+              render();'''
+          if old not in text:
+              raise SystemExit('Open anchor not found')
+          text = text.replace(old, new)
+
+          old = '''            const execute = (command: DirectorCommand): void => {
+              close();
+              requestAnimationFrame(() => {
+                if (!runCommand(command)) {
+                  window.dispatchEvent(new CustomEvent("drift:director-command-missed", { detail: command.id }));
+                  open();
+                  search.value = command.title;
+                  render();
+                }
+              });
+            };'''
+          new = '''            const execute = (command: DirectorCommand): void => {
+              close();
+              requestAnimationFrame(() => {
+                if (!runCommand(command)) {
+                  live.textContent = `${command.title} is unavailable in the current project state.`;
+                  window.dispatchEvent(new CustomEvent("drift:director-command-missed", { detail: command.id }));
+                  open();
+                  search.value = command.title;
+                  render();
+                  return;
+                }
+                live.textContent = `${command.title} opened.`;
+              });
+            };'''
+          if old not in text:
+              raise SystemExit('Execute anchor not found')
+          text = text.replace(old, new)
+
+          old = '''              if (event.key === "Escape") { event.preventDefault(); close(); return; }
+              if (event.key === "ArrowDown")'''
+          new = '''              if (event.key === "Escape") { event.preventDefault(); close(); return; }
+              if (event.key === "Tab") {
+                const focusable = Array.from(root.querySelectorAll<HTMLElement>("input, button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")).filter(visible);
+                if (focusable.length > 0) {
+                  const first = focusable[0]!;
+                  const last = focusable[focusable.length - 1]!;
+                  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+                  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+                }
+                return;
+              }
+              if (event.key === "ArrowDown")'''
+          if old not in text:
+              raise SystemExit('Focus trap anchor not found')
+          text = text.replace(old, new)
+
+          old = '''            search.addEventListener("input", onInput);
+            root.addEventListener("click", onClick);
+            document.addEventListener("keydown", onKeydown);'''
+          new = '''            const onLauncherClick = (): void => open();
+            launcher.addEventListener("click", onLauncherClick);
+            search.addEventListener("input", onInput);
+            root.addEventListener("click", onClick);
+            document.addEventListener("keydown", onKeydown);'''
+          if old not in text:
+              raise SystemExit('Launcher listener anchor not found')
+          text = text.replace(old, new)
+
+          old = '''              search.removeEventListener("input", onInput);
+              root.removeEventListener("click", onClick);
+              document.removeEventListener("keydown", onKeydown);
+              root.remove();'''
+          new = '''              launcher.removeEventListener("click", onLauncherClick);
+              search.removeEventListener("input", onInput);
+              root.removeEventListener("click", onClick);
+              document.removeEventListener("keydown", onKeydown);
+              root.remove();
+              launcher.remove();
+              live.remove();'''
+          if old not in text:
+              raise SystemExit('Cleanup anchor not found')
+          text = text.replace(old, new)
+
+          path.write_text(text)
+          PY
+
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('e2e/directorCommands.e2e.ts')
+          text = path.read_text()
+          old = '''            await page.keyboard.press("Control+K");
+            const dialog = page.getByRole("dialog", { name: "Director commands" });'''
+          new = '''            const launcher = page.getByRole("button", { name: /Commands/i });
+            await expect(launcher).toBeVisible();
+            await launcher.click();
+            const dialog = page.getByRole("dialog", { name: "Director commands" });'''
+          if old not in text:
+              raise SystemExit('E2E launcher anchor not found')
+          text = text.replace(old, new)
+          old = '''            await page.keyboard.press("Escape");
+            await expect(dialog).toBeHidden();'''
+          new = '''            await page.keyboard.press("Escape");
+            await expect(dialog).toBeHidden();
+            await expect(launcher).toHaveAttribute("aria-expanded", "false");
+            await page.keyboard.press("Control+K");
+            await expect(dialog).toBeVisible();
+            await page.keyboard.press("Escape");'''
+          if old not in text:
+              raise SystemExit('E2E keyboard anchor not found')
+          text = text.replace(old, new)
+          path.write_text(text)
+          PY
+
+          rm -f .github/workflows/director-command-hardening.yml
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run unit and build gauntlet
+        run: npm run check
+
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run command-surface journey
+        run: npx playwright test e2e/directorCommands.e2e.ts
+
+      - name: Commit verified hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: harden director command activation and accessibility"
+          git pull --rebase origin gauntlet/directors-cut-optical-pipeline
+          git push origin HEAD:gauntlet/directors-cut-optical-pipeline
