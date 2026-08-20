@@ -27,6 +27,7 @@ const forbidMarkers = (path, markers) => {
 const appSwift = [
   "macos/App/DriftAppDelegate.swift",
   "macos/App/DriftMain.swift",
+  "macos/App/ExportActivityGuard.swift",
   "macos/App/NativeAacEncoder.swift",
   "macos/App/NativeBridgeHost+Finder.swift",
   "macos/App/NativeBridgeHost.swift",
@@ -200,11 +201,21 @@ requireMarkers("macos/App/TrustedWebRuntime.swift", [
   "data document",
   "sibling document",
 ]);
+requireMarkers("macos/App/ExportActivityGuard.swift", [
+  "beginActivity(",
+  ".idleSystemSleepDisabled",
+  ".suddenTerminationDisabled",
+  "func end()",
+  "runSelfTest()",
+]);
 requireMarkers("macos/App/NativeBridgeHost.swift", [
   "private let trustedIndexURL = TrustedWebRuntime.bundledIndexURL()",
   "TrustedWebRuntime.acceptsMainFrameURL(",
   "message.frameInfo.request.url",
   "signed local studio document",
+  "exportActivityGuard.update(isExporting: clientState.exportInProgress)",
+  "exportActivityGuard.end()",
+  "exportPowerAssertionActive",
 ]);
 requireMarkers("macos/App/DriftAppDelegate.swift", [
   "webContentRecoveryPolicy.consumeAttempt()",
@@ -219,6 +230,7 @@ requireMarkers("macos/App/NativeGauntlet.swift", [
 ]);
 requireMarkers("macos/Probes/NativeGauntletMain.swift", [
   "TrustedWebRuntime.runSelfTest()",
+  "ExportActivityGuard.runSelfTest()",
   "NativeFileBroker.runSelfTest()",
   "NativeGauntlet.run()",
   "NativeAacEncoderBroker.runSelfTest()",
@@ -310,5 +322,5 @@ requireMarkers(".github/workflows/macos-release.yml", [
 forbidMarkers(".github/workflows/macos-release.yml", ["ref: ${{ inputs.source_ref }}"]);
 
 console.log(
-  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge trust, command parity, sandbox and codec boundaries, explicit native probes, one-attempt recovery wiring, and a non-publishing release-evidence lane.`,
+  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge trust, export power activity, command parity, sandbox and codec boundaries, explicit native probes, one-attempt recovery wiring, and a non-publishing release-evidence lane.`,
 );
