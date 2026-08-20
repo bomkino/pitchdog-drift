@@ -33,6 +33,7 @@ const appSwift = [
   "macos/App/NativeFileBroker.swift",
   "macos/App/NativeGauntlet.swift",
   "macos/App/NativeModels.swift",
+  "macos/App/NativePresentation.swift",
   "macos/App/WebViewSelfTest.swift",
 ];
 const probes = [
@@ -257,6 +258,31 @@ requireMarkers("macos/App/DriftAppDelegate.swift", [
   "The visual engine stopped twice",
   "Recovery stability countdown active",
   "Reveal Last Saved File in Finder",
+  "applicationSupportsSecureRestorableState",
+  "NativeAboutPanel.show()",
+  "NativeUserGuideController()",
+  "Source revision:",
+]);
+requireMarkers("macos/App/DriftMain.swift", [
+  "private static func runNativeSelfTest()",
+  "trusted WebKit main-frame boundary",
+  "native presentation resources",
+  "NativePresentationContract.runSelfTest()",
+  "expectedRevisionLine",
+]);
+requireMarkers("macos/App/NativePresentation.swift", [
+  "DriftSourceRevision",
+  "NSAttributedString(",
+  "markdown: markdown",
+  "orderFrontStandardAboutPanel(options:",
+  "usesFindBar = true",
+  "isIncrementalSearchingEnabled = true",
+  "DriftUserGuideWindow",
+]);
+forbidMarkers("macos/App/NativePresentation.swift", [
+  "URLSession",
+  "WKWebView",
+  "NSWorkspace.shared.open",
 ]);
 requireMarkers("macos/App/NativeGauntlet.swift", [
   "second WebKit termination reopened an automatic recovery loop",
@@ -357,5 +383,5 @@ requireMarkers(".github/workflows/macos-release.yml", [
 forbidMarkers(".github/workflows/macos-release.yml", ["ref: ${{ inputs.source_ref }}"]);
 
 console.log(
-  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge and surface trust, export power activity, stable-incident recovery, portable-project media budget parity, command parity, sandbox and codec boundaries, explicit native probes, and a non-publishing release-evidence lane.`,
+  `macOS source contract passed: ${appSwift.length} canonical Swift files, local native guide and provenance, signed-index bridge and surface trust, export power activity, stable-incident recovery, portable-project media budget parity, command parity, sandbox and codec boundaries, explicit native probes, and a non-publishing release-evidence lane.`,
 );
