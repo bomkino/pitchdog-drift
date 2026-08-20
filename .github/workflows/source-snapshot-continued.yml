@@ -3,6 +3,8 @@ name: Continued source snapshot
 on:
   push:
     branches: [gauntlet/directors-cut-optical-pipeline]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -14,6 +16,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/directors-cut-optical-pipeline
 
       - name: Pack working tree
         run: tar --exclude=.git --exclude=node_modules -czf /tmp/pitchdog-drift-current.tgz .
