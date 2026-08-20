@@ -3,6 +3,8 @@ name: Sonic source recording collector
 on:
   push:
     branches: [feat/editorial-sonic-system]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -29,42 +31,18 @@ jobs:
           mkdir -p /tmp/sonic-recordings
           cd /tmp/sonic-recordings
 
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/100/100413_336074-lq.ogg \
-            --output 100413-cloth-01.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/555/555307_9250976-lq.ogg \
-            --output 555307-jacket-movement.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/481/481856_2524442-lq.ogg \
-            --output 481856-coat-movement.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/669/669671_14100561-lq.ogg \
-            --output 669671-light-bodyfall.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/352/352914_1766783-lq.ogg \
-            --output 352914-paper-slide.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/730/730078_15107455-lq.ogg \
-            --output 730078-gentle-paper-slide.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/382/382651_4297074-lq.ogg \
-            --output 382651-page-turn.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/164/164421_2320755-lq.ogg \
-            --output 164421-paper-movement.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/458/458569_887851-lq.ogg \
-            --output 458569-35mm-projector.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/843/843786_15096086-lq.ogg \
-            --output 843786-mouse-spacebar.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/858/858919_18964775-lq.ogg \
-            --output 858919-button-click.ogg
-          curl --fail --location --retry 3 --silent --show-error \
-            https://cdn.freesound.org/previews/431/431818_5340249-lq.ogg \
-            --output 431818-button-wheel.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/100/100413_336074-lq.ogg --output 100413-cloth-01.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/555/555307_9250976-lq.ogg --output 555307-jacket-movement.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/481/481856_2524442-lq.ogg --output 481856-coat-movement.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/669/669671_14100561-lq.ogg --output 669671-light-bodyfall.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/352/352914_1766783-lq.ogg --output 352914-paper-slide.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/730/730078_15107455-lq.ogg --output 730078-gentle-paper-slide.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/382/382651_4297074-lq.ogg --output 382651-page-turn.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/164/164421_2320755-lq.ogg --output 164421-paper-movement.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/458/458569_887851-lq.ogg --output 458569-35mm-projector.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/843/843786_15096086-lq.ogg --output 843786-mouse-spacebar.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/858/858919_18964775-lq.ogg --output 858919-button-click.ogg
+          curl --fail --location --retry 3 --silent --show-error https://cdn.freesound.org/previews/431/431818_5340249-lq.ogg --output 431818-button-wheel.ogg
 
           cat > SOURCES.json <<'JSON'
           {
