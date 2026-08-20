@@ -46,7 +46,7 @@ else
   npm run check
 fi
 
-# Always replace the ordinary browser bundle with the system-codec-only Mac
+# Always replace the ordinary browser bundle with the system-framework Mac
 # build. Skipping checks may save CI time; skipping this rebuild is forbidden.
 rm -rf dist
 npm exec -- vite build --mode macos
@@ -75,13 +75,20 @@ mkdir -p "${MACOS_DIR}" "${WEB_DIR}" "${LEGAL_DIR}" "${DOCS_DIR}"
 cp macos/Info.plist "${CONTENTS_DIR}/Info.plist"
 cp macos/NativeBridge.js "${RESOURCES_DIR}/NativeBridge.js"
 cp -R dist/. "${WEB_DIR}/"
-cp LICENSE NOTICE ASSET-LICENSE.md THIRD_PARTY_NOTICES.md "${LEGAL_DIR}/"
+cp \
+  LICENSE \
+  NOTICE \
+  ASSET-LICENSE.md \
+  THIRD_PARTY_NOTICES.md \
+  TRADEMARKS.md \
+  "${LEGAL_DIR}/"
 cp \
   docs/MACOS_APP.md \
   docs/MACOS_PRODUCT_CONTRACT.md \
   docs/MACOS_USER_GUIDE.md \
   docs/MACOS_QA.md \
   docs/MACOS_THREAT_MODEL.md \
+  docs/MACOS_RELEASE.md \
   docs/MACOS_RELEASE_CHECKLIST.md \
   "${DOCS_DIR}/"
 
@@ -123,6 +130,7 @@ for architecture in ${ARCHITECTURES}; do
     -sdk "${SDK_PATH}" \
     -target "${architecture}-apple-macos${MINIMUM_MACOS}" \
     -framework AppKit \
+    -framework AudioToolbox \
     -framework Foundation \
     -framework UniformTypeIdentifiers \
     -framework WebKit \
@@ -148,7 +156,9 @@ source_revision=${SOURCE_REVISION}
 minimum_macos=${MINIMUM_MACOS}
 architectures=${ARCHITECTURES}
 renderer=WKWebView+Three.js
-codec_policy=system-codecs-only
+codec_policy=system-frameworks-only
+video_codec=WKWebView-H264-capability-gated
+audio_codec=AudioToolbox-Apple-software-AAC-LC
 sandbox=user-selected-read-write
 network_entitlement=none
 EOF
@@ -197,4 +207,6 @@ DRIFT_EXPECT_ARCHS="${ARCHITECTURES}" bash scripts/verify-macos-app.sh "${APP_BU
 
 printf '\nBuilt %s\n' "${APP_BUNDLE}"
 printf 'Architectures: %s\n' "$(lipo -archs "${MACOS_DIR}/${APP_NAME}")"
+printf 'Audio: Apple software AAC-LC through AudioToolbox\n'
+printf 'Video: WKWebView H.264, capability-gated and output-verified\n'
 printf 'Open with: open %q\n' "${APP_BUNDLE}"
