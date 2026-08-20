@@ -296,7 +296,8 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         panel.prompt = kind == .project ? "Open" : "Add"
         switch kind {
         case .slides:
-            panel.allowedContentTypes = [.png, .jpeg, .webP, .avif]
+            panel.allowedContentTypes = ["png", "jpg", "jpeg", "webp", "avif"]
+                .compactMap { UTType(filenameExtension: $0) }
             panel.message = "Choose up to 200 pitch-deck images. Files stay on this Mac."
         case .presenter:
             panel.allowedContentTypes = [.mpeg4Movie, .quickTimeMovie, .movie]
