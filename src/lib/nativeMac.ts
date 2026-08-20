@@ -40,6 +40,7 @@ declare global {
     __DRIFT_NATIVE_MAC__?: Readonly<NativeMacRuntimeMarker>;
     __driftNativeInstallAppBridge?: (bridge: NativeMacAppBridge) => void | (() => void);
     __driftNativeReportClientState?: (state: NativeMacClientState) => void;
+    __driftNativeSaveBlob?: (blob: Blob, suggestedName: string) => Promise<void>;
   }
 }
 
@@ -65,4 +66,14 @@ export function reportNativeMacClientState(state: NativeMacClientState): void {
     saveState: state.saveState,
     lastNotice: state.lastNotice ? state.lastNotice.slice(0, 2_000) : null,
   });
+}
+
+/**
+ * Returns false in the ordinary browser. In Drift.app it resolves only after
+ * the native save panel and staged file commit have completed successfully.
+ */
+export async function saveNativeMacBlob(blob: Blob, suggestedName: string): Promise<boolean> {
+  if (!isNativeMacRuntime() || typeof window.__driftNativeSaveBlob !== "function") return false;
+  await window.__driftNativeSaveBlob(blob, suggestedName);
+  return true;
 }

@@ -3,6 +3,7 @@ import {
   installNativeMacAppBridge,
   isNativeMacRuntime,
   reportNativeMacClientState,
+  saveNativeMacBlob,
   type NativeMacAppBridge,
 } from "../src/lib/nativeMac";
 
@@ -22,7 +23,7 @@ afterEach(() => {
 });
 
 describe("native macOS app contract", () => {
-  it("stays inert in the ordinary browser and test runtime", () => {
+  it("stays inert in the ordinary browser and test runtime", async () => {
     Reflect.deleteProperty(globalThis, "window");
     const cleanup = installNativeMacAppBridge({
       command: vi.fn(),
@@ -37,6 +38,7 @@ describe("native macOS app contract", () => {
       saveState: "saved",
       lastNotice: null,
     })).not.toThrow();
+    await expect(saveNativeMacBlob(new Blob(["browser"]), "browser.txt")).resolves.toBe(false);
   });
 
   it("installs the typed React bridge and returns the native cleanup", () => {
@@ -88,5 +90,32 @@ describe("native macOS app contract", () => {
       saveState: "failed",
       lastNotice: "x".repeat(2_000),
     });
+  });
+
+  it("does not report export success until the native staged save resolves", async () => {
+    let resolveSave: (() => void) | undefined;
+    const save = vi.fn(() => new Promise<void>((resolve) => { resolveSave = resolve; }));
+    setWindow({
+      __DRIFT_NATIVE_MAC__: {
+        bridgeVersion: 2,
+        platform: "macOS",
+        systemCodecsOnly: true,
+      },
+      __driftNativeSaveBlob: save,
+    });
+    const blob = new Blob(["master"], { type: "application/octet-stream" });
+
+    let settled = false;
+    const saving = saveNativeMacBlob(blob, "drift-master.bin").then((value) => {
+      settled = true;
+      return value;
+    });
+    await Promise.resolve();
+
+    expect(save).toHaveBeenCalledWith(blob, "drift-master.bin");
+    expect(settled).toBe(false);
+    resolveSave?.();
+    await expect(saving).resolves.toBe(true);
+    expect(settled).toBe(true);
   });
 });

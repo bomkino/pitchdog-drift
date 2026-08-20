@@ -17,6 +17,7 @@ import {
   installNativeMacAppBridge,
   isNativeMacRuntime,
   reportNativeMacClientState,
+  saveNativeMacBlob,
   type NativeMacCommand,
   type NativeMacImportKind,
 } from "./lib/nativeMac";
@@ -80,6 +81,10 @@ function isSafeAssetId(value: unknown): value is string {
 
 function isPositiveDimension(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= 131_072;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function parsePayload(value: unknown): StudioProjectPayload {
@@ -157,11 +162,14 @@ function makePayload(
   };
 }
 
-function downloadBlob(blob: Blob, filename: string): void {
+async function downloadBlob(blob: Blob, filename: string): Promise<void> {
+  const safeName = sanitizeFilename(filename);
+  if (await saveNativeMacBlob(blob, safeName)) return;
+
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = sanitizeFilename(filename);
+  anchor.download = safeName;
   anchor.style.display = "none";
   document.body.append(anchor);
   anchor.click();
@@ -232,6 +240,8 @@ export function App() {
   const assetsRef = useRef<StudioAsset[]>([]);
   const presenterRef = useRef<StudioAsset | null>(null);
   const settingsRef = useRef<StudioSettings>(cloneSettings(DEFAULT_SETTINGS));
+  const nativeCommandRef = useRef<(command: NativeMacCommand) => boolean | void | Promise<boolean | void>>(() => false);
+  const nativeImportRef = useRef<(kind: NativeMacImportKind, file: File) => void | Promise<void>>(() => undefined);
 
   const [settings, setSettings] = useState<StudioSettings>(() => cloneSettings(DEFAULT_SETTINGS));
   const [assets, setAssets] = useState<StudioAsset[]>([]);
@@ -724,7 +734,7 @@ export function App() {
           types: [{ description: "H.264 MP4 master", accept: { "video/mp4": [".mp4"] } }],
         });
       } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
+        if (isAbortError(error)) {
           announce("MP4 export canceled before rendering.");
           return;
         }
@@ -753,10 +763,10 @@ export function App() {
         onProgress: (progress) => setExportProgress(encoderProgress(progress)),
         target,
       });
-      if (result.blob) downloadBlob(result.blob, `drift-master-${timestampSlug()}.mp4`);
+      if (result.blob) await downloadBlob(result.blob, `drift-master-${timestampSlug()}.mp4`);
       announce(`${result.width} × ${result.height} H.264 master verified: ${result.verification.frameCount} frames at ${result.fps} fps.`, "good");
     } catch (error) {
-      announce(error instanceof Error ? error.message : "MP4 export failed.", "error");
+      announce(isAbortError(error) ? "MP4 export canceled." : error instanceof Error ? error.message : "MP4 export failed.", isAbortError(error) ? "quiet" : "error");
     } finally {
       if (session) endExport(session.surface);
     }
@@ -783,10 +793,10 @@ export function App() {
         requireTransparentPixels: settingsRef.current.stage.transparent || settingsRef.current.background.style === "transparent",
         onProgress: (progress) => setExportProgress(encoderProgress(progress)),
       });
-      downloadBlob(result.blob, `drift-still-${timestampSlug()}.png`);
-      announce(`${result.width} × ${result.height} PNG captured with an alpha-capable channel.`, "good");
+      await downloadBlob(result.blob, `drift-still-${timestampSlug()}.png`);
+      announce(`${result.width} × ${result.height} PNG saved with an alpha-capable channel.`, "good");
     } catch (error) {
-      announce(error instanceof Error ? error.message : "PNG capture failed.", "error");
+      announce(isAbortError(error) ? "PNG save canceled." : error instanceof Error ? error.message : "PNG capture failed.", isAbortError(error) ? "quiet" : "error");
     } finally {
       if (session) endExport(session.surface);
     }
@@ -821,11 +831,11 @@ export function App() {
       } else {
         const result = await exportPngSequence({ ...common, destination: "zip", framePrefix: "drift" });
         if (!result.blob) throw new Error("PNG ZIP completed without bytes.");
-        downloadBlob(result.blob, `drift-frames-${timestampSlug()}.zip`);
-        announce(`${result.frameCount} numbered PNG frames rendered into a verified ZIP.`, "good");
+        await downloadBlob(result.blob, `drift-frames-${timestampSlug()}.zip`);
+        announce(`${result.frameCount} numbered PNG frames saved in a verified ZIP.`, "good");
       }
     } catch (error) {
-      announce(error instanceof Error ? error.message : "PNG sequence export failed.", "error");
+      announce(isAbortError(error) ? "PNG sequence export canceled." : error instanceof Error ? error.message : "PNG sequence export failed.", isAbortError(error) ? "quiet" : "error");
     } finally {
       if (session) endExport(session.surface);
     }
@@ -839,16 +849,16 @@ export function App() {
           throw new Error("The locked saved project could not be read safely. Open a verified project to replace it; fallback demos will not overwrite it.");
         }
         const recoveryBlob = await exportProject(recovery);
-        downloadBlob(recoveryBlob, `drift-recovery-${timestampSlug()}.pitched`);
-        announce("Locked saved project re-verified and repackaged with its preserved manifest and media. Fallback demos were not written over it.", "good");
+        await downloadBlob(recoveryBlob, `drift-recovery-${timestampSlug()}.pitched`);
+        announce("Locked saved project re-verified and saved with its preserved manifest and media. Fallback demos were not written over it.", "good");
         return;
       }
       const snapshot = await persist();
       const blob = await exportProject(snapshot);
-      downloadBlob(blob, `drift-project-${timestampSlug()}.pitched`);
+      await downloadBlob(blob, `drift-project-${timestampSlug()}.pitched`);
       announce("Portable project saved with original media and SHA-256 manifest.", "good");
     } catch (error) {
-      announce(error instanceof Error ? error.message : "Portable project could not be saved.", "error");
+      announce(isAbortError(error) ? "Portable project save canceled." : error instanceof Error ? error.message : "Portable project could not be saved.", isAbortError(error) ? "quiet" : "error");
     }
   }, [announce, persist]);
 
@@ -918,87 +928,80 @@ export function App() {
     announce(`${getTheme(id).name} is now directing the scene.`);
   }, [announce]);
 
+  const exportInProgress = Boolean(exportProgress);
+
+  nativeCommandRef.current = (command: NativeMacCommand) => {
+    if (command === "cancel-export") {
+      if (!abortRef.current) return false;
+      abortRef.current.abort("Canceled from the macOS menu");
+      return true;
+    }
+
+    const blocked = exportInProgress || projectBusy || saveState === "loading";
+    if (blocked) return false;
+
+    switch (command) {
+    case "open-project":
+      importInputRef.current?.click();
+      return Boolean(importInputRef.current);
+    case "add-slides":
+      imageInputRef.current?.click();
+      return Boolean(imageInputRef.current);
+    case "add-presenter":
+      presenterInputRef.current?.click();
+      return Boolean(presenterInputRef.current);
+    case "save-project":
+      savePortableProject();
+      return true;
+    case "export-mp4":
+      void exportVideo();
+      return true;
+    case "export-still":
+      void exportStill();
+      return true;
+    case "export-frames":
+      void exportFrames();
+      return true;
+    case "toggle-playback":
+      togglePause();
+      return true;
+    case "previous-slide":
+      engineRef.current?.stepSlides(-1);
+      return Boolean(engineRef.current);
+    case "next-slide":
+      engineRef.current?.stepSlides(1);
+      return Boolean(engineRef.current);
+    case "toggle-focus":
+      setFocusMode((value) => !value);
+      return true;
+    }
+  };
+
+  nativeImportRef.current = (kind: NativeMacImportKind, file: File) => {
+    if (kind === "slides") {
+      addImages([file]);
+      return;
+    }
+    if (kind === "presenter") {
+      addPresenter(file);
+      return;
+    }
+    return enqueueProjectOperation(() => openPortableProjectFile(file));
+  };
+
   useEffect(() => installNativeMacAppBridge({
-    command: (command: NativeMacCommand) => {
-      if (command === "cancel-export") {
-        if (!abortRef.current) return false;
-        abortRef.current.abort("Canceled from the macOS menu");
-        return true;
-      }
-
-      const blocked = Boolean(exportProgress) || projectBusy || saveState === "loading";
-      if (blocked) return false;
-
-      switch (command) {
-      case "open-project":
-        importInputRef.current?.click();
-        return Boolean(importInputRef.current);
-      case "add-slides":
-        imageInputRef.current?.click();
-        return Boolean(imageInputRef.current);
-      case "add-presenter":
-        presenterInputRef.current?.click();
-        return Boolean(presenterInputRef.current);
-      case "save-project":
-        savePortableProject();
-        return true;
-      case "export-mp4":
-        void exportVideo();
-        return true;
-      case "export-still":
-        void exportStill();
-        return true;
-      case "export-frames":
-        void exportFrames();
-        return true;
-      case "toggle-playback":
-        togglePause();
-        return true;
-      case "previous-slide":
-        engineRef.current?.stepSlides(-1);
-        return Boolean(engineRef.current);
-      case "next-slide":
-        engineRef.current?.stepSlides(1);
-        return Boolean(engineRef.current);
-      case "toggle-focus":
-        setFocusMode((value) => !value);
-        return true;
-      }
-    },
-    importFile: (kind: NativeMacImportKind, file: File) => {
-      if (kind === "slides") {
-        addImages([file]);
-        return;
-      }
-      if (kind === "presenter") {
-        addPresenter(file);
-        return;
-      }
-      return enqueueProjectOperation(() => openPortableProjectFile(file));
-    },
-  }), [
-    addImages,
-    addPresenter,
-    enqueueProjectOperation,
-    exportFrames,
-    exportProgress,
-    exportStill,
-    exportVideo,
-    openPortableProjectFile,
-    projectBusy,
-    savePortableProject,
-    saveState,
-    togglePause,
-  ]);
+    command: (command) => nativeCommandRef.current(command),
+    importFile: (kind, file) => nativeImportRef.current(kind, file),
+  }), []);
 
   useEffect(() => {
     reportNativeMacClientState({
-      exportInProgress: Boolean(exportProgress),
+      exportInProgress,
       projectBusy: projectBusy || saveState === "loading",
       saveState,
       lastNotice: notice,
     });
-  }, [exportProgress, notice, projectBusy, saveState]);
+  }, [exportInProgress, notice, projectBusy, saveState]);
 
   const capabilityLabel = webglError
     ? "DOM fallback"
@@ -1007,7 +1010,7 @@ export function App() {
       : mp4Supported
         ? nativeMac ? "WebGL2 · system H.264 ready" : "WebGL2 · H.264 ready"
         : "WebGL2 · PNG output";
-  const interactionBusy = Boolean(exportProgress) || projectBusy || saveState === "loading";
+  const interactionBusy = exportInProgress || projectBusy || saveState === "loading";
 
   return (
     <main className="app" data-focus={focusMode} data-active-panel={activePanel} aria-busy={interactionBusy}>

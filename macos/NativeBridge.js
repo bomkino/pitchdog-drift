@@ -8,7 +8,6 @@
   const TRANSFER_CHUNK_BYTES = 384 * 1024;
   const READ_CHUNK_BYTES = 1024 * 1024;
   const MAX_READBACK_BYTES = 512 * 1024 * 1024;
-  const MAX_QUEUED_COMMANDS = 32;
   const MAX_QUEUED_IMPORTS = 16;
   const VALID_COMMANDS = new Set([
     "open-project",
@@ -27,11 +26,9 @@
   const VALID_IMPORT_KINDS = new Set(["slides", "presenter", "project"]);
   const VALID_SAVE_STATES = new Set(["loading", "saving", "saved", "failed", "recovery"]);
   const nativeInputClick = HTMLInputElement.prototype.click;
-  let nativeSavePending = false;
   let statusHost = null;
   let appBridge = null;
   let appBridgeGeneration = 0;
-  const queuedCommands = [];
   const queuedImports = [];
 
   function nativeError(raw) {
@@ -349,19 +346,31 @@
   async function saveBlob(blob, suggestedName) {
     const name = clampFilename(suggestedName);
     const extension = name.includes(".") ? name.split(".").pop() : "";
-    const handle = await showSaveFilePicker({
-      suggestedName: name,
-      types: [{ accept: { [blob.type || "application/octet-stream"]: extension ? [`.${extension}`] : [] } }],
-    });
-    const writable = await handle.createWritable({ keepExistingData: false });
+    showNativeStatus(`Choose where to save ${name}…`, "working");
+    let handle = null;
     try {
-      await writable.write(blob);
-      await writable.close();
+      handle = await showSaveFilePicker({
+        suggestedName: name,
+        types: [{ accept: { [blob.type || "application/octet-stream"]: extension ? [`.${extension}`] : [] } }],
+      });
+      const writable = await handle.createWritable({ keepExistingData: false });
+      try {
+        await writable.write(blob);
+        await writable.close();
+      } catch (error) {
+        await writable.abort(error).catch(() => undefined);
+        throw error;
+      }
+      showNativeStatus("Saved. Use File → Reveal Last Export in Finder.", "complete");
     } catch (error) {
-      await writable.abort(error).catch(() => undefined);
+      if (error?.name === "AbortError") {
+        showNativeStatus("Save cancelled. No file was written.", "quiet");
+      } else {
+        showNativeStatus(error?.message || "The file could not be saved.", "failed");
+      }
       throw error;
     } finally {
-      await handle._release();
+      await handle?._release();
     }
   }
 
@@ -402,29 +411,20 @@
     return null;
   }
 
+  // Compatibility fallback for future browser-only download paths. Current
+  // React exports call __driftNativeSaveBlob directly and await the commit.
   document.addEventListener("click", (event) => {
     const anchor = downloadableAnchor(event);
     if (!anchor) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    nativeSavePending = true;
-    showNativeStatus(`Choose where to save ${clampFilename(anchor.download)}…`, "working");
-
     void (async () => {
       try {
         const response = await fetch(anchor.href);
         if (!response.ok) throw new Error(`Could not read the generated file (${response.status}).`);
         await saveBlob(await response.blob(), anchor.download);
-        showNativeStatus("Saved. Use File → Reveal Last Export in Finder.", "complete");
       } catch (error) {
-        if (error?.name === "AbortError") {
-          showNativeStatus("Save cancelled. No file was written.", "quiet");
-        } else {
-          console.error("Native save failed", error);
-          showNativeStatus(error?.message || "The file could not be saved.", "failed");
-        }
-      } finally {
-        nativeSavePending = false;
+        if (error?.name !== "AbortError") console.error("Native save failed", error);
       }
     })();
   }, true);
@@ -465,10 +465,7 @@
     }
   }
 
-  async function flushQueuedAppWork(generation) {
-    while (appBridge && generation === appBridgeGeneration && queuedCommands.length) {
-      await dispatchAppCommand(queuedCommands.shift());
-    }
+  async function flushQueuedImports(generation) {
     while (appBridge && generation === appBridgeGeneration && queuedImports.length) {
       const item = queuedImports.shift();
       await dispatchAppImport(item.kind, item.file);
@@ -481,19 +478,21 @@
     }
     const generation = ++appBridgeGeneration;
     appBridge = candidate;
-    void flushQueuedAppWork(generation);
+    document.documentElement.dataset.driftNativeAppBridge = "ready";
+    void flushQueuedImports(generation);
     return () => {
-      if (generation === appBridgeGeneration && appBridge === candidate) appBridge = null;
+      if (generation === appBridgeGeneration && appBridge === candidate) {
+        appBridge = null;
+        delete document.documentElement.dataset.driftNativeAppBridge;
+      }
     };
   }
 
   function nativeCommand(command) {
     if (!VALID_COMMANDS.has(command)) return false;
     if (!appBridge) {
-      if (queuedCommands.length >= MAX_QUEUED_COMMANDS) queuedCommands.shift();
-      queuedCommands.push(command);
-      showNativeStatus("Drift is still opening. The command is queued.", "quiet");
-      return true;
+      showNativeStatus("Drift is still opening. Try that command again in a moment.", "quiet");
+      return false;
     }
     void dispatchAppCommand(command);
     return true;
@@ -519,17 +518,13 @@
   }
 
   function normalizeClientState(raw) {
-    const saveState = VALID_SAVE_STATES.has(raw?.saveState) ? raw.saveState : "loading";
-    const lastNotice = typeof raw?.lastNotice === "string"
-      ? [...raw.lastNotice].slice(0, 2_000).join("")
-      : null;
     return {
       exportInProgress: raw?.exportInProgress === true,
       projectBusy: raw?.projectBusy === true,
-      saveState,
-      lastNotice: nativeSavePending && lastNotice && /portable project saved|PNG captured|ZIP/i.test(lastNotice)
-        ? "Waiting for the macOS save destination."
-        : lastNotice,
+      saveState: VALID_SAVE_STATES.has(raw?.saveState) ? raw.saveState : "loading",
+      lastNotice: typeof raw?.lastNotice === "string"
+        ? [...raw.lastNotice].slice(0, 2_000).join("")
+        : null,
     };
   }
 
@@ -597,17 +592,6 @@
     }, kind === "failed" ? 9000 : kind === "working" ? 12000 : 5200);
   }
 
-  function suppressPrematureBrowserSuccess() {
-    if (!nativeSavePending) return;
-    const notice = document.querySelector('.notice[data-kind="good"] p');
-    if (!(notice instanceof HTMLElement)) return;
-    const text = notice.textContent || "";
-    if (/portable project saved|PNG captured|ZIP/i.test(text)) {
-      notice.textContent = "Choose a destination in the macOS save panel…";
-      notice.closest(".notice")?.setAttribute("data-kind", "quiet");
-    }
-  }
-
   function installGlobals() {
     Object.defineProperties(window, {
       showSaveFilePicker: { configurable: true, writable: true, value: showSaveFilePicker },
@@ -642,13 +626,6 @@
 
   const boot = () => {
     ensureNativeStyle();
-    const observer = new MutationObserver(suppressPrematureBrowserSuccess);
-    observer.observe(document.documentElement, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      characterData: true,
-    });
     void callNative("runtime-info").then((runtime) => {
       window.dispatchEvent(new CustomEvent("drift-native-ready", { detail: runtime }));
     }).catch((error) => {
