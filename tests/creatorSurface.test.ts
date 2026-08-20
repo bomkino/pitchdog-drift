@@ -1,22 +1,21 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { extname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+/// <reference types="vite/client" />
+
 import { describe, expect, it } from "vitest";
 
-const root = fileURLToPath(new URL("..", import.meta.url));
-const sourceRoot = join(root, "src");
+const sourceModules = import.meta.glob("../src/**/*.{ts,tsx}", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
 
-function sourceFiles(directory: string): string[] {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return sourceFiles(path);
-    return [".ts", ".tsx"].includes(extname(entry.name)) ? [path] : [];
-  });
-}
+const workflowModules = import.meta.glob("../.github/workflows/*", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
 
-const files = sourceFiles(sourceRoot);
 const source = new Map(
-  files.map((path) => [relative(sourceRoot, path).replaceAll("\\", "/"), readFileSync(path, "utf8")]),
+  Object.entries(sourceModules).map(([path, content]) => [path.replace(/^\.\.\/src\//, ""), content]),
 );
 const completeSource = Array.from(source.entries(), ([path, content]) => `// ${path}\n${content}`).join("\n");
 
@@ -48,8 +47,9 @@ describe("creator-surface truth", () => {
   });
 
   it("keeps temporary code-delivery machinery out of the review tree", () => {
-    const workflowRoot = join(root, ".github", "workflows");
-    const workflows = readdirSync(workflowRoot).sort();
+    const workflows = Object.keys(workflowModules)
+      .map((path) => path.split("/").at(-1) ?? path)
+      .sort();
     const temporary = workflows.filter((name) =>
       /snapshot|gauntlet|take-shelf|harden-director|direction-packs|diagnostics|world-audition|visual-atlas/i.test(name),
     );
