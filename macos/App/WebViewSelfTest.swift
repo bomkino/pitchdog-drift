@@ -156,7 +156,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
           readyState: document.readyState
         }))()
         """
-        webView.evaluateJavaScript(probe) { [weak self, weak webView] result, error in
+        webView.evaluateJavaScript(probe) { [weak self] result, error in
             guard let self else { return }
             if let error {
                 self.failure = "runtime probe failed: \(error.localizedDescription)"
@@ -189,7 +189,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 return
             }
 
-            guard attemptsRemaining > 0, let webView else {
+            guard attemptsRemaining > 0 else {
                 self.failure = "The bundled page loaded but never reached a ready typed contract and settled authoritative state. Last probe: \(self.lastProbe); native state: saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), lastNotice=\(state.lastNotice ?? "nil")"
                 self.finished = true
                 return
@@ -218,7 +218,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     }
 
     private func pollFocusState(in webView: WKWebView, attemptsRemaining: Int) {
-        webView.evaluateJavaScript("document.querySelector('main.app')?.dataset.focus === 'true'") { [weak self, weak webView] result, error in
+        webView.evaluateJavaScript("document.querySelector('main.app')?.dataset.focus === 'true'") { [weak self] result, error in
             guard let self else { return }
             if let error {
                 self.failure = "focus-state probe failed: \(error.localizedDescription)"
@@ -236,7 +236,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 }
                 return
             }
-            guard attemptsRemaining > 0, let webView else {
+            guard attemptsRemaining > 0 else {
                 self.failure = "the typed native toggle-focus command never reached React"
                 self.finished = true
                 return

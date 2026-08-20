@@ -23,20 +23,19 @@ TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/drift-codec-probe.XXXXXX")"
 cleanup() { rm -rf "$TEMP_ROOT"; }
 trap cleanup EXIT
 
-# Keep platform imports explicit in the compilation unit. The source itself is
-# readable as a WebKit probe; this generated prefix supplies Darwin.exit without
-# tying the checked-in file to non-macOS typechecking.
+# The checked-in probe is intentionally a small executable script. Supply
+# Darwin.exit explicitly and keep the top-level probe instance file-private so
+# Swift 6 accepts its private implementation type in executable mode.
 {
   printf 'import Darwin\n'
-  cat "$SOURCE"
-} > "$TEMP_ROOT/CodecProbe.swift"
+  sed 's/^let probe = CodecProbe()/private let probe = CodecProbe()/' "$SOURCE"
+} > "$TEMP_ROOT/main.swift"
 
 xcrun swiftc \
-  -parse-as-library \
   -O \
   -framework AppKit \
   -framework WebKit \
-  "$TEMP_ROOT/CodecProbe.swift" \
+  "$TEMP_ROOT/main.swift" \
   -o "$TEMP_ROOT/DriftCodecProbe"
 
 rm -f "$REPORT"

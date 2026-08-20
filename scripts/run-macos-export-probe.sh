@@ -29,15 +29,14 @@ trap cleanup EXIT
 
 {
   printf 'import Darwin\n'
-  cat "$ROOT/macos/Probes/ExportProbe.swift"
-} > "$TEMP_ROOT/ExportProbe.swift"
+  sed 's/^let probe = ExportProbe()/private let probe = ExportProbe()/' "$ROOT/macos/Probes/ExportProbe.swift"
+} > "$TEMP_ROOT/main.swift"
 
 xcrun swiftc \
-  -parse-as-library \
   -O \
   -framework AppKit \
   -framework WebKit \
-  "$TEMP_ROOT/ExportProbe.swift" \
+  "$TEMP_ROOT/main.swift" \
   -o "$TEMP_ROOT/DriftExportProbe"
 
 rm -f "$REPORT"
