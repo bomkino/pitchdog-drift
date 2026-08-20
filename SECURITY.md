@@ -1,20 +1,77 @@
 # Security policy
 
-## Supported branch
+Drift processes private pitch-deck images, presenter video, portable project archives, and rendered output. Security reports deserve a channel that does not expose the reporter’s files or a working exploit to a public issue tracker.
 
-Security repairs target the current default branch. This project has no hosted service, account system, telemetry collector, or production database.
+## Reporting a vulnerability
 
-## Report privately
+Do not attach confidential deck material, access tokens, security-scoped paths, crash dumps containing user filenames, or a weaponized `.pitched` archive to a public issue.
 
-Use GitHub private vulnerability reporting for `bomkino/pitchdog-drift` when available, or email `hello@pitch.dog` with:
+Send a minimal report to `hello@pitch.dog` with **DRIFT SECURITY** in the subject. Include:
 
-- affected commit and browser;
-- a minimal reproduction using synthetic media;
-- impact and whether user files can cross an intended boundary;
-- any proposed mitigation.
+- affected commit or version;
+- browser or macOS version and hardware architecture;
+- the smallest reproducible steps;
+- expected and observed behavior;
+- whether private media, arbitrary filesystem access, output integrity, sandbox escape, or network access is involved;
+- a synthetic fixture where possible;
+- your preferred disclosure name or request for anonymity.
 
-Do not attach a private deck, presenter video, `.pitched` file, browser profile, access token, or client master. Replace it with a synthetic reproduction.
+The maintainers may ask for a private proof-of-concept after establishing a secure channel. Never send real client decks merely because they reproduce the bug.
 
-Local denial-of-service from deliberately huge or malformed media, dependency vulnerabilities, origin-bound storage mistakes, path traversal in portable archives, and output files that appear valid after cancellation are in scope. Social engineering and vulnerabilities in unmodified end-user browsers are not.
+## Supported surfaces
 
-We will acknowledge a usable report, investigate without demanding public disclosure, and credit reporters who want credit.
+Security fixes target the current `main` branch and active release branches. The standalone Mac work is developed on `feat/native-macos-studio` until reviewed and merged. Public source can move faster than a notarized binary; always identify the exact commit or app build.
+
+No public compiled Mac release is promised merely because CI can build `Drift.app`. A binary is supported only when the repository explicitly publishes it with a version, source revision, checksum, signing/notarization receipt, and release notes.
+
+## High-priority classes
+
+- App Sandbox escape or entitlement expansion.
+- Native bridge commands callable from a subframe or remote page.
+- Arbitrary path read, write, deletion, shell, AppleScript, process launch, socket, or URLSession access.
+- Path traversal, symlink substitution, grant confusion, or token reuse across files.
+- Cancelled or failed export replacing a previously valid destination.
+- Directory-sequence cleanup deleting unrelated files.
+- Remote network request or exfiltration from the supposedly local runtime.
+- `.pitched` archive mutation before schema, digest, path, size, and reference verification.
+- Cross-project or stale-operation races that expose or overwrite newer work.
+- Unbounded decode, archive, bridge, or export memory that bypasses documented caps.
+- Output verification accepting corrupt, silent, mistimed, wrong-size, wrong-codec, or falsely transparent media.
+- Packaged Mac bundle including an undeclared codec binary or losing its intended entitlements after signing.
+- Sensitive path, filename, project, or media disclosure through diagnostics or logs.
+
+## Native security invariants
+
+The Mac application is expected to preserve all of the following:
+
+- main-frame-only `WKScriptMessageHandlerWithReply` bridge;
+- fixed command allowlist and bounded payloads;
+- opaque file/directory tokens; no renderer-visible absolute paths;
+- user-selected read/write App Sandbox entitlement only;
+- no network client or server entitlement;
+- no broad home, Documents, Downloads, temporary-exception, shell, process, AppleScript, or recursive-delete capability;
+- symlink and traversal rejection;
+- item-replacement staging and atomic commit;
+- abort preserving the prior committed destination;
+- HTTP, HTTPS, WebSocket, and FTP blocking inside the WebView;
+- system-codec-only Mac bundle with no FFmpeg WebAssembly;
+- executable broker and packaged-WebView self-tests;
+- CI compilation without accidental binary publication.
+
+A change that breaks one of these is security-relevant even when the interface still appears to work.
+
+See `docs/MACOS_THREAT_MODEL.md` for trust boundaries and residual risks.
+
+## Privacy expectations
+
+Production runtime source contains no analytics, remote font, cloud upload, hidden API, or automatic update service. Imported media and projects remain in browser storage, the Mac app container, or user-selected files unless the user deliberately moves or shares them.
+
+External links in the Mac app should open in the default browser only after user activation. The app itself should not receive network entitlement merely to make those links convenient.
+
+Diagnostics must remain useful without including absolute paths, project contents, asset hashes that identify private material, or raw media metadata beyond what a reporter deliberately supplies.
+
+## Coordinated disclosure
+
+Please allow reasonable time to reproduce, patch, test, and distribute a fix before public disclosure. The project will not demand silence indefinitely or use coordination as a pretext to bury a valid report. When a report is confirmed, the preferred outcome is a clear advisory describing affected revisions, impact, fix, and any recovery steps without publishing confidential user data.
+
+Good-faith research that avoids privacy harm, persistence, destructive testing against other people, and public release before coordination is welcome.
