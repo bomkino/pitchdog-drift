@@ -64,7 +64,9 @@ export function reportNativeMacClientState(state: NativeMacClientState): void {
     exportInProgress: state.exportInProgress,
     projectBusy: state.projectBusy,
     saveState: state.saveState,
-    lastNotice: state.lastNotice ? state.lastNotice.slice(0, 2_000) : null,
+    // Notices can include confidential deck or media filenames. AppKit needs
+    // only a presence signal for diagnostics; the renderer keeps the real copy.
+    lastNotice: state.lastNotice ? "present" : null,
   });
 }
 
