@@ -5,8 +5,8 @@ import hashlib
 from pathlib import Path
 import zlib
 
-# Bootstrap trigger: the generated implementation must land as ordinary,
-# reviewable source before the lighting branch can be judged or extended.
+# Bootstrap trigger: land the generated implementation as ordinary,
+# reviewable source before continuing the browser and visual gauntlets.
 HERE = Path(__file__).resolve().parent
 encoded = "".join(
     (HERE / "lighting-payload" / f"{index}.b64").read_text(encoding="utf-8")
