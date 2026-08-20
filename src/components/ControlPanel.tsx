@@ -54,7 +54,7 @@ export function ControlPanel({
       <section className="theme-section" aria-labelledby="themes-title">
         <div className="section-heading-row">
           <h3 id="themes-title">Film worlds</h3>
-          <span>6</span>
+          <span>{THEMES.length}</span>
         </div>
         <div className="theme-grid">
           {THEMES.map((theme) => (
@@ -65,6 +65,8 @@ export function ControlPanel({
               key={theme.id}
               onClick={() => onTheme(theme.id)}
               aria-pressed={settings.themeId === theme.id}
+              aria-label={`${theme.name}. ${theme.description}`}
+              title={theme.description}
               style={{ "--theme-a": theme.settings.background.colorA, "--theme-b": theme.settings.background.accent } as CSSProperties}
             >
               <span className="theme-swatch" aria-hidden="true" />
@@ -136,6 +138,7 @@ export function ControlPanel({
       </InspectorGroup>
 
       <InspectorGroup title="Motion" eyebrow={`${settings.motion.speed.toFixed(2)} slides/s`} open>
+        <SwitchField label="Autoplay" checked={settings.motion.autoplay} hint="Pause remains available in the stage controls." onChange={(autoplay) => patch("motion", { autoplay })} />
         <Segmented label="Flow axis" value={settings.motion.axis} options={[{ value: "horizontal", label: "Horizontal" }, { value: "vertical", label: "Vertical" }]} onChange={(axis) => patch("motion", { axis })} />
         <Segmented label="Direction" value={settings.motion.direction} options={[{ value: -1 as const, label: "Reverse" }, { value: 1 as const, label: "Forward" }]} onChange={(direction) => patch("motion", { direction })} />
         <SelectField
@@ -147,6 +150,9 @@ export function ControlPanel({
             { value: "ribbon", label: "Ribbon" },
             { value: "cylinder", label: "Cylinder" },
             { value: "tunnel", label: "Tunnel" },
+            { value: "helix", label: "Helix" },
+            { value: "cascade", label: "Cascade" },
+            { value: "orbit", label: "Orbit" },
           ]}
           onChange={(flow) => patch("motion", { flow })}
         />
@@ -154,8 +160,19 @@ export function ControlPanel({
         <RangeField label="Curve" value={settings.motion.curvature * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("motion", { curvature: value / 100 })} />
         <RangeField label="Depth" value={settings.motion.depth * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("motion", { depth: value / 100 })} />
         <RangeField label="Tilt" value={settings.motion.tilt} min={0} max={18} step={0.5} decimals={1} unit="°" onChange={(tilt) => patch("motion", { tilt })} />
-        <RangeField label="Optical bend" value={settings.motion.distortion * 100} min={0} max={100} step={1} unit="%" hint="Velocity drives shader deformation; still frames return crisp." onChange={(value) => patch("motion", { distortion: value / 100 })} />
-        <RangeField label="Focus lift" value={settings.motion.focusScale * 100} min={0} max={24} step={1} unit="%" onChange={(value) => patch("motion", { focusScale: value / 100 })} />
+        <RangeField
+          label="Lens response"
+          value={settings.motion.distortion * 100}
+          min={0}
+          max={100}
+          step={1}
+          unit="%"
+          hint="One bounded master shapes directional blur, chromatic split, soft focus, halation, gate weave, and mesh bend. Motion settles cleanly when velocity reaches zero."
+          onChange={(value) => patch("motion", { distortion: value / 100 })}
+        />
+        <RangeField label="Focus pull" value={settings.motion.focusScale * 100} min={0} max={24} step={1} unit="%" hint="Gently lifts the frame nearest the playhead." onChange={(value) => patch("motion", { focusScale: value / 100 })} />
+        <RangeField label="Edge falloff" value={settings.motion.edgeFade * 100} min={0} max={100} step={1} unit="%" hint="Fades distant frames without hiding the active slide." onChange={(value) => patch("motion", { edgeFade: value / 100 })} />
+        <RangeField label="Drag weight" value={settings.motion.dragSensitivity} min={0} max={4} step={0.05} decimals={2} unit="×" onChange={(dragSensitivity) => patch("motion", { dragSensitivity })} />
         <SwitchField label="Seamless export lock" checked={settings.motion.seamless} hint="Forces whole loops across master duration." onChange={(seamless) => patch("motion", { seamless })} />
         {settings.motion.seamless ? <RangeField label="Loops per master" value={settings.motion.seamlessLoops} min={1} max={6} step={1} onChange={(seamlessLoops) => patch("motion", { seamlessLoops })} /> : null}
         <SwitchField label="Reduced-motion master" checked={settings.motion.reducedMotionOutput} hint="Independent from your OS preview preference." onChange={(reducedMotionOutput) => patch("motion", { reducedMotionOutput })} />
@@ -193,6 +210,7 @@ export function ControlPanel({
         <ColorField label="Light" value={settings.background.accent} onChange={(accent) => patch("background", { accent })} />
         <RangeField label="Intensity" value={settings.background.intensity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { intensity: value / 100 })} />
         <RangeField label="Background breath" value={settings.background.motion * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { motion: value / 100 })} />
+        <NumberField label="World variation" value={settings.background.seed} min={0} max={1_000_000} step={1} hint="A deterministic seed changes the procedural composition without changing your palette." onChange={(seed) => patch("background", { seed })} />
         <RangeField label="Grain" value={settings.background.grain * 100} min={0} max={60} step={1} unit="%" onChange={(value) => patch("background", { grain: value / 100 })} />
         <RangeField label="Vignette" value={settings.background.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { vignette: value / 100 })} />
       </InspectorGroup>
