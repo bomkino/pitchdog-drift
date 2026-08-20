@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+const AAC_FRAME_SECONDS = 1_024 / 48_000;
+
 test("mixed master preserves stereo foley through mono presenter gaps", async ({ page }) => {
   await page.goto("/");
   const receipt = await page.evaluate(async () => {
@@ -59,7 +61,12 @@ test("mixed master preserves stereo foley through mono presenter gaps", async ({
   expect(receipt.inspection.trackCount).toBe(1);
   expect(receipt.inspection.channels).toBe(2);
   expect(receipt.inspection.sampleRate).toBe(48_000);
-  expect(receipt.inspection.duration).toBeCloseTo(3, 3);
+  // AAC is packetized in 1,024-sample access units. The PCM master is exactly
+  // three seconds, while the decoded container may expose one padded packet.
+  expect(receipt.inspection.duration).toBeGreaterThanOrEqual(3);
+  expect(receipt.inspection.duration).toBeLessThanOrEqual(
+    3 + AAC_FRAME_SECONDS + 0.001,
+  );
   expect(receipt.inspection.coversTimestamp).toBe(true);
   expect(receipt.inspection.rightRms).toBeGreaterThan(0.035);
   expect(receipt.inspection.rightRms).toBeGreaterThan(
