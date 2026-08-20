@@ -46,6 +46,9 @@ struct ClientState {
     // bridge is ready.
     var projectBusy = true
     var saveState = "loading"
+    // Renderer notices can contain confidential project or media filenames.
+    // Native diagnostics need only know whether one exists; never carry the
+    // notice text across the privileged boundary.
     var lastNotice: String?
 
     var hasProtectedWork: Bool {
@@ -69,7 +72,9 @@ struct ClientState {
             saveState = value
         }
         if let value = payload["lastNotice"] as? String {
-            lastNotice = String(value.prefix(2_000))
+            lastNotice = value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? nil
+                : "present (content withheld)"
         } else if payload.keys.contains("lastNotice") {
             lastNotice = nil
         }
