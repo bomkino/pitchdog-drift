@@ -288,8 +288,8 @@ export class SonicEngine {
       const variantCount = getSonicAssetVariantCount(palette, cue);
       const variants = await Promise.all(
         Array.from({ length: variantCount }, async (_, variant) => {
-          const bytes = getSonicAssetBytes(palette, cue, variant);
-          return await context.decodeAudioData(bytes.slice(0));
+          const bytes = await getSonicAssetBytes(palette, cue, variant);
+          return await context.decodeAudioData(bytes);
         }),
       );
       return [cue, variants] as const;
