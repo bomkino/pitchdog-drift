@@ -25,7 +25,8 @@
     "check:mac-source": "node scripts/check-macos-source.mjs && bash -n scripts/build-macos-app.sh && bash -n scripts/verify-macos-app.sh && bash -n scripts/package-macos-dmg.sh && python3 -m py_compile scripts/generate-macos-icon.py",
     "build:mac": "bash scripts/build-macos-app.sh",
     "verify:mac": "bash scripts/verify-macos-app.sh",
-    "package:mac": "bash scripts/package-macos-dmg.sh",
+    "package:mac:dmg": "bash scripts/package-macos-dmg.sh",
+    "package:mac": "npm run package:mac:dmg",
     "check": "npm run typecheck && npm run test && npm run check:mac-source && npm run build"
   },
   "dependencies": {

@@ -1,8 +1,9 @@
-name: macOS app
+name: macOS standalone app
 
 on:
   pull_request:
     paths:
+      - ".github/workflows/macos.yml"
       - "macos/**"
       - "scripts/build-macos-app.sh"
       - "scripts/check-macos-source.mjs"
@@ -10,23 +11,24 @@ on:
       - "scripts/package-macos-dmg.sh"
       - "scripts/verify-macos-app.sh"
       - "docs/MACOS_*.md"
+      - "src/**"
+      - "index.html"
       - "package.json"
       - "package-lock.json"
       - "vite.config.ts"
-      - ".github/workflows/macos.yml"
-  push:
-    branches:
-      - feat/native-macos-studio
+      - "tsconfig*.json"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: macos-app-${{ github.ref }}
+  group: macos-standalone-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   source-contract:
+    name: Native source contract
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -42,12 +44,14 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Enforce native source contract
+      - name: Enforce canonical Mac architecture
         run: npm run check:mac-source
 
   universal-app:
-    runs-on: macos-14
-    timeout-minutes: 35
+    name: Universal signed app and mounted DMG
+    needs: source-contract
+    runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,30 +65,37 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Verify web and native source
+      - name: Verify shared web engine and native source
         run: npm run check
 
-      - name: Build sandboxed universal app
+      - name: Build the system-codec-only universal app
         env:
-          DRIFT_SKIP_WEB_BUILD: "1"
+          DRIFT_SKIP_WEB_CHECKS: "1"
           DRIFT_BUILD_NUMBER: ${{ github.run_number }}
           DRIFT_SOURCE_REVISION: ${{ github.sha }}
+          DRIFT_EXPECT_ARCHS: arm64 x86_64
         run: npm run build:mac
 
-      - name: Re-run signed bundle gauntlet
+      - name: Re-run the signed bundle gauntlet
         env:
           DRIFT_EXPECT_ARCHS: arm64 x86_64
         run: npm run verify:mac
 
-      - name: Exercise local install image
+      - name: Package, mount, and verify the install image
         env:
           DRIFT_SKIP_APP_BUILD: "1"
-        run: |
-          npm run package:mac
-          hdiutil verify build/macos/Drift.dmg
+          DRIFT_DMG_OUTPUT: ${{ github.workspace }}/build/macos/Drift.dmg
+          DRIFT_EXPECT_ARCHS: arm64 x86_64
+        run: npm run package:mac:dmg
 
-      - name: Confirm no distributable was published
+      - name: Inspect local evidence without publishing it
+        shell: bash
         run: |
+          set -euo pipefail
           test -d build/macos/Drift.app
           test -f build/macos/Drift.dmg
-          echo "Build evidence stays inside the ephemeral runner; no binary artifact is uploaded."
+          test -f build/macos/Drift.dmg.sha256
+          grep -Fx "source_revision=${GITHUB_SHA}" build/macos/Drift.app/Contents/Resources/BuildReceipt.txt
+          shasum -a 256 -c build/macos/Drift.dmg.sha256
+          git diff --exit-code
+          echo "The runner proved the app and install image, then retained no downloadable binary artifact."

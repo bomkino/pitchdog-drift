@@ -92,8 +92,15 @@ final class NativeFileBroker {
         suppliedMimeType: String? = nil
     ) throws -> JSONDictionary {
         let url = try ensureLocalFileURL(rawURL)
+        let exists = fileManager.fileExists(atPath: url.path)
         try rejectSymlink(url, allowMissing: mode == .readWrite)
         try rejectDirectory(url, allowMissing: mode == .readWrite)
+        if !exists {
+            guard mode == .readWrite else {
+                throw BridgeFailure("NotFoundError", "The selected file no longer exists.")
+            }
+            try requireDirectory(url.deletingLastPathComponent())
+        }
         trimGrantsIfNeeded()
 
         let token = UUID().uuidString
@@ -109,11 +116,7 @@ final class NativeFileBroker {
 
     func registerDirectory(_ rawURL: URL) throws -> JSONDictionary {
         let url = try ensureLocalFileURL(rawURL)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw BridgeFailure("NotFoundError", "The selected export folder no longer exists.")
-        }
-        try rejectSymlink(url, allowMissing: false)
+        try requireDirectory(url)
         trimGrantsIfNeeded()
 
         let token = UUID().uuidString
@@ -144,6 +147,9 @@ final class NativeFileBroker {
     }
 
     func openWriteSession(_ payload: JSONDictionary) throws -> JSONDictionary {
+        guard writeSessions.count < 8 else {
+            throw BridgeFailure("QuotaExceededError", "Too many native file writes are open at once.")
+        }
         let fileToken = try requiredString(payload, "token")
         guard let grant = fileGrants[fileToken], grant.mode == .readWrite else {
             throw BridgeFailure("NotAllowedError", "That file permission is not writable.")
@@ -156,7 +162,7 @@ final class NativeFileBroker {
         try rejectSymlink(destinationURL, allowMissing: true)
         try rejectDirectory(destinationURL, allowMissing: true)
         let parent = destinationURL.deletingLastPathComponent().standardizedFileURL
-        try rejectSymlink(parent, allowMissing: false)
+        try requireDirectory(parent)
 
         let replacementDirectory = try fileManager.url(
             for: .itemReplacementDirectory,
@@ -164,9 +170,10 @@ final class NativeFileBroker {
             appropriateFor: destinationURL,
             create: true
         )
-        let stagingURL = replacementDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: false)
-            .appendingPathExtension(destinationURL.pathExtension)
+        var stagingURL = replacementDirectory.appendingPathComponent(UUID().uuidString, isDirectory: false)
+        if !destinationURL.pathExtension.isEmpty {
+            stagingURL.appendPathExtension(destinationURL.pathExtension)
+        }
         let keepExistingData = (payload["keepExistingData"] as? Bool) == true
 
         do {
@@ -187,7 +194,10 @@ final class NativeFileBroker {
                 replacementDirectory: replacementDirectory,
                 handle: handle
             )
-            return ["session": sessionToken, "size": Int(try fileSize(at: stagingURL, fileManager: fileManager))]
+            return [
+                "session": sessionToken,
+                "size": Int(try fileSize(at: stagingURL, fileManager: fileManager)),
+            ]
         } catch {
             try? fileManager.removeItem(at: stagingURL)
             try? fileManager.removeItem(at: replacementDirectory)
@@ -198,16 +208,19 @@ final class NativeFileBroker {
     func writeChunk(_ payload: JSONDictionary) throws -> JSONDictionary {
         let session = try requiredSession(payload)
         let position = try requiredOffset(payload, "position")
-        let encoded = try requiredString(payload, "data")
-        guard let data = Data(base64Encoded: encoded) else {
-            throw BridgeFailure("DataError", "The renderer sent an invalid binary chunk.")
+        let maximumEncodedBytes = ((driftMaximumWriteChunkBytes + 2) / 3) * 4 + 8
+        guard let encoded = payload["data"] as? String,
+              !encoded.isEmpty,
+              encoded.utf8.count <= maximumEncodedBytes,
+              let data = Data(base64Encoded: encoded) else {
+            throw BridgeFailure("DataError", "The renderer sent an invalid or oversized binary chunk.")
         }
         guard data.count <= driftMaximumWriteChunkBytes else {
             throw BridgeFailure("QuotaExceededError", "Native write chunks are limited to 512 KiB.")
         }
         let end = position.addingReportingOverflow(UInt64(data.count))
         guard !end.overflow, end.partialValue <= driftMaximumNativeOutputBytes else {
-            throw BridgeFailure("QuotaExceededError", "A native export may not exceed 1 GiB.")
+            throw BridgeFailure("QuotaExceededError", "A native export may not exceed 512 MiB.")
         }
         guard let handle = session.handle else {
             throw BridgeFailure("InvalidStateError", "The writable stream is already closed.")
@@ -222,7 +235,7 @@ final class NativeFileBroker {
         let session = try requiredSession(payload)
         let size = try requiredOffset(payload, "size")
         guard size <= driftMaximumNativeOutputBytes else {
-            throw BridgeFailure("QuotaExceededError", "A native export may not exceed 1 GiB.")
+            throw BridgeFailure("QuotaExceededError", "A native export may not exceed 512 MiB.")
         }
         guard let handle = session.handle else {
             throw BridgeFailure("InvalidStateError", "The writable stream is already closed.")
@@ -245,10 +258,12 @@ final class NativeFileBroker {
             }
             let finalSize = try fileSize(at: session.stagingURL, fileManager: fileManager)
             guard finalSize <= driftMaximumNativeOutputBytes else {
-                throw BridgeFailure("QuotaExceededError", "The completed native export exceeded 1 GiB.")
+                throw BridgeFailure("QuotaExceededError", "The completed native export exceeded 512 MiB.")
             }
             try rejectSymlink(session.destinationURL, allowMissing: true)
             try rejectDirectory(session.destinationURL, allowMissing: true)
+            let parent = session.destinationURL.deletingLastPathComponent().standardizedFileURL
+            try requireDirectory(parent)
 
             let renameResult = session.stagingURL.path.withCString { sourcePath in
                 session.destinationURL.path.withCString { destinationPath in
@@ -263,6 +278,15 @@ final class NativeFileBroker {
                 )
             }
 
+            // Best-effort directory sync narrows the crash window after the
+            // atomic rename. The committed file remains valid if the platform
+            // refuses a directory fsync on a particular volume.
+            let directoryDescriptor = Darwin.open(parent.path, O_RDONLY)
+            if directoryDescriptor >= 0 {
+                _ = Darwin.fsync(directoryDescriptor)
+                _ = Darwin.close(directoryDescriptor)
+            }
+
             writeSessions.removeValue(forKey: sessionToken)
             try? fileManager.removeItem(at: session.replacementDirectory)
             didCommitFile?(session.destinationURL)
@@ -271,6 +295,7 @@ final class NativeFileBroker {
                 "size": Int(try fileSize(at: session.destinationURL, fileManager: fileManager)),
             ]
         } catch {
+            try? session.handle?.close()
             session.handle = nil
             writeSessions.removeValue(forKey: sessionToken)
             try? fileManager.removeItem(at: session.stagingURL)
@@ -299,6 +324,7 @@ final class NativeFileBroker {
             throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
         }
         try rejectSymlink(grant.url, allowMissing: false)
+        try rejectDirectory(grant.url, allowMissing: false)
         let attributes = try fileManager.attributesOfItem(atPath: grant.url.path)
         let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
         let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
@@ -321,11 +347,17 @@ final class NativeFileBroker {
             throw BridgeFailure("QuotaExceededError", "Native read chunks are limited to 1 MiB.")
         }
         try rejectSymlink(grant.url, allowMissing: false)
+        try rejectDirectory(grant.url, allowMissing: false)
+        let totalSize = try fileSize(at: grant.url, fileManager: fileManager)
+        guard offset <= totalSize else {
+            throw BridgeFailure("DataError", "Native read offset is beyond the end of the file.")
+        }
+        let safeLength = min(requestedLength, totalSize - offset)
 
         let handle = try FileHandle(forReadingFrom: grant.url)
         defer { try? handle.close() }
         try handle.seek(toOffset: offset)
-        let data = try handle.read(upToCount: Int(requestedLength)) ?? Data()
+        let data = try handle.read(upToCount: Int(safeLength)) ?? Data()
         return ["data": data.base64EncodedString(), "length": data.count]
     }
 
@@ -336,6 +368,7 @@ final class NativeFileBroker {
         }
         let name = try validatedChildName(requiredString(payload, "name"))
         let create = (payload["create"] as? Bool) == true
+        try requireDirectory(directory.url)
         let fileURL = directory.url.appendingPathComponent(name, isDirectory: false).standardizedFileURL
         guard fileURL.deletingLastPathComponent() == directory.url.standardizedFileURL else {
             throw BridgeFailure("SecurityError", "Directory traversal is not permitted.")
@@ -350,6 +383,9 @@ final class NativeFileBroker {
         if !exists && !create {
             throw BridgeFailure("NotFoundError", "The requested file does not exist.")
         }
+        if !exists && create && !fileManager.createFile(atPath: fileURL.path, contents: Data()) {
+            throw BridgeFailure("NotAllowedError", "macOS could not create \(name) in the selected folder.")
+        }
 
         return try registerFile(fileURL, mode: .readWrite)
     }
@@ -360,6 +396,7 @@ final class NativeFileBroker {
             throw BridgeFailure("NotAllowedError", "That directory permission is no longer valid.")
         }
         let name = try validatedChildName(requiredString(payload, "name"))
+        try requireDirectory(directory.url)
         let fileURL = directory.url.appendingPathComponent(name, isDirectory: false).standardizedFileURL
         guard fileURL.deletingLastPathComponent() == directory.url.standardizedFileURL else {
             throw BridgeFailure("SecurityError", "Directory traversal is not permitted.")
@@ -429,19 +466,28 @@ final class NativeFileBroker {
         }
     }
 
+    private func requireDirectory(_ url: URL) throws {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw BridgeFailure("NotFoundError", "The selected folder no longer exists.")
+        }
+        if isSymbolicLink(url) {
+            throw BridgeFailure("SecurityError", "Symbolic-link folders are not accepted as native targets.")
+        }
+    }
+
     private func trimGrantsIfNeeded() {
         let protectedTokens = Set(writeSessions.values.map(\.fileToken))
         while fileGrants.count + directoryGrants.count >= driftMaximumGrantCount {
-            let oldestFile = fileGrants.values
-                .filter { !protectedTokens.contains($0.token) }
-                .min(by: { $0.createdAt < $1.createdAt })
-            let oldestDirectory = directoryGrants.values.min(by: { $0.createdAt < $1.createdAt })
-
-            if let file = oldestFile,
-               oldestDirectory == nil || file.createdAt <= oldestDirectory!.createdAt {
-                fileGrants.removeValue(forKey: file.token)
-            } else if let directory = oldestDirectory {
-                directoryGrants.removeValue(forKey: directory.token)
+            // Prefer evicting an old inactive file. A selected PNG-sequence
+            // directory should not disappear merely because hundreds of child
+            // frame handles were created beneath it.
+            if let oldestFile = fileGrants.values
+                .filter({ !protectedTokens.contains($0.token) })
+                .min(by: { $0.createdAt < $1.createdAt }) {
+                fileGrants.removeValue(forKey: oldestFile.token)
+            } else if let oldestDirectory = directoryGrants.values.min(by: { $0.createdAt < $1.createdAt }) {
+                directoryGrants.removeValue(forKey: oldestDirectory.token)
             } else {
                 return
             }
@@ -450,7 +496,10 @@ final class NativeFileBroker {
 
     static func runSelfTest() throws {
         let manager = FileManager.default
-        let root = manager.temporaryDirectory.appendingPathComponent("drift-native-self-test-\(UUID().uuidString)", isDirectory: true)
+        let root = manager.temporaryDirectory.appendingPathComponent(
+            "drift-native-self-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
         try manager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? manager.removeItem(at: root) }
 
@@ -486,11 +535,15 @@ final class NativeFileBroker {
 
         let directoryDescriptor = try broker.registerDirectory(root)
         let directoryToken = directoryDescriptor["token"] as! String
+        let frameURL = root.appendingPathComponent("drift_000001.png")
         let frameDescriptor = try broker.directoryFile([
             "token": directoryToken,
-            "name": "drift_000001.png",
+            "name": frameURL.lastPathComponent,
             "create": true,
         ])
+        guard manager.fileExists(atPath: frameURL.path) else {
+            throw BridgeFailure("DataError", "create:true did not create the directory entry immediately.")
+        }
         let frameToken = frameDescriptor["token"] as! String
         let frameOpen = try broker.openWriteSession(["token": frameToken, "keepExistingData": false])
         let frameSession = frameOpen["session"] as! String
@@ -509,7 +562,14 @@ final class NativeFileBroker {
         guard Data(base64Encoded: read["data"] as! String) == frameBytes else {
             throw BridgeFailure("DataError", "Native readback self-test changed the output bytes.")
         }
-        _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": "drift_000001.png"])
+        _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": frameURL.lastPathComponent])
+
+        do {
+            _ = try broker.readFile(["token": token, "offset": 999, "length": 1])
+            throw BridgeFailure("DataError", "Out-of-range read unexpectedly succeeded.")
+        } catch let failure as BridgeFailure where failure.name == "DataError" {
+            // Expected.
+        }
 
         do {
             _ = try broker.directoryFile(["token": directoryToken, "name": "../escape.png", "create": true])
@@ -524,6 +584,18 @@ final class NativeFileBroker {
             _ = try broker.registerFile(symlink, mode: .readOnly)
             throw BridgeFailure("SecurityError", "Symlink self-test unexpectedly succeeded.")
         } catch let failure as BridgeFailure where failure.name == "SecurityError" {
+            // Expected.
+        }
+
+        let disposable = root.appendingPathComponent("disposable.bin")
+        try Data([0x01]).write(to: disposable)
+        let disposableDescriptor = try broker.registerFile(disposable, mode: .readOnly)
+        let disposableToken = disposableDescriptor["token"] as! String
+        _ = try broker.releaseFile(["token": disposableToken])
+        do {
+            _ = try broker.fileInfo(["token": disposableToken])
+            throw BridgeFailure("DataError", "Released file permission remained usable.")
+        } catch let failure as BridgeFailure where failure.name == "NotAllowedError" {
             // Expected.
         }
 

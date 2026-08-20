@@ -12,7 +12,7 @@ WEB_DIR="${RESOURCES_DIR}/Web"
 LEGAL_DIR="${RESOURCES_DIR}/Legal"
 DOCS_DIR="${RESOURCES_DIR}/Documentation"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/drift-macos.XXXXXX")"
-MINIMUM_MACOS="${DRIFT_MACOS_DEPLOYMENT_TARGET:-13.0}"
+MINIMUM_MACOS="${DRIFT_MACOS_DEPLOYMENT_TARGET:-13.3}"
 ARCHITECTURES="${DRIFT_MACOS_ARCHS:-arm64 x86_64}"
 SIGNING_IDENTITY="${DRIFT_CODESIGN_IDENTITY:--}"
 ENTITLEMENTS="${ROOT_DIR}/macos/Drift.entitlements"
@@ -40,28 +40,48 @@ done
 
 cd "${ROOT_DIR}"
 
-if [[ "${DRIFT_SKIP_WEB_BUILD:-0}" == "1" ]]; then
+if [[ "${DRIFT_SKIP_WEB_CHECKS:-0}" == "1" ]]; then
   npm run check:mac-source
 else
   npm run check
 fi
 
+# Always replace the ordinary browser bundle with the system-codec-only Mac
+# build. Skipping checks may save CI time; skipping this rebuild is forbidden.
+rm -rf dist
+npm exec -- vite build --mode macos
+
 if [[ ! -f dist/index.html ]]; then
-  echo "dist/index.html is missing. Run the web build before packaging Drift." >&2
+  echo "dist/index.html is missing after the macOS Vite build." >&2
   exit 1
 fi
 if grep -Eq '(src|href)="/assets/' dist/index.html; then
   echo "The Vite bundle contains root-absolute assets and cannot run inside Drift.app." >&2
   exit 1
 fi
+if find dist -type f \( -name '*.wasm' -o -name '*.map' \) -print -quit | grep -q .; then
+  echo "The standalone Mac web bundle contains a forbidden WASM binary or source map." >&2
+  exit 1
+fi
+if grep -RIlE 'libavcodec|ffmpeg-core|@mediabunny/aac-encoder' dist --include='*.js' | grep -q .; then
+  echo "The standalone Mac web bundle still contains a software AAC/FFmpeg marker." >&2
+  exit 1
+fi
 
 rm -rf "${APP_BUNDLE}"
 mkdir -p "${MACOS_DIR}" "${WEB_DIR}" "${LEGAL_DIR}" "${DOCS_DIR}"
 cp macos/Info.plist "${CONTENTS_DIR}/Info.plist"
-cat macos/NativeBridge-*.inc.js > "${RESOURCES_DIR}/NativeBridge.js"
+cp macos/NativeBridge.js "${RESOURCES_DIR}/NativeBridge.js"
 cp -R dist/. "${WEB_DIR}/"
 cp LICENSE NOTICE ASSET-LICENSE.md THIRD_PARTY_NOTICES.md "${LEGAL_DIR}/"
-cp docs/MACOS_APP.md docs/MACOS_PRODUCT_CONTRACT.md docs/MACOS_USER_GUIDE.md docs/MACOS_QA.md docs/MACOS_THREAT_MODEL.md docs/MACOS_RELEASE_CHECKLIST.md "${DOCS_DIR}/"
+cp \
+  docs/MACOS_APP.md \
+  docs/MACOS_PRODUCT_CONTRACT.md \
+  docs/MACOS_USER_GUIDE.md \
+  docs/MACOS_QA.md \
+  docs/MACOS_THREAT_MODEL.md \
+  docs/MACOS_RELEASE_CHECKLIST.md \
+  "${DOCS_DIR}/"
 
 PACKAGE_VERSION="$(node -p "require('./package.json').version")"
 BUILD_NUMBER="${DRIFT_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || printf '1')}"
@@ -77,6 +97,12 @@ python3 scripts/generate-macos-icon.py "${ICONSET_DIR}"
 iconutil -c icns "${ICONSET_DIR}" -o "${RESOURCES_DIR}/${APP_NAME}.icns"
 
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
+SOURCE_FILES=(macos/App/*.swift)
+if [[ ${#SOURCE_FILES[@]} -eq 0 ]]; then
+  echo "No canonical Swift source was found in macos/App/." >&2
+  exit 1
+fi
+
 BINARIES=()
 for architecture in ${ARCHITECTURES}; do
   case "${architecture}" in
@@ -99,7 +125,7 @@ for architecture in ${ARCHITECTURES}; do
     -framework UniformTypeIdentifiers \
     -framework WebKit \
     -Xlinker -dead_strip \
-    macos/*.swift \
+    "${SOURCE_FILES[@]}" \
     -o "${binary}"
   BINARIES+=("${binary}")
 done
@@ -111,6 +137,40 @@ else
 fi
 chmod 0755 "${MACOS_DIR}/${APP_NAME}"
 find "${RESOURCES_DIR}" -type f -exec chmod 0644 {} +
+
+cat > "${RESOURCES_DIR}/BuildReceipt.txt" <<EOF
+app_name=Drift
+version=${PACKAGE_VERSION}
+build_number=${BUILD_NUMBER}
+source_revision=${SOURCE_REVISION}
+minimum_macos=${MINIMUM_MACOS}
+architectures=${ARCHITECTURES}
+renderer=WKWebView+Three.js
+codec_policy=system-codecs-only
+sandbox=user-selected-read-write
+network_entitlement=none
+EOF
+
+# The resource manifest is generated before signing. Code signing subsequently
+# seals these bytes; verification checks both the manifest and the signature.
+python3 - "${RESOURCES_DIR}" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+manifest = root / "BuildManifest.txt"
+entries: list[str] = []
+for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+    if not path.is_file() or path == manifest:
+        continue
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    entries.append(f"{digest}  {path.relative_to(root).as_posix()}")
+manifest.write_text("\n".join(entries) + "\n", encoding="utf-8")
+PY
+chmod 0644 "${RESOURCES_DIR}/BuildReceipt.txt" "${RESOURCES_DIR}/BuildManifest.txt"
 
 xattr -cr "${APP_BUNDLE}"
 if [[ "${SIGNING_IDENTITY}" == "-" ]]; then

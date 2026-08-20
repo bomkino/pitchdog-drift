@@ -1,98 +1,196 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join, relative } from "node:path";
 import { Script } from "node:vm";
 
-const root = resolve(import.meta.dirname, "..");
-const read = (path) => readFileSync(resolve(root, path), "utf8");
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const at = (path) => join(root, path);
+const read = (path) => readFileSync(at(path), "utf8");
 const fail = (message) => {
   throw new Error(`macOS source contract failed: ${message}`);
 };
-const requireText = (source, needle, label) => {
-  if (!source.includes(needle)) fail(`${label} is missing ${JSON.stringify(needle)}`);
+const requireFile = (path) => {
+  if (!existsSync(at(path))) fail(`missing ${path}`);
 };
-const forbidText = (source, needle, label) => {
-  if (source.includes(needle)) fail(`${label} contains forbidden ${JSON.stringify(needle)}`);
+const requireText = (text, marker, label) => {
+  if (!text.includes(marker)) fail(`${label} is missing ${JSON.stringify(marker)}`);
+};
+const forbidText = (text, marker, label) => {
+  if (text.includes(marker)) fail(`${label} still contains forbidden ${JSON.stringify(marker)}`);
 };
 
-const packageJson = JSON.parse(read("package.json"));
-const vite = read("vite.config.ts");
-const swift = [
-  "macos/DriftMain.swift",
+const canonicalSwift = [
+  "macos/App/DriftAppDelegate.swift",
+  "macos/App/DriftMain.swift",
+  "macos/App/NativeBridgeHost.swift",
+  "macos/App/NativeFileBroker.swift",
+  "macos/App/NativeGauntlet.swift",
+  "macos/App/NativeModels.swift",
+  "macos/App/WebViewSelfTest.swift",
+];
+const stalePaths = [
+  ".github/workflows/macos-app.yml",
   "macos/DriftAppDelegate.swift",
+  "macos/DriftMain.swift",
   "macos/DriftMenus.swift",
   "macos/DriftWebKit.swift",
   "macos/NSAlert+Sheet.swift",
-  "macos/NativeSupport.swift",
-  "macos/NativeFileBroker.swift",
   "macos/NativeBridgeHost.swift",
-].map(read).join("\n");
-const bridgeParts = [
+  "macos/NativeFileBroker.swift",
+  "macos/NativeSupport.swift",
   "macos/NativeBridge-0.inc.js",
   "macos/NativeBridge-1.inc.js",
   "macos/NativeBridge-2.inc.js",
+  "tmp-probe.txt",
 ];
-const bridge = bridgeParts.map(read).join("");
-new Script(bridge, { filename: "NativeBridge.js" });
-const info = read("macos/Info.plist");
-const entitlements = read("macos/Drift.entitlements");
+const requiredFiles = [
+  ...canonicalSwift,
+  "macos/NativeBridge.js",
+  "macos/Info.plist",
+  "macos/Drift.entitlements",
+  "scripts/build-macos-app.sh",
+  "scripts/verify-macos-app.sh",
+  "scripts/package-macos-dmg.sh",
+  "scripts/generate-macos-icon.py",
+  "src/lib/macosAacEncoder.ts",
+  ".github/workflows/macos.yml",
+  "docs/MACOS_APP.md",
+  "docs/MACOS_PRODUCT_CONTRACT.md",
+  "docs/MACOS_USER_GUIDE.md",
+  "docs/MACOS_QA.md",
+  "docs/MACOS_THREAT_MODEL.md",
+  "docs/MACOS_RELEASE_CHECKLIST.md",
+];
+requiredFiles.forEach(requireFile);
+stalePaths.forEach((path) => {
+  if (existsSync(at(path))) fail(`stale competing implementation remains at ${path}`);
+});
+
+const unexpectedRootSwift = readdirSync(at("macos"))
+  .filter((name) => name.endsWith(".swift"));
+if (unexpectedRootSwift.length) {
+  fail(`Swift source must live only in macos/App; found ${unexpectedRootSwift.join(", ")}`);
+}
+
+const swift = canonicalSwift.map(read).join("\n");
+const bridge = read("macos/NativeBridge.js");
 const build = read("scripts/build-macos-app.sh");
 const verify = read("scripts/verify-macos-app.sh");
-const dmg = read("scripts/package-macos-dmg.sh");
-const docs = read("docs/MACOS_APP.md");
+const packageDmg = read("scripts/package-macos-dmg.sh");
+const vite = read("vite.config.ts");
+const packageJson = read("package.json");
+const info = read("macos/Info.plist");
+const entitlements = read("macos/Drift.entitlements");
+const macWorkflow = read(".github/workflows/macos.yml");
+const macDocs = read("docs/MACOS_APP.md");
+const aacShim = read("src/lib/macosAacEncoder.ts");
 
-if (packageJson.scripts?.["build:mac"] !== "bash scripts/build-macos-app.sh") {
-  fail("package.json must expose build:mac through the reviewed builder");
+new Script(bridge, { filename: "macos/NativeBridge.js" });
+requireText(bridge, "DRIFT_NATIVE_BRIDGE_VERSION = 2", "native bridge");
+requireText(swift, "let driftBridgeVersion = 2", "Swift bridge model");
+requireText(info, "<integer>2</integer>", "Info.plist bridge metadata");
+
+for (const command of [
+  "runtime-info",
+  "client-state",
+  "input-intent",
+  "pick-save",
+  "pick-directory",
+  "pick-open-files",
+  "write-open",
+  "write-chunk",
+  "write-truncate",
+  "write-close",
+  "write-abort",
+  "file-info",
+  "file-read",
+  "file-release",
+  "directory-get-file",
+  "directory-remove-entry",
+  "directory-release",
+]) {
+  requireText(bridge, `"${command}"`, `JavaScript bridge command ${command}`);
+  requireText(swift, `"${command}"`, `Swift bridge command ${command}`);
 }
-if (packageJson.scripts?.["verify:mac"] !== "bash scripts/verify-macos-app.sh") {
-  fail("package.json must expose verify:mac through the reviewed verifier");
+
+for (const command of [
+  "open-project",
+  "add-slides",
+  "add-presenter",
+  "save-project",
+  "export-mp4",
+  "export-still",
+  "export-frames",
+  "toggle-playback",
+  "previous-slide",
+  "next-slide",
+  "toggle-focus",
+]) {
+  requireText(bridge, `"${command}"`, `JavaScript menu command ${command}`);
+  requireText(swift, `"${command}"`, `Swift menu command ${command}`);
 }
-if (packageJson.scripts?.["package:mac"] !== "bash scripts/package-macos-dmg.sh") {
-  fail("package.json must expose package:mac through the reviewed DMG packager");
+
+for (const field of ["exportInProgress", "projectBusy", "saveState", "lastNotice"]) {
+  requireText(bridge, field, `JavaScript client-state field ${field}`);
+  requireText(swift, field, `Swift client-state field ${field}`);
+}
+for (const kind of ["slides", "presenter", "project"]) {
+  requireText(bridge, `"${kind}"`, `JavaScript import kind ${kind}`);
+  requireText(swift, `case ${kind}`, `Swift import kind ${kind}`);
 }
 
-requireText(vite, 'base: "./"', "vite.config.ts");
-requireText(swift, "WKScriptMessageHandlerWithReply", "DriftApp.swift");
-requireText(swift, "forMainFrameOnly: true", "DriftApp.swift");
-requireText(swift, "message.frameInfo.isMainFrame", "DriftApp.swift");
-requireText(swift, "runOpenPanelWith parameters", "DriftApp.swift");
-requireText(swift, ".itemReplacementDirectory", "DriftApp.swift");
-requireText(swift, "replaceItemAt", "DriftApp.swift");
-requireText(swift, "--native-self-test", "DriftApp.swift");
-requireText(swift, "applicationShouldHandleReopen", "DriftApp.swift");
-requireText(swift, "setFrameAutosaveName", "DriftApp.swift");
-requireText(swift, "webViewWebContentProcessDidTerminate", "DriftApp.swift");
-forbidText(swift, "Process(", "DriftApp.swift");
-forbidText(swift, "NSTask", "DriftApp.swift");
+requireText(swift, "NativeGauntlet.run()", "executable native gauntlet");
+requireText(swift, "--webview-self-test", "packaged WebView self-test");
+requireText(swift, "fileManager.createFile(atPath: fileURL.path", "directory create semantics");
+requireText(swift, "driftMaximumNativeOutputBytes: UInt64 = 512 * 1024 * 1024", "verified output ceiling");
+requireText(bridge, "MAX_READBACK_BYTES = 512 * 1024 * 1024", "JavaScript readback ceiling");
 
-requireText(bridge, "DRIFT_NATIVE_BRIDGE_VERSION = 2", "NativeBridge.js");
-requireText(bridge, 'callNative("pick-open-files"', "NativeBridge.js");
-requireText(bridge, "MAX_READBACK_BYTES", "NativeBridge.js");
-requireText(bridge, "__driftNativeImportGranted", "NativeBridge.js");
-requireText(bridge, "MutationObserver", "NativeBridge.js");
-forbidText(bridge, "eval(", "NativeBridge.js");
-forbidText(bridge, "new Function", "NativeBridge.js");
+requireText(build, "macos/App/*.swift", "Mac builder canonical source glob");
+requireText(build, "cp macos/NativeBridge.js", "Mac builder single bridge source");
+requireText(build, "vite build --mode macos", "Mac system-codec Vite build");
+requireText(build, "BuildReceipt.txt", "Mac build receipt");
+requireText(build, "BuildManifest.txt", "Mac resource manifest");
+for (const marker of ["*.wasm", "@mediabunny/aac-encoder", "libavcodec"]) {
+  requireText(build, marker, `Mac builder rejection ${marker}`);
+  requireText(verify, marker, `Mac verifier rejection ${marker}`);
+}
 
-requireText(info, "<integer>2</integer>", "Info.plist");
-requireText(info, "dog.pitch.pitched-project", "Info.plist");
-requireText(info, "AGPL-3.0-or-later", "Info.plist");
-forbidText(info, "AGPL-3.0-only", "Info.plist");
+for (const marker of [
+  "--smoke-test",
+  "--native-self-test",
+  "--webview-self-test",
+  "BuildManifest.txt",
+  "system-codecs-only",
+  "otool -L",
+  "flags=.*runtime",
+]) {
+  requireText(verify, marker, `Mac verifier ${marker}`);
+}
+requireText(packageDmg, "Install Drift.txt", "DMG user-facing install note");
+requireText(packageDmg, "-readonly", "read-only mounted DMG verification");
+requireText(packageDmg, "verify-macos-app.sh", "mounted app verification");
+requireText(packageDmg, ".sha256", "DMG checksum");
 
-requireText(entitlements, "com.apple.security.app-sandbox", "Drift.entitlements");
-requireText(entitlements, "com.apple.security.files.user-selected.read-write", "Drift.entitlements");
-forbidText(entitlements, "com.apple.security.network.client", "Drift.entitlements");
-forbidText(entitlements, "com.apple.security.network.server", "Drift.entitlements");
-forbidText(entitlements, "com.apple.security.files.user-selected.read-only", "Drift.entitlements");
-forbidText(entitlements, "com.apple.security.cs.disable-library-validation", "Drift.entitlements");
-forbidText(entitlements, "com.apple.security.cs.allow-unsigned-executable-memory", "Drift.entitlements");
+requireText(vite, 'mode === "macos"', "Vite Mac build mode");
+requireText(vite, '"@mediabunny/aac-encoder": macosAacShim', "Vite system AAC alias");
+requireText(vite, 'sourcemap: mode !== "macos"', "Mac source-map exclusion");
+requireText(aacShim, "Intentionally empty", "system AAC shim");
+forbidText(aacShim, "registerAacEncoder();", "system AAC shim");
 
-requireText(build, "--entitlements", "build-macos-app.sh");
-requireText(build, "--options runtime", "build-macos-app.sh");
-requireText(build, "verify-macos-app.sh", "build-macos-app.sh");
-requireText(build, "THIRD_PARTY_NOTICES.md", "build-macos-app.sh");
-requireText(verify, "com.apple.security.app-sandbox", "verify-macos-app.sh");
-requireText(verify, "--native-self-test", "verify-macos-app.sh");
-requireText(dmg, "hdiutil", "package-macos-dmg.sh");
-requireText(docs, "App Sandbox", "docs/MACOS_APP.md");
-requireText(docs, "Compiled-distribution boundary", "docs/MACOS_APP.md");
+requireText(info, "<string>13.3</string>", "minimum macOS version");
+requireText(info, "UTExportedTypeDeclarations", ".pitched exported type");
+requireText(info, "LSMultipleInstancesProhibited", "single-editor app policy");
+requireText(entitlements, "com.apple.security.app-sandbox", "App Sandbox entitlement");
+requireText(entitlements, "com.apple.security.files.user-selected.read-write", "user-selected file entitlement");
+forbidText(entitlements, "com.apple.security.network", "network entitlement policy");
 
-console.log("macOS source contract passed: integration, bridge, sandbox, atomic writes, self-test, packaging, and documentation are wired.");
+requireText(packageJson, '"package:mac:dmg"', "package script");
+requireText(packageJson, '"verify:mac"', "verification script");
+requireText(macWorkflow, "Universal signed app and mounted DMG", "canonical macOS workflow");
+requireText(macWorkflow, "DRIFT_SKIP_WEB_CHECKS", "non-duplicated Mac CI checks");
+requireText(macWorkflow, "shasum -a 256 -c", "DMG checksum verification");
+requireText(macDocs, "## Compiled-distribution boundary", "compiled-distribution documentation");
+
+console.log(
+  `macOS source contract passed: ${canonicalSwift.length} canonical Swift files, one bridge, one workflow, one verified 512 MiB output ceiling.`,
+);

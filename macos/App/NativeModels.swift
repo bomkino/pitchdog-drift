@@ -6,7 +6,10 @@ let driftBridgeVersion = 2
 let driftBundleIdentifier = "dog.pitch.drift"
 let driftMaximumReadChunkBytes = 1 * 1024 * 1024
 let driftMaximumWriteChunkBytes = 512 * 1024
-let driftMaximumNativeOutputBytes: UInt64 = 1 * 1024 * 1024 * 1024
+// MP4 verification currently reopens the completed native file as one Blob.
+// Refuse a destination larger than the same readback ceiling before a user
+// spends minutes rendering an artifact Drift would have to neutralize later.
+let driftMaximumNativeOutputBytes: UInt64 = 512 * 1024 * 1024
 let driftMaximumImportFileBytes: UInt64 = 96 * 1024 * 1024
 let driftMaximumImageBatchBytes: UInt64 = 80 * 1024 * 1024
 let driftMaximumGrantCount = 512
@@ -57,8 +60,15 @@ struct ClientState {
     mutating func update(from payload: JSONDictionary) {
         if let value = payload["exportInProgress"] as? Bool { exportInProgress = value }
         if let value = payload["projectBusy"] as? Bool { projectBusy = value }
-        if let value = payload["saveState"] as? String { saveState = value }
-        if let value = payload["lastNotice"] as? String { lastNotice = String(value.prefix(2_000)) }
+        if let value = payload["saveState"] as? String,
+           ["loading", "saving", "saved", "failed", "recovery"].contains(value) {
+            saveState = value
+        }
+        if let value = payload["lastNotice"] as? String {
+            lastNotice = String(value.prefix(2_000))
+        } else if payload.keys.contains("lastNotice") {
+            lastNotice = nil
+        }
     }
 }
 
@@ -79,14 +89,21 @@ func failureEnvelope(_ error: Error) -> JSONDictionary {
 }
 
 func requiredString(_ payload: JSONDictionary, _ key: String) throws -> String {
-    guard let value = payload[key] as? String, !value.isEmpty else {
-        throw BridgeFailure("TypeError", "Native command field ‘\(key)’ must be a non-empty string.")
+    guard let value = payload[key] as? String,
+          !value.isEmpty,
+          value.utf8.count <= 4_096 else {
+        throw BridgeFailure(
+            "TypeError",
+            "Native command field ‘\(key)’ must be a bounded, non-empty string."
+        )
     }
     return value
 }
 
 func optionalString(_ payload: JSONDictionary, _ key: String) -> String? {
-    guard let value = payload[key] as? String, !value.isEmpty else { return nil }
+    guard let value = payload[key] as? String,
+          !value.isEmpty,
+          value.utf8.count <= 4_096 else { return nil }
     return value
 }
 
@@ -126,13 +143,19 @@ func safeLeafName(_ value: String?, fallback: String) -> String {
 func validatedChildName(_ value: String) throws -> String {
     let cleaned = safeLeafName(value, fallback: "")
     guard !cleaned.isEmpty, cleaned == value else {
-        throw BridgeFailure("TypeError", "File names may not contain path separators, control characters, or traversal segments.")
+        throw BridgeFailure(
+            "TypeError",
+            "File names may not contain path separators, control characters, or traversal segments."
+        )
     }
     return cleaned
 }
 
 func mimeType(for url: URL) -> String {
-    UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+    if url.pathExtension.lowercased() == "pitched" {
+        return "application/vnd.pitchdog.pitched+zip"
+    }
+    return UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
 }
 
 func currentArchitecture() -> String {

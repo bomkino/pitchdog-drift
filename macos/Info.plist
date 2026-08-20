@@ -46,7 +46,9 @@
   <key>LSApplicationSupportsSecureRestorableState</key>
   <true/>
   <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
+  <string>13.3</string>
+  <key>LSMultipleInstancesProhibited</key>
+  <true/>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSHumanReadableCopyright</key>
@@ -55,7 +57,7 @@
   <string>NSApplication</string>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
-  <key>UTImportedTypeDeclarations</key>
+  <key>UTExportedTypeDeclarations</key>
   <array>
     <dict>
       <key>UTTypeConformsTo</key>

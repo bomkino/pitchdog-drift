@@ -13,6 +13,7 @@ struct DriftMain {
         if arguments.contains("--native-self-test") {
             do {
                 try NativeFileBroker.runSelfTest()
+                try NativeGauntlet.run()
                 Darwin.exit(0)
             } catch {
                 fputs("Drift native self-test failed: \(error.localizedDescription)\n", stderr)
@@ -38,6 +39,7 @@ struct DriftMain {
             ("THIRD_PARTY_NOTICES", "md", "Legal"),
             ("MACOS_USER_GUIDE", "md", "Documentation"),
             ("MACOS_THREAT_MODEL", "md", "Documentation"),
+            ("BuildReceipt", "txt", nil),
             ("BuildManifest", "txt", nil),
         ]
 
@@ -69,7 +71,7 @@ struct DriftMain {
             return 1
         }
 
-        print("Drift macOS smoke test passed: bundle, legal resources, web runtime, and bridge agree.")
+        print("Drift macOS smoke test passed: bundle, receipt, manifest, legal resources, web runtime, and bridge agree.")
         return 0
     }
 }
