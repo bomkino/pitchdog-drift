@@ -86,7 +86,7 @@ jobs:
             macos/App/NativeFileBroker.swift \
             macos/App/NativeAacEncoder.swift \
             macos/App/NativeGauntlet.swift \
-            macos/NativeGauntletMain.swift \
+            macos/Probes/NativeGauntletMain.swift \
             -o "$RUNNER_TEMP/DriftNativeGauntlet"
           "$RUNNER_TEMP/DriftNativeGauntlet"
 
