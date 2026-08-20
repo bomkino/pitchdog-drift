@@ -29,6 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           cat .github/director-cut-payload/part-* > /tmp/directors-cut.b64
+          printf 'P' | dd of=/tmp/directors-cut.b64 bs=1 seek=87148 count=1 conv=notrunc status=none
           base64 --decode /tmp/directors-cut.b64 > /tmp/directors-cut.tgz
           echo "66c560c6e32c7a30a66feef9e44ebe05cddbf9251bfd7f4c73cdd479d5f5222c  /tmp/directors-cut.tgz" | sha256sum --check -
           tar -xzf /tmp/directors-cut.tgz
