@@ -14,6 +14,13 @@ import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } fr
 import { createDemoSlides } from "./lib/demoSlides";
 import type { ExportProgress as EncoderProgress } from "./lib/exportStudio";
 import {
+  installNativeMacAppBridge,
+  isNativeMacRuntime,
+  reportNativeMacClientState,
+  type NativeMacCommand,
+  type NativeMacImportKind,
+} from "./lib/nativeMac";
+import {
   createProjectBundle,
   exportProject,
   importProject,
@@ -210,6 +217,8 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<CinematicCarousel | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const presenterInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
@@ -239,6 +248,7 @@ export function App() {
   const [saveState, setSaveState] = useState<"loading" | "saving" | "saved" | "failed" | "recovery">("loading");
   const [projectBusy, setProjectBusy] = useState(false);
   const [mp4Supported, setMp4Supported] = useState<boolean | null>(null);
+  const nativeMac = isNativeMacRuntime();
 
   settingsRef.current = settings;
   assetsRef.current = assets;
@@ -376,8 +386,6 @@ export function App() {
   ) => {
     const revision = reservedRevision ?? ++saveRevisionRef.current;
     setSaveState("saving");
-    // Freeze the requested revision now. Blob references remain valid even if
-    // their object URLs are later revoked during a project swap.
     const payload = makePayload(nextSettings, nextAssets, nextPresenter);
     const projectAssets = [...nextAssets, ...(nextPresenter ? [nextPresenter] : [])].map((asset) => ({
         id: asset.id,
@@ -399,8 +407,6 @@ export function App() {
           createdAt: identity?.createdAt,
           updatedAt,
         });
-        // Tasks execute in invocation order, so the next queued save inherits
-        // the correct project identity even when hashing times differ wildly.
         identityRef.current = {
           projectId: snapshot.manifest.projectId,
           createdAt: snapshot.manifest.createdAt,
@@ -454,9 +460,6 @@ export function App() {
         }
       } finally {
         if (!cancelled) {
-          // A failed saved project may become readable after an app upgrade.
-          // Never overwrite it with fallback demos unless the user explicitly
-          // saves or successfully opens a replacement project.
           hydratedRef.current = hydrationSucceeded;
           setSaveState(hydrationSucceeded ? "saved" : "recovery");
         }
@@ -505,8 +508,6 @@ export function App() {
 
   useEffect(() => {
     if (!hydratedRef.current) return;
-    // Reserve the revision and expose the dirty state before the debounce.
-    // An older in-flight hash can no longer relabel newer unsaved edits as saved.
     const revision = ++saveRevisionRef.current;
     setSaveState("saving");
     const timer = window.setTimeout(() => {
@@ -607,8 +608,6 @@ export function App() {
     }
     if (replacingDemos) current.forEach(disposeAsset);
     const next = [...retained, ...accepted];
-    // Commit the ref and React state as one logical mutation. A later queued
-    // batch therefore measures real capacity, not the render that began its decode.
     assetsRef.current = next;
     setAssets(next);
     announce(`${accepted.length} slide${accepted.length === 1 ? "" : "s"} added${rejected ? `; ${rejected} rejected` : ""}.`, rejected ? "quiet" : "good");
@@ -707,7 +706,12 @@ export function App() {
       return;
     }
     if (mp4Supported === false) {
-      announce("This browser cannot encode the requested H.264 master. Use current desktop Chromium or Brave, or export PNG frames.", "error");
+      announce(
+        nativeMac
+          ? "This Mac’s system WebKit cannot encode the requested H.264 master. Export PNG frames, or try a supported macOS update."
+          : "This browser cannot encode the requested H.264 master. Use current desktop Chromium or Brave, or export PNG frames.",
+        "error",
+      );
       return;
     }
     let fileHandle: FileSystemFileHandle | null = null;
@@ -756,7 +760,7 @@ export function App() {
     } finally {
       if (session) endExport(session.surface);
     }
-  }, [announce, beginExport, endExport, mp4Supported, pinnedAsset, renderForExport]);
+  }, [announce, beginExport, endExport, mp4Supported, nativeMac, pinnedAsset, renderForExport]);
 
   const exportStill = useCallback(async () => {
     let session: ReturnType<typeof beginExport> | null = null;
@@ -914,17 +918,99 @@ export function App() {
     announce(`${getTheme(id).name} is now directing the scene.`);
   }, [announce]);
 
+  useEffect(() => installNativeMacAppBridge({
+    command: (command: NativeMacCommand) => {
+      if (command === "cancel-export") {
+        if (!abortRef.current) return false;
+        abortRef.current.abort("Canceled from the macOS menu");
+        return true;
+      }
+
+      const blocked = Boolean(exportProgress) || projectBusy || saveState === "loading";
+      if (blocked) return false;
+
+      switch (command) {
+      case "open-project":
+        importInputRef.current?.click();
+        return Boolean(importInputRef.current);
+      case "add-slides":
+        imageInputRef.current?.click();
+        return Boolean(imageInputRef.current);
+      case "add-presenter":
+        presenterInputRef.current?.click();
+        return Boolean(presenterInputRef.current);
+      case "save-project":
+        savePortableProject();
+        return true;
+      case "export-mp4":
+        void exportVideo();
+        return true;
+      case "export-still":
+        void exportStill();
+        return true;
+      case "export-frames":
+        void exportFrames();
+        return true;
+      case "toggle-playback":
+        togglePause();
+        return true;
+      case "previous-slide":
+        engineRef.current?.stepSlides(-1);
+        return Boolean(engineRef.current);
+      case "next-slide":
+        engineRef.current?.stepSlides(1);
+        return Boolean(engineRef.current);
+      case "toggle-focus":
+        setFocusMode((value) => !value);
+        return true;
+      }
+    },
+    importFile: (kind: NativeMacImportKind, file: File) => {
+      if (kind === "slides") {
+        addImages([file]);
+        return;
+      }
+      if (kind === "presenter") {
+        addPresenter(file);
+        return;
+      }
+      return enqueueProjectOperation(() => openPortableProjectFile(file));
+    },
+  }), [
+    addImages,
+    addPresenter,
+    enqueueProjectOperation,
+    exportFrames,
+    exportProgress,
+    exportStill,
+    exportVideo,
+    openPortableProjectFile,
+    projectBusy,
+    savePortableProject,
+    saveState,
+    togglePause,
+  ]);
+
+  useEffect(() => {
+    reportNativeMacClientState({
+      exportInProgress: Boolean(exportProgress),
+      projectBusy: projectBusy || saveState === "loading",
+      saveState,
+      lastNotice: notice,
+    });
+  }, [exportProgress, notice, projectBusy, saveState]);
+
   const capabilityLabel = webglError
     ? "DOM fallback"
     : mp4Supported === null
       ? "checking encoder"
       : mp4Supported
-        ? "WebGL2 · H.264 ready"
+        ? nativeMac ? "WebGL2 · system H.264 ready" : "WebGL2 · H.264 ready"
         : "WebGL2 · PNG output";
   const interactionBusy = Boolean(exportProgress) || projectBusy || saveState === "loading";
 
   return (
-    <main className="app" data-focus={focusMode} data-active-panel={activePanel}>
+    <main className="app" data-focus={focusMode} data-active-panel={activePanel} aria-busy={interactionBusy}>
       <header className="app-header">
         <a className="wordmark" href="#studio" aria-label="Drift studio home">
           <span>pitch.dog</span>
@@ -952,6 +1038,8 @@ export function App() {
           assets={assets}
           presenter={presenter}
           pinnedAssetId={settings.presenter.assetId}
+          imageInputRef={imageInputRef}
+          presenterInputRef={presenterInputRef}
           onAddImages={addImages}
           onPresenter={addPresenter}
           onRemove={removeAsset}
@@ -1016,7 +1104,7 @@ export function App() {
           <div role="note" aria-label="Free software notice">
             <strong>Drift © 2026 pitch.dog and contributors.</strong>
             <p>Free software: you may copy, modify, and convey it under GNU AGPL v3 or later. It comes with absolutely no warranty.</p>
-            <p>The software AAC path uses FFmpeg libraries under LGPL-2.1-or-later.</p>
+            <p>{nativeMac ? "This Mac build uses system media codecs and contains no FFmpeg WebAssembly." : "The software AAC path uses FFmpeg libraries under LGPL-2.1-or-later."}</p>
             <span>
               <a href="https://github.com/bomkino/pitchdog-drift" target="_blank" rel="noreferrer">Complete source</a>
               <a href="https://github.com/bomkino/pitchdog-drift/blob/main/LICENSE" target="_blank" rel="noreferrer">Read the licence</a>

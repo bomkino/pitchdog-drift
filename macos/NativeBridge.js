@@ -8,10 +8,31 @@
   const TRANSFER_CHUNK_BYTES = 384 * 1024;
   const READ_CHUNK_BYTES = 1024 * 1024;
   const MAX_READBACK_BYTES = 512 * 1024 * 1024;
+  const MAX_QUEUED_COMMANDS = 32;
+  const MAX_QUEUED_IMPORTS = 16;
+  const VALID_COMMANDS = new Set([
+    "open-project",
+    "add-slides",
+    "add-presenter",
+    "save-project",
+    "export-mp4",
+    "export-still",
+    "export-frames",
+    "toggle-playback",
+    "previous-slide",
+    "next-slide",
+    "toggle-focus",
+    "cancel-export",
+  ]);
+  const VALID_IMPORT_KINDS = new Set(["slides", "presenter", "project"]);
+  const VALID_SAVE_STATES = new Set(["loading", "saving", "saved", "failed", "recovery"]);
   const nativeInputClick = HTMLInputElement.prototype.click;
   let nativeSavePending = false;
-  let stateTimer = 0;
   let statusHost = null;
+  let appBridge = null;
+  let appBridgeGeneration = 0;
+  const queuedCommands = [];
+  const queuedImports = [];
 
   function nativeError(raw) {
     const name = typeof raw?.name === "string" ? raw.name : "InvalidStateError";
@@ -339,6 +360,8 @@
     } catch (error) {
       await writable.abort(error).catch(() => undefined);
       throw error;
+    } finally {
+      await handle._release();
     }
   }
 
@@ -402,7 +425,6 @@
         }
       } finally {
         nativeSavePending = false;
-        scheduleStateReport();
       }
     })();
   }, true);
@@ -416,74 +438,105 @@
     }
   }
 
-  async function importGranted(descriptor, kind = "project") {
+  async function dispatchAppCommand(command) {
+    if (!appBridge) return false;
+    try {
+      const handled = await appBridge.command(command);
+      if (handled === false) {
+        showNativeStatus("That command is unavailable while Drift is busy.", "quiet");
+      }
+      return handled !== false;
+    } catch (error) {
+      console.error("Native menu command failed", error);
+      showNativeStatus(error?.message || "The native command failed.", "failed");
+      return false;
+    }
+  }
+
+  async function dispatchAppImport(kind, file) {
+    if (!appBridge) return false;
+    try {
+      await appBridge.importFile(kind, file);
+      return true;
+    } catch (error) {
+      console.error("Native import failed", error);
+      showNativeStatus(error?.message || "The selected file could not be opened.", "failed");
+      return false;
+    }
+  }
+
+  async function flushQueuedAppWork(generation) {
+    while (appBridge && generation === appBridgeGeneration && queuedCommands.length) {
+      await dispatchAppCommand(queuedCommands.shift());
+    }
+    while (appBridge && generation === appBridgeGeneration && queuedImports.length) {
+      const item = queuedImports.shift();
+      await dispatchAppImport(item.kind, item.file);
+    }
+  }
+
+  function installAppBridge(candidate) {
+    if (!candidate || typeof candidate.command !== "function" || typeof candidate.importFile !== "function") {
+      throw new TypeError("Drift’s React bridge must expose command() and importFile().");
+    }
+    const generation = ++appBridgeGeneration;
+    appBridge = candidate;
+    void flushQueuedAppWork(generation);
+    return () => {
+      if (generation === appBridgeGeneration && appBridge === candidate) appBridge = null;
+    };
+  }
+
+  function nativeCommand(command) {
+    if (!VALID_COMMANDS.has(command)) return false;
+    if (!appBridge) {
+      if (queuedCommands.length >= MAX_QUEUED_COMMANDS) queuedCommands.shift();
+      queuedCommands.push(command);
+      showNativeStatus("Drift is still opening. The command is queued.", "quiet");
+      return true;
+    }
+    void dispatchAppCommand(command);
+    return true;
+  }
+
+  async function importGranted(descriptor, rawKind = "project") {
+    const kind = VALID_IMPORT_KINDS.has(rawKind) ? rawKind : "project";
     try {
       const file = await descriptorToFile(descriptor);
-      let input;
-      if (kind === "slides") input = document.querySelector('input[type="file"][accept*="image/"]');
-      else if (kind === "presenter") input = document.querySelector('input[type="file"][accept*="video/"]');
-      else input = document.querySelector('input[type="file"][accept*=".pitched"]');
-      if (!(input instanceof HTMLInputElement)) {
-        throw new Error("The matching Drift import control is not available yet.");
+      if (!appBridge) {
+        if (queuedImports.length >= MAX_QUEUED_IMPORTS) {
+          throw new DOMException("Too many files are waiting for the studio to open.", "QuotaExceededError");
+        }
+        queuedImports.push({ kind, file });
+        showNativeStatus(`${file.name} will open when the studio is ready.`, "quiet");
+        return;
       }
-      const transfer = new DataTransfer();
-      transfer.items.add(file);
-      input.files = transfer.files;
-      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await dispatchAppImport(kind, file);
     } catch (error) {
       console.error("Native import failed", error);
       showNativeStatus(error?.message || "The selected project could not be opened.", "failed");
     }
   }
 
-  function clickByText(text) {
-    const button = [...document.querySelectorAll("button")]
-      .find((candidate) => candidate.textContent?.trim() === text && !candidate.disabled);
-    if (!(button instanceof HTMLButtonElement)) {
-      showNativeStatus(`“${text}” is unavailable while Drift is busy.`, "quiet");
-      return false;
-    }
-    button.click();
-    return true;
+  function normalizeClientState(raw) {
+    const saveState = VALID_SAVE_STATES.has(raw?.saveState) ? raw.saveState : "loading";
+    const lastNotice = typeof raw?.lastNotice === "string"
+      ? [...raw.lastNotice].slice(0, 2_000).join("")
+      : null;
+    return {
+      exportInProgress: raw?.exportInProgress === true,
+      projectBusy: raw?.projectBusy === true,
+      saveState,
+      lastNotice: nativeSavePending && lastNotice && /portable project saved|PNG captured|ZIP/i.test(lastNotice)
+        ? "Waiting for the macOS save destination."
+        : lastNotice,
+    };
   }
 
-  function clickInput(selector) {
-    const input = document.querySelector(selector);
-    if (!(input instanceof HTMLInputElement) || input.disabled) {
-      showNativeStatus("That import is unavailable while Drift is busy.", "quiet");
-      return false;
-    }
-    input.click();
-    return true;
-  }
-
-  function nativeCommand(command) {
-    switch (command) {
-      case "open-project": return clickInput('input[type="file"][accept*=".pitched"]');
-      case "add-slides": return clickInput('input[type="file"][accept*="image/"]');
-      case "add-presenter": return clickInput('input[type="file"][accept*="video/"]');
-      case "save-project": return clickByText("Save portable project");
-      case "export-mp4": return clickByText("Export MP4 master");
-      case "export-still": return clickByText("Save transparent-safe PNG");
-      case "export-frames": return clickByText("Export PNG sequence");
-      case "toggle-playback": {
-        const button = document.querySelector('button[aria-label="Play preview"], button[aria-label="Pause preview"]');
-        if (button instanceof HTMLButtonElement && !button.disabled) { button.click(); return true; }
-        return false;
-      }
-      case "previous-slide": {
-        const button = document.querySelector('button[aria-label="Previous slide"]');
-        if (button instanceof HTMLButtonElement && !button.disabled) { button.click(); return true; }
-        return false;
-      }
-      case "next-slide": {
-        const button = document.querySelector('button[aria-label="Next slide"]');
-        if (button instanceof HTMLButtonElement && !button.disabled) { button.click(); return true; }
-        return false;
-      }
-      case "toggle-focus": return clickByText("Full frame") || clickByText("Exit full frame");
-      default: return false;
-    }
+  function reportClientState(state) {
+    void callNative("client-state", normalizeClientState(state)).catch((error) => {
+      console.error("Drift native state report failed", error);
+    });
   }
 
   function ensureNativeStyle() {
@@ -531,10 +584,10 @@
     if (!statusHost) {
       statusHost = document.createElement("div");
       statusHost.id = "drift-native-status-host";
-      statusHost.setAttribute("role", kind === "failed" ? "alert" : "status");
       statusHost.setAttribute("aria-live", "polite");
       document.body.append(statusHost);
     }
+    statusHost.setAttribute("role", kind === "failed" ? "alert" : "status");
     statusHost.textContent = String(message);
     statusHost.dataset.kind = kind;
     statusHost.dataset.visible = "true";
@@ -544,43 +597,15 @@
     }, kind === "failed" ? 9000 : kind === "working" ? 12000 : 5200);
   }
 
-  function readClientState() {
-    const statusText = [...document.querySelectorAll(".header-status span")]
-      .map((node) => node.textContent?.trim() || "")
-      .find((text) => /loading local project|saving locally|local save failed|recovery locked|saved locally/.test(text)) || "loading local project";
-    let saveState = "loading";
-    if (statusText.includes("saving")) saveState = "saving";
-    else if (statusText.includes("failed")) saveState = "failed";
-    else if (statusText.includes("recovery")) saveState = "recovery";
-    else if (statusText.includes("saved")) saveState = "saved";
-
-    const notice = document.querySelector(".notice p")?.textContent?.trim() || null;
-    return {
-      exportInProgress: Boolean(document.querySelector(".export-overlay")),
-      projectBusy: document.querySelector("main.app")?.getAttribute("aria-busy") === "true"
-        || Boolean(document.querySelector('.media-library[aria-busy="true"], .inspector[aria-busy="true"]')),
-      saveState,
-      lastNotice: notice,
-    };
-  }
-
   function suppressPrematureBrowserSuccess() {
     if (!nativeSavePending) return;
     const notice = document.querySelector('.notice[data-kind="good"] p');
     if (!(notice instanceof HTMLElement)) return;
     const text = notice.textContent || "";
-    if (/portable project saved|PNG captured|ZIP/.test(text)) {
+    if (/portable project saved|PNG captured|ZIP/i.test(text)) {
       notice.textContent = "Choose a destination in the macOS save panel…";
       notice.closest(".notice")?.setAttribute("data-kind", "quiet");
     }
-  }
-
-  function scheduleStateReport() {
-    clearTimeout(stateTimer);
-    stateTimer = setTimeout(() => {
-      suppressPrematureBrowserSuccess();
-      void callNative("client-state", readClientState()).catch(() => undefined);
-    }, 60);
   }
 
   function installGlobals() {
@@ -591,6 +616,8 @@
       __driftNativeSaveBlob: { configurable: false, writable: false, value: saveBlob },
       __driftNativeImportGranted: { configurable: false, writable: false, value: importGranted },
       __driftNativeCommand: { configurable: false, writable: false, value: nativeCommand },
+      __driftNativeInstallAppBridge: { configurable: false, writable: false, value: installAppBridge },
+      __driftNativeReportClientState: { configurable: false, writable: false, value: reportClientState },
       __DRIFT_NATIVE_MAC__: {
         configurable: false,
         writable: false,
@@ -606,8 +633,8 @@
       Object.defineProperty(window, "FileSystemFileHandle", { configurable: true, value: NativeFileHandle });
       Object.defineProperty(window, "FileSystemDirectoryHandle", { configurable: true, value: NativeDirectoryHandle });
     } catch {
-      // Constructors are only capability markers for Drift; existing WebKit
-      // globals may be non-configurable, while picker results still use ours.
+      // Existing WebKit constructors may be non-configurable. Picker results
+      // still use Drift’s capability-limited handle implementations.
     }
   }
 
@@ -615,14 +642,13 @@
 
   const boot = () => {
     ensureNativeStyle();
-    const observer = new MutationObserver(scheduleStateReport);
+    const observer = new MutationObserver(suppressPrematureBrowserSuccess);
     observer.observe(document.documentElement, {
       subtree: true,
       childList: true,
       attributes: true,
       characterData: true,
     });
-    scheduleStateReport();
     void callNative("runtime-info").then((runtime) => {
       window.dispatchEvent(new CustomEvent("drift-native-ready", { detail: runtime }));
     }).catch((error) => {

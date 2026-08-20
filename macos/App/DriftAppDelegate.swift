@@ -12,6 +12,7 @@ final class DriftAppDelegate: NSObject,
 
     private var window: NSWindow?
     private var webView: WKWebView?
+    private var webRootURL: URL?
     private var nativeBridge: NativeBridgeHost?
     private var contentRuleList: WKContentRuleList?
     private var webRuntimeReady = false
@@ -27,9 +28,7 @@ final class DriftAppDelegate: NSObject,
 
     func applicationWillTerminate(_ notification: Notification) {
         nativeBridge?.abortAllWrites()
-        if let controller = webView?.configuration.userContentController {
-            controller.removeScriptMessageHandler(forName: driftBridgeName, contentWorld: .page)
-        }
+        removeNativeMessageHandler()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -89,11 +88,21 @@ final class DriftAppDelegate: NSObject,
     }
 
     func windowWillClose(_ notification: Notification) {
+        nativeBridge?.abortAllWrites()
+        removeNativeMessageHandler()
         webRuntimeReady = false
+        webRootURL = nil
         webView = nil
         nativeBridge = nil
         window = nil
         approvedClose = false
+    }
+
+    private func removeNativeMessageHandler() {
+        webView?.configuration.userContentController.removeScriptMessageHandler(
+            forName: driftBridgeName,
+            contentWorld: .page
+        )
     }
 
     private func prepareLocalRuntime() {
@@ -135,6 +144,7 @@ final class DriftAppDelegate: NSObject,
             presentFatalError("The application bundle is missing its web runtime or native bridge.")
             return
         }
+        webRootURL = indexURL.deletingLastPathComponent().standardizedFileURL
 
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
@@ -282,7 +292,22 @@ final class DriftAppDelegate: NSObject,
             return
         }
 
-        if ["file", "blob", "data", "about"].contains(scheme) {
+        if scheme == "file" {
+            guard let webRootURL else {
+                decisionHandler(.cancel)
+                return
+            }
+            let candidate = url.standardizedFileURL
+            let rootPath = webRootURL.path.hasSuffix("/") ? webRootURL.path : webRootURL.path + "/"
+            if candidate == webRootURL || candidate.path.hasPrefix(rootPath) {
+                decisionHandler(.allow)
+            } else {
+                NSSound.beep()
+                decisionHandler(.cancel)
+            }
+            return
+        }
+        if ["blob", "data", "about"].contains(scheme) {
             decisionHandler(.allow)
             return
         }
@@ -482,6 +507,9 @@ final class DriftAppDelegate: NSObject,
         previous.target = self
         let next = menu.addItem(withTitle: "Next Slide", action: #selector(nextSlide(_:)), keyEquivalent: "]")
         next.target = self
+        menu.addItem(.separator())
+        let cancel = menu.addItem(withTitle: "Cancel Export", action: #selector(cancelExport(_:)), keyEquivalent: ".")
+        cancel.target = self
         return item
     }
 
@@ -532,7 +560,8 @@ final class DriftAppDelegate: NSObject,
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let protected = nativeBridge?.clientState.exportInProgress == true || nativeBridge?.clientState.projectBusy == true
+        let exporting = nativeBridge?.clientState.exportInProgress == true
+        let protected = exporting || nativeBridge?.clientState.projectBusy == true
         switch menuItem.action {
         case #selector(openProject(_:)), #selector(addSlides(_:)), #selector(addPresenter(_:)),
              #selector(savePortableProject(_:)), #selector(exportMP4(_:)), #selector(exportStill(_:)),
@@ -540,6 +569,8 @@ final class DriftAppDelegate: NSObject,
             return webRuntimeReady && !protected
         case #selector(togglePlayback(_:)), #selector(previousSlide(_:)), #selector(nextSlide(_:)), #selector(toggleFocus(_:)):
             return webRuntimeReady && !protected
+        case #selector(cancelExport(_:)):
+            return webRuntimeReady && exporting
         case #selector(revealLastExport(_:)):
             return revealLastExportItem?.isEnabled == true
         default:
@@ -558,6 +589,7 @@ final class DriftAppDelegate: NSObject,
     @objc private func previousSlide(_ sender: Any?) { dispatchNativeCommand("previous-slide") }
     @objc private func nextSlide(_ sender: Any?) { dispatchNativeCommand("next-slide") }
     @objc private func toggleFocus(_ sender: Any?) { dispatchNativeCommand("toggle-focus") }
+    @objc private func cancelExport(_ sender: Any?) { dispatchNativeCommand("cancel-export") }
 
     @objc private func revealLastExport(_ sender: Any?) {
         nativeBridge?.revealLastExportInFinder()

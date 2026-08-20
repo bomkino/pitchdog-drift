@@ -68,7 +68,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             return 1
         }
 
-        print("Drift WebView self-test passed: relative bundle assets, React studio, and native polyfills loaded.")
+        print("Drift WebView self-test passed: relative bundle assets, React studio, typed app contract, authoritative state, and native polyfills loaded.")
         return 0
     }
 
@@ -93,6 +93,8 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
           hasNativeMarker: window.__DRIFT_NATIVE_MAC__?.bridgeVersion === 2,
           hasSavePicker: typeof window.showSaveFilePicker === 'function',
           hasDirectoryPicker: typeof window.showDirectoryPicker === 'function',
+          hasAppBridgeInstaller: typeof window.__driftNativeInstallAppBridge === 'function',
+          hasStateReporter: typeof window.__driftNativeReportClientState === 'function',
           isFileRuntime: location.protocol === 'file:',
           title: document.title
         }))()
@@ -109,12 +111,15 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                values["hasNativeMarker"] as? Bool == true,
                values["hasSavePicker"] as? Bool == true,
                values["hasDirectoryPicker"] as? Bool == true,
-               values["isFileRuntime"] as? Bool == true {
+               values["hasAppBridgeInstaller"] as? Bool == true,
+               values["hasStateReporter"] as? Bool == true,
+               values["isFileRuntime"] as? Bool == true,
+               self.bridge?.clientState.lastNotice != nil {
                 self.finished = true
                 return
             }
             guard attemptsRemaining > 0, let webView else {
-                self.failure = "The bundled page loaded, but its studio root or native File System Access bridge never appeared."
+                self.failure = "The bundled page loaded, but React did not install the typed native contract or report authoritative state."
                 self.finished = true
                 return
             }

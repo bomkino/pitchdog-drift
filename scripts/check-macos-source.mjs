@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { Script } from "node:vm";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -53,6 +53,8 @@ const requiredFiles = [
   "scripts/package-macos-dmg.sh",
   "scripts/generate-macos-icon.py",
   "src/lib/macosAacEncoder.ts",
+  "src/lib/nativeMac.ts",
+  "tests/nativeMac.test.ts",
   ".github/workflows/macos.yml",
   "docs/MACOS_APP.md",
   "docs/MACOS_PRODUCT_CONTRACT.md",
@@ -74,6 +76,10 @@ if (unexpectedRootSwift.length) {
 
 const swift = canonicalSwift.map(read).join("\n");
 const bridge = read("macos/NativeBridge.js");
+const app = read("src/App.tsx");
+const mediaLibrary = read("src/components/MediaLibrary.tsx");
+const nativeMac = read("src/lib/nativeMac.ts");
+const nativeMacTests = read("tests/nativeMac.test.ts");
 const build = read("scripts/build-macos-app.sh");
 const verify = read("scripts/verify-macos-app.sh");
 const packageDmg = read("scripts/package-macos-dmg.sh");
@@ -125,24 +131,51 @@ for (const command of [
   "previous-slide",
   "next-slide",
   "toggle-focus",
+  "cancel-export",
 ]) {
   requireText(bridge, `"${command}"`, `JavaScript menu command ${command}`);
   requireText(swift, `"${command}"`, `Swift menu command ${command}`);
+  requireText(nativeMac, `"${command}"`, `typed app command ${command}`);
+  requireText(app, `case "${command}"`, `React app command ${command}`);
 }
 
 for (const field of ["exportInProgress", "projectBusy", "saveState", "lastNotice"]) {
   requireText(bridge, field, `JavaScript client-state field ${field}`);
   requireText(swift, field, `Swift client-state field ${field}`);
+  requireText(nativeMac, field, `typed client-state field ${field}`);
+  requireText(app, field, `React client-state field ${field}`);
 }
 for (const kind of ["slides", "presenter", "project"]) {
   requireText(bridge, `"${kind}"`, `JavaScript import kind ${kind}`);
   requireText(swift, `case ${kind}`, `Swift import kind ${kind}`);
+  requireText(nativeMac, `"${kind}"`, `typed import kind ${kind}`);
+}
+
+requireText(bridge, "__driftNativeInstallAppBridge", "native app bridge installer");
+requireText(bridge, "__driftNativeReportClientState", "authoritative native state reporter");
+requireText(app, "installNativeMacAppBridge", "React bridge installation");
+requireText(app, "reportNativeMacClientState", "React authoritative state report");
+requireText(app, "imageInputRef={imageInputRef}", "direct native slide action");
+requireText(app, "presenterInputRef={presenterInputRef}", "direct native presenter action");
+requireText(mediaLibrary, "imageInputRef: RefObject", "external slide input ref");
+requireText(mediaLibrary, "presenterInputRef: RefObject", "external presenter input ref");
+requireText(nativeMacTests, "instead of scraping rendered copy", "native contract falsification test");
+for (const forbidden of [
+  "function clickByText",
+  "function readClientState",
+  "querySelectorAll(\"button\")",
+  ".header-status span",
+  ".export-overlay",
+]) {
+  forbidText(bridge, forbidden, "native app contract");
 }
 
 requireText(swift, "NativeGauntlet.run()", "executable native gauntlet");
 requireText(swift, "--webview-self-test", "packaged WebView self-test");
 requireText(swift, "fileManager.createFile(atPath: fileURL.path", "directory create semantics");
 requireText(swift, "driftMaximumNativeOutputBytes: UInt64 = 512 * 1024 * 1024", "verified output ceiling");
+requireText(swift, "Cancel Export", "native cancel-export menu");
+requireText(swift, "candidate.path.hasPrefix(rootPath)", "bundled-file navigation boundary");
 requireText(bridge, "MAX_READBACK_BYTES = 512 * 1024 * 1024", "JavaScript readback ceiling");
 
 requireText(build, "macos/App/*.swift", "Mac builder canonical source glob");
@@ -192,5 +225,5 @@ requireText(macWorkflow, "shasum -a 256 -c", "DMG checksum verification");
 requireText(macDocs, "## Compiled-distribution boundary", "compiled-distribution documentation");
 
 console.log(
-  `macOS source contract passed: ${canonicalSwift.length} canonical Swift files, one bridge, one workflow, one verified 512 MiB output ceiling.`,
+  "macOS source contract passed: one typed React↔AppKit contract, seven canonical Swift files, one bridge, one workflow, and one verified 512 MiB output ceiling.",
 );

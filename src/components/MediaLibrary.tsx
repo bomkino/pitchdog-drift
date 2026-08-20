@@ -1,10 +1,12 @@
-import { useRef, type ChangeEvent, type DragEvent } from "react";
+import { useRef, type ChangeEvent, type DragEvent, type RefObject } from "react";
 import type { StudioAsset } from "../model";
 
 interface MediaLibraryProps {
   assets: StudioAsset[];
   presenter: StudioAsset | null;
   pinnedAssetId: string | null;
+  imageInputRef: RefObject<HTMLInputElement | null>;
+  presenterInputRef: RefObject<HTMLInputElement | null>;
   onAddImages: (files: File[]) => void;
   onPresenter: (file: File) => void;
   onRemove: (id: string) => void;
@@ -18,6 +20,8 @@ export function MediaLibrary({
   assets,
   presenter,
   pinnedAssetId,
+  imageInputRef,
+  presenterInputRef,
   onAddImages,
   onPresenter,
   onRemove,
@@ -27,8 +31,6 @@ export function MediaLibrary({
   busy,
 }: MediaLibraryProps) {
   const draggedId = useRef<string | null>(null);
-  const imageInput = useRef<HTMLInputElement>(null);
-  const presenterInput = useRef<HTMLInputElement>(null);
 
   const addImages = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.currentTarget.files ?? []);
@@ -56,14 +58,14 @@ export function MediaLibrary({
         <span className="media-count">{assets.length}</span>
       </div>
 
-      <input ref={imageInput} hidden tabIndex={-1} disabled={busy} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple onChange={addImages} />
-      <input ref={presenterInput} hidden tabIndex={-1} disabled={busy} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={addPresenter} />
+      <input ref={imageInputRef} hidden tabIndex={-1} disabled={busy} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple onChange={addImages} />
+      <input ref={presenterInputRef} hidden tabIndex={-1} disabled={busy} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={addPresenter} />
 
       <div className="media-add-row">
-        <button type="button" className="media-add" disabled={busy} onClick={() => imageInput.current?.click()}>
+        <button type="button" className="media-add" disabled={busy} onClick={() => imageInputRef.current?.click()}>
           <span aria-hidden="true">＋</span> Add slides
         </button>
-        <button type="button" className="media-add subtle" disabled={busy} onClick={() => presenterInput.current?.click()}>
+        <button type="button" className="media-add subtle" disabled={busy} onClick={() => presenterInputRef.current?.click()}>
           Presenter
         </button>
       </div>
@@ -131,7 +133,7 @@ export function MediaLibrary({
             <button type="button" disabled={busy} onClick={onRemovePresenter} aria-label="Remove presenter video">×</button>
           </div>
         ) : (
-          <button type="button" className="empty-presenter" disabled={busy} onClick={() => presenterInput.current?.click()}>
+          <button type="button" className="empty-presenter" disabled={busy} onClick={() => presenterInputRef.current?.click()}>
             <span>Drop in your talking-head video</span>
             <small>MP4, WebM, or MOV · one active decoder</small>
           </button>
