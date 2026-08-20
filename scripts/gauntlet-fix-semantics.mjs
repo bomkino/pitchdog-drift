@@ -67,6 +67,11 @@ replaceRequired(
   "  const masterMotion = page.getByRole(\"switch\", { name: \"Master motion\" });\n  await expect(masterMotion).toBeChecked();\n  await masterMotion.click();\n  await expect(page.getByRole(\"button\", { name: /Still master/ })).toBeDisabled();\n  await masterMotion.click();\n  await expect(page.getByRole(\"button\", { name: \"Pause preview\" })).toBeEnabled();\n",
   "  const slideMotion = page.getByRole(\"switch\", { name: \"Slide motion\" });\n  await expect(slideMotion).toBeChecked();\n  await slideMotion.click();\n  await expect(page.locator(\".stage-hud\")).toContainText(\"SLIDES HELD\");\n  await expect(page.getByRole(\"button\", { name: \"Pause preview\" })).toBeEnabled();\n  await slideMotion.click();\n",
 );
+replaceRequired(
+  cinematic,
+  "  const lensResponse = page.getByRole(\"slider\", { name: \"Lens energy\" });\n  await lensResponse.evaluate((input) => {\n    const range = input as HTMLInputElement;\n    range.value = \"78\";\n    range.dispatchEvent(new Event(\"input\", { bubbles: true }));\n    range.dispatchEvent(new Event(\"change\", { bubbles: true }));\n  });\n  await expect(lensResponse).toHaveValue(\"78\");\n",
+  "  const lensResponse = page.getByRole(\"slider\", { name: \"Lens energy\" });\n  await lensResponse.fill(\"78\");\n  await expect(lensResponse).toHaveValue(\"78\");\n",
+);
 
 const journeyDoc = "docs/USER_JOURNEY_GAUNTLET.md";
 const source = readFileSync(journeyDoc, "utf8");
