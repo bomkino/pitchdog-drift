@@ -22,6 +22,13 @@ import {
   type NativeMacImportKind,
 } from "./lib/nativeMac";
 import {
+  PROJECT_MEDIA_LIMITS,
+  formatProjectMiB,
+  projectAssetBytes,
+  projectMediaViolation,
+  selectProjectMediaWithinBudget,
+} from "./lib/projectMediaBudget";
+import {
   createProjectBundle,
   exportProject,
   importProject,
@@ -588,16 +595,38 @@ export function App() {
   const addImagesNow = useCallback(async (files: File[]) => {
     const startingAssets = assetsRef.current;
     const replacingStartingDemos = startingAssets.length > 0 && startingAssets.every((asset) => asset.demo);
-    const startingRoom = Math.max(0, MAX_SLIDES - (replacingStartingDemos ? 0 : startingAssets.length));
+    const retainedStartingAssets = replacingStartingDemos ? [] : startingAssets;
+    const startingRoom = Math.max(0, MAX_SLIDES - retainedStartingAssets.length);
     if (startingRoom === 0) {
       announce(`This version supports up to ${MAX_SLIDES} moving slides.`, "error");
       return;
     }
-    const candidates = files.filter((file) => file.type.startsWith("image/")).slice(0, startingRoom);
-    if (!candidates.length) {
+
+    const supportedImages = files.filter((file) => file.type.startsWith("image/"));
+    if (!supportedImages.length) {
       announce("No supported images were selected.", "error");
       return;
     }
+    const existingMedia = [
+      ...retainedStartingAssets,
+      ...(presenterRef.current ? [presenterRef.current] : []),
+    ];
+    const selection = selectProjectMediaWithinBudget(
+      supportedImages,
+      projectAssetBytes(existingMedia),
+      startingRoom,
+    );
+    const candidates = selection.accepted;
+    if (!candidates.length) {
+      const message = selection.rejectedTooLarge.length
+        ? `Each slide must be ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxAssetBytes)} or smaller so the project can save and reopen.`
+        : selection.rejectedForBudget.length
+          ? `Those slides exceed the ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} portable-project media budget. Remove or compress existing media first.`
+          : `This version supports up to ${MAX_SLIDES} moving slides.`;
+      announce(message, "error");
+      return;
+    }
+
     const decoded = await Promise.allSettled(candidates.map((file) => imageFileToAsset(file)));
     const decodedAssets = decoded.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     if (!decodedAssets.length) {
@@ -620,7 +649,14 @@ export function App() {
     const next = [...retained, ...accepted];
     assetsRef.current = next;
     setAssets(next);
-    announce(`${accepted.length} slide${accepted.length === 1 ? "" : "s"} added${rejected ? `; ${rejected} rejected` : ""}.`, rejected ? "quiet" : "good");
+    const usedBytes = projectAssetBytes([
+      ...next,
+      ...(presenterRef.current ? [presenterRef.current] : []),
+    ]);
+    announce(
+      `${accepted.length} slide${accepted.length === 1 ? "" : "s"} added${rejected ? `; ${rejected} rejected by format, count, decode, or project-media budget` : ""}. ${formatProjectMiB(usedBytes)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
+      rejected ? "quiet" : "good",
+    );
   }, [announce]);
 
   const addImages = useCallback((files: File[]) => {
@@ -629,16 +665,26 @@ export function App() {
 
   const addPresenterNow = useCallback(async (file: File) => {
     try {
+      const existingSlideBytes = projectAssetBytes(assetsRef.current);
+      const violation = projectMediaViolation(file.size, existingSlideBytes);
+      if (violation) throw new Error(`Presenter video was not added. ${violation}`);
+
       const next = await videoFileToAsset(file);
-      setPresenter((current) => {
-        if (current) disposeAsset(current);
-        return next;
-      });
-      setSettings((current) => ({
-        ...current,
-        presenter: { ...current.presenter, enabled: true, assetId: next.id },
-      }));
-      announce("Presenter video pinned. Audio will be checked—not silently dropped—at export.", "good");
+      const previous = presenterRef.current;
+      if (previous) disposeAsset(previous);
+      presenterRef.current = next;
+      setPresenter(next);
+
+      const nextSettings: StudioSettings = {
+        ...settingsRef.current,
+        presenter: { ...settingsRef.current.presenter, enabled: true, assetId: next.id },
+      };
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+      announce(
+        `Presenter video pinned. Audio will be checked—not silently dropped—at export. ${formatProjectMiB(existingSlideBytes + next.blob.size)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
+        "good",
+      );
     } catch (error) {
       announce(error instanceof Error ? error.message : "Presenter video could not be opened.", "error");
     }
@@ -649,40 +695,49 @@ export function App() {
   }, [addPresenterNow, enqueueProjectOperation]);
 
   const removeAsset = useCallback((id: string) => {
-    setAssets((current) => {
-      const removed = current.find((asset) => asset.id === id);
-      if (removed) disposeAsset(removed);
-      return current.filter((asset) => asset.id !== id);
-    });
-    setSettings((current) => clearPinnedAssetIfRemoved(current, id));
+    const current = assetsRef.current;
+    const removed = current.find((asset) => asset.id === id);
+    if (removed) disposeAsset(removed);
+    const nextAssets = current.filter((asset) => asset.id !== id);
+    assetsRef.current = nextAssets;
+    setAssets(nextAssets);
+
+    const nextSettings = clearPinnedAssetIfRemoved(settingsRef.current, id);
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
   }, []);
 
   const reorder = useCallback((fromId: string, toId: string) => {
-    setAssets((current) => {
-      const from = current.findIndex((asset) => asset.id === fromId);
-      const to = current.findIndex((asset) => asset.id === toId);
-      if (from < 0 || to < 0 || from === to) return current;
-      const next = [...current];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved!);
-      return next;
-    });
+    const current = assetsRef.current;
+    const from = current.findIndex((asset) => asset.id === fromId);
+    const to = current.findIndex((asset) => asset.id === toId);
+    if (from < 0 || to < 0 || from === to) return;
+    const next = [...current];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved!);
+    assetsRef.current = next;
+    setAssets(next);
   }, []);
 
   const pin = useCallback((asset: StudioAsset | null) => {
-    setSettings((current) => ({
-      ...current,
-      presenter: { ...current.presenter, enabled: Boolean(asset), assetId: asset?.id ?? null },
-    }));
+    const nextSettings: StudioSettings = {
+      ...settingsRef.current,
+      presenter: { ...settingsRef.current.presenter, enabled: Boolean(asset), assetId: asset?.id ?? null },
+    };
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
   }, []);
 
   const removePresenter = useCallback(() => {
-    const removedPresenterId = presenterRef.current?.id ?? null;
-    setPresenter((current) => {
-      if (current) disposeAsset(current);
-      return null;
-    });
-    setSettings((current) => clearPinnedAssetIfRemoved(current, removedPresenterId));
+    const removedPresenter = presenterRef.current;
+    const removedPresenterId = removedPresenter?.id ?? null;
+    if (removedPresenter) disposeAsset(removedPresenter);
+    presenterRef.current = null;
+    setPresenter(null);
+
+    const nextSettings = clearPinnedAssetIfRemoved(settingsRef.current, removedPresenterId);
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
   }, []);
 
   const renderForExport = useCallback(async (time: number, frame?: { image: HTMLCanvasElement | OffscreenCanvas }) => {
