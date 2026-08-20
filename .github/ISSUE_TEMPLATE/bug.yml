@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible failure without exposing private media.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not upload confidential decks, presenter videos, project bundles, tokens, or client masters. Reproduce with synthetic media."
+  - type: input
+    id: version
+    attributes:
+      label: Commit
+      description: Exact commit SHA or branch.
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Browser and operating system
+      placeholder: Chrome 140, macOS 15.6
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected outcome
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual outcome and reproduction
+      description: Include dimensions, fps, duration, asset count, and decoded output facts when relevant.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I used synthetic or publication-safe media and removed private data.
+          required: true

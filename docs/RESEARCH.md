@@ -1,0 +1,28 @@
+# Research notes
+
+References are inputs to judgment, not templates to copy. Drift borrows mechanisms and standards while keeping its composition, shaders, demo art, and motion language original.
+
+## Siena Film Foundation
+
+[Siena Film Foundation](https://www.siena.film/) treats a body of film work as a spatial, directed experience. Its useful lessons for Drift were restraint, strong editorial typography, project metadata that remains legible, and navigation that feels like moving through cinema rather than browsing cards.
+
+Drift does not reproduce Siena’s interface or assets. It carries forward the more durable principle: atmosphere should intensify the work, not bury it.
+
+## WebGL carousel studies
+
+- [Building a WebGL Carousel with React Three Fiber and GSAP](https://tympanus.net/codrops/2023/04/27/building-a-webgl-carousel-with-react-three-fiber-and-gsap/) — textured planes, cover UVs, drag/scroll, velocity-linked effects.
+- [Create an Abstract Image Slideshow with OGL, GLSL, and GSAP](https://tympanus.net/codrops/2021/08/16/abstract-image-carousel-ogl-glsl-gsap/) — concentrating transition state into one shader-driven value.
+- [Building a Scroll-Reactive 3D Gallery with Three.js, Velocity, and Mood-Based Backgrounds](https://tympanus.net/codrops/2026/03/09/building-a-scroll-reactive-3d-gallery-with-three-js-velocity-and-mood-based-backgrounds/) — depth, palette, and velocity as separate but coordinated signals.
+- [Creating a Smooth Horizontal Parallax Gallery: From DOM to WebGL](https://tympanus.net/codrops/?p=108925) — preserving semantic DOM as layout/fallback truth while WebGL enhances the experience.
+
+The crucial divergence is output. Those studies optimise interactive experience. Drift also needs reproducible video masters, so GSAP/rAF never defines export time; `n / fps` does.
+
+## Continuous corners
+
+[Figma’s corner smoothing documentation](https://help.figma.com/hc/en-us/articles/360050986854-Adjust-corner-radius-and-smoothing) identifies 60% as its iOS-style default. Drift exposes the full 0–100% range and defaults to 60%, approximated in the fragment shader with a bounded superellipse exponent.
+
+## Existing pitch.dog tools
+
+Local Framer Components v3 and Galileo Gallery code were inspected for settings, portability, and failure lessons. Galileo is a DOM/CSS 3D renderer, not a Three.js/WebGL foundation. Drift therefore starts fresh instead of disguising inherited DOM motion as a cinematic renderer.
+
+The useful negative lessons were equally important: never expose unused background controls, never collapse independent padding/geometry choices behind one value, never treat an automatic theme as permanently dark, and never confuse a timed hold with a truly independent pinned frame.

@@ -1,0 +1,26 @@
+name: Feature proposal
+description: Propose an outcome, not a pile of controls.
+title: "[Proposal] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User outcome
+      description: What should a filmmaker, designer, or deck author be able to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Failure boundary
+      description: What must never silently degrade, leak, drift, or become unreadable?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Success evidence
+      description: Describe an artifact-level check, not only a screenshot or unit mock.
+    validations:
+      required: true

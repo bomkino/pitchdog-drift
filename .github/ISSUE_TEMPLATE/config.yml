@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security report
+    url: https://github.com/bomkino/pitchdog-drift/security/policy
+    about: Read the private reporting route before publishing exploit details.

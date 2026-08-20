@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ProjectStore browser integration check</title>
+  </head>
+  <body>
+    <pre id="result">RUNNING</pre>
+    <script type="module">
+      import {
+        ProjectIntegrityError,
+        ProjectStore,
+      } from "/src/lib/projectStore.ts";
+      import { strToU8, unzipSync, zipSync } from "fflate";
+
+      const result = document.querySelector("#result");
+      const databaseName = `pitched-browser-test-${crypto.randomUUID()}`;
+      const store = new ProjectStore({ databaseName });
+
+      const assert = (condition, message) => {
+        if (!condition) throw new Error(message);
+      };
+
+      try {
+        const projectInput = {
+          payload: { axis: "vertical", order: ["one", "two"] },
+          projectId: "browser-integration",
+          createdAt: "2026-08-20T00:00:00.000Z",
+          updatedAt: "2026-08-20T00:00:00.000Z",
+          engineVersion: "test",
+          themeVersion: "test",
+          assets: [
+            { id: "one", name: "one.png", blob: new Blob(["first"], { type: "image/png" }) },
+            { id: "two", name: "two.jpg", blob: new Blob(["second"], { type: "image/jpeg" }) },
+          ],
+        };
+        result.textContent = "save";
+        const saved = await store.save(projectInput);
+        result.textContent = "load";
+        const loaded = await store.load();
+        assert(loaded !== null, "Saved project did not load.");
+        assert(JSON.stringify(loaded.payload) === JSON.stringify(saved.payload), "Payload changed in IndexedDB.");
+        assert(loaded.assets.length === 2, "IndexedDB asset count changed.");
+        assert(await loaded.assets[0].blob.text() === "first", "IndexedDB Blob changed.");
+
+        result.textContent = "export";
+        const portable = await store.export();
+        result.textContent = "clear";
+        await store.clear();
+        assert(await store.load() === null, "clear() left a current project.");
+
+        result.textContent = "import";
+        const imported = await store.import(portable);
+        assert(imported.assets.length === 2, "Portable import lost assets.");
+        assert(await store.load() === null, "import() mutated IndexedDB.");
+
+        result.textContent = "resave";
+        await store.save({
+          payload: imported.payload,
+          projectId: imported.manifest.projectId,
+          createdAt: imported.manifest.createdAt,
+          updatedAt: imported.manifest.updatedAt,
+          engineVersion: imported.manifest.engineVersion,
+          themeVersion: imported.manifest.themeVersion,
+          assets: imported.assets.map(({ id, name, blob }) => ({ id, name, blob })),
+        });
+
+        result.textContent = "corrupt-import";
+        const entries = unzipSync(new Uint8Array(await portable.arrayBuffer()));
+        const firstPath = imported.manifest.assets[0].path;
+        entries[firstPath] = strToU8("other");
+        let rejected = false;
+        try {
+          await store.import(new Blob([zipSync(entries, { level: 0 }).buffer]));
+        } catch (error) {
+          rejected = error instanceof ProjectIntegrityError;
+        }
+        assert(rejected, "Corrupt import was accepted.");
+        result.textContent = "preserved-load";
+        const preserved = await store.load();
+        assert(preserved !== null, "Failed import erased current project.");
+        assert(await preserved.assets[0].blob.text() === "first", "Failed import changed saved Blob.");
+
+        await store.clear();
+        indexedDB.deleteDatabase(databaseName);
+        document.documentElement.dataset.status = "pass";
+        result.textContent = "PASS";
+      } catch (error) {
+        document.documentElement.dataset.status = "fail";
+        result.textContent = `FAIL\n${error instanceof Error ? error.stack : String(error)}`;
+      }
+    </script>
+  </body>
+</html>
