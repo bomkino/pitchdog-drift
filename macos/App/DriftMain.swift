@@ -12,15 +12,7 @@ struct DriftMain {
             Darwin.exit(runSmokeTest())
         }
         if arguments.contains("--native-self-test") {
-            do {
-                try NativeFileBroker.runSelfTest()
-                try NativeGauntlet.run()
-                try NativeAacEncoderBroker.runSelfTest()
-                Darwin.exit(0)
-            } catch {
-                fputs("Drift native self-test failed: \(error.localizedDescription)\n", stderr)
-                Darwin.exit(1)
-            }
+            Darwin.exit(runNativeSelfTest())
         }
         if arguments.contains("--webview-self-test") {
             let prefix = "--webview-self-test-report-name="
@@ -35,6 +27,44 @@ struct DriftMain {
         application.delegate = delegate
         application.setActivationPolicy(.regular)
         application.run()
+    }
+
+    private static func runNativeSelfTest() -> Int32 {
+        var activePhase = "startup"
+        do {
+            activePhase = "trusted WebKit main-frame boundary"
+            try TrustedWebRuntime.runSelfTest()
+
+            activePhase = "export power-activity lifecycle"
+            try ExportActivityGuard.runSelfTest()
+
+            activePhase = "native file-broker core"
+            try NativeFileBroker.runSelfTest()
+
+            activePhase = "native rollback, grant-pressure, and recovery contracts"
+            try NativeGauntlet.run()
+
+            activePhase = "native AAC encoder"
+            try NativeAacEncoderBroker.runSelfTest()
+
+            activePhase = "native presentation resources"
+            try NativePresentationContract.runSelfTest()
+
+            print("Drift complete native self-test passed: trust, power, files, rollback, grants, recovery, AAC, guide, and provenance hold.")
+            return 0
+        } catch let failure as BridgeFailure {
+            fputs(
+                "Drift native self-test failed during \(activePhase): \(failure.name): \(failure.message)\n",
+                stderr
+            )
+            return 1
+        } catch {
+            fputs(
+                "Drift native self-test failed during \(activePhase): \(String(reflecting: error))\n",
+                stderr
+            )
+            return 1
+        }
     }
 
     private static func runSmokeTest() -> Int32 {
@@ -77,7 +107,27 @@ struct DriftMain {
             return 1
         }
 
-        print("Drift macOS smoke test passed: bundle, receipt, manifest, legal resources, web runtime, and bridge agree.")
+        guard let receiptURL = Bundle.main.url(forResource: "BuildReceipt", withExtension: "txt"),
+              let receipt = try? String(contentsOf: receiptURL, encoding: .utf8),
+              receipt.split(separator: "\n").contains("source_revision=\(driftSourceRevision())") else {
+            fputs("Drift smoke test failed: Info.plist and build-receipt source revisions disagree.\n", stderr)
+            return 1
+        }
+
+        do {
+            try NativePresentationContract.runSelfTest()
+        } catch let failure as BridgeFailure {
+            fputs(
+                "Drift smoke test failed: native presentation contract returned \(failure.name): \(failure.message)\n",
+                stderr
+            )
+            return 1
+        } catch {
+            fputs("Drift smoke test failed: native presentation contract returned \(String(reflecting: error)).\n", stderr)
+            return 1
+        }
+
+        print("Drift macOS smoke test passed: bundle, receipt, provenance, guide, manifest, legal resources, web runtime, and bridge agree.")
         return 0
     }
 }
