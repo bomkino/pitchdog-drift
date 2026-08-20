@@ -19,6 +19,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     private let aacBroker = NativeAacEncoderBroker()
     private let brokerQueue = DispatchQueue(label: "dog.pitch.drift.file-broker", qos: .userInitiated)
     private let trustedIndexURL = TrustedWebRuntime.bundledIndexURL()
+    private let exportActivityGuard = ExportActivityGuard()
     private(set) var clientState = ClientState()
     private var inputIntent: InputIntent?
     private var lastCommittedURL: URL?
@@ -34,6 +35,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     deinit {
+        exportActivityGuard.end()
         brokerQueue.sync {
             broker.abortAll()
             aacBroker.closeAll()
@@ -72,6 +74,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             replyHandler(successEnvelope(runtimeInfo()), nil)
         case "client-state":
             clientState.update(from: payload)
+            exportActivityGuard.update(isExporting: clientState.exportInProgress)
             clientStateDidChange?(clientState)
             replyHandler(successEnvelope(["accepted": true]), nil)
         case "input-intent":
@@ -174,6 +177,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     func abortAllWrites() {
+        exportActivityGuard.end()
         brokerQueue.sync {
             broker.abortAll()
             aacBroker.closeAll()
@@ -200,6 +204,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             "nativeAac": true,
             "nativeAacProvider": "AudioToolbox",
             "networkEntitlements": false,
+            "exportPowerAssertionActive": exportActivityGuard.isActive,
         ]
     }
 
