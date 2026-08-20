@@ -101,7 +101,11 @@ export class SonicEngine {
   }
 
   async unlock(): Promise<void> {
-    if (this.disposed || this.unavailable || !this.settings.previewEnabled) return;
+    // The explicit enable button calls unlock before React propagates the new
+    // setting back into the engine. Allow that trusted gesture to create and
+    // resume audio now; play() and master gain still remain silent until the
+    // saved previewEnabled setting becomes true.
+    if (this.disposed || this.unavailable) return;
     try {
       if (!this.context) {
         if (typeof AudioContext === "undefined") {
