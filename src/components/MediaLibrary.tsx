@@ -1,4 +1,4 @@
-import { useRef, type ChangeEvent, type DragEvent } from "react";
+import { useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
 import type { StudioAsset } from "../model";
 
 interface MediaLibraryProps {
@@ -29,6 +29,8 @@ export function MediaLibrary({
   const draggedId = useRef<string | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const presenterInput = useRef<HTMLInputElement>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [fileDropActive, setFileDropActive] = useState(false);
 
   const addImages = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.currentTarget.files ?? []);
@@ -42,12 +44,52 @@ export function MediaLibrary({
   };
   const onDrop = (event: DragEvent, targetId: string) => {
     event.preventDefault();
+    event.stopPropagation();
     if (draggedId.current && draggedId.current !== targetId) onReorder(draggedId.current, targetId);
     draggedId.current = null;
+    setDragOverId(null);
+  };
+  const reorderFromKeyboard = (event: KeyboardEvent, asset: StudioAsset, index: number) => {
+    if (!event.altKey || busy) return;
+    if (event.key === "ArrowUp" && index > 0) {
+      event.preventDefault();
+      onReorder(asset.id, assets[index - 1]!.id);
+    } else if (event.key === "ArrowDown" && index < assets.length - 1) {
+      event.preventDefault();
+      onReorder(asset.id, assets[index + 1]!.id);
+    }
   };
 
   return (
-    <aside className="media-library" aria-label="Media library" aria-busy={busy}>
+    <aside
+      className="media-library"
+      aria-label="Media library"
+      aria-busy={busy}
+      data-file-drop={fileDropActive}
+      onDragEnter={(event) => {
+        if (!busy && event.dataTransfer.types.includes("Files")) {
+          event.preventDefault();
+          setFileDropActive(true);
+        }
+      }}
+      onDragOver={(event) => {
+        if (!busy && event.dataTransfer.types.includes("Files")) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setFileDropActive(true);
+        }
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFileDropActive(false);
+      }}
+      onDrop={(event) => {
+        setFileDropActive(false);
+        if (busy || !event.dataTransfer.files.length) return;
+        event.preventDefault();
+        const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+        if (files.length) onAddImages(files);
+      }}
+    >
       <div className="panel-heading compact">
         <div>
           <span className="panel-kicker">MEDIA</span>
@@ -67,22 +109,57 @@ export function MediaLibrary({
           Presenter
         </button>
       </div>
-      <p className="media-note">Images move. One optional video can stay pinned. Files remain on this device.</p>
+      <p className="media-note">Drag to sequence. Alt + ↑/↓ also reorders. One optional image or video can stay pinned. Files remain on this device.</p>
+
+      {fileDropActive ? (
+        <div className="media-drop-target" aria-hidden="true">
+          <span>DROP DECK</span>
+          <strong>{assets.every((asset) => asset.demo) ? "Replace the live study" : "Add to this sequence"}</strong>
+        </div>
+      ) : null}
 
       <ol className="asset-list" aria-label="Slide order">
         {assets.map((asset, index) => (
           <li
             key={asset.id}
             draggable={!busy}
-            onDragStart={() => { if (!busy) draggedId.current = asset.id; }}
-            onDragOver={(event) => { if (!busy) event.preventDefault(); }}
+            tabIndex={busy ? -1 : 0}
+            aria-label={`Slide ${index + 1}: ${asset.name}. Hold Alt and use arrow keys to reorder.`}
+            onKeyDown={(event) => reorderFromKeyboard(event, asset, index)}
+            onDragStart={(event) => {
+              if (busy) return;
+              draggedId.current = asset.id;
+              setDragOverId(asset.id);
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", asset.id);
+            }}
+            onDragEnd={() => {
+              draggedId.current = null;
+              setDragOverId(null);
+            }}
+            onDragOver={(event) => {
+              if (!busy && draggedId.current) {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDragOverId(asset.id);
+              }
+            }}
+            onDragLeave={() => {
+              if (dragOverId === asset.id) setDragOverId(null);
+            }}
             onDrop={(event) => onDrop(event, asset.id)}
             data-pinned={pinnedAssetId === asset.id}
+            data-dragging={draggedId.current === asset.id}
+            data-drag-over={dragOverId === asset.id && draggedId.current !== asset.id}
+            data-demo={asset.demo === true}
           >
             <span className="drag-handle" aria-hidden="true">⠿</span>
             <img src={asset.objectUrl} alt="" />
             <span className="asset-meta">
-              <strong>{String(index + 1).padStart(2, "0")}</strong>
+              <span className="asset-index-row">
+                <strong>{String(index + 1).padStart(2, "0")}</strong>
+                {asset.demo ? <em>STUDY</em> : null}
+              </span>
               <small title={asset.name}>{asset.name}</small>
             </span>
             <span className="asset-actions">
