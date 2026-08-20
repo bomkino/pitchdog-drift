@@ -32,8 +32,8 @@ jobs:
       - name: Typecheck, test, and build
         run: npm run check
 
-      - name: Install browser runtime
-        run: npx playwright install --with-deps chromium
+      - name: Install pinned Chromium
+        run: npx playwright install chromium
 
       - name: Run real-browser gauntlet
         run: npm run test:e2e
