@@ -1,19 +1,31 @@
-name: Validation workspace
+name: Materialize authentic tactile sound
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/tactile-sound-system-v2
+    paths:
+      - .github/workflows/source-snapshot.yml
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: authentic-tactile-sound-materializer
+  cancel-in-progress: true
 
 jobs:
-  workspace:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
-      - name: Check out source
+      - name: Check out isolated sound branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: feat/tactile-sound-system-v2
+          fetch-depth: 0
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -21,74 +33,97 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install exact lockfile
+      - name: Bring in the audited deterministic sonic core
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feat/editorial-sonic-system:refs/remotes/origin/feat/editorial-sonic-system
+          copy_from_core() {
+            local path="$1"
+            mkdir -p "$(dirname "$path")"
+            git show "origin/feat/editorial-sonic-system:$path" > "$path"
+          }
+          copy_from_core src/sonic/SonicEngine.ts
+          copy_from_core src/sonic/catalog.ts
+          copy_from_core src/sonic/mix.ts
+          copy_from_core src/sonic/plan.ts
+          copy_from_core src/sonic/renderSoundtrack.ts
+          copy_from_core src/components/SonicDock.tsx
+          copy_from_core src/vite-env.d.ts
+          copy_from_core tests/sonicPlan.test.ts
+          copy_from_core docs/SONIC_DESIGN.md
+          copy_from_core scripts/sonic-builder.mjs
+          copy_from_core scripts/sonic-export-builder.mjs
+          copy_from_core scripts/repair-sonic-export-builder.py
+          copy_from_core scripts/fix-generated-sonic.py
+
+      - name: Prime the legacy documentation patch boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker='No third-party image, font, video, or audio asset is included in the repository.'
+          if ! grep -Fq "$marker" ASSET-LICENSE.md; then
+            printf '\n%s\n' "$marker" >> ASSET-LICENSE.md
+          fi
+
+      - name: Apply the deterministic preview and export integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/sonic-builder.mjs
+          python3 scripts/repair-sonic-export-builder.py
+          node scripts/sonic-export-builder.mjs
+          python3 scripts/fix-generated-sonic.py
+
+      - name: Vendor exact authentic CC0 recordings
+        run: python3 scripts/vendor-sonic-assets.py
+
+      - name: Apply the user-journey and supply-chain hardening pass
+        run: python3 scripts/apply-authentic-sonic.py
+
+      - name: Install exact dependency lock
         run: npm ci
+
+      - name: Verify the committed sound corpus
+        run: |
+          python3 scripts/vendor-sonic-assets.py --verify
+          test "$(find src/sonic/assets/recordings -type f -name '*.wav' | wc -l)" -ge 20
+          test "$(find src/sonic/assets -type f -name '*.ogg' | wc -l)" -eq 0
+          ! grep -R -E 'romainsimon|cdn\.freesound|uisfx' \
+            src/sonic docs/SONIC_DESIGN.md docs/SONIC_GAUNTLET.md \
+            ASSET-LICENSE.md THIRD_PARTY_NOTICES.md
+
+      - name: Run type, unit, and production-build gauntlet
+        run: npm run check
 
       - name: Install pinned Chromium
         run: npx playwright install chromium
 
-      - name: Pack exact source checkout
-        run: tar --exclude=.git --exclude=node_modules -czf /tmp/pitchdog-drift-source.tar.gz .
+      - name: Run browser, persistence, privacy, and AAC gauntlet
+        run: npm run test:e2e
 
-      - name: Pack exact dependencies
-        run: tar -czf /tmp/pitchdog-drift-node-modules.tar.gz node_modules
-
-      - name: Pack browser runtime
-        run: tar -C "$HOME/.cache" -czf /tmp/pitchdog-drift-playwright.tar.gz ms-playwright
-
-      - name: Collect CC0 foley candidates for local audit
+      - name: Remove transient integration machinery
         shell: bash
         run: |
           set -euo pipefail
-          root=/tmp/pitchdog-drift-foley-candidates
-          mkdir -p "$root"
-          cd "$root"
-          download() {
-            local url="$1"
-            local file="$2"
-            curl --fail --location --retry 3 --silent --show-error "$url" --output "$file"
-            printf '%s\t%s\n' "$file" "$url" >> SOURCES.tsv
-          }
-          download https://cdn.freesound.org/previews/352/352914_1766783-hq.ogg 352914-paper-slide.ogg
-          download https://cdn.freesound.org/previews/555/555307_9250976-hq.ogg 555307-jacket-movement.ogg
-          download https://cdn.freesound.org/previews/382/382651_4297074-hq.ogg 382651-paper-page-turn.ogg
-          download https://cdn.freesound.org/previews/164/164421_2320755-hq.ogg 164421-paper-movement.ogg
-          download https://cdn.freesound.org/previews/458/458569_887851-hq.ogg 458569-film-projector.ogg
-          download https://cdn.freesound.org/previews/858/858919_18964775-hq.ogg 858919-button-click.ogg
-          download https://cdn.freesound.org/previews/843/843786_15096086-hq.ogg 843786-key-contact.ogg
-          download https://cdn.freesound.org/previews/431/431818_5340249-hq.ogg 431818-wheel-contact.ogg
-          download https://cdn.freesound.org/previews/669/669671_14100561-hq.ogg 669671-soft-impact.ogg
-          sha256sum *.ogg > SHA256SUMS
-          file *.ogg > FILES.txt
+          rm -f \
+            scripts/apply-authentic-sonic.py \
+            scripts/sonic-builder.mjs \
+            scripts/sonic-export-builder.mjs \
+            scripts/repair-sonic-export-builder.py \
+            scripts/fix-generated-sonic.py
+          git diff --check
 
-      - name: Upload source checkout
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pitchdog-drift-source
-          path: /tmp/pitchdog-drift-source.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Upload exact dependencies
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pitchdog-drift-node-modules
-          path: /tmp/pitchdog-drift-node-modules.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Upload browser runtime
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pitchdog-drift-playwright
-          path: /tmp/pitchdog-drift-playwright.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Upload CC0 foley candidates
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pitchdog-drift-foley-candidates
-          path: /tmp/pitchdog-drift-foley-candidates
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit the reviewable sound branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "pitchdog-drift sound gauntlet"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 0
+          fi
+          git commit -m "feat(sound): add authentic tactile foley system"
+          git push origin HEAD:feat/tactile-sound-system-v2
