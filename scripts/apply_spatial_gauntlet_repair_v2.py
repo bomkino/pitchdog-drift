@@ -31,6 +31,17 @@ def main() -> None:
         "slide pool return property",
     )
 
+    # Drift owns pool resources through Array.forEach. Support that and the
+    # equivalent for-of form so shell geometry/materials are always disposed.
+    source = source.replace(
+        r"r'for\s*\(\s*const\s+([A-Za-z_$][\w$]*)\s+of\s+this\.([A-Za-z_$][\w$]*)\s*\)\s*\{'",
+        r"r'(?:for\s*\(\s*const\s+([A-Za-z_$][\w$]*)\s+of\s+this\.[A-Za-z_$][\w$]*\s*\)\s*\{|this\.[A-Za-z_$][\w$]*\.forEach\(\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*=>\s*\{)'",
+    )
+    source = source.replace(
+        "item_name = loop_match.group(1)",
+        "item_name = loop_match.group(1) or loop_match.group(2)",
+    )
+
     # Three's uniform map is accessed with TypeScript non-null assertions in
     # Drift (`uPhase!.value`). Accept that exact syntax while still requiring
     # a direct deterministic assignment.
