@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assertExportSurfaceSupported, selectRenderableItems } from "../src/engine/CinematicCarousel";
 import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
 import { evaluateSlide, getLogicalSlotCount, getSlideGeometry, isPotentiallyVisible } from "../src/engine/evaluate";
-import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader } from "../src/engine/shaders";
+import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader, slideVertexShader } from "../src/engine/shaders";
 
 const LIMITS = {
   maxTextureSize: 8_192,
@@ -22,6 +22,26 @@ describe("custom shader output contract", () => {
   it("maps the contained image's occupied fraction, not its reciprocal", () => {
     expect(slideFragmentShader).toContain("scale.y = planeAspect / imageAspect");
     expect(slideFragmentShader).toContain("scale.x = imageAspect / planeAspect");
+  });
+
+  it("builds cinematic optics from bounded velocity rather than a decorative one-sample warp", () => {
+    expect(slideVertexShader).toContain("float speed = abs(velocity)");
+    expect(slideVertexShader).toContain("float flutter");
+    expect(slideFragmentShader).toContain("float motionBlurPx");
+    expect(slideFragmentShader).toContain("vec2 chromaOffset");
+    expect(slideFragmentShader).toContain("float softFocusPx");
+    expect(slideFragmentShader).toContain("float highlight");
+    expect(slideFragmentShader).toContain("setSaturation");
+    expect(slideFragmentShader).toContain("floor(uTime * 24.0)");
+    expect(slideFragmentShader.match(/sampleSource\(/g)?.length ?? 0).toBeGreaterThanOrEqual(14);
+  });
+
+  it("keeps the generated atmosphere deterministic, seeded, and materially varied", () => {
+    expect(backgroundFragmentShader).toContain("float variant = mod(floor(uSeed + 0.5), 4.0)");
+    expect(backgroundFragmentShader).toContain("float fbm(vec2 p)");
+    expect(backgroundFragmentShader).toContain("float dust");
+    expect(backgroundFragmentShader).toContain("floor(uPhase * 24.0)");
+    expect(backgroundFragmentShader.match(/variant </g)?.length ?? 0).toBeGreaterThanOrEqual(12);
   });
 });
 
