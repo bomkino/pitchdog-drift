@@ -36,6 +36,31 @@ jobs:
       - name: Pack browser runtime
         run: tar -C "$HOME/.cache" -czf /tmp/pitchdog-drift-playwright.tar.gz ms-playwright
 
+      - name: Collect CC0 foley candidates for local audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/tmp/pitchdog-drift-foley-candidates
+          mkdir -p "$root"
+          cd "$root"
+          download() {
+            local url="$1"
+            local file="$2"
+            curl --fail --location --retry 3 --silent --show-error "$url" --output "$file"
+            printf '%s\t%s\n' "$file" "$url" >> SOURCES.tsv
+          }
+          download https://cdn.freesound.org/previews/352/352914_1766783-hq.ogg 352914-paper-slide.ogg
+          download https://cdn.freesound.org/previews/555/555307_9250976-hq.ogg 555307-jacket-movement.ogg
+          download https://cdn.freesound.org/previews/382/382651_4297074-hq.ogg 382651-paper-page-turn.ogg
+          download https://cdn.freesound.org/previews/164/164421_2320755-hq.ogg 164421-paper-movement.ogg
+          download https://cdn.freesound.org/previews/458/458569_887851-hq.ogg 458569-film-projector.ogg
+          download https://cdn.freesound.org/previews/858/858919_18964775-hq.ogg 858919-button-click.ogg
+          download https://cdn.freesound.org/previews/843/843786_15096086-hq.ogg 843786-key-contact.ogg
+          download https://cdn.freesound.org/previews/431/431818_5340249-hq.ogg 431818-wheel-contact.ogg
+          download https://cdn.freesound.org/previews/669/669671_14100561-hq.ogg 669671-soft-impact.ogg
+          sha256sum *.ogg > SHA256SUMS
+          file *.ogg > FILES.txt
+
       - name: Upload source checkout
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -57,5 +82,13 @@ jobs:
         with:
           name: pitchdog-drift-playwright
           path: /tmp/pitchdog-drift-playwright.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload CC0 foley candidates
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pitchdog-drift-foley-candidates
+          path: /tmp/pitchdog-drift-foley-candidates
           if-no-files-found: error
           retention-days: 1
