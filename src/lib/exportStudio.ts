@@ -25,7 +25,7 @@ import type {
   Target,
   VideoSample,
 } from "mediabunny";
-import { mixSoundtrackIntoPlanar } from "../sonic/mix";
+import { renderMixedPresenterMaster } from "../sonic/renderMixedMaster";
 
 export const AVC_BITRATE = 16_000_000;
 export const AAC_BITRATE = 192_000;
@@ -2152,6 +2152,44 @@ async function encodePresenterAudio(
 ): Promise<number> {
   const track = presenter.audioTrack;
   if (!track) return 0;
+
+  if (soundtrack) {
+    try {
+      const master = await renderMixedPresenterMaster({
+        track,
+        timelineStart: presenter.timelineStart,
+        duration,
+        soundtrack,
+        soundtrackGain,
+        signal,
+        onPresenterCoverage(coveredSeconds) {
+          report(
+            onProgress,
+            "audio",
+            coveredSeconds,
+            duration,
+            0.78 + 0.08 * Math.min(coveredSeconds / duration, 1),
+          );
+        },
+      });
+      throwIfAborted(signal);
+      return await encodeSoundtrackAudio(
+        master,
+        source,
+        duration,
+        signal,
+        onProgress,
+      );
+    } catch (error) {
+      if (signal?.aborted) throw cancelledError(signal);
+      throw wrapError(
+        error,
+        "PRESENTER_DECODE_FAILED",
+        "Presenter audio and tactile sound could not be rendered as one continuous stereo master.",
+      );
+    }
+  }
+
   const sink = new AudioSampleSink(track);
   const rangeStart = presenter.timelineStart;
   const rangeEnd = rangeStart + duration;
@@ -2162,7 +2200,6 @@ async function encodePresenterAudio(
     for await (const decoded of sink.samples(rangeStart, rangeEnd)) {
       throwIfAborted(signal);
       let trimmedSample: AudioSample = decoded;
-      let mixedSample: AudioSample | null = null;
       try {
         const trim = getAudioTrimWindow(
           decoded.timestamp,
@@ -2177,41 +2214,12 @@ async function encodePresenterAudio(
         }
         trimmedSample.setTimestamp(trim.outputTimestamp);
 
-        let outputSample = trimmedSample;
-        if (soundtrack) {
-          const mixedData = new Float32Array(
-            trimmedSample.numberOfFrames * trimmedSample.numberOfChannels,
-          );
-          const planes = Array.from(
-            { length: trimmedSample.numberOfChannels },
-            (_, channel) => mixedData.subarray(
-              channel * trimmedSample.numberOfFrames,
-              (channel + 1) * trimmedSample.numberOfFrames,
-            ),
-          );
-          for (let channel = 0; channel < planes.length; channel += 1) {
-            trimmedSample.copyTo(planes[channel]!, { planeIndex: channel, format: "f32-planar" });
-          }
-          mixSoundtrackIntoPlanar(
-            planes,
-            trimmedSample.timestamp,
-            trimmedSample.sampleRate,
-            soundtrack,
-            soundtrackGain,
-          );
-          mixedSample = new AudioSample({
-            format: "f32-planar",
-            data: mixedData,
-            numberOfChannels: trimmedSample.numberOfChannels,
-            sampleRate: trimmedSample.sampleRate,
-            timestamp: trimmedSample.timestamp,
-          });
-          outputSample = mixedSample;
-        }
-
-        await source.add(outputSample);
-        encodedSamples += outputSample.numberOfFrames;
-        lastEnd = Math.max(lastEnd, outputSample.timestamp + outputSample.duration);
+        await source.add(trimmedSample);
+        encodedSamples += trimmedSample.numberOfFrames;
+        lastEnd = Math.max(
+          lastEnd,
+          trimmedSample.timestamp + trimmedSample.duration,
+        );
         report(
           onProgress,
           "audio",
@@ -2220,7 +2228,6 @@ async function encodePresenterAudio(
           0.78 + 0.17 * Math.min(lastEnd / duration, 1),
         );
       } finally {
-        mixedSample?.close();
         if (trimmedSample !== decoded) trimmedSample.close();
         decoded.close();
       }
@@ -2230,7 +2237,7 @@ async function encodePresenterAudio(
     throw wrapError(
       error,
       "PRESENTER_DECODE_FAILED",
-      "Presenter audio and tactile sound could not be mixed and encoded without loss.",
+      "Presenter audio could not be decoded and encoded without loss.",
     );
   }
 
