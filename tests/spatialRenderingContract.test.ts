@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import engineSource from "../src/engine/CinematicCarousel.ts?raw";
 import {
   slideFragmentShader,
   slideVertexShader,
@@ -34,7 +34,6 @@ describe("spatial rendering contract", () => {
   });
 
   it("uses a continuous-corner lit shell and excludes it from the pinned frame", () => {
-    const engineSource = readFileSync("src/engine/CinematicCarousel.ts", "utf8");
     expect(engineSource).toContain("createRoundedSlideShellGeometry");
     expect(engineSource).toContain("new THREE.MeshStandardMaterial");
     expect(engineSource).toContain("createPoolItem(1000, false)");
@@ -46,7 +45,6 @@ describe("spatial rendering contract", () => {
   });
 
   it("regenerates one shared shell geometry and disposes ownership exactly once", () => {
-    const engineSource = readFileSync("src/engine/CinematicCarousel.ts", "utf8");
     expect(engineSource).toContain("private sharedShellGeometry");
     expect(engineSource.match(/createRoundedSlideShellGeometry\(/g)).toHaveLength(1);
     expect(engineSource).toMatch(/item\.shell\.geometry\s*=\s*next/);
