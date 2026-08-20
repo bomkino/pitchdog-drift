@@ -66,9 +66,7 @@ jobs:
           JSON
 
           sha256sum *.ogg > SHA256SUMS
-          for file in *.ogg; do
-            ffprobe -v error -show_entries format=filename,duration,size -show_entries stream=codec_name,sample_rate,channels -of json "$file"
-          done > FFPROBE.jsonl
+          file *.ogg > FILES.txt
 
       - name: Upload candidate recordings for listening and forensic selection
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
