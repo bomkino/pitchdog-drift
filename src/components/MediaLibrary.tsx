@@ -1,4 +1,6 @@
-import { useRef, type ChangeEvent, type DragEvent } from "react";
+import { useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
+import { orderImportedImageFiles } from "../lib/importOrder";
+import { buildMediaDiagnostic } from "../mediaDiagnostics";
 import type { StudioAsset } from "../model";
 
 interface MediaLibraryProps {
@@ -6,6 +8,7 @@ interface MediaLibraryProps {
   presenter: StudioAsset | null;
   pinnedAssetId: string | null;
   onAddImages: (files: File[]) => void;
+  onReplaceImages: (files: File[]) => void;
   onPresenter: (file: File) => void;
   onRemove: (id: string) => void;
   onReorder: (fromId: string, toId: string) => void;
@@ -19,6 +22,7 @@ export function MediaLibrary({
   presenter,
   pinnedAssetId,
   onAddImages,
+  onReplaceImages,
   onPresenter,
   onRemove,
   onReorder,
@@ -28,11 +32,20 @@ export function MediaLibrary({
 }: MediaLibraryProps) {
   const draggedId = useRef<string | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
+  const replaceInput = useRef<HTMLInputElement>(null);
   const presenterInput = useRef<HTMLInputElement>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [fileDropActive, setFileDropActive] = useState(false);
+  const diagnostic = buildMediaDiagnostic(assets);
 
   const addImages = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.currentTarget.files ?? []);
+    const files = orderImportedImageFiles(Array.from(event.currentTarget.files ?? []));
     if (files.length) onAddImages(files);
+    event.currentTarget.value = "";
+  };
+  const replaceImages = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = orderImportedImageFiles(Array.from(event.currentTarget.files ?? []));
+    if (files.length) onReplaceImages(files);
     event.currentTarget.value = "";
   };
   const addPresenter = (event: ChangeEvent<HTMLInputElement>) => {
@@ -42,12 +55,52 @@ export function MediaLibrary({
   };
   const onDrop = (event: DragEvent, targetId: string) => {
     event.preventDefault();
+    event.stopPropagation();
     if (draggedId.current && draggedId.current !== targetId) onReorder(draggedId.current, targetId);
     draggedId.current = null;
+    setDragOverId(null);
+  };
+  const reorderFromKeyboard = (event: KeyboardEvent, asset: StudioAsset, index: number) => {
+    if (!event.altKey || busy) return;
+    if (event.key === "ArrowUp" && index > 0) {
+      event.preventDefault();
+      onReorder(asset.id, assets[index - 1]!.id);
+    } else if (event.key === "ArrowDown" && index < assets.length - 1) {
+      event.preventDefault();
+      onReorder(asset.id, assets[index + 1]!.id);
+    }
   };
 
   return (
-    <aside className="media-library" aria-label="Media library" aria-busy={busy}>
+    <aside
+      className="media-library"
+      aria-label="Media library"
+      aria-busy={busy}
+      data-file-drop={fileDropActive}
+      onDragEnter={(event) => {
+        if (!busy && event.dataTransfer.types.includes("Files")) {
+          event.preventDefault();
+          setFileDropActive(true);
+        }
+      }}
+      onDragOver={(event) => {
+        if (!busy && event.dataTransfer.types.includes("Files")) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setFileDropActive(true);
+        }
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFileDropActive(false);
+      }}
+      onDrop={(event) => {
+        setFileDropActive(false);
+        if (busy || !event.dataTransfer.files.length) return;
+        event.preventDefault();
+        const files = orderImportedImageFiles(Array.from(event.dataTransfer.files));
+        if (files.length) onAddImages(files);
+      }}
+    >
       <div className="panel-heading compact">
         <div>
           <span className="panel-kicker">MEDIA</span>
@@ -56,33 +109,77 @@ export function MediaLibrary({
         <span className="media-count">{assets.length}</span>
       </div>
 
-      <input ref={imageInput} hidden tabIndex={-1} disabled={busy} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple onChange={addImages} />
-      <input ref={presenterInput} hidden tabIndex={-1} disabled={busy} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={addPresenter} />
+      <input ref={imageInput} data-testid="add-slides-input" hidden tabIndex={-1} disabled={busy} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple onChange={addImages} />
+      <input ref={replaceInput} data-testid="replace-slides-input" hidden tabIndex={-1} disabled={busy} type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple onChange={replaceImages} />
+      <input ref={presenterInput} data-testid="presenter-input" hidden tabIndex={-1} disabled={busy} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={addPresenter} />
 
       <div className="media-add-row">
         <button type="button" className="media-add" disabled={busy} onClick={() => imageInput.current?.click()}>
           <span aria-hidden="true">＋</span> Add slides
         </button>
-        <button type="button" className="media-add subtle" disabled={busy} onClick={() => presenterInput.current?.click()}>
+        <button type="button" className="media-add subtle" disabled={busy} onClick={() => replaceInput.current?.click()}>
+          Replace deck
+        </button>
+        <button type="button" className="media-add subtle presenter-add" disabled={busy} onClick={() => presenterInput.current?.click()}>
           Presenter
         </button>
       </div>
-      <p className="media-note">Images move. One optional video can stay pinned. Files remain on this device.</p>
+      <p className="media-note"><strong>Add</strong> extends the sequence. <strong>Replace</strong> commits only after every new image decodes. Drag to resequence; Alt + ↑/↓ also works. Files remain local.</p>
+      <div className="media-diagnostic" data-level={diagnostic.level} role="note" aria-label="Deck media diagnostic">
+        <span aria-hidden="true" />
+        <strong>{diagnostic.label}</strong>
+        <small>{diagnostic.detail}</small>
+      </div>
+
+      {fileDropActive ? (
+        <div className="media-drop-target" aria-hidden="true">
+          <span>DROP DECK</span>
+          <strong>{assets.every((asset) => asset.demo) ? "Replace the live study" : "Add to this sequence"}</strong>
+        </div>
+      ) : null}
 
       <ol className="asset-list" aria-label="Slide order">
         {assets.map((asset, index) => (
           <li
             key={asset.id}
             draggable={!busy}
-            onDragStart={() => { if (!busy) draggedId.current = asset.id; }}
-            onDragOver={(event) => { if (!busy) event.preventDefault(); }}
+            tabIndex={busy ? -1 : 0}
+            aria-label={`Slide ${index + 1}: ${asset.name}. Hold Alt and use arrow keys to reorder.`}
+            onKeyDown={(event) => reorderFromKeyboard(event, asset, index)}
+            onDragStart={(event) => {
+              if (busy) return;
+              draggedId.current = asset.id;
+              setDragOverId(asset.id);
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", asset.id);
+            }}
+            onDragEnd={() => {
+              draggedId.current = null;
+              setDragOverId(null);
+            }}
+            onDragOver={(event) => {
+              if (!busy && draggedId.current) {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDragOverId(asset.id);
+              }
+            }}
+            onDragLeave={() => {
+              if (dragOverId === asset.id) setDragOverId(null);
+            }}
             onDrop={(event) => onDrop(event, asset.id)}
             data-pinned={pinnedAssetId === asset.id}
+            data-dragging={draggedId.current === asset.id}
+            data-drag-over={dragOverId === asset.id && draggedId.current !== asset.id}
+            data-demo={asset.demo === true}
           >
             <span className="drag-handle" aria-hidden="true">⠿</span>
             <img src={asset.objectUrl} alt="" />
             <span className="asset-meta">
-              <strong>{String(index + 1).padStart(2, "0")}</strong>
+              <span className="asset-index-row">
+                <strong>{String(index + 1).padStart(2, "0")}</strong>
+                {asset.demo ? <em>STUDY</em> : null}
+              </span>
               <small title={asset.name}>{asset.name}</small>
             </span>
             <span className="asset-actions">

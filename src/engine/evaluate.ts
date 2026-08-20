@@ -29,6 +29,11 @@ export function positiveModulo(value: number, modulus: number): number {
   return ((value % modulus) + modulus) % modulus;
 }
 
+export function authoredSlideIndex(logicalIndex: number, sourceSlideCount: number): number {
+  if (!Number.isSafeInteger(logicalIndex) || !Number.isSafeInteger(sourceSlideCount) || sourceSlideCount <= 0) return 0;
+  return positiveModulo(logicalIndex, sourceSlideCount);
+}
+
 export function getSlideGeometry(settings: StudioSettings): SlideGeometry {
   const aspect = settings.slide.aspectWidth / Math.max(0.01, settings.slide.aspectHeight);
   const width = settings.stage.width * clamp(settings.slide.scale, 0.2, 1.25);
@@ -52,28 +57,68 @@ export function getLogicalSlotCount(assetCount: number, geometry: SlideGeometry)
   return Math.max(assetCount, Math.ceil(minimum / assetCount) * assetCount);
 }
 
-export function distanceAtTime(settings: StudioSettings, time: number, slotCount: number, stride: number, exportMode: boolean): number {
+function completeLoopDistance(
+  settings: StudioSettings,
+  sourceSlideCount: number,
+  stride: number,
+): number {
+  if (sourceSlideCount <= 0) return 0;
+  return sourceSlideCount
+    * stride
+    * Math.max(1, Math.round(settings.motion.seamlessLoops));
+}
+
+export function slidesPerSecondForPreview(
+  settings: StudioSettings,
+  sourceSlideCount: number,
+): number {
+  if (!settings.motion.autoplay) return 0;
+  if (settings.motion.seamless && sourceSlideCount > 0) {
+    return sourceSlideCount
+      * Math.max(1, Math.round(settings.motion.seamlessLoops))
+      / Math.max(0.001, settings.output.duration);
+  }
+  return settings.motion.speed;
+}
+
+export function velocityForPreview(
+  settings: StudioSettings,
+  sourceSlideCount: number,
+  stride: number,
+): number {
+  const slidesPerSecond = slidesPerSecondForPreview(settings, sourceSlideCount);
+  if (slidesPerSecond === 0) return 0;
+  return settings.motion.direction * slidesPerSecond * stride;
+}
+
+export function distanceAtTime(
+  settings: StudioSettings,
+  time: number,
+  sourceSlideCount: number,
+  stride: number,
+  exportMode: boolean,
+): number {
+  if (!settings.motion.autoplay) return 0;
   if (settings.motion.reducedMotionOutput && exportMode) return 0;
   const direction = settings.motion.direction;
-  if (exportMode && settings.motion.seamless && slotCount > 0) {
+  if (exportMode && settings.motion.seamless && sourceSlideCount > 0) {
     const phase = time / Math.max(0.001, settings.output.duration);
-    return direction * slotCount * stride * Math.max(1, Math.round(settings.motion.seamlessLoops)) * phase;
+    return direction * completeLoopDistance(settings, sourceSlideCount, stride) * phase;
   }
   return direction * settings.motion.speed * stride * Math.max(0, time);
 }
 
 export function velocityAtTime(
   settings: StudioSettings,
-  slotCount: number,
+  sourceSlideCount: number,
   stride: number,
   exportMode: boolean,
 ): number {
+  if (!settings.motion.autoplay) return 0;
   if (exportMode && settings.motion.reducedMotionOutput) return 0;
-  if (exportMode && settings.motion.seamless && slotCount > 0) {
+  if (exportMode && settings.motion.seamless && sourceSlideCount > 0) {
     return settings.motion.direction
-      * slotCount
-      * stride
-      * Math.max(1, Math.round(settings.motion.seamlessLoops))
+      * completeLoopDistance(settings, sourceSlideCount, stride)
       / Math.max(0.001, settings.output.duration);
   }
   return settings.motion.direction * settings.motion.speed * stride;

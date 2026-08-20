@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, FLOW_IDS, cloneSettings } from "../src/model";
 import {
+  authoredSlideIndex,
   distanceAtTime,
   evaluateSlide,
   getLogicalSlotCount,
   getSlideGeometry,
   positiveModulo,
+  slidesPerSecondForPreview,
   velocityAtTime,
+  velocityForPreview,
 } from "../src/engine/evaluate";
 
 describe("deterministic carousel evaluation", () => {
@@ -26,11 +29,20 @@ describe("deterministic carousel evaluation", () => {
     expect(positiveModulo(Number.NaN, 8)).toBe(0);
   });
 
+  it("maps virtual padding copies back to stable authored slide identity", () => {
+    expect(authoredSlideIndex(0, 3)).toBe(0);
+    expect(authoredSlideIndex(3, 3)).toBe(0);
+    expect(authoredSlideIndex(8, 3)).toBe(2);
+    expect(authoredSlideIndex(-1, 3)).toBe(2);
+    expect(authoredSlideIndex(2, 0)).toBe(0);
+  });
+
   it("evaluates the same frame identically", () => {
     const settings = cloneSettings(DEFAULT_SETTINGS);
     const geometry = getSlideGeometry(settings);
-    const slots = getLogicalSlotCount(8, geometry);
-    const distance = distanceAtTime(settings, 2.125, slots, geometry.stride, true);
+    const sourceCount = 8;
+    const slots = getLogicalSlotCount(sourceCount, geometry);
+    const distance = distanceAtTime(settings, 2.125, sourceCount, geometry.stride, true);
     expect(evaluateSlide(3, slots, distance, settings, geometry)).toEqual(
       evaluateSlide(3, slots, distance, settings, geometry),
     );
@@ -58,35 +70,58 @@ describe("deterministic carousel evaluation", () => {
     }
   });
 
-  it("shares analytic preview speed with ordinary export", () => {
+  it("shares analytic free-run speed between preview and export", () => {
     const settings = cloneSettings(DEFAULT_SETTINGS);
     settings.motion.seamless = false;
     const geometry = getSlideGeometry(settings);
-    const slots = getLogicalSlotCount(8, geometry);
-    expect(velocityAtTime(settings, slots, geometry.stride, true)).toBe(
-      velocityAtTime(settings, slots, geometry.stride, false),
+    const sourceCount = 8;
+    expect(velocityForPreview(settings, sourceCount, geometry.stride)).toBe(
+      velocityAtTime(settings, sourceCount, geometry.stride, true),
     );
+    expect(slidesPerSecondForPreview(settings, sourceCount)).toBe(settings.motion.speed);
   });
 
-  it("lands seamless output on an exact whole-track cycle", () => {
+  it("bases one seamless loop on authored slides, never renderer-padding copies", () => {
     const settings = cloneSettings(DEFAULT_SETTINGS);
+    settings.motion.axis = "vertical";
+    settings.slide.scale = 0.24;
+    settings.slide.aspectWidth = 4;
+    settings.slide.aspectHeight = 1;
+    settings.motion.gap = 0;
     settings.motion.seamless = true;
     settings.motion.seamlessLoops = 2;
     settings.output.duration = 8;
     const geometry = getSlideGeometry(settings);
-    const slots = getLogicalSlotCount(8, geometry);
-    const start = distanceAtTime(settings, 0, slots, geometry.stride, true);
-    const end = distanceAtTime(settings, settings.output.duration, slots, geometry.stride, true);
-    expect(Math.abs(end - start)).toBe(slots * geometry.stride * 2);
-    expect(velocityAtTime(settings, slots, geometry.stride, true) * settings.output.duration).toBe(end);
+    const sourceCount = 3;
+    const slots = getLogicalSlotCount(sourceCount, geometry);
+    expect(slots).toBeGreaterThan(sourceCount);
+    const start = distanceAtTime(settings, 0, sourceCount, geometry.stride, true);
+    const end = distanceAtTime(settings, settings.output.duration, sourceCount, geometry.stride, true);
+    expect(Math.abs(end - start)).toBe(sourceCount * geometry.stride * 2);
+    expect(velocityAtTime(settings, sourceCount, geometry.stride, true) * settings.output.duration).toBe(end);
+    expect(velocityForPreview(settings, sourceCount, geometry.stride)).toBe(
+      velocityAtTime(settings, sourceCount, geometry.stride, true),
+    );
   });
 
   it("freezes both distance and optical velocity for reduced-motion masters", () => {
     const settings = cloneSettings(DEFAULT_SETTINGS);
     settings.motion.reducedMotionOutput = true;
     const geometry = getSlideGeometry(settings);
-    const slots = getLogicalSlotCount(8, geometry);
-    expect(distanceAtTime(settings, 4, slots, geometry.stride, true)).toBe(0);
-    expect(velocityAtTime(settings, slots, geometry.stride, true)).toBe(0);
+    expect(distanceAtTime(settings, 4, 8, geometry.stride, true)).toBe(0);
+    expect(velocityAtTime(settings, 8, geometry.stride, true)).toBe(0);
+  });
+
+  it("treats saved Autoplay as project intent while temporary pause stays runtime-only", () => {
+    const settings = cloneSettings(DEFAULT_SETTINGS);
+    settings.motion.autoplay = false;
+    settings.motion.seamless = true;
+    settings.motion.seamlessLoops = 3;
+    const geometry = getSlideGeometry(settings);
+    expect(distanceAtTime(settings, 4, 8, geometry.stride, false)).toBe(0);
+    expect(distanceAtTime(settings, 4, 8, geometry.stride, true)).toBe(0);
+    expect(velocityAtTime(settings, 8, geometry.stride, false)).toBe(0);
+    expect(velocityAtTime(settings, 8, geometry.stride, true)).toBe(0);
+    expect(velocityForPreview(settings, 8, geometry.stride)).toBe(0);
   });
 });

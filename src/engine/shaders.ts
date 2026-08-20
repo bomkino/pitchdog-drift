@@ -311,7 +311,29 @@ export const backgroundFragmentShader = /* glsl */ `
     vec3 color = uColorA;
 
     if (uMode < 0.5) {
-      color = uColorA;
+      if (variant < 0.5) {
+        float centre = softBlob(p, vec2(0.0), 0.92);
+        float cloth = fbm(p * 2.0 + vec2(uSeed * 0.017, uSeed * 0.011)) - 0.5;
+        color = mix(uColorA, uColorB, centre * 0.22 * uIntensity);
+        color += cloth * 0.012 * uIntensity;
+      } else if (variant < 1.5) {
+        vec2 practical = vec2(-0.22 + cosPhase * 0.03, 0.18 + sinDoublePhase * 0.025);
+        float pool = softBlob(p, practical, 0.74);
+        color = mix(uColorA, uColorB, pool * 0.48 * uIntensity);
+        color = mix(color, uAccent, pool * pool * 0.11 * uIntensity);
+      } else if (variant < 2.5) {
+        vec2 milkDrift = vec2(cosPhase, -sinPhase) * 0.035;
+        float milk = fbm(p * 1.25 + milkDrift + vec2(uSeed * 0.009));
+        float veil = smoothstep(0.22, 0.86, milk + (0.5 - length(p)) * 0.28);
+        color = mix(uColorA, uColorB, veil * 0.34 * uIntensity);
+        color = mix(color, uAccent, softBlob(p, vec2(0.2, -0.16), 1.0) * 0.12 * uIntensity);
+      } else {
+        vec2 oilDrift = vec2(cosDoublePhase, sinDoublePhase) * 0.05;
+        float oil = fbm(p * 2.2 + oilDrift + vec2(uSeed * 0.013));
+        float ribbon = smoothstep(0.5, 0.82, oil + sin(p.y * 4.0 + seedPhase) * 0.08);
+        color = mix(uColorA, uColorB, ribbon * 0.4 * uIntensity);
+        color = mix(color, uAccent, smoothstep(0.72, 0.92, oil) * 0.12 * uIntensity);
+      }
     } else if (uMode < 1.5) {
       float gradient = smoothstep(-0.72, 0.72, p.y + p.x * 0.4 + wave * 0.07);
       color = mix(uColorA, uColorB, gradient);

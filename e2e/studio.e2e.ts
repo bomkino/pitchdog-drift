@@ -70,7 +70,7 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   await waitForStudio(page);
 
   const fileInputs = page.locator('input[type="file"]');
-  await expect(fileInputs).toHaveCount(3);
+  await expect(fileInputs).toHaveCount(4);
   for (let index = 0; index < await fileInputs.count(); index += 1) {
     await expect(fileInputs.nth(index)).toHaveAttribute("tabindex", "-1");
   }
@@ -79,6 +79,12 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   const slideChooser = await slideChooserPromise;
   expect(slideChooser.isMultiple()).toBe(true);
   await slideChooser.setFiles([]);
+
+  const replaceChooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Replace deck" }).click();
+  const replaceChooser = await replaceChooserPromise;
+  expect(replaceChooser.isMultiple()).toBe(true);
+  await replaceChooser.setFiles([]);
 
   const presenterChooserPromise = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Presenter", exact: true }).click();

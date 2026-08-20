@@ -13,6 +13,7 @@ import { CinematicCarousel } from "./engine/CinematicCarousel";
 import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
 import { createDemoSlides } from "./lib/demoSlides";
 import type { ExportProgress as EncoderProgress } from "./lib/exportStudio";
+import { exportFileName, framePrefixForAssets } from "./lib/naming";
 import {
   createProjectBundle,
   exportProject,
@@ -160,10 +161,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 2_000);
-}
-
-function timestampSlug(): string {
-  return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
 function encoderProgress(progress: EncoderProgress): ExportProgress {
@@ -618,6 +615,56 @@ export function App() {
     void enqueueProjectOperation(() => addImagesNow(files));
   }, [addImagesNow, enqueueProjectOperation]);
 
+  const replaceImagesNow = useCallback(async (files: File[]) => {
+    const candidates = files.filter((file) => file.type.startsWith("image/"));
+    if (!candidates.length) {
+      announce("No supported images were selected.", "error");
+      return;
+    }
+    if (candidates.length > MAX_SLIDES) {
+      announce(`Replacement aborted. This version supports up to ${MAX_SLIDES} moving slides; the current deck is untouched.`, "error");
+      return;
+    }
+
+    const current = assetsRef.current;
+    const replacingStudy = current.length > 0 && current.every((asset) => asset.demo);
+    if (current.length > 0 && !replacingStudy) {
+      const confirmed = window.confirm(
+        `Replace ${current.length} moving slide${current.length === 1 ? "" : "s"} with ${candidates.length}?\n\nPresenter media and director settings stay. The current moving deck will be removed only after every replacement image decodes successfully.`,
+      );
+      if (!confirmed) {
+        announce("Deck replacement canceled. Current media is unchanged.");
+        return;
+      }
+    }
+
+    const decoded = await Promise.allSettled(candidates.map((file) => imageFileToAsset(file)));
+    const accepted = decoded.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    const failed = decoded.length - accepted.length;
+    if (failed > 0) {
+      accepted.forEach(disposeAsset);
+      announce(`Replacement aborted: ${failed} image${failed === 1 ? " could" : "s could"} not be decoded. Current deck is untouched.`, "error");
+      return;
+    }
+
+    const previous = assetsRef.current;
+    const pinnedMovingId = settingsRef.current.presenter.assetId
+      && previous.some((asset) => asset.id === settingsRef.current.presenter.assetId)
+      ? settingsRef.current.presenter.assetId
+      : null;
+    assetsRef.current = accepted;
+    setAssets(accepted);
+    if (pinnedMovingId) {
+      setSettings((currentSettings) => clearPinnedAssetIfRemoved(currentSettings, pinnedMovingId));
+    }
+    previous.forEach(disposeAsset);
+    announce(`${accepted.length} replacement slide${accepted.length === 1 ? "" : "s"} decoded, committed, and queued for local save.`, "good");
+  }, [announce]);
+
+  const replaceImages = useCallback((files: File[]) => {
+    void enqueueProjectOperation(() => replaceImagesNow(files));
+  }, [enqueueProjectOperation, replaceImagesNow]);
+
   const addPresenterNow = useCallback(async (file: File) => {
     try {
       const next = await videoFileToAsset(file);
@@ -710,13 +757,14 @@ export function App() {
       announce("This browser cannot encode the requested H.264 master. Use current desktop Chromium or Brave, or export PNG frames.", "error");
       return;
     }
+    const filename = exportFileName("master", "mp4", assetsRef.current);
     let fileHandle: FileSystemFileHandle | null = null;
     const savePicker = (window as PickerWindow).showSaveFilePicker;
     if (savePicker) {
       try {
         fileHandle = await savePicker({
           id: "pitchdog-drift-master",
-          suggestedName: `drift-master-${timestampSlug()}.mp4`,
+          suggestedName: filename,
           types: [{ description: "H.264 MP4 master", accept: { "video/mp4": [".mp4"] } }],
         });
       } catch (error) {
@@ -749,7 +797,7 @@ export function App() {
         onProgress: (progress) => setExportProgress(encoderProgress(progress)),
         target,
       });
-      if (result.blob) downloadBlob(result.blob, `drift-master-${timestampSlug()}.mp4`);
+      if (result.blob) downloadBlob(result.blob, filename);
       announce(`${result.width} × ${result.height} H.264 master verified: ${result.verification.frameCount} frames at ${result.fps} fps.`, "good");
     } catch (error) {
       announce(error instanceof Error ? error.message : "MP4 export failed.", "error");
@@ -759,6 +807,7 @@ export function App() {
   }, [announce, beginExport, endExport, mp4Supported, pinnedAsset, renderForExport]);
 
   const exportStill = useCallback(async () => {
+    const filename = exportFileName("still", "png", assetsRef.current);
     let session: ReturnType<typeof beginExport> | null = null;
     try {
       session = beginExport();
@@ -779,7 +828,7 @@ export function App() {
         requireTransparentPixels: settingsRef.current.stage.transparent || settingsRef.current.background.style === "transparent",
         onProgress: (progress) => setExportProgress(encoderProgress(progress)),
       });
-      downloadBlob(result.blob, `drift-still-${timestampSlug()}.png`);
+      downloadBlob(result.blob, filename);
       announce(`${result.width} × ${result.height} PNG captured with an alpha-capable channel.`, "good");
     } catch (error) {
       announce(error instanceof Error ? error.message : "PNG capture failed.", "error");
@@ -789,6 +838,8 @@ export function App() {
   }, [announce, beginExport, endExport, pinnedAsset, renderForExport]);
 
   const exportFrames = useCallback(async () => {
+    const framePrefix = framePrefixForAssets(assetsRef.current);
+    const zipFilename = exportFileName("frames", "zip", assetsRef.current);
     let session: ReturnType<typeof beginExport> | null = null;
     try {
       session = beginExport();
@@ -812,12 +863,12 @@ export function App() {
       const picker = (window as PickerWindow).showDirectoryPicker;
       if (picker) {
         const directory = await picker({ id: "pitchdog-drift-frames", mode: "readwrite" });
-        const result = await exportPngSequence({ ...common, destination: "directory", directory, framePrefix: "drift" });
+        const result = await exportPngSequence({ ...common, destination: "directory", directory, framePrefix });
         announce(`${result.frameCount} numbered PNG frames written and verified.`, "good");
       } else {
-        const result = await exportPngSequence({ ...common, destination: "zip", framePrefix: "drift" });
+        const result = await exportPngSequence({ ...common, destination: "zip", framePrefix });
         if (!result.blob) throw new Error("PNG ZIP completed without bytes.");
-        downloadBlob(result.blob, `drift-frames-${timestampSlug()}.zip`);
+        downloadBlob(result.blob, zipFilename);
         announce(`${result.frameCount} numbered PNG frames rendered into a verified ZIP.`, "good");
       }
     } catch (error) {
@@ -835,13 +886,13 @@ export function App() {
           throw new Error("The locked saved project could not be read safely. Open a verified project to replace it; fallback demos will not overwrite it.");
         }
         const recoveryBlob = await exportProject(recovery);
-        downloadBlob(recoveryBlob, `drift-recovery-${timestampSlug()}.pitched`);
+        downloadBlob(recoveryBlob, exportFileName("recovery", "pitched", assetsRef.current));
         announce("Locked saved project re-verified and repackaged with its preserved manifest and media. Fallback demos were not written over it.", "good");
         return;
       }
       const snapshot = await persist();
       const blob = await exportProject(snapshot);
-      downloadBlob(blob, `drift-project-${timestampSlug()}.pitched`);
+      downloadBlob(blob, exportFileName("project", "pitched", assetsRef.current));
       announce("Portable project saved with original media and SHA-256 manifest.", "good");
     } catch (error) {
       announce(error instanceof Error ? error.message : "Portable project could not be saved.", "error");
@@ -953,6 +1004,7 @@ export function App() {
           presenter={presenter}
           pinnedAssetId={settings.presenter.assetId}
           onAddImages={addImages}
+          onReplaceImages={replaceImages}
           onPresenter={addPresenter}
           onRemove={removeAsset}
           onReorder={reorder}

@@ -34,21 +34,22 @@ test("all authored worlds and motion paths stay operable and console-clean", asy
     await expect(pathSelect).toHaveValue(flow);
   }
 
-  await expect(page.getByRole("switch", { name: "Autoplay" })).toHaveCount(0);
+  const slideMotion = page.getByRole("switch", { name: "Slide motion" });
+  await expect(slideMotion).toBeChecked();
+  await slideMotion.click();
+  await expect(page.locator(".stage-hud")).toContainText("SLIDES HELD");
+  await expect(page.getByRole("button", { name: "Pause preview" })).toBeEnabled();
+  await slideMotion.click();
+
   const atmosphere = page.locator("details").filter({ has: page.locator("summary", { hasText: "Atmosphere" }) });
   await atmosphere.locator("summary").click();
-  const variation = page.getByLabel("World variation");
-  await variation.fill("9876");
-  await variation.blur();
-  await expect(variation).toHaveValue("9876");
+  const authoredScene = page.getByRole("combobox", { name: "Authored scene" });
+  const sceneBeforeRecut = await authoredScene.inputValue();
+  await page.getByRole("button", { name: "Recut atmosphere" }).click();
+  await expect(authoredScene).toHaveValue(sceneBeforeRecut);
 
-  const lensResponse = page.getByRole("slider", { name: "Lens response" });
-  await lensResponse.evaluate((input) => {
-    const range = input as HTMLInputElement;
-    range.value = "78";
-    range.dispatchEvent(new Event("input", { bubbles: true }));
-    range.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  const lensResponse = page.getByRole("slider", { name: "Lens energy" });
+  await lensResponse.fill("78");
   await expect(lensResponse).toHaveValue("78");
   expect(errors).toEqual([]);
 });

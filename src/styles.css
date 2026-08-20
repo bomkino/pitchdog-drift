@@ -202,6 +202,7 @@ a:focus-visible {
 
 .media-library {
   display: flex;
+  overflow-y: hidden;
   flex-direction: column;
   padding: 20px 16px 28px;
   border-right: 1px solid var(--line);
@@ -253,7 +254,7 @@ a:focus-visible {
 
 .media-add-row {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -310,6 +311,10 @@ a:focus-visible {
 .asset-list {
   min-height: 0;
   flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #49443d transparent;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -406,8 +411,13 @@ a:focus-visible {
 }
 
 .presenter-slot {
+  position: relative;
+  z-index: 3;
   flex: 0 0 auto;
-  padding-top: 20px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  background: rgba(20, 19, 17, 0.99);
 }
 
 .section-heading-row {
@@ -1409,3 +1419,5 @@ a:focus-visible {
     animation-iteration-count: 1 !important;
   }
 }
+
+.media-add-row .presenter-add { grid-column: 1 / -1; }

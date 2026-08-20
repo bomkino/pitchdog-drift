@@ -1,5 +1,19 @@
-import type { RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
+import { orderImportedImageFiles } from "../lib/importOrder";
 import type { ExportProgress, StudioAsset, StudioSettings } from "../model";
+
+type GuideMode = "off" | "edge" | "copy" | "reels";
+
+const GUIDE_MODES: GuideMode[] = ["off", "edge", "copy", "reels"];
+
+function initialGuideMode(): GuideMode {
+  try {
+    const saved = window.localStorage.getItem("pitchdog-drift-guide-mode");
+    return GUIDE_MODES.includes(saved as GuideMode) ? saved as GuideMode : "off";
+  } catch {
+    return "off";
+  }
+}
 
 interface StageProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -38,11 +52,36 @@ export function Stage({
   onCancelExport,
   busy,
 }: StageProps) {
+  const [guideMode, setGuideMode] = useState<GuideMode>(initialGuideMode);
+  const [dropActive, setDropActive] = useState(false);
   const transparent = settings.stage.transparent || settings.background.style === "transparent";
+  const demoMode = assets.length > 0 && assets.every((asset) => asset.demo);
+  const masterFrames = Math.round(settings.output.duration * settings.output.fps);
+  const slidesHeld = !settings.motion.autoplay;
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("pitchdog-drift-guide-mode", guideMode);
+    } catch {
+      // Guide preference is a convenience. Storage denial never blocks the studio.
+    }
+  }, [guideMode]);
+
+  const cycleGuides = () => {
+    const index = GUIDE_MODES.indexOf(guideMode);
+    setGuideMode(GUIDE_MODES[(index + 1) % GUIDE_MODES.length]!);
+  };
+
+  const acceptDroppedFiles = (files: FileList) => {
+    const images = orderImportedImageFiles(Array.from(files));
+    if (images.length) onDropImages(images);
+  };
+
   return (
-    <section className="stage-column" aria-label="Cinematic preview" aria-busy={busy}>
+    <section className="stage-column" aria-label="Cinematic preview" aria-busy={busy} data-drop-active={dropActive}>
       <div className="stage-topline">
         <span>{settings.themeId.replaceAll("-", " ")}</span>
+        <span>{settings.output.duration} s · {masterFrames} frames</span>
         <span>{settings.motion.axis} · {settings.motion.flow}</span>
       </div>
       <div className="stage-well">
@@ -51,16 +90,31 @@ export function Stage({
           className="stage-frame"
           data-transparent={transparent}
           data-context={contextState}
+          data-guide={guideMode}
           style={{ aspectRatio: `${settings.stage.width} / ${settings.stage.height}` }}
+          onDragEnter={(event) => {
+            if (!busy && event.dataTransfer.types.includes("Files")) {
+              event.preventDefault();
+              setDropActive(true);
+            }
+          }}
           onDragOver={(event) => {
-            if (!busy && event.dataTransfer.types.includes("Files")) event.preventDefault();
+            if (!busy && event.dataTransfer.types.includes("Files")) {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "copy";
+              setDropActive(true);
+            }
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropActive(false);
           }}
           onDrop={(event) => {
+            setDropActive(false);
             if (busy) return;
-            const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+            const files = event.dataTransfer.files;
             if (files.length) {
               event.preventDefault();
-              onDropImages(files);
+              acceptDroppedFiles(files);
             }
           }}
         >
@@ -70,6 +124,36 @@ export function Stage({
           <div className="stage-guide top-right" aria-hidden="true" />
           <div className="stage-guide bottom-left" aria-hidden="true" />
           <div className="stage-guide bottom-right" aria-hidden="true" />
+
+          {guideMode !== "off" ? (
+            <div className="safe-guides" data-mode={guideMode} aria-hidden="true">
+              <div className="safe-outline safe-edge" />
+              {guideMode === "copy" || guideMode === "reels" ? <div className="safe-outline safe-copy" /> : null}
+              {guideMode === "reels" ? (
+                <>
+                  <div className="reels-risk reels-top" />
+                  <div className="reels-risk reels-bottom" />
+                  <div className="reels-risk reels-right" />
+                </>
+              ) : null}
+              <span>{guideMode === "edge" ? "EDGE SAFE" : guideMode === "copy" ? "COPY SAFE" : "REELS WORKING SAFE"} · NOT EXPORTED</span>
+            </div>
+          ) : null}
+
+          {demoMode && !webglError ? (
+            <div className="demo-ribbon" role="note">
+              <span>LIVE STUDY</span>
+              <strong>Drop your deck anywhere on the frame to replace all demo slides.</strong>
+            </div>
+          ) : null}
+
+          {dropActive ? (
+            <div className="stage-drop-target" aria-hidden="true">
+              <span>{demoMode ? "REPLACE THE STUDY" : "ADD TO THE SEQUENCE"}</span>
+              <strong>Drop your deck.</strong>
+              <small>Images are decoded locally, natural-sorted by filename, and copied into the project.</small>
+            </div>
+          ) : null}
 
           {!webglError && assets.length === 0 ? (
             <div className="empty-stage">
@@ -104,6 +188,7 @@ export function Stage({
 
           <div className="stage-hud" aria-hidden="true">
             <span>{settings.stage.width} × {settings.stage.height}</span>
+            <span>{slidesHeld ? "SLIDES HELD" : settings.motion.seamless ? `${settings.motion.seamlessLoops}× CLOSED` : "FREE RUN"}</span>
             <span>{fps > 0 ? `${fps} FPS` : "GPU"}</span>
           </div>
         </div>
@@ -116,7 +201,17 @@ export function Stage({
         </button>
         <button type="button" disabled={busy} onClick={() => onStep(1)} aria-label="Next slide">→</button>
         <span className="transport-divider" />
-        <span className="transport-copy">Drag · wheel · space</span>
+        <span className="transport-copy">{slidesHeld ? `slides held · ${settings.output.fps} fps · ${masterFrames} exact frames` : `${settings.output.fps} fps · ${masterFrames} exact frames`}</span>
+        <button
+          type="button"
+          disabled={busy}
+          className="guide-button"
+          onClick={cycleGuides}
+          aria-label={`Guides: ${guideMode}`}
+          aria-pressed={guideMode !== "off"}
+        >
+          Guides · {guideMode}
+        </button>
         <button type="button" disabled={busy} className="focus-button" onClick={onToggleFocus}>{focusMode ? "Exit full frame" : "Full frame"}</button>
       </div>
     </section>
