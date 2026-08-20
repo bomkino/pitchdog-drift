@@ -10,7 +10,7 @@ permissions:
 jobs:
   workspace:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -27,8 +27,30 @@ jobs:
       - name: Install pinned Chromium
         run: npx playwright install chromium
 
+      - name: Pack exact source checkout
+        run: tar --exclude=.git --exclude=node_modules -czf /tmp/pitchdog-drift-source.tar.gz .
+
+      - name: Pack exact dependencies
+        run: tar -czf /tmp/pitchdog-drift-node-modules.tar.gz node_modules
+
       - name: Pack browser runtime
         run: tar -C "$HOME/.cache" -czf /tmp/pitchdog-drift-playwright.tar.gz ms-playwright
+
+      - name: Upload source checkout
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pitchdog-drift-source
+          path: /tmp/pitchdog-drift-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload exact dependencies
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pitchdog-drift-node-modules
+          path: /tmp/pitchdog-drift-node-modules.tar.gz
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Upload browser runtime
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
