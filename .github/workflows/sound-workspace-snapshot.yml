@@ -1,0 +1,27 @@
+name: Sound workspace snapshot
+
+on:
+  push:
+    branches: [gauntlet/tactile-foley-sound]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Bundle exact branch source
+        run: tar --exclude=.git --exclude=source.tgz -czf /tmp/pitchdog-drift-source.tgz .
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pitchdog-drift-source
+          path: /tmp/pitchdog-drift-source.tgz
+          if-no-files-found: error
+          retention-days: 1
