@@ -10,15 +10,21 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 
 ## What is here
 
+- Six coherent starting cuts—Deck Reel, Presenter + Deck, Contact Sheet, Travel Diary, Horror Tease, and Wide Trailer—configure format, pacing, path, closure, world, and presenter intent together.
+- Coalesced director undo/redo with Command/Ctrl-Z and Shift-Command/Ctrl-Z. One slider gesture becomes one undo step rather than dozens.
+- Two session-local A/B look memories. They recall motion, surface, optics, and atmosphere while preserving delivery dimensions, duration, frame rate, and pinned-media identity.
 - Horizontal and vertical infinite tracks with straight, arc, ribbon, cylinder, and tunnel paths.
 - Drag, wheel, keyboard, autoplay, pause, reverse, inertia, adjustable interaction weight, and seamless-output lock.
+- Mouse, native drag, explicit buttons, and Alt + Arrow keyboard sequencing in the media storyboard.
 - Custom stage, output, slide, and pinned-frame ratios.
+- Working edge, copy, and Reels-safe overlays that never enter the export. The social overlay is explicitly a working guide, not an official platform guarantee.
 - Cover/contain fit, focal point, scale, spacing, depth, tilt, continuous corners, borders, and shadows.
 - Velocity-aware lens behaviour inside the slide shader: bounded directional blur, chromatic separation, geometric bend, and peripheral defocus. The focal frame returns crisp at rest.
 - Five authored optical characters: Clean Glass, 16mm Breath, Dream Glass, Panic Lens, and Ghost Focus.
 - Twenty-one authored background scenes across transparent, solid, gradient, aura, paper, and void engines. Each opaque engine contains four distinct procedural recipes; deterministic re-cuts vary the field without changing the recipe.
 - Twelve authored film worlds: Editorial Drift, Road Memory, Dread, Noir Contact, Tender Light, Chrome Dream, Archive Fever, Neon Motel, Alpine Silence, Ritual Ember, Ocean Memory, and Daybreak Comedy.
 - One optional pinned image or presenter video, off by default.
+- A visible delivery preflight for exact frame count, timeline closure, alpha consequences, presenter-audio compatibility, and per-frame pixel load.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
 - AAC presenter audio at 48 kHz stereo with an explicit A/V-sync gate.
 - IndexedDB autosave and portable `.pitched` project bundles with SHA-256 asset verification.
@@ -36,12 +42,24 @@ npm ci
 npm run dev
 ```
 
-Then open the local URL Vite prints. Replace the built-in study slides, direct the motion, choose an optical character and atmosphere, then use the Output panel to create a master.
+Then open the local URL Vite prints. Choose a starting cut or direct from first principles, replace the built-in study with your deck, test competing looks without losing the delivery, and use the Output panel to create a verified master.
 
 ```bash
 npm run check      # TypeScript, deterministic tests, production build
-npm run test:e2e   # Real-browser media, WebGL, fallback, and portability checks
+npm run test:e2e   # Real-browser media, WebGL, fallback, portability, and director-journey checks
 ```
+
+## Director workflow
+
+The live study identifies itself and can be replaced by dropping images directly on the stage or media rail. Starting cuts provide a strong first sentence without locking the user into a template. Every director control remains granular beneath them.
+
+History is deliberately session-local. It protects experimentation without serialising stale object URLs or media references into portable projects. External media changes clear the creative history rather than allowing undo to resurrect an invalid pinned-media ID.
+
+A/B memory captures the authored look only. Delivery settings and pinned-media identity remain current when a look is recalled. Working safe-area guides are also editor-only and never touch renderer or output state.
+
+Before export, the delivery receipt makes enforced consequences visible: exact frame count, closed or free-running timing, PNG-only alpha, presenter-audio limits, and unusually heavy surfaces.
+
+See [the director journey gauntlet](docs/USER_JOURNEY_GAUNTLET.md) for the user contract, failure modes, acceptance checks, and deliberately deferred work.
 
 ## Cinematic system
 
@@ -79,6 +97,8 @@ Media never leaves the browser. IndexedDB holds the current project; a `.pitched
 Drift studies the pacing, spatial confidence, and material restraint of excellent film and WebGL work without cloning anyone’s composition. Siena Film Foundation was an art-direction reference; Codrops’ WebGL carousel work was a technical conversation starter. The implementation and demo artwork here are original.
 
 The default is authored on purpose. Controls can bend the scene, but presets are coherent parameter bundles rather than palette swaps. Distortion is bounded so a deck remains readable. Blur and chromatic separation answer motion; they are not permanent filters. Backgrounds provide atmosphere, not subject matter.
+
+The same rule governs interaction design: controls exist to direct the work, not demonstrate how many parameters the engine exposes. Starting cuts, history, A/B memory, guides, and preflight reduce fear and uncertainty without hiding the underlying system.
 
 ## Contributing
 
