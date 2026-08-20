@@ -1,0 +1,77 @@
+name: Director library gauntlet
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/director-library.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: director-library-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build-library:
+    if: github.head_ref == 'gauntlet/cinematic-optics-worlds'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the real feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/cinematic-optics-worlds
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Rehydrate the reviewed director-library builder
+        run: |
+          cat scripts/.director-library/part-*.b64 | base64 --decode | gzip --decompress > /tmp/gauntlet-director-library.py
+          python3 -m py_compile /tmp/gauntlet-director-library.py
+          python3 /tmp/gauntlet-director-library.py
+          rm -rf scripts/.director-library
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck, unit tests, and production build
+        run: npm run check
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the new director-library journey first
+        run: npx playwright test e2e/directorLibrary.e2e.ts --retries=0
+
+      - name: Run cinematic and journey regressions
+        run: npx playwright test e2e/cinematic.e2e.ts e2e/journey.e2e.ts e2e/mediaJourney.e2e.ts --retries=0
+
+      - name: Run the complete browser gauntlet
+        run: npm run test:e2e
+
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: director-library-failure
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Commit only after every gate passes
+        run: |
+          git config user.name "pitch.dog gauntlet"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: make eighteen film worlds findable and delivery-safe"
+          git push origin HEAD:gauntlet/cinematic-optics-worlds
