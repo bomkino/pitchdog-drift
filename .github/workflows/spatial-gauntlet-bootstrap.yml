@@ -34,6 +34,7 @@ jobs:
         run: |
           python3 scripts/apply_spatial_gauntlet_repair_v2.py
           python3 scripts/fix_spatial_generated_contract.py
+          python3 scripts/fix_spatial_shader_contract.py
       - name: Install
         run: npm ci
       - name: Typecheck
