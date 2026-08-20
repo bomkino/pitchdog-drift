@@ -11,7 +11,15 @@ test("Clean lens is an honest reversible comparison, not a destructive reset", a
     .locator("select")
     .filter({ has: page.locator("option", { hasText: "Editorial Drift" }) })
     .first();
-  await worldSelect.selectOption({ label: /Dread|Chrome Dream|Night Run/i });
+  const options = await worldSelect.locator("option").evaluateAll((nodes) =>
+  nodes.map((node) => ({
+    value: (node as HTMLOptionElement).value,
+    label: (node.textContent ?? "").trim(),
+  })).filter((option) => option.value && option.label),
+);
+const expressiveWorld = options.find((option) => /Dread|Chrome Dream|Night Run/i.test(option.label));
+expect(expressiveWorld, "A strongly treated authored world is required for comparison QA").toBeTruthy();
+await worldSelect.selectOption(expressiveWorld!.value);
 
   const pause = page.getByRole("button", { name: /pause preview/i });
   if (await pause.isVisible().catch(() => false)) await pause.click();
