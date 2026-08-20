@@ -20,12 +20,15 @@ async function decodeCueVariants(
   context: BaseAudioContext,
   palette: StudioSettings["sound"]["palette"],
   cue: SonicCue,
+  signal?: AbortSignal,
 ): Promise<readonly AudioBuffer[]> {
   const variantCount = getSonicAssetVariantCount(palette, cue);
   return await Promise.all(
     Array.from({ length: variantCount }, async (_, variant) => {
-      const bytes = getSonicAssetBytes(palette, cue, variant);
-      return await context.decodeAudioData(bytes.slice(0));
+      throwIfAborted(signal);
+      const bytes = await getSonicAssetBytes(palette, cue, variant);
+      throwIfAborted(signal);
+      return await context.decodeAudioData(bytes);
     }),
   );
 }
@@ -69,7 +72,12 @@ export async function renderSonicSoundtrack(
   await Promise.all(requiredCues.map(async (cue) => {
     decoded.set(
       cue,
-      await decodeCueVariants(context, settings.sound.palette, cue),
+      await decodeCueVariants(
+        context,
+        settings.sound.palette,
+        cue,
+        signal,
+      ),
     );
   }));
   throwIfAborted(signal);
