@@ -1,4 +1,10 @@
-import type { CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   BACKGROUND_SCENES,
   activeBackgroundSceneId,
@@ -7,6 +13,18 @@ import {
   recutBackgroundSeed,
   type BackgroundSceneId,
 } from "../backgrounds";
+import {
+  EMPTY_DIRECTOR_HISTORY,
+  applyDirectorLook,
+  captureDirectorLook,
+  recordDirectorChange,
+  redoDirectorChange,
+  settingsChangeSignature,
+  settingsEqual,
+  undoDirectorChange,
+  type DirectorHistory,
+  type DirectorLook,
+} from "../lib/directorSession";
 import type { StudioSettings, ThemeId } from "../model";
 import {
   OPTICS_PRESETS,
@@ -15,7 +33,12 @@ import {
   getOpticsPreset,
   type OpticsPresetId,
 } from "../optics";
+import { buildDeliveryReceipt } from "../preflight";
 import { THEMES } from "../themes";
+import {
+  WORKFLOW_PRESETS,
+  applyWorkflowPreset,
+} from "../workflows";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
 
 interface ControlPanelProps {
@@ -41,24 +64,119 @@ export function ControlPanel({
   onImportProject,
   exporting,
 }: ControlPanelProps) {
+  const historyRef = useRef<DirectorHistory>({ ...EMPTY_DIRECTOR_HISTORY });
+  const previousSettingsRef = useRef(settings);
+  const expectedSettingsRef = useRef<StudioSettings | null>(null);
+  const expectedExternalRef = useRef(false);
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const [lookA, setLookA] = useState<DirectorLook | null>(null);
+  const [lookB, setLookB] = useState<DirectorLook | null>(null);
+
+  const bumpHistory = useCallback(() => setHistoryRevision((value) => value + 1), []);
+
+  useEffect(() => {
+    if (previousSettingsRef.current === settings) return;
+    if (expectedSettingsRef.current === settings) {
+      expectedSettingsRef.current = null;
+    } else if (expectedExternalRef.current) {
+      expectedExternalRef.current = false;
+    } else {
+      historyRef.current = { ...EMPTY_DIRECTOR_HISTORY };
+      bumpHistory();
+    }
+    previousSettingsRef.current = settings;
+  }, [bumpHistory, settings]);
+
+  const commit = useCallback((next: StudioSettings, signature?: string) => {
+    if (settingsEqual(settings, next)) return;
+    historyRef.current = recordDirectorChange(
+      historyRef.current,
+      settings,
+      signature ?? settingsChangeSignature(settings, next),
+      performance.now(),
+    );
+    expectedSettingsRef.current = next;
+    onSettings(next);
+    bumpHistory();
+  }, [bumpHistory, onSettings, settings]);
+
+  const commitExternal = useCallback((signature: string, action: () => void) => {
+    historyRef.current = recordDirectorChange(
+      historyRef.current,
+      settings,
+      signature,
+      performance.now(),
+      { coalesceWindowMs: 0 },
+    );
+    expectedExternalRef.current = true;
+    action();
+    bumpHistory();
+  }, [bumpHistory, settings]);
+
+  const undo = useCallback(() => {
+    const result = undoDirectorChange(historyRef.current, settings);
+    if (!result.settings) return;
+    historyRef.current = result.history;
+    expectedSettingsRef.current = result.settings;
+    onSettings(result.settings);
+    bumpHistory();
+  }, [bumpHistory, onSettings, settings]);
+
+  const redo = useCallback(() => {
+    const result = redoDirectorChange(historyRef.current, settings);
+    if (!result.settings) return;
+    historyRef.current = result.history;
+    expectedSettingsRef.current = result.settings;
+    onSettings(result.settings);
+    bumpHistory();
+  }, [bumpHistory, onSettings, settings]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (exporting || !(event.metaKey || event.ctrlKey)) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input:not([type="range"]), textarea, [contenteditable=true]')) return;
+      const key = event.key.toLowerCase();
+      if (key === "z" && event.shiftKey) {
+        event.preventDefault();
+        redo();
+      } else if (key === "z") {
+        event.preventDefault();
+        undo();
+      } else if (key === "y") {
+        event.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [exporting, redo, undo]);
+
   const patch = <K extends keyof StudioSettings>(key: K, values: Partial<StudioSettings[K]>) => {
-    onSettings({
+    const next = {
       ...settings,
       [key]: { ...(settings[key] as object), ...values },
-    } as StudioSettings);
+    } as StudioSettings;
+    commit(next, `${String(key)}.${Object.keys(values).sort().join("+")}`);
   };
+
   const setStagePreset = (width: number, height: number) => {
-    onSettings({
+    commit({
       ...settings,
       stage: { ...settings.stage, width, height },
       output: { ...settings.output, width, height },
-    });
+    }, "stage-output.dimensions");
   };
+
   const stageLabel = `${settings.stage.width}:${settings.stage.height}`;
   const backgroundSceneId = activeBackgroundSceneId(settings.background);
   const backgroundScene = backgroundSceneId ? getBackgroundScene(backgroundSceneId) : null;
   const opticsPresetId = activeOpticsPresetId(settings);
   const opticsPreset = opticsPresetId ? getOpticsPreset(opticsPresetId) : null;
+  const delivery = buildDeliveryReceipt(settings);
+  const canUndo = historyRef.current.past.length > 0;
+  const canRedo = historyRef.current.future.length > 0;
+  void historyRevision;
 
   return (
     <aside className="inspector" aria-label="Director controls" aria-busy={exporting} inert={exporting}>
@@ -67,8 +185,48 @@ export function ControlPanel({
           <span className="panel-kicker">DIRECTOR</span>
           <h2>Shape the feeling.</h2>
         </div>
-        <span className="local-badge">LOCAL</span>
+        <div className="director-history" aria-label="Director history">
+          <button type="button" disabled={exporting || !canUndo} onClick={undo} aria-label="Undo director change" title="Undo · ⌘Z">↶</button>
+          <button type="button" disabled={exporting || !canRedo} onClick={redo} aria-label="Redo director change" title="Redo · ⇧⌘Z">↷</button>
+          <span className="local-badge">LOCAL</span>
+        </div>
       </div>
+
+      <section className="workflow-section" aria-labelledby="workflows-title">
+        <div className="section-heading-row">
+          <h3 id="workflows-title">Start a cut</h3>
+          <span>{WORKFLOW_PRESETS.length}</span>
+        </div>
+        <div className="workflow-grid">
+          {WORKFLOW_PRESETS.map((preset) => (
+            <button
+              type="button"
+              className="workflow-card"
+              key={preset.id}
+              disabled={exporting}
+              onClick={() => commit(applyWorkflowPreset(settings, preset), `workflow.${preset.id}`)}
+              title={preset.description}
+            >
+              <span>{preset.eyebrow}</span>
+              <strong>{preset.name}</strong>
+              <small>{preset.description}</small>
+            </button>
+          ))}
+        </div>
+        <div className="look-memory" aria-label="A B look memory">
+          <div>
+            <span>LOOK A</span>
+            <button type="button" disabled={exporting} onClick={() => setLookA(captureDirectorLook(settings))}>{lookA ? "Update" : "Store"}</button>
+            <button type="button" disabled={exporting || !lookA} onClick={() => lookA && commit(applyDirectorLook(settings, lookA), "look.A")}>Recall</button>
+          </div>
+          <div>
+            <span>LOOK B</span>
+            <button type="button" disabled={exporting} onClick={() => setLookB(captureDirectorLook(settings))}>{lookB ? "Update" : "Store"}</button>
+            <button type="button" disabled={exporting || !lookB} onClick={() => lookB && commit(applyDirectorLook(settings, lookB), "look.B")}>Recall</button>
+          </div>
+        </div>
+        <p className="workflow-note">Starting cuts are coherent defaults, not locks. Undo them, bend them, or store two competing looks before choosing.</p>
+      </section>
 
       <section className="theme-section" aria-labelledby="themes-title">
         <div className="section-heading-row">
@@ -82,7 +240,7 @@ export function ControlPanel({
               className="theme-card"
               data-active={settings.themeId === theme.id}
               key={theme.id}
-              onClick={() => onTheme(theme.id)}
+              onClick={() => commitExternal(`theme.${theme.id}`, () => onTheme(theme.id))}
               aria-pressed={settings.themeId === theme.id}
               title={theme.description}
               style={{ "--theme-a": theme.settings.background.colorA, "--theme-b": theme.settings.background.accent } as CSSProperties}
@@ -191,7 +349,7 @@ export function ControlPanel({
           ]}
           onChange={(value) => {
             if (value === "custom") return;
-            onSettings(applyOpticsPreset(settings, getOpticsPreset(value as OpticsPresetId)));
+            commit(applyOpticsPreset(settings, getOpticsPreset(value as OpticsPresetId)), `optics.${value}`);
           }}
         />
         {opticsPreset ? (
@@ -247,7 +405,7 @@ export function ControlPanel({
           ]}
           onChange={(value) => {
             if (value === "custom") return;
-            onSettings(applyBackgroundScene(settings, getBackgroundScene(value as BackgroundSceneId)));
+            commit(applyBackgroundScene(settings, getBackgroundScene(value as BackgroundSceneId)), `atmosphere.${value}`);
           }}
         />
         {backgroundScene ? (
@@ -273,7 +431,7 @@ export function ControlPanel({
             { value: "paper", label: "Photochemical surface" },
             { value: "void", label: "Dark phenomena" },
           ]}
-          onChange={(style) => onSettings({ ...settings, stage: { ...settings.stage, transparent: style === "transparent" }, background: { ...settings.background, style } })}
+          onChange={(style) => commit({ ...settings, stage: { ...settings.stage, transparent: style === "transparent" }, background: { ...settings.background, style } }, "background.style")}
         />
         <ColorField label="Ground" value={settings.background.colorA} onChange={(colorA) => patch("background", { colorA })} />
         <ColorField label="Field" value={settings.background.colorB} onChange={(colorB) => patch("background", { colorB })} />
@@ -332,10 +490,23 @@ export function ControlPanel({
           ]}
           onChange={(fps) => patch("output", { fps })}
         />
+        <div className="output-shortcuts" aria-label="Timeline closure">
+          <button type="button" data-active={settings.motion.seamless && settings.motion.seamlessLoops === 1} onClick={() => patch("motion", { seamless: true, seamlessLoops: 1 })}>One complete loop</button>
+          <button type="button" data-active={!settings.motion.seamless} onClick={() => patch("motion", { seamless: false })}>Free-run timing</button>
+        </div>
         <div className="output-spec">
           <span>MASTER</span>
-          <strong>H.264 · SDR sRGB</strong>
+          <strong>H.264 · SDR sRGB · {delivery.frameCount} frames</strong>
           <small>{(settings.output.videoBitrate / 1_000_000).toFixed(0)} Mbit/s · AAC 48 kHz at 24–30 fps · mute presenter audio for 50/60 fps</small>
+        </div>
+        <div className="delivery-checks" aria-label="Delivery preflight">
+          {delivery.checks.map((check) => (
+            <div key={check.id} data-level={check.level}>
+              <span aria-hidden="true" />
+              <strong>{check.label}</strong>
+              <small>{check.detail}</small>
+            </div>
+          ))}
         </div>
         <div className="action-stack">
           <button type="button" className="primary-action" onClick={onExportVideo} disabled={exporting}>Export MP4 master</button>
