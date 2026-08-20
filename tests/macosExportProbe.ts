@@ -19,10 +19,17 @@ declare global {
 
 type ProbeMode = "mp4" | "png";
 
-const canvas = document.querySelector<HTMLCanvasElement>("#probe");
-if (!canvas) throw new Error("Export probe canvas is missing.");
-const context = canvas.getContext("2d", { alpha: true, willReadFrequently: false });
-if (!context) throw new Error("Export probe could not create a 2D canvas context.");
+const canvas = (() => {
+  const element = document.querySelector<HTMLCanvasElement>("#probe");
+  if (!element) throw new Error("Export probe canvas is missing.");
+  return element;
+})();
+
+const context = (() => {
+  const value = canvas.getContext("2d", { alpha: true, willReadFrequently: false });
+  if (!value) throw new Error("Export probe could not create a 2D canvas context.");
+  return value;
+})();
 
 let mode: ProbeMode = "mp4";
 

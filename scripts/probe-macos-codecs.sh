@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE="$ROOT/macos/CodecProbe.swift"
+SOURCE="$ROOT/macos/Probes/CodecProbe.swift"
 REPORT="${DRIFT_CODEC_REPORT:-$ROOT/build/macos/codec-capabilities.json}"
 REQUIRE_MP4="${DRIFT_REQUIRE_NATIVE_MP4:-1}"
 TIMEOUT_SECONDS="${DRIFT_CODEC_TIMEOUT:-75}"

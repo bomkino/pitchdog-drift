@@ -29,7 +29,7 @@ trap cleanup EXIT
 
 {
   printf 'import Darwin\n'
-  cat "$ROOT/macos/ExportProbe.swift"
+  cat "$ROOT/macos/Probes/ExportProbe.swift"
 } > "$TEMP_ROOT/ExportProbe.swift"
 
 xcrun swiftc \
