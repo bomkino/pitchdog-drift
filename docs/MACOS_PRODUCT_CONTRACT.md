@@ -4,22 +4,36 @@ Frozen for the `feat/native-macos-studio` branch.
 
 ## Outcome
 
-A person should be able to install Drift like a normal Mac application, open a deck, direct its motion, save their project, and export finished media without knowing that the visual editor began life as a browser application.
+A person should be able to install Drift like a normal Mac application, open a deck, direct its motion, save the project, and export finished media without knowing that the visual editor began life as a browser application.
 
-The app must preserve the web engine’s strongest promise: preview and export are evaluations of the same saved scene at explicit time. The native shell may own windows, menus, file permissions, packaging, and recovery. It must not create a second renderer, a second project format, or a less truthful export path.
+The app must preserve the web engine’s strongest promise: preview and export are evaluations of the same saved scene at explicit time. The native shell may own windows, menus, scoped file permissions, packaging, native AAC, staged writes, and recovery. It must not create a second renderer, a second project format, or a less truthful export path.
+
+## Audience effect
+
+The user should feel that Drift belongs on the Mac:
+
+- one authored studio window rather than a browser tab;
+- Finder-native open, save, reveal, and document ownership;
+- menu commands and shortcuts that reflect whether the app can act safely;
+- exports that land exactly where chosen;
+- no login, cloud prompt, local server, extension, or terminal after installation;
+- failure messages that state what happened, whether older work survived, and what action remains.
+
+The native layer must disappear when things are going well and become unusually explicit when data is at risk.
 
 ## User journey
 
 1. Drag `Drift.app` into Applications and open it.
 2. See the authored study immediately; no server, login, cloud prompt, or terminal.
 3. Add a real slide deck through the interface, Finder drag-and-drop, or File menu.
-4. Reorder, pin, tune, pause, and preview without fighting macOS window chrome.
-5. Add one presenter video when needed. Learn before export whether this Mac can encode its audio.
-6. Save a portable `.pitched` project and reopen it from Drift or Finder.
-7. Export an MP4, still PNG, or numbered PNG sequence through native save panels.
-8. Cancel an export without damaging an older file at the same destination.
-9. Reveal the completed artifact in Finder.
-10. Quit or close without accidentally abandoning an active export or failed local save.
+4. Reorder, pin, tune, pause, step, focus, and preview without fighting macOS chrome.
+5. Add one presenter video when needed.
+6. Learn before export whether this Mac can encode the requested H.264 and AAC paths.
+7. Save a portable `.pitched` project and reopen it from Drift, Finder, or “Open With.”
+8. Export an MP4, still PNG, or numbered PNG sequence through native panels.
+9. Cancel an export without damaging an older file at the same destination.
+10. Reveal the completed artifact in Finder.
+11. Quit, close, crash, sleep, or lose a destination without accidentally promoting incomplete output.
 
 ## Native responsibilities
 
@@ -28,27 +42,35 @@ The app must preserve the web engine’s strongest promise: preview and export a
 - Finder ownership of `.pitched` documents.
 - App Sandbox with only user-selected read/write access.
 - No network client or server entitlement.
-- Main-frame-only, reply-based WebKit bridge.
+- Main-frame-only, reply-based, typed WebKit bridge.
 - Opaque grants rather than renderer-visible file paths.
-- Same-volume staged writes followed by atomic replacement.
-- Chunk limits, output limits, symlink rejection, traversal rejection, and grant cleanup.
+- Same-volume staged writes followed by commit-time replacement.
+- Chunk, output, session, and grant limits.
+- Symlink, traversal, unsafe-leaf, and recursive-delete rejection.
 - Persistent WebKit storage for the current local project.
-- Crash recovery that rolls back incomplete native output before reloading.
+- Crash recovery that rolls back incomplete native output before reload.
 - Universal `arm64` and `x86_64` compilation.
 - Hardened-runtime signing, bundle byte manifest, native self-tests, and packaged WebView probe.
 - A drag-to-Applications DMG for local testing.
+- Native AudioToolbox AAC sessions with explicit packet and timeline receipts.
 
 ## Codec policy
 
-The web build may use the separately licensed Mediabunny software AAC extension. The standalone macOS build does not. Its Vite mode aliases that module to an empty registration shim and relies only on encoders exposed by system WebKit.
+The browser build may use the separately licensed Mediabunny software AAC extension. The standalone macOS build does not distribute that extension or its FFmpeg-derived WebAssembly runtime.
 
-Consequences are deliberate:
+For the Mac build, `@mediabunny/aac-encoder` resolves to `src/lib/macosAacEncoder.ts`. That adapter registers a Mediabunny custom encoder and sends bounded PCM chunks through the typed native bridge to Apple’s software AAC-LC encoder in AudioToolbox.
 
-- The app bundle contains no FFmpeg or other codec WebAssembly binary.
-- H.264 and AAC availability follow the installed macOS/WebKit runtime.
-- Presenter audio can be unavailable on an otherwise usable Mac.
-- When AAC is unavailable, Drift asks the user to mute the presenter, update macOS, or use PNG output.
-- Drift never strips audio silently and never labels an unverified result complete.
+The contract is specific:
+
+- H.264 video remains capability-gated through WKWebView.
+- Presenter audio uses native AAC-LC, 48 kHz stereo, 192 kbit/s.
+- Native AAC accepts only bounded sessions compatible with Drift’s 3–30 second output range.
+- The receipt must include packet bytes, AudioSpecificConfig, magic-cookie data, leading priming frames, trailing padding frames, and frame counts.
+- `representedFrames` must equal `leadingFrames + inputFrames + trailingFrames`.
+- Packet timestamps must represent priming truthfully rather than pretending audio begins at zero.
+- Presenter-audio masters remain limited to 24, 25, or 30 fps. Muted presenter video may use 50/60 fps.
+- Any codec or metadata failure is visible. Drift never silently strips audio and never labels unverified output complete.
+- The finished app bundle must contain no `.wasm`, FFmpeg runtime, or libavcodec marker.
 
 ## Protected boundaries
 
@@ -57,37 +79,68 @@ Consequences are deliberate:
 - JavaScript never receives an absolute filesystem path.
 - Native grants are scoped to files and directories selected by the user or handed to the app by Finder.
 - Recursive deletion is not exposed.
-- Existing directory-sequence files are never overwritten.
-- Closing or quitting during protected work requires an explicit destructive choice.
-- Multiple app instances are prohibited because the underlying current-project store is intentionally single-editor.
+- Existing PNG-sequence files are never overwritten.
+- Existing file destinations are not truncated before export verification.
+- Closing or quitting during protected work requires an explicit destructive choice; “Keep Working” is the safe default.
+- Multiple app instances are prohibited because the current-project store is intentionally single-editor.
 - CI may compile and inspect the app, but it may not publish a downloadable binary by accident.
+- The native shell may route media and filesystem operations; it may not mutate the scene evaluation or lower output verification.
 
 ## Costliest false wins
 
-1. **An `.app` directory that cannot import media.** Countercheck: real native open panels for every hidden file input and Finder-opened `.pitched` files.
-2. **A native save panel followed by browser-style fake success.** Countercheck: suppress premature notices and report completion only after the staged file commits.
+1. **An `.app` directory that cannot import media.** Countercheck: real native open panels for every hidden file input, Finder-opened `.pitched` files, and launch-time import queuing.
+2. **A native save panel followed by browser-style fake success.** Countercheck: suppress premature notices and report completion only after staged commit.
 3. **“Atomic” writes in a forbidden sibling path.** Countercheck: use `itemReplacementDirectory`, abort, then byte-compare the pre-existing destination.
-4. **A sandbox badge with broad network or filesystem entitlement.** Countercheck: extract signed entitlements from the finished bundle and reject any network entitlement.
-5. **A universal claim with one architecture.** Countercheck: inspect `lipo -archs` and run the native slice on Apple-hosted CI.
-6. **A distributable DMG that quietly contains FFmpeg WASM.** Countercheck: dedicated macOS Vite alias plus bundle scan for WASM and codec markers.
-7. **A web wrapper with no Mac behavior.** Countercheck: menus, document opening, Finder reveal, restored window, full-screen, external-link handoff, crash reload, and quit interlocks.
-8. **A smoke test that only checks filenames.** Countercheck: broker self-test, manifest readback, signature/entitlement inspection, and a real packaged WKWebView load.
+4. **A sandbox badge with broad network or filesystem entitlement.** Countercheck: extract entitlements from the signed finished bundle and reject any network or broad-directory entitlement.
+5. **A universal claim with one architecture.** Countercheck: inspect `lipo -archs`; separately record that cross-compilation is not Intel runtime evidence.
+6. **A distributable DMG that quietly contains codec WASM.** Countercheck: dedicated macOS Vite alias plus bundle scan for `.wasm`, FFmpeg, and libavcodec markers.
+7. **A “native AAC” bridge that ignores priming.** Countercheck: require exact leading/input/trailing frame accounting and negative priming timestamps before muxing.
+8. **A web wrapper with no Mac behavior.** Countercheck: menus, document opening, Finder reveal, restored window, full-screen, external-link handoff, crash reload, and quit interlocks.
+9. **A smoke test that only checks filenames.** Countercheck: broker self-test, manifest readback, signature/entitlement inspection, packaged WKWebView load, real AVC/AAC probes, and deterministic MP4/PNG output.
+10. **Green CI that tests a different topology from the app.** Countercheck: packaged ES-module loading belongs to the app self-test; deterministic export uses one receipt-verified classic bundle so local module bootstrap cannot masquerade as an encoder failure.
 
 ## Frozen bar
 
 The branch holds only when all of the following are direct evidence, not aspiration:
 
+### Source and browser engine
+
 - `npm run check` passes from a clean checkout.
+- TypeScript, Vitest, production Vite build, source contract, and real Chromium E2E are green.
+- The native branch does not accidentally alter browser-engine behavior outside the deliberate macOS AAC alias and native integration seams.
+
+### Native build
+
 - `npm run build:mac` produces a signed universal app on macOS.
-- `npm run verify:mac` passes manifest, architecture, entitlement, smoke, broker, and WebView checks.
+- `npm run verify:mac` passes manifest, architecture, entitlement, smoke, broker, and packaged-WebView checks.
 - `npm run package:mac:dmg` creates a verifiable disk image without uploading it.
-- Native import works for images, presenter video, and `.pitched` documents.
-- MP4 and PNG destination writes survive cancellation and readback.
-- The prior destination remains byte-identical after an aborted replacement.
 - App Sandbox is present; network client/server entitlements are absent.
-- The bundled web runtime contains no `.wasm`, `libavcodec`, or FFmpeg AAC marker.
+- The bundled web runtime contains no `.wasm`, source map, FFmpeg, or libavcodec marker.
+
+### User journey
+
+- Native import works for images, presenter video, and `.pitched` documents.
+- Finder-open during launch waits for a ready importer.
+- The current project and original media survive relaunch.
+- MP4, PNG still, PNG sequence, and portable-project destinations use native panels.
+- Native menus disable unsafe actions from authoritative renderer state.
 - Window close, quit, process crash, and Finder-open flows fail visibly and preserve saved work.
+
+### Output and cancellation
+
+- The actual exporter renders exactly `round(duration × fps)` fixed-step frames.
+- MP4 output reopens and verifies container, AVC, dimensions, count, timestamps, duration, colour, opacity, and decoded probes.
+- PNG output verifies dimensions, alpha-capable channel, visible content, and transparent pixels when requested.
+- Native AudioToolbox AAC produces coherent packet, priming, padding, and magic-cookie evidence.
+- MP4 and PNG destination writes survive cancellation and readback.
+- The prior destination remains byte-identical after an aborted staged replacement.
+- Existing sequence frames are never overwritten.
+
+### Release honesty
+
 - Physical Apple Silicon testing passes before a human calls the app release-ready.
+- Intel runtime, VoiceOver, removable-volume, sleep/wake, long-export, and minimum-OS evidence are explicitly recorded as passed, failed, or untested.
+- No downloadable binary is published without Developer ID, notarization, Gatekeeper, detached verification, and explicit authority.
 
 ## Stop conditions
 

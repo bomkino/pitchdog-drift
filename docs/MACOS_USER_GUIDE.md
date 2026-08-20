@@ -1,6 +1,6 @@
 # Drift for macOS — user guide
 
-Drift turns pitch-deck slides and one optional presenter video into directed, cinematic social-video compositions. The Mac app keeps the project local, uses the same deterministic renderer for preview and output, and replaces browser download prompts with native Finder workflows.
+Drift turns pitch-deck slides and one optional presenter video into directed, cinematic social-video compositions. The Mac app keeps the project local, uses the same deterministic renderer for preview and output, and replaces browser download prompts with Finder-native workflows.
 
 ## Install a local build
 
@@ -12,9 +12,9 @@ npm run build:mac
 open build/macos/Drift.app
 ```
 
-The default build is universal for Apple Silicon and Intel. It is ad-hoc signed for local use. A public build requires Developer ID signing and Apple notarization; the local command does not pretend otherwise.
+The default build contains Apple Silicon and Intel slices. It is ad-hoc signed for local use. A public build requires Developer ID signing and Apple notarization; the local command does not pretend otherwise.
 
-A disk image can be created after the app verifies:
+Create a local disk image after the app verifies:
 
 ```bash
 npm run package:mac:dmg
@@ -22,67 +22,195 @@ npm run package:mac:dmg
 
 Drag `Drift.app` from the disk image to Applications. Keep one copy open at a time. Drift deliberately prohibits multiple application instances because its current project store is single-editor.
 
+## First launch
+
+A built-in study opens immediately so the stage is alive before you import anything. It is starter material, not part of your future deck. The first successful real-slide import replaces the study instead of mixing the two.
+
+No account, login, server, browser extension, cloud folder, or network permission is required.
+
+The header reports three distinct truths:
+
+- whether the cinematic WebGL renderer is ready;
+- whether H.264 export is available for the chosen output settings;
+- whether the current project is loading, saving, saved, failed, or recovery locked.
+
+“Saved locally” refers to the app-container project. It does not mean a portable `.pitched` backup has been created.
+
 ## Start with your deck
 
-The opening study exists to show motion immediately. It is not mixed into your real deck.
+Use **File → Add Slides…**, click **Add slides**, or drop images onto the stage. Drift accepts the image formats the current WebKit runtime can decode, including PNG, JPEG, WebP, and AVIF on supported systems.
 
-Use **File → Add Slides…**, click **Add slides**, or drop images onto the stage. Drift accepts PNG, JPEG, WebP, and AVIF. A batch can contain up to 200 moving slides, 64 MiB per file, and 80 MiB total. Reorder with drag, arrow controls, or keyboard focus. Removing a slide removes it from the current project but never deletes the source file in Finder.
+Current limits:
 
-Use **File → Add Presenter Video…** or the Presenter control for one MP4, MOV, or WebM video. The presenter can stay pinned while the deck moves. Drift checks video decode and audio export capability; it does not promise that every codec inside those containers is supported by the installed macOS version.
+- up to 200 moving slides;
+- 64 MiB per portable-project asset;
+- 80 MiB total portable-project media;
+- 96 MiB portable archive input.
+
+A larger or unsupported file fails visibly rather than partially entering the project. Reorder with drag, arrow controls, or keyboard focus. Removing a slide changes the current project only; it never deletes the source file in Finder.
+
+Use **File → Add Presenter Video…** or the Presenter control for one MP4, MOV, or WebM video. The presenter can stay pinned while the deck moves. Container support does not guarantee that every embedded codec can be decoded. Drift validates the video before mutating the project.
 
 ## Direct the scene
 
-The main editor remains divided into Media, Stage, and Director surfaces.
+The editor has three surfaces:
 
-- **Media** controls slide order, removal, and which image or presenter occupies the pinned frame.
-- **Stage** is the live WebGL composition. Drag or use the wheel to move; Space plays or pauses; bracket keys step between slides; F toggles full-frame focus.
-- **Director** controls aspect ratio, path, pace, spacing, depth, tilt, optical bend, focal point, continuous corners, borders, shadows, background, pinned-frame placement, and output settings.
+- **Media** — slide order, removal, presenter media, and pinned-frame ownership.
+- **Stage** — the live WebGL composition. Drag or use the wheel to move; Space plays or pauses; previous/next commands step the track; F toggles full-frame focus.
+- **Director** — stage/output ratios, path, pace, spacing, depth, tilt, optical bend, focal point, continuous corners, borders, shadows, background, pinned-frame placement, and output settings.
 
-Native menu equivalents exist for the most important actions. They are disabled while Drift is hashing media, replacing a project, or exporting, rather than firing into an ambiguous state.
+Native menu equivalents exist for the important actions. They use the renderer’s reported state rather than guessing from the visible interface. Commands disable while Drift is hashing media, replacing a project, saving protected state, or exporting.
+
+App full-frame focus and macOS full screen are separate:
+
+- **F** hides studio chrome around the composition.
+- **Control–Command–F** enters macOS full screen.
 
 ## Save the project
 
-Drift autosaves the current project and original media into its sandboxed local storage. That protects the current Mac, not portability.
+Drift autosaves the current project and original media into sandboxed app-container storage. That protects the current Mac. It is not a collaboration format or durable external backup.
 
-Use **File → Save Portable Project…** to create a `.pitched` archive. The archive includes a versioned manifest, ordered asset metadata, original media, and SHA-256 digests. Open it through **File → Open Project…**, the Director panel, Finder, or “Open With Drift.” Drift verifies the archive before replacing the current project. A rejected project leaves the previous project intact.
+Use **File → Save Portable Project…** to create a `.pitched` archive. The archive contains:
 
-Keep portable projects as intentional backups before major changes or app upgrades. A browser cache clear or app-container deletion can remove the autosaved current project; a `.pitched` file remains independent.
+- a versioned manifest;
+- engine and theme versions;
+- ordered media references;
+- original media bytes;
+- SHA-256 digests;
+- validated project settings.
+
+Open it through **File → Open Project…**, the Director panel, Finder, or “Open With Drift.” Finder-open events arriving while the application is launching are queued until React’s importer is ready.
+
+Drift verifies an archive before replacing the open project. A malformed, oversized, contradictory, unsupported, or hash-mismatched project is rejected without mutating the current valid one.
+
+Keep `.pitched` backups before major changes or app upgrades. Deleting the app container or clearing website data can remove the autosaved current project; an external `.pitched` file remains independent.
 
 ## Export finished media
 
 ### MP4 master
 
-Use **File → Export MP4 Master…**. Choose the destination before rendering. Drift writes into a same-volume replacement directory and commits the selected filename only after encoding and final verification succeed.
+Use **File → Export MP4 Master…**. Choose the destination before rendering.
 
-The default output is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, H.264. With a presenter, audio is AAC only when system WebKit exposes a compatible encoder. The standalone app does not bundle the software FFmpeg AAC extension. On an older Mac, mute presenter audio, update macOS, or export PNG frames. Audio is never dropped silently.
+The default output is:
 
-MP4 completion includes container, dimensions, frame count, timestamps, duration, codec, colour, decoded probe frames, and presenter A/V timing checks. A file is not called finished merely because bytes were written.
+```text
+1080 × 1920
+30 fps
+8 seconds
+SDR sRGB / Rec.709
+H.264 video at 16 Mbit/s
+AAC-LC presenter audio at 48 kHz stereo / 192 kbit/s when enabled
+```
+
+The standalone app uses two system paths:
+
+- WKWebView encodes H.264 video.
+- Drift’s bounded native bridge sends presenter PCM to Apple’s software AAC-LC encoder in AudioToolbox.
+
+The app does **not** bundle the browser build’s FFmpeg-derived AAC WebAssembly extension.
+
+Presenter-audio exports support 24, 25, or 30 fps. For 50 or 60 fps, mute presenter audio. Drift never silently deletes audio to make an export appear successful.
+
+MP4 completion checks:
+
+- nonempty MP4 container;
+- H.264/AVC video;
+- exact requested dimensions;
+- exact fixed-step frame count;
+- `n / fps` packet timestamps and one-frame durations;
+- expected timeline duration;
+- Rec.709/sRGB-compatible colour metadata;
+- first, middle, and final frame decode;
+- no false alpha claim;
+- expected audio-track presence;
+- AAC codec, sample rate, and channel count;
+- presenter start/end A/V timing within one output frame.
+
+A file is not called finished merely because bytes were written.
+
+### Destination replacement
+
+The chosen destination is not truncated when rendering begins.
+
+1. Drift creates a staging file in Foundation’s item-replacement directory on the destination volume.
+2. Export streams into the staging file.
+3. The completed bytes are reopened and verified through the same opaque native grant.
+4. Only after success does the native broker commit the selected filename.
+5. Cancellation or failure removes staging and preserves the previous destination.
+
+The status message should state whether older work survived. “Cancelled” never means “probably okay.”
 
 ### PNG still
 
-Use **File → Export PNG Still…** for one alpha-capable frame. Transparent compositions must contain actual non-opaque pixels as well as visible pixels. The Mac save panel remains open until a destination is chosen; cancelling it writes nothing.
+Use **File → Export PNG Still…** for one alpha-capable frame. Transparent output must contain actual non-opaque pixels as well as visible pixels. Cancelling the save panel writes nothing.
 
 ### PNG sequence
 
-Use **File → Export PNG Sequence…** and choose an empty folder. Frames are numbered deterministically. Existing matching filenames are detected before output and are never overwritten. If rendering fails, Drift removes frames it created during that attempt. Full-resolution sequences should use a directory rather than the in-memory ZIP fallback.
+Use **File → Export PNG Sequence…** and choose a directory. Frames are numbered deterministically.
 
-After a successful native write, use **File → Reveal Last Export in Finder**.
+Before rendering, Drift checks the full expected filename set. Existing matching files are never overwritten. If rendering fails, Drift removes only frames created by that attempt and reports any cleanup failure by filename.
 
-## Cancellation and replacement safety
+Use a directory for full-resolution sequences. The in-memory ZIP fallback has a strict memory ceiling and may reject otherwise valid long or large sequences.
 
-Cancelling an export removes its staged file and preserves any previously committed file at the chosen destination. Drift does not write a convincing partial MP4 over older work. Directory-sequence cancellation removes newly created frames where macOS permits and reports any cleanup failure.
+### Reveal output
 
-Closing the window or quitting while export, project replacement, saving, failed-save recovery, or recovery lock is active triggers a warning. “Keep Working” is the safe default. The destructive button explicitly cancels or abandons the protected operation.
+After a successful native commit, use **File → Reveal Last Export in Finder**. The command refers only to the last committed destination, never to a staged or cancelled one.
 
-If the WebKit content process crashes, Drift aborts all native write sessions before offering a reload. The last autosaved project can reopen; an incomplete native output is not promoted to finished.
+## Presenter audio truth
 
-## Privacy and network behavior
+The native AAC bridge is narrow by design:
 
-Drift’s application sandbox grants only user-selected file access. The signed app has no network client or network server entitlement. HTTP, HTTPS, WebSocket, and FTP loads are blocked inside the WebView.
+- AAC-LC only;
+- 48 kHz;
+- stereo;
+- 192 kbit/s target;
+- bounded PCM chunks;
+- bounded session duration and memory;
+- explicit packet sizes;
+- AudioSpecificConfig and magic-cookie metadata;
+- leading priming and trailing padding counts;
+- exact frame-accounting validation.
 
-Links to source, licences, or documentation open in the default browser as a separate user action. Imported media, project data, and renders stay on the Mac unless you move or share them.
+The muxer receives negative priming timestamps rather than a convenient lie that audio begins at zero. Final MP4 readback then checks the actual audio timeline against video.
 
-JavaScript receives opaque permission tokens, filenames, MIME types, sizes, and bytes. It never receives an absolute Finder path. The bridge exposes no shell, arbitrary native method, recursive deletion, URLSession, socket, or AppleScript surface.
+A native AAC failure can come from unsupported system behavior, bridge/session corruption, memory pressure, invalid presenter audio, or receipt mismatch. The remedy is not always “update macOS.” Drift reports the failure; muting presenter audio remains the explicit video-only route.
+
+## Cancellation and protected work
+
+An active export can be cancelled from the progress overlay or native menu. Drift aborts the renderer and native write session, then reports cleanup.
+
+Closing the window or quitting during any of these states triggers a warning:
+
+- export;
+- project import/replacement;
+- local save;
+- failed local save;
+- recovery lock.
+
+**Keep Working** is the safe default. The destructive action explicitly says that it will cancel or abandon protected work.
+
+If the WebKit content process terminates, Drift aborts every native write session before offering Reload or Quit. Reload uses persistent app-container storage; a staged file is never promoted to completed output.
+
+## Recovery lock
+
+A saved project enters recovery lock when storage exists but cannot be safely hydrated. Demo slides may render as a visual fallback, but autosave remains disabled so they cannot overwrite the preserved saved project.
+
+When a recovery bundle is available, save it before opening a replacement. A recovery export re-verifies and repackages preserved media; it does not claim that the archive is byte-identical to an earlier `.pitched` file.
+
+## Privacy and filesystem boundary
+
+The signed app uses App Sandbox with user-selected read/write access. It has no network client or server entitlement.
+
+Inside Drift:
+
+- HTTP and HTTPS loads are blocked;
+- WebSocket and FTP loads are blocked;
+- bundled files and generated Blob/data media remain available;
+- deliberate source, licence, and documentation links open in the default browser.
+
+Imported media, projects, and renders remain on the Mac unless you move or share them.
+
+JavaScript receives opaque permission tokens, leaf filenames, MIME types, sizes, dates, and bytes. It never receives an absolute Finder path. The bridge exposes no shell, AppleScript, URLSession, socket, selector reflection, arbitrary method dispatch, or recursive deletion.
 
 ## Useful Mac commands
 
@@ -101,14 +229,34 @@ JavaScript receives opaque permission tokens, filenames, MIME types, sizes, and 
 
 ## Troubleshooting
 
-**MP4 works, presenter audio does not.** The Mac has a system H.264 encoder but no compatible system AAC WebCodecs encoder. Mute the presenter or update macOS. Drift will not substitute silent output.
+### MP4 is unavailable
 
-**Only PNG output is available.** System WebKit could not expose H.264 at the requested dimensions. Reduce dimensions, update macOS, or use PNG.
+WKWebView could not encode H.264 at the chosen dimensions or settings. Reduce output dimensions, use a supported even size, or export PNG. A macOS update may change capability, but Drift probes the actual request rather than assuming from the OS version.
 
-**A project is recovery locked.** The saved project could not hydrate safely. Export the recovery bundle if offered, then open a verified replacement. Do not assume the demo slides replaced the damaged saved project.
+### MP4 works, presenter audio fails
 
-**A save panel was cancelled.** No native destination was committed. A browser-style success message is suppressed while the panel is unresolved; the native status pill reports cancellation.
+H.264 and AAC are separate paths. The video encoder succeeded, but the native AudioToolbox AAC session, presenter decode, packet receipt, mux, or A/V verification did not. Read the exact error. Mute presenter audio for an explicit video-only export; do not expect Drift to silently remove it.
 
-**The app reloads after a visual-engine crash.** Native staging files were rolled back. Reopen the autosaved project, then repeat the export. Copy diagnostics from the Drift menu before filing an issue.
+### Audio export is blocked at 50/60 fps
 
-**The app will not open on another Mac.** An ad-hoc local build is not a notarized public release. Build from source on that Mac or use a properly Developer-ID-signed and notarized release when one is explicitly published.
+Presenter audio is limited to 30 fps or lower. Choose 24, 25, or 30 fps, or mute the presenter.
+
+### A project is recovery locked
+
+The saved project could not hydrate safely. Save the recovery bundle when available, then open a verified replacement. Do not assume the visible demo replaced the damaged saved project.
+
+### A save panel was cancelled
+
+No native destination was committed. Drift suppresses browser-style success while the panel is unresolved and reports native cancellation separately.
+
+### An export was cancelled over an existing file
+
+The native staged-replacement path is designed to preserve the existing destination byte-for-byte. A cleanup error must be reported explicitly. Verify the destination before discarding a backup if the volume disconnected or denied access during cleanup.
+
+### The app reloads after a visual-engine crash
+
+Native staging sessions were aborted first. Reopen the autosaved project, inspect the notice, and repeat the export. Use **Drift → Copy Diagnostics** before filing an issue; diagnostics must not contain deck contents or absolute file paths.
+
+### The app will not open on another Mac
+
+An ad-hoc local build is not a notarized public release. Build from source on that Mac or use a properly Developer-ID-signed and notarized release when one is explicitly published.

@@ -1,16 +1,17 @@
 # Drift for macOS — QA gauntlet
 
-This is a falsification plan, not a ceremonial checklist. Automated checks establish source and bundle properties. They do not substitute for using the finished application with real decks on real Macs.
+This is a falsification plan, not a ceremonial checklist. Automated checks establish source, bundle, and representative runtime properties. They do not substitute for using the finished application with real decks on real Macs.
 
 ## Evidence classes
 
-1. **Source contract:** static files, scripts, security markers, and command parity.
-2. **Compilation:** Swift builds for `arm64` and `x86_64`; JavaScript, TypeScript, Python, and shell syntax hold.
-3. **Bundle:** plist, resources, icon, signature, hardened runtime, entitlements, architecture, codec policy, and checksum manifest.
-4. **Native behavior:** file-broker self-test and packaged WebView self-test.
-5. **Editor behavior:** existing Vitest and Chromium E2E suite.
-6. **Media evidence:** decoded MP4/PNG outputs generated inside `Drift.app`.
-7. **Human review:** visual pacing, legibility, native fit, accessibility, and failure clarity.
+1. **Source contract** — bridge parity, fixed commands, packaging, sandbox, codec, release, and workflow invariants.
+2. **Compilation** — Swift `arm64`/`x86_64`; JavaScript, TypeScript, Python, and shell syntax.
+3. **Bundle** — plist, resources, icon, legal files, signature, hardened runtime, entitlements, architecture, codec exclusions, and byte manifest.
+4. **Native behavior** — file broker, staged replacement, menus, Finder, app lifecycle, and packaged WebView self-tests.
+5. **Browser editor behavior** — Vitest and real-Chromium E2E.
+6. **Hosted macOS media evidence** — WKWebView WebGL/AVC/PNG, native AudioToolbox AAC, deterministic MP4/PNG output.
+7. **Physical-hardware evidence** — full user journeys on supported Apple Silicon and Intel Macs.
+8. **Human review** — visual pacing, legibility, native fit, accessibility, diagnostics privacy, and failure clarity.
 
 Every receipt must say which class produced a claim.
 
@@ -26,167 +27,283 @@ npm run package:mac:dmg
 
 Expected facts:
 
-- TypeScript and deterministic unit tests pass.
+- TypeScript and all focused Vitest checks pass.
 - Production browser build passes.
+- Real Chromium E2E passes.
 - Native source contract passes on non-macOS CI.
-- Dedicated macOS web build uses relative assets and the system-codec AAC stub.
-- No `.wasm`, FFmpeg AAC, or `libavcodec` marker exists in the bundled web runtime.
+- macOS Vite mode resolves AAC to the native adapter.
+- No source map, `.wasm`, browser AAC extension, FFmpeg, or libavcodec marker exists in packaged Web resources.
 - Swift compiles both architecture slices against the minimum deployment target.
 - App bundle is ad-hoc or Developer-ID signed with hardened runtime.
-- Signed entitlements contain App Sandbox and user-selected read/write only.
-- Signed entitlements contain no network client or server entitlement.
-- Build manifest byte-checks every executable and resource except itself.
-- Native smoke, file-broker, and WebView self-tests pass.
+- Extracted entitlements contain App Sandbox and user-selected read/write only.
+- Extracted entitlements contain no network client/server or broad-directory entitlement.
+- Build manifest byte-checks every executable/resource except itself.
+- Native smoke, broker, AAC, packaged-WebView, typed-command, and recovery self-tests pass.
 - DMG verifies and its SHA-256 receipt matches.
-- CI does not upload the compiled app or DMG.
+- Normal pull-request CI does not upload a public app or DMG.
+
+## Source-contract gauntlet
+
+`npm run check:mac-source` must validate current executable invariants rather than historical implementation trivia.
+
+It should prove:
+
+- one canonical Swift implementation;
+- bridge version parity across Swift, JavaScript, TypeScript, and plist;
+- fixed file, app, and AAC command parity;
+- direct awaited native saves;
+- no DOM scraping or queued synthetic button clicks;
+- staged replacement and output ceilings;
+- native AudioToolbox AAC markers and receipt validation;
+- macOS build, verifier, DMG, release, and workflow wiring;
+- exact sandbox/no-network policy;
+- deterministic exporter receipt and progress instrumentation.
+
+Deleting an obsolete escape hatch must not break CI merely because a string assertion remembers it.
 
 ## Native file-broker gauntlet
 
 The executable `--native-self-test` must directly prove:
 
-- A staged replacement atomically changes the destination only at close.
-- An aborted replacement preserves the previously committed destination bytes.
-- Staged bytes are removed after abort.
-- Seek, write, truncate, synchronize, close, and readback remain consistent.
-- A file created through a selected directory can be written, read, and removed.
-- `../` traversal is rejected.
-- symbolic-link imports or destinations are rejected.
-- output-cap violations fail visibly.
-- repeated abort is harmless.
+- staged replacement changes the destination only at close;
+- aborted replacement preserves previously committed destination bytes;
+- staging bytes disappear after abort;
+- seek, write, truncate, synchronize, close, and readback remain consistent;
+- a file created through a selected directory can be written, read, and removed;
+- `../` traversal and unsafe leaves are rejected;
+- symbolic-link imports and destinations are rejected;
+- output-cap violations fail visibly;
+- repeated abort/release is harmless;
+- session and grant ceilings hold.
 
-Add tests whenever a broker bug is found. Do not replace byte evidence with comments.
+Add a regression test whenever the broker is fixed. Do not replace byte evidence with comments.
 
 ## Packaged WebView gauntlet
 
-The executable `--webview-self-test` loads the copied `Resources/Web/index.html`, not the development server. It must observe:
+The executable `--webview-self-test` loads copied `Resources/Web/index.html`, never the development server. It must observe:
 
-- `file:` runtime.
-- React’s `main.app` root.
-- bridge version 2 marker.
-- native save picker.
-- native directory picker.
-- no root-absolute asset failure.
+- `file:` runtime;
+- React’s `main.app` root and canvas;
+- bridge version 2 marker;
+- native open/save/directory polyfills;
+- direct native Blob save function;
+- installed typed app contract;
+- authoritative client state settled to idle/saved;
+- native `toggle-focus` command reaching React and restoring state;
+- relative bundle assets;
+- one content-process termination followed by successful reload recovery;
+- a second termination treated as failure, not an infinite retry.
 
-This probe may run in a nonpersistent website data store. It must not touch the user’s current project.
+Use a nonpersistent website data store so the self-test cannot mutate a user project.
+
+## WKWebView capability gauntlet
+
+`probe-macos-codecs.sh` must create a visible WKWebView lifecycle and directly test:
+
+- WebGL2 context creation;
+- maximum texture size and pixel readback;
+- PNG Blob encode and signature;
+- `VideoEncoder.isConfigSupported` for the requested AVC configuration;
+- one real H.264 access unit with decoder metadata;
+- the presence or absence of WebKit audio APIs without treating absence as failure when native AAC is healthy.
+
+A capability object is insufficient. At least one encoded chunk is required for an “AVC works” claim.
+
+## Native AudioToolbox AAC gauntlet
+
+`probe-macos-aac.sh` and `NativeAacEncoderBroker.runSelfTest()` must prove:
+
+- Apple software AAC-LC provider selected through AudioToolbox;
+- AAC-LC / `mp4a.40.2`;
+- 48 kHz stereo at the frozen target bitrate;
+- nonempty access units;
+- bounded packet sizes and count;
+- AudioSpecificConfig;
+- nonempty magic-cookie metadata;
+- leading priming frames;
+- trailing padding frames;
+- `representedFrames == leadingFrames + inputFrames + trailingFrames`;
+- exact configuration echoed in the receipt;
+- invalid session, oversized PCM, mismatched format, corrupted receipt, and use-after-close rejection;
+- cleanup of every native AAC session on completion, failure, quit, or content-process termination.
+
+WebKit `AudioEncoder` may be absent. The standalone app’s audio promise belongs to the native AudioToolbox bridge, not to WebKit audio APIs.
+
+## Deterministic exporter gauntlet
+
+`run-macos-export-probe.sh` must use the actual `src/lib/exportStudio.ts` path inside a visible WKWebView and produce both MP4 and PNG.
+
+The build contract:
+
+- one classic IIFE;
+- one input entry;
+- code splitting disabled so dynamic registration is inlined;
+- no HTML module bootstrap dependency;
+- no source map or WebAssembly;
+- a root `index.html` with one local classic script;
+- every file covered by `ProbeBundleReceipt.json` with exact bytes and SHA-256;
+- bundle root and HTML path canonicalized before WebKit receives them.
+
+The harness contract:
+
+- document-start error/unhandled-rejection diagnostics;
+- navigation started/committed/finished state;
+- visible window and compositor-ready event;
+- native progress events with latest phase;
+- fast JavaScript-bootstrap failure rather than a silent multi-minute timeout;
+- content-process termination count;
+- overall timeout as a final, not first, diagnostic.
+
+The output contract:
+
+- 320 × 568;
+- 30 fps;
+- 3 seconds;
+- exactly 90 frames;
+- H.264/AVC;
+- MP4 `ftyp` signature;
+- exact `n / fps` timestamps and one-frame packet durations;
+- Rec.709/sRGB-compatible colour metadata;
+- opaque video;
+- first/middle/final decode;
+- no audio in the muted representative probe;
+- alpha-capable PNG;
+- visible PNG pixels;
+- non-opaque PNG pixels;
+- PNG signature and requested dimensions.
+
+The representative probe is intentionally small. Passing it proves the code path and runtime contract, not 30-second full-resolution performance.
 
 ## First-launch journey
 
 On a fresh app container:
 
-1. Open from Applications, not Xcode or Vite.
-2. Confirm a single window appears, restores sensible size, and traffic lights do not overlap controls.
+1. Install in Applications and launch without Xcode, Vite, or Terminal.
+2. Confirm one window appears with sensible size and unobstructed traffic lights.
 3. Confirm the study scene appears without a server or network prompt.
-4. Confirm the native capability status resolves rather than remaining “checking.”
-5. Close the window, click the Dock icon, and confirm the one studio window returns.
-6. Quit and reopen. Confirm the current local project survives.
+4. Confirm capability state resolves rather than remaining “checking.”
+5. Confirm local project state resolves to saved, failed, or recovery—not perpetual loading.
+6. Close the window, click the Dock icon, and confirm the same studio returns.
+7. Quit and reopen. Confirm local settings and original media survive.
+8. Confirm About Drift reports version, build, and source revision.
 
 Repeat at 1440 × 900, 1024 × 768, and the minimum 960 × 620 window.
 
 ## Import journey
 
-Test image batches of 0, 1, 2, 12, 200, and 201 items. Include mixed 16:9, 4:3, 1:1, 4:5, and 9:16 images; filenames with spaces, emoji, long Unicode, and duplicate display names; corrupt files; symlinks; 64 MiB boundary; and 80 MiB aggregate boundary.
+Test image batches of 0, 1, 2, 12, 200, and 201 items. Include mixed 16:9, 4:3, 1:1, 4:5, and 9:16 images; spaces, emoji, long Unicode, duplicate display names, corrupt files, symlinks, 64 MiB boundary, and 80 MiB aggregate boundary.
 
 Verify:
 
-- File → Add Slides and the in-app button open equivalent native panels.
-- Accept filters are truthful.
-- Cancellation changes nothing.
-- Demos are replaced, not mixed, by the first real deck.
-- Partial decode failures reject only bad files and report counts.
-- source files in Finder are never modified or deleted.
-- drag/drop remains functional.
+- File → Add Slides, the in-app button, and stage drop reach the same importer semantics;
+- native filters are truthful;
+- cancellation changes nothing;
+- first real deck replaces studies rather than mixing;
+- partial decode failures report counts and reject only invalid media;
+- source files in Finder are never modified or deleted;
+- overlapping import batches respect the 200-slide ceiling;
 - reordering and pinning persist after relaunch.
 
-Test presenter MP4, MOV, WebM, audio-only media, unsupported codec, corrupt metadata, short duration, no audio, mono audio, and long audio. Only one presenter may be active.
+Test presenter MP4, MOV, WebM, audio-only media, unsupported codec, corrupt metadata, short duration, no audio, mono audio, and long audio. Only one presenter may be active. Replacing it must dispose old object URLs and media elements.
 
 ## Portable project journey
 
 - Save a `.pitched` project through File → Save Portable Project.
-- Cancel the native panel and verify no destination exists and no false success remains.
-- Open the archive through the app control, File → Open Project, Finder double-click, and “Open With.”
-- Clear app-container website data in a test copy, then reopen the portable project.
-- Corrupt manifest JSON, asset bytes, digest, path, size, engine version, theme version, and references one at a time.
+- Cancel the native panel and verify no destination and no false success.
+- Open through app control, File menu, Finder double-click, app-icon drop, and Open With.
+- Open while the application is launching; import must queue until ready.
+- Clear a test app container, then reopen the portable project.
+- Corrupt manifest JSON, asset bytes, digest, path, size, engine version, theme version, descriptors, and references one at a time.
 - Verify every invalid archive leaves the current project unchanged.
-- Open project A, then trigger delayed A followed by B; B must win.
-- Confirm Finder-open while the app is launching queues until the React importer exists.
+- Trigger delayed import A followed by B; B must win.
+- Confirm recovery-locked storage is not overwritten by fallback demos.
+- Export recovery and verify preserved manifest/media before opening replacement.
 
 ## MP4 export journey
 
-Use 1080 × 1920, 1080 × 1350, 1080 × 1080, 1920 × 1080, a small test size, and a near-GPU-limit size. Test 24, 25, 30, 50, and 60 fps; 3, 8, and 30 seconds; every path and background; 1, 2, 12, and 200 slides; pinned image; muted presenter; and presenter audio where system AAC is available.
+Use 1080 × 1920, 1080 × 1350, 1080 × 1080, 1920 × 1080, a small test size, and a near-GPU-limit size. Test 24, 25, 30, 50, and 60 fps; 3, 8, and 30 seconds; every path/background; 1, 2, 12, and 200 slides; pinned image; muted presenter; and presenter audio at 24/25/30 fps.
 
 For every completed master, independently inspect:
 
 - nonzero file size;
 - MP4 container;
 - H.264 video;
-- requested dimensions;
+- requested even dimensions;
 - exact fixed-step frame count;
 - `n / fps` timestamps;
 - requested duration;
-- first/middle/last frame decode;
+- first/middle/final frame decode;
 - Rec.709/sRGB-compatible colour metadata;
 - no alpha claim;
 - expected audio-track presence or absence;
-- AAC sample rate and channels when present;
+- AAC-LC, 48 kHz stereo when present;
 - start/end A/V offset within one frame;
 - visual motion across extracted frames;
 - pinned presenter changes over time rather than freezing.
 
-On a Mac without system AAC, presenter-audio output must fail before a convincing silent master is returned. Muting the presenter must permit video-only output if H.264 remains supported.
+At 50/60 fps with presenter audio enabled, export must fail with the explicit 30 fps ceiling before a convincing silent master is returned. Muting must permit video-only output when H.264 remains supported.
 
 ## Cancellation and replacement journey
 
 For MP4 and still output:
 
-1. Place a known file at the chosen destination and record its SHA-256.
+1. Place a known file at the chosen destination and record SHA-256.
 2. Begin a replacement export.
-3. Cancel during preparation, frame rendering, encoding, and finalization.
-4. Confirm the old destination retains the exact SHA-256 or, only if the platform committed despite the cancellation race, a visibly neutralized zero-byte file is reported. The native broker’s intended path is preservation through staged replacement.
-5. Confirm no replacement-directory debris remains after normal abort.
+3. Cancel during preparation, frame rendering, encoding, native writing, and finalization.
+4. Confirm the old destination retains the exact SHA-256.
+5. Confirm no item-replacement debris remains after abort.
+6. Confirm the status states that previous work survived.
 
 For PNG sequences:
 
-- choose a nonempty folder containing a colliding frame name and confirm preflight refusal;
+- choose a directory containing a colliding expected frame and confirm preflight refusal;
 - cancel after several frames and confirm created frames are removed;
 - deny removal permission and confirm cleanup failure lists exact filenames;
-- verify unrelated files remain untouched.
+- verify unrelated files remain untouched;
+- disconnect a removable destination and record what survived.
 
 ## App lifecycle and failure journey
 
 - Attempt Close and Quit during export, project import, local save, failed save, and recovery lock.
-- Confirm “Keep Working” is the safe first button.
-- Choose destructive close and confirm native staging writes abort.
+- Confirm “Keep Working” is the safe first/default action.
+- Choose destructive close and confirm native file/AAC sessions abort.
 - Force WebKit content-process termination and confirm rollback plus Reload/Quit alert.
-- Sleep and wake during preview and during a paused export test.
+- Trigger a second termination and confirm hard failure rather than endless retry.
+- Sleep and wake during preview and a paused export test.
 - Disconnect a removable export volume during write and confirm visible failure.
-- Fill the destination volume and confirm `QuotaExceededError` or a clear native write failure.
+- Fill the destination volume and confirm a clear quota/write failure.
 - Revoke a security-scoped destination between selection and write.
 - Trigger WebGL context loss/restore inside the app.
 - Deny WebGL2 and confirm DOM fallback preserves projects but blocks cinematic output.
+- Corrupt a native AAC receipt through a test seam and confirm muxing stops.
 
-## Native fit and accessibility review
+## Native fit, accessibility, and copy review
 
-- VoiceOver reads Media, Stage, Director, transport, export progress, native warnings, and status messages in a coherent order.
+- VoiceOver reads Media, Stage, Director, transport, export progress, native warnings, and status messages in coherent order.
 - Full Keyboard Access reaches every control and menu command.
 - Focus is visible at normal and 200% interface magnification.
-- Reduced-motion preference pauses vestibular preview effects without silently changing the saved export choice.
-- Native titlebar inset works in light/dark appearance and at minimum width.
-- macOS full screen, app full-frame mode, and WebKit magnification remain distinct and reversible.
-- Save/open panels have clear prompts, allowed types, and safe default buttons.
-- Error copy states what happened, whether existing work survived, and what the user can do next.
-- No status says “saved” before a native destination commits.
+- Reduced motion pauses vestibular preview effects without silently changing saved export behavior.
+- Titlebar inset works in light/dark appearance and at minimum width.
+- macOS full screen, app focus mode, and WebKit magnification remain distinct and reversible.
+- Save/open panels have clear prompts, truthful types, and safe default buttons.
+- Error copy states what happened, whether older work survived, and the next concrete action.
+- No status says “saved” before native commit.
+- No audio error suggests “update macOS” as the only remedy when mute/retry/report is more accurate.
+- Copy Diagnostics contains no deck text, media bytes, grant token, or absolute path.
 
 ## Hardware matrix
 
 Before public binary release, run at minimum:
 
-- Apple Silicon Mac on the oldest supported macOS version.
-- Apple Silicon Mac on the current macOS version.
-- Intel Mac or an independently verified Intel execution environment on a supported macOS version.
-- One low-memory machine under a 30-second 1080 × 1920 export.
-- One external or removable destination volume.
+- Apple Silicon Mac on the oldest supported macOS;
+- Apple Silicon Mac on the current macOS;
+- Intel Mac on a supported macOS;
+- one low-memory machine under a 30-second 1080 × 1920 export;
+- one external/removable destination;
+- sleep/wake and full-screen transitions;
+- a clean quarantine-setting download and Gatekeeper launch.
 
-CI cross-compilation of `x86_64` is evidence that the slice builds. It is not evidence that Intel GPU, WebKit, and encoder behavior have been exercised.
+CI cross-compilation of `x86_64` is evidence that the slice builds. It is not evidence that Intel WebKit, GPU, VideoEncoder, AudioToolbox, Finder, or sandbox behavior ran.
 
 ## Release receipt
 
@@ -196,12 +313,14 @@ Record:
 - package-lock digest;
 - app and DMG SHA-256;
 - architecture list;
-- extracted entitlements;
-- code-sign identity and notarization submission ID;
-- macOS and hardware for each manual run;
-- exact automated command output;
+- extracted entitlements and dynamic libraries;
+- code-sign identity and notarization IDs;
+- workflow run IDs and artifact hashes;
+- hosted macOS codec, AAC, and deterministic export receipts;
+- physical hardware/OS for each manual run;
 - decoded media metadata and hashes;
-- screenshots or video of first launch, import, export, cancel, recovery, and Finder-open;
-- known limits and untested surfaces.
+- screenshots/video of first launch, import, export, cancellation, recovery, Finder-open, and accessibility journey;
+- known limits and untested surfaces;
+- explicit reviewer and release decision.
 
-A clean receipt may still conclude “not release-ready.” That is a useful result. A vague receipt must never conclude “done.”
+A clean receipt may still conclude “not release-ready.” That is useful. A vague receipt must never conclude “done.”

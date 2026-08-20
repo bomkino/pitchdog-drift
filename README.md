@@ -1,14 +1,21 @@
 # Drift
 
-**A local-first cinematic carousel studio for pitch decks. Now also a real Mac application.**
+**A local-first cinematic carousel studio for pitch decks.**
 
-Drift turns still slides and one optional talking-head video into deterministic, Instagram-ready compositions. Three.js draws the scene, custom GLSL gives motion optical weight, and a fixed-step exporter renders frame `n` at exactly `n / fps`.
+Drift turns still slides and one optional talking-head video into authored, Instagram-ready compositions. Three.js draws the scene, custom GLSL gives motion optical weight, and a fixed-step exporter renders frame `n` at exactly `n / fps`.
 
 ![Drift studio with media, a vertical WebGL composition, and director controls](docs/media/drift-studio.png)
 
-This is not a CSS carousel wearing a shader as jewellery. Preview and export share the same scene evaluator. Projects include their source media. MP4 output is decoded and checked before Drift calls it finished.
+This is not a CSS carousel wearing a shader as jewellery. Preview and export share the same scene evaluator. Portable projects contain their source media. MP4 output is reopened, decoded, and checked before Drift calls it finished.
 
-## What is here
+The repository now contains two first-class ways to run the same studio:
+
+- the original local browser application;
+- a sandboxed, standalone macOS application on [`feat/native-macos-studio`](../../tree/feat/native-macos-studio).
+
+The native application keeps the WebGL renderer and project format intact. AppKit owns the window, menus, Finder integration, file permissions, staged destination writes, recovery, signing, and packaging. It does not invent a second renderer or a second export timeline.
+
+## What Drift directs
 
 - Horizontal and vertical infinite tracks with straight, arc, ribbon, cylinder, and tunnel paths.
 - Drag, wheel, keyboard, autoplay, pause, reverse, inertia, and seamless-output lock.
@@ -18,33 +25,32 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 - Six authored motion worlds: Editorial Drift, Road Memory, Dread, Noir Contact, Tender Light, and Chrome Dream.
 - One optional pinned image or presenter video, off by default.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
-- Explicit presenter-audio capability and A/V-sync gates. Audio is never discarded silently.
+- Presenter audio at AAC-LC, 48 kHz stereo, with explicit priming, padding, and A/V-sync checks.
 - IndexedDB autosave and portable `.pitched` project bundles with SHA-256 asset verification.
 - Visible DOM fallback when WebGL2 is unavailable. It keeps media and project management usable while refusing to fake cinematic export.
-- A dependency-light AppKit/WKWebView Mac app with native menus, Finder documents, sandboxed file panels, staged replacement, universal compilation, and DMG packaging.
 - No analytics, cloud upload, remote font, runtime API, or hidden network request.
 
 Moving-track media is deliberately image-only in v1. One pinned video keeps decoder load, export timing, and failure states legible.
 
 ## Run the browser studio
 
-Requirements: Node.js 22.12 or newer. Current desktop Chrome is the verified complete browser-export path; Brave is a first-class target but remains capability-gated in the current QA receipt.
+Requirements: Node.js 22.12 or newer. Current desktop Chrome is the verified complete browser-export path; Brave remains capability-gated.
 
 ```bash
 npm ci
 npm run dev
 ```
 
-Then open the local URL Vite prints. Replace the built-in study slides, direct the motion, and use the Output panel to create a master.
+Then open the local URL Vite prints.
 
 ```bash
-npm run check      # TypeScript, deterministic tests, browser build, native source contract
-npm run test:e2e   # Real-browser media, WebGL, fallback, and portability checks
+npm run check      # TypeScript, Vitest, source contracts, production build
+npm run test:e2e   # Real-browser media, WebGL, fallback, and portability gauntlet
 ```
 
-## Build Drift for macOS
+## Build the standalone Mac app
 
-Requirements: macOS 13.3 or newer, Xcode Command Line Tools, Node.js 22.12 or newer, and a clean locked install.
+Requirements: macOS 13.3 or newer, Node.js 22.12 or newer, and Xcode command-line tools.
 
 ```bash
 npm ci
@@ -52,65 +58,98 @@ npm run build:mac
 open build/macos/Drift.app
 ```
 
-The default app is universal for Apple Silicon and Intel. It runs the production Vite bundle directly from `Drift.app`; there is no Node runtime, local server, Electron layer, login, or cloud service.
+The local build is a universal `arm64` + `x86_64` application with App Sandbox, hardened runtime, user-selected file access, and an ad-hoc signature. It does not need Node.js, Vite, Terminal, or a local server after it has been built.
+
+Useful native commands:
 
 ```bash
-npm run verify:mac       # manifest, signature, entitlements, archs, broker and WKWebView tests
-npm run package:mac:dmg  # verified local drag-to-Applications disk image + SHA-256
+npm run check:mac-source       # bridge, security, packaging, and codec invariants
+npm run verify:mac             # bundle, manifest, signature, native and WebView probes
+npm run package:mac:dmg        # local drag-to-Applications disk image
 ```
 
-The Mac application adds:
+Read [the Mac architecture](docs/MACOS_APP.md), [user guide](docs/MACOS_USER_GUIDE.md), [product contract](docs/MACOS_PRODUCT_CONTRACT.md), [threat model](docs/MACOS_THREAT_MODEL.md), [QA gauntlet](docs/MACOS_QA.md), and [release boundary](docs/MACOS_RELEASE.md).
 
-- one restored AppKit window and native File/Edit/Playback/View/Window/Help menus;
-- `.pitched` ownership in Finder;
-- App Sandbox with only user-selected read/write access;
-- no network client or server entitlement;
-- main-frame-only `WKScriptMessageHandlerWithReply` bridge;
-- opaque file grants rather than renderer-visible paths;
-- native image, presenter, project, MP4, still, and directory panels;
-- same-volume staged writes and atomic destination replacement;
-- symlink, traversal, chunk, output, and grant limits;
-- Finder reveal for completed output;
-- close/quit warnings around export, save failure, and recovery lock;
-- WebKit content-process crash rollback and reload;
-- executable native file-broker and packaged-WebView self-tests.
+## Mac codec truth
 
-See [the Mac architecture](docs/MACOS_APP.md), [product contract](docs/MACOS_PRODUCT_CONTRACT.md), [user guide](docs/MACOS_USER_GUIDE.md), [threat model](docs/MACOS_THREAT_MODEL.md), [QA gauntlet](docs/MACOS_QA.md), and [release checklist](docs/MACOS_RELEASE_CHECKLIST.md).
+The browser build and the standalone app deliberately use different AAC implementations.
 
-### Mac codec policy
+### Browser build
 
-The ordinary browser source can register Mediabunny’s separately licensed software AAC extension. The standalone app deliberately cannot: `vite build --mode macos` aliases that module to an empty system-codec shim. Bundle verification rejects `.wasm`, FFmpeg AAC, and `libavcodec` markers.
+The browser project uses `@mediabunny/aac-encoder`. That package provides a software AAC encoder backed by an FFmpeg-derived WebAssembly binary. Its licences and distribution obligations remain documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-The result is a cleaner distributable application, but capability follows installed macOS/WebKit. On a Mac with H.264 but no compatible system AAC encoder, mute the presenter, update macOS, or export PNG frames. Drift fails visibly rather than returning a convincing silent master.
+### Standalone macOS build
 
-### Binary-release boundary
+The Mac build aliases that package to `src/lib/macosAacEncoder.ts`. This is not an empty shim. It registers a Mediabunny custom encoder that sends bounded PCM chunks through Drift’s typed native bridge to Apple’s software AAC-LC encoder in AudioToolbox.
 
-The repository builds and locally packages `Drift.app`, but CI does not upload it. A public binary still requires explicit release authority, Developer ID signing, notarization, stapling, Gatekeeper testing through a quarantined download, physical Apple Silicon and Intel QA, and a completed release receipt. Ad-hoc local signing is not publisher identity.
+The native receipt records and validates:
+
+- AAC-LC / `mp4a.40.2`;
+- 48 kHz stereo;
+- 192 kbit/s target bitrate;
+- AudioSpecificConfig and magic-cookie metadata;
+- packet sizes and frame counts;
+- leading priming frames;
+- trailing padding frames;
+- the exact equation `represented = leading + input + trailing`.
+
+The Mac bundle therefore contains no FFmpeg runtime or codec WebAssembly. H.264 video still uses the encoder exposed by WKWebView. Presenter audio uses the bounded native AudioToolbox bridge. Either capability can fail visibly; audio is never stripped silently.
+
+Presenter-audio masters remain limited to 24, 25, or 30 fps. Muted presenter video may use 50 or 60 fps.
 
 ## Export truth
 
-The default master is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque H.264 at 16 Mbit/s. In the browser build, a supported presenter-audio path targets AAC at 48 kHz stereo and 192 kbit/s. In the Mac app, AAC must come from system WebKit.
+The default master is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque H.264 at 16 Mbit/s. Presenter audio, when enabled, is AAC-LC at 48 kHz stereo and 192 kbit/s.
 
 - H.264 does not preserve alpha. Transparent masters use PNG stills or PNG sequences.
-- PNG sequences stream to a chosen directory when File System Access is available. The ZIP fallback has a strict memory cap.
-- Presenter audio is allowed only where the active runtime can encode and verify it within one output frame. Higher frame rates may require muting it.
-- File export writes through a rollback-aware target. Cancelled work is aborted or neutralised instead of being presented as a valid master.
-- Native Mac destinations are staged outside the selected file and committed only after close.
-- MP4 completion includes container readback, dimensions, frame count, duration, codec, colour, decoded probe frames, and audio timing checks.
+- PNG sequences stream to a chosen directory when the platform supports it. The ZIP fallback has a strict memory cap.
+- File export writes through rollback-aware destinations. Cancelled work is aborted, removed, or explicitly neutralised instead of being presented as a valid master.
+- MP4 completion includes container readback, dimensions, frame count, duration, timestamps, codec, colour, decoded probe frames, and presenter A/V timing checks.
+- The macOS app stages file replacements on the destination volume and commits only after export and verification succeed.
+- Existing PNG-sequence files are never overwritten.
 
-See [the architecture](docs/ARCHITECTURE.md), [research notes](docs/RESEARCH.md), [product contract](docs/PRODUCT_CONTRACT.md), and [browser QA receipt](docs/QA_REPORT.md) for the boundaries behind those claims.
+The macOS runtime workflow separately falsifies four claims on an Apple Silicon runner:
 
-## Runtime support
+1. WKWebView can create WebGL2 output and encode a real H.264 access unit.
+2. AudioToolbox can create AAC-LC packets with coherent priming and padding metadata.
+3. The actual deterministic exporter can render 90 fixed-step frames, mux an MP4, reopen it, and decode first/middle/final probe frames.
+4. The same exporter can produce an alpha-capable PNG containing both visible and transparent pixels.
 
-| Runtime | Preview | MP4 | Transparent PNG | Portable projects |
-| --- | --- | --- | --- | --- |
-| Drift.app on supported macOS | AppKit + system WebKit | Capability-gated system H.264; system AAC only | Yes when canvas PNG is available | Yes; Finder document |
-| Current desktop Chrome | Verified first class | Capability-tested AVC | Yes | Yes |
-| Current desktop Brave | First-class target; not independently run in the browser receipt | Capability-gated AVC | Expected | Expected |
-| Other WebGL2 browsers | Expected, tested case-by-case | Capability-gated | If canvas PNG is available | Yes |
-| No WebGL2 | DOM media strip | Blocked visibly | Blocked | Yes |
+Those checks are evidence for the tested runtime, not a substitute for physical Intel testing, accessibility review, or long-form export QA.
 
-Media never leaves the active local runtime. Browser IndexedDB or Drift’s sandboxed WebKit store holds the current project; a `.pitched` file is the portable backup. The current archive cap is 96 MiB, with 80 MiB total source images and 64 MiB per asset. Those limits prevent a friendly local tool from becoming a memory bomb.
+## Runtime boundaries
+
+| Runtime | Preview | MP4 | Presenter audio | Transparent PNG | Portable projects |
+| --- | --- | --- | --- | --- | --- |
+| Current desktop Chrome | Verified first class | Capability-tested AVC | Software AAC extension | Yes | Yes |
+| Standalone Drift.app | Packaged WKWebView + WebGL2 | WKWebView AVC, capability-gated | Native AudioToolbox AAC bridge | Yes | Yes |
+| Current desktop Brave | First-class browser target; not independently run in the frozen receipt | Capability-gated AVC | Software AAC extension where supported | Expected | Expected |
+| Other WebGL2 browsers | Tested case by case | Capability-gated | Capability-gated | If canvas PNG is available | Yes |
+| No WebGL2 | DOM media strip | Blocked visibly | Blocked | Blocked | Yes |
+
+Media never leaves the browser or app container. The current portable archive cap is 96 MiB, with 80 MiB total source assets and 64 MiB per asset. Those limits prevent a friendly local tool from becoming a memory bomb.
+
+## Why the Mac app is not an Electron bundle
+
+The native shell is compiled directly from Swift using AppKit, WebKit, Foundation, Uniform Type Identifiers, CryptoKit, and AudioToolbox. There is no Electron runtime, Chromium distribution, background server, updater daemon, shell bridge, or arbitrary native method invocation.
+
+JavaScript receives opaque grants rather than absolute file paths. Native save and directory panels produce scoped capabilities. Writes are chunked, bounded, staged, synchronized, and either committed or rolled back. HTTP, HTTPS, WebSocket, and FTP loads are blocked inside the app; deliberate help/source links open in the default browser.
+
+## Binary release boundary
+
+A local `.app` or CI-built DMG is not automatically a public release.
+
+A distributable candidate still requires:
+
+- Developer ID Application signing;
+- hardened-runtime and App Sandbox entitlement readback;
+- Apple notarization and stapling;
+- Gatekeeper assessment;
+- detached manifest and checksum verification;
+- physical Apple Silicon and Intel user-journey testing;
+- explicit authorization to publish.
+
+The release workflow is manual and uploads private evidence only. It does not create a GitHub Release, push a tag, deploy a website, or publish binaries by itself.
 
 ## Design position
 
@@ -118,11 +157,9 @@ Drift studies the pacing, spatial confidence, and material restraint of excellen
 
 The default is authored on purpose. Controls can bend the scene, but presets are coherent parameter bundles rather than palette swaps. Distortion is bounded so a deck remains readable.
 
-The Mac app follows the same position. Native chrome exists to remove friction, not to decorate a wrapper. Menus, Finder documents, save semantics, recovery, and sandboxing must earn their presence.
-
 ## Contributing
 
-Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), and avoid attaching confidential deck material to public reports. Mac changes must include source-contract updates and a concrete user-journey or threat-model reason.
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), and never attach confidential deck material to a public report.
 
 ## Freedom, assets, and marks
 
