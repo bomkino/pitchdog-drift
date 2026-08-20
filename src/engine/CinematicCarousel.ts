@@ -1,5 +1,9 @@
 import * as THREE from "three";
-import { resolveLightingFrame, type ResolvedLightingFrame } from "../lighting";
+import {
+  lightingNeedsContinuousFrames,
+  resolveLightingFrame,
+  type ResolvedLightingFrame,
+} from "../lighting";
 import type { StudioAsset, StudioSettings } from "../model";
 import {
   distanceAtTime,
@@ -76,6 +80,35 @@ export function selectRenderableItems<T extends { evaluated: Pick<EvaluatedSlide
         .sort((a, b) => Math.abs(a.evaluated.primary) - Math.abs(b.evaluated.primary))
         .slice(0, limit);
   return selected.sort((a, b) => a.evaluated.z - b.evaluated.z);
+}
+
+/**
+ * Protect the focal card most strongly while allowing neighboring cards
+ * to carry more directional modelling. The smoothstep-like curve avoids
+ * a visible protection boundary as a card crosses the playhead.
+ */
+export function focalLightingWeight(normalized: number): number {
+  const remaining = 1 - THREE.MathUtils.clamp(Math.abs(normalized) / 0.72, 0, 1);
+  return remaining * remaining * (3 - 2 * remaining);
+}
+
+/**
+ * Shadow geometry lives in card-local coordinates. A stage-fixed cast
+ * must therefore counter-rotate the card's roll; a card-fixed source
+ * deliberately keeps the local offset unchanged.
+ */
+export function resolveShadowOffsetForSpace(
+  offset: readonly [number, number],
+  rotationZ: number,
+  space: StudioSettings["lighting"]["space"],
+): [number, number] {
+  if (space === "card") return [offset[0], offset[1]];
+  const cosine = Math.cos(rotationZ);
+  const sine = Math.sin(rotationZ);
+  return [
+    offset[0] * cosine + offset[1] * sine,
+    -offset[0] * sine + offset[1] * cosine,
+  ];
 }
 
 export interface EngineCapabilitySnapshot {
@@ -168,6 +201,9 @@ function createSlideMaterial(placeholder: THREE.Texture): THREE.ShaderMaterial {
       uRimIntensity: { value: 0.14 },
       uSheen: { value: 0.16 },
       uRoughness: { value: 0.72 },
+      uArtworkProtection: { value: 0.82 },
+      uHeroProtection: { value: 0.82 },
+      uHeroWeight: { value: 1 },
       uLightPhase: { value: 0 },
       uLightBreath: { value: 0.1 },
     },
@@ -214,6 +250,7 @@ export class CinematicCarousel {
   private readonly texturePromises = new Map<string, Promise<TextureRecord>>();
   private readonly blobTextureKeys = new WeakMap<Blob, string>();
   private readonly callbacks: EngineCallbacks;
+  private readonly cardLightDirection = new THREE.Vector3();
 
   private settings: StudioSettings;
   private assets: StudioAsset[] = [];
@@ -312,9 +349,12 @@ export class CinematicCarousel {
         uLightingEnabled: { value: settings.lighting.enabled ? 1 : 0 },
         uLightColor: { value: new THREE.Color(settings.lighting.keyColor) },
         uLightDirection: { value: new THREE.Vector2(0.7, 0.7).normalize() },
+        uLightCenter: { value: new THREE.Vector2() },
+        uLightIntensity: { value: 1 },
         uLightSpill: { value: settings.lighting.backgroundSpill },
         uLightFocus: { value: settings.lighting.spillFocus },
         uLightGobo: { value: 0 },
+        uGoboStrength: { value: settings.lighting.goboStrength },
         uLightPhase: { value: 0 },
         uLightBreath: { value: settings.lighting.breath },
       },
@@ -551,8 +591,14 @@ export class CinematicCarousel {
 
   setPaused(paused: boolean): void {
     this.paused = paused;
-    if (paused) this.motionVelocity *= 0.7;
+    // Pause is a director's freeze, not a long inertial glide. This also
+    // keeps the live FPS readout and screenshot review genuinely still.
+    this.motionVelocity = 0;
+    this.lastFrameTime = performance.now();
+    this.fpsFrameCounter = 0;
+    this.fpsSampleStarted = this.lastFrameTime;
     this.syncPresenterPlayback();
+    this.renderPreview();
   }
 
   togglePaused(): boolean {
@@ -563,6 +609,8 @@ export class CinematicCarousel {
   setReducedMotionPreview(reduced: boolean): void {
     this.reducedMotionPreview = reduced;
     if (reduced) this.motionVelocity = 0;
+    this.lastFrameTime = performance.now();
+    this.renderPreview();
   }
 
   stepSlides(amount: number): void {
@@ -671,6 +719,19 @@ export class CinematicCarousel {
     }
   }
 
+  private previewNeedsContinuousFrames(): boolean {
+    if (this.paused || this.reducedMotionPreview) return false;
+    const carouselMoves = this.dragging
+      || Math.abs(this.motionVelocity) > 0.01
+      || (this.settings.motion.autoplay && this.settings.motion.speed > 0);
+    const backgroundMoves = this.settings.background.style !== "transparent"
+      && this.settings.background.style !== "solid"
+      && this.settings.background.motion > 0;
+    const lightMoves = lightingNeedsContinuousFrames(this.settings.lighting, false);
+    const presenterMoves = Boolean(this.presenterVideo && !this.presenterVideo.paused);
+    return carouselMoves || backgroundMoves || lightMoves || presenterMoves;
+  }
+
   start(): void {
     if (this.animationFrame || this.disposed) return;
     this.lastFrameTime = performance.now();
@@ -679,6 +740,7 @@ export class CinematicCarousel {
       if (this.exportActive || this.contextLost || document.hidden) return;
       const delta = Math.min(0.05, Math.max(0, (now - this.lastFrameTime) / 1000));
       this.lastFrameTime = now;
+      if (!this.previewNeedsContinuousFrames()) return;
       this.elapsed += delta;
       this.advanceMotion(delta);
       this.renderPreview();
@@ -777,9 +839,19 @@ export class CinematicCarousel {
     item.group.rotation.set(evaluated.rotationX, evaluated.rotationY, evaluated.rotationZ);
     item.group.scale.setScalar(evaluated.scale);
     item.slide.scale.set(width, height, 1);
+
+    const keyDirection = this.cardLightDirection.set(...lighting.direction);
+    if (this.settings.lighting.space === "card") {
+      keyDirection.applyEuler(item.group.rotation).normalize();
+    }
+    const shadowOffset = resolveShadowOffsetForSpace(
+      lighting.shadowOffset,
+      evaluated.rotationZ,
+      this.settings.lighting.space,
+    );
     const shadowMargin = Math.min(
       460,
-      Math.ceil(Math.hypot(...lighting.shadowOffset) + this.settings.lighting.shadowSoftness * 1.35 + 4),
+      Math.ceil(Math.hypot(...shadowOffset) + this.settings.lighting.shadowSoftness * 1.35 + 4),
     );
     const shadowWidth = width + shadowMargin * 2;
     const shadowHeight = height + shadowMargin * 2;
@@ -803,21 +875,24 @@ export class CinematicCarousel {
     uniforms.uPhase!.value = logicalIndex;
     uniforms.uTime!.value = time;
     uniforms.uLightingEnabled!.value = this.settings.lighting.enabled ? 1 : 0;
-    uniforms.uKeyDirection!.value.set(...lighting.direction);
+    uniforms.uKeyDirection!.value.copy(keyDirection);
     uniforms.uKeyColor!.value.set(this.settings.lighting.keyColor);
     uniforms.uFillColor!.value.set(this.settings.lighting.fillColor);
-    uniforms.uKeyIntensity!.value = this.settings.lighting.keyIntensity;
+    uniforms.uKeyIntensity!.value = this.settings.lighting.keyIntensity * lighting.intensity;
     uniforms.uFillIntensity!.value = this.settings.lighting.fillIntensity;
     uniforms.uRimIntensity!.value = this.settings.lighting.rimIntensity;
     uniforms.uSheen!.value = this.settings.lighting.sheen;
     uniforms.uRoughness!.value = this.settings.lighting.roughness;
+    uniforms.uArtworkProtection!.value = this.settings.lighting.artworkProtection;
+    uniforms.uHeroProtection!.value = this.settings.lighting.heroProtection;
+    uniforms.uHeroWeight!.value = focalLightingWeight(evaluated.normalized);
     uniforms.uLightPhase!.value = lighting.phase;
     uniforms.uLightBreath!.value = this.settings.lighting.breath;
 
     const shadowUniforms = item.shadowMaterial.uniforms;
     shadowUniforms.uCanvasSizePx!.value.set(shadowWidth, shadowHeight);
     shadowUniforms.uShapeSizePx!.value.set(width, height);
-    shadowUniforms.uShadowOffsetPx!.value.set(...lighting.shadowOffset);
+    shadowUniforms.uShadowOffsetPx!.value.set(...shadowOffset);
     shadowUniforms.uShadowColor!.value.set(this.settings.lighting.shadowColor);
     shadowUniforms.uRadiusPx!.value = Math.min(this.settings.slide.radius, Math.min(width, height) / 2);
     shadowUniforms.uSmoothing!.value = this.settings.slide.smoothing;
@@ -849,6 +924,9 @@ export class CinematicCarousel {
           item.material.uniforms.uMap!.value = loaded.texture;
           item.material.uniforms.uTextureAspect!.value = loaded.aspect;
           item.material.uniformsNeedUpdate = true;
+          // Paused/static previews are event-driven. Draw once when a
+          // late texture arrives instead of waiting for a redundant RAF.
+          this.renderPreview();
         })
         .catch((error: unknown) => {
           if (error instanceof StaleTextureRequestError || item.assetKey !== assetKey || this.disposed) return;
@@ -932,9 +1010,12 @@ export class CinematicCarousel {
     this.backgroundMaterial.uniforms.uLightingEnabled!.value = this.settings.lighting.enabled ? 1 : 0;
     this.backgroundMaterial.uniforms.uLightColor!.value.set(this.settings.lighting.keyColor);
     this.backgroundMaterial.uniforms.uLightDirection!.value.set(...lighting.screenDirection);
+    this.backgroundMaterial.uniforms.uLightCenter!.value.set(...lighting.fieldCenter);
+    this.backgroundMaterial.uniforms.uLightIntensity!.value = lighting.intensity;
     this.backgroundMaterial.uniforms.uLightSpill!.value = this.settings.lighting.backgroundSpill;
     this.backgroundMaterial.uniforms.uLightFocus!.value = this.settings.lighting.spillFocus;
     this.backgroundMaterial.uniforms.uLightGobo!.value = lighting.goboMode;
+    this.backgroundMaterial.uniforms.uGoboStrength!.value = this.settings.lighting.goboStrength;
     this.backgroundMaterial.uniforms.uLightPhase!.value = lighting.phase;
     this.backgroundMaterial.uniforms.uLightBreath!.value = this.settings.lighting.breath;
   }
@@ -953,9 +1034,12 @@ export class CinematicCarousel {
     this.backgroundMaterial.uniforms.uLightingEnabled!.value = this.settings.lighting.enabled ? 1 : 0;
     this.backgroundMaterial.uniforms.uLightColor!.value.set(this.settings.lighting.keyColor);
     this.backgroundMaterial.uniforms.uLightDirection!.value.set(...lighting.screenDirection);
+    this.backgroundMaterial.uniforms.uLightCenter!.value.set(...lighting.fieldCenter);
+    this.backgroundMaterial.uniforms.uLightIntensity!.value = lighting.intensity;
     this.backgroundMaterial.uniforms.uLightSpill!.value = this.settings.lighting.backgroundSpill;
     this.backgroundMaterial.uniforms.uLightFocus!.value = this.settings.lighting.spillFocus;
     this.backgroundMaterial.uniforms.uLightGobo!.value = lighting.goboMode;
+    this.backgroundMaterial.uniforms.uGoboStrength!.value = this.settings.lighting.goboStrength;
     this.backgroundMaterial.uniforms.uLightPhase!.value = lighting.phase;
     this.backgroundMaterial.uniforms.uLightBreath!.value = this.settings.lighting.breath;
     this.backgroundMaterial.uniforms.uResolution!.value.set(

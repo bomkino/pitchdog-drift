@@ -4,73 +4,106 @@
 
 Make flattened pitch-deck slides feel present in a photographed space without making the deck harder to read, colouring a presenter’s face, lying about transparent export, or creating a second render path that drifts away from the master.
 
-Lighting is not a vignette slider. One authored rig now governs three linked consequences:
+Lighting is not a decorative filter. One authored rig governs four linked consequences:
 
 1. **Surface response** on the moving, vertex-deformed cards.
 2. **Cast and contact shadow** that explains distance, source direction, and weight.
-3. **Environmental spill** that lets opaque backgrounds feel lit by the same source.
+3. **Environmental spill** shaped by an authored source or architectural mask.
+4. **Hierarchy protection** that keeps the focal slide and its authored colour decisions legible.
 
-Preview, MP4, PNG stills, and PNG sequences all resolve the same rig from the same time value.
+Preview, MP4, PNG stills, and PNG sequences resolve the same rig from the same deterministic time value.
 
 ## Research translated into product rules
 
-### Do not bolt built-in shadow maps onto a custom-deformed card
+### Use analytical light where the composition is already analytical
 
-Three.js can render PCF, VSM, PCSS-style, and contact-shadow systems. But the moving slides are custom `ShaderMaterial` planes whose vertex shader changes their shape. A built-in depth pass would require a matching custom depth material to deform the shadow caster identically. It would also add at least one render target and create more alpha, sorting, memory, and export failure surfaces.
+Three.js shadow maps render the scene again from every shadow-casting light. Drift’s slides are custom-deformed `ShaderMaterial` planes, so a faithful map would also need a matching custom depth material, extra full-resolution resources, bias tuning, and more transparency/sorting failure surfaces.
 
-Drift instead uses the actual deformed view-space position in the slide fragment shader. Screen derivatives recover its normal after deformation. The analytical shadow uses the same rounded-superellipse language as the card and stays inside the existing bounded mesh pool.
+Drift instead recovers the true deformed view-space normal with fragment derivatives. The cast shadow uses the same rounded-superellipse language as the card and stays inside the existing bounded mesh pool. This is a deliberate flat-media lighting model—not a claim of global illumination.
 
-This is a deliberate product trade, not a claim that an analytical drop shadow is physically equivalent to global illumination.
+### Roughness must change the highlight, not become a gloss filter
+
+The surface response follows the useful part of a microfacet model: roughness broadens and softens the specular lobe; a smooth surface tightens it. The implementation remains bounded for low-precision mobile GPUs and never lets a highlight bleach the slide into a generic glossy card.
+
+### Protect the deck before showing off the light
+
+`Protect artwork` blends the modelled response back toward the source slide. `Protect hero` adds another guard around the focal card while allowing neighboring cards to carry more modelling and depth. At 100% artwork protection, card pixels pass through unchanged; cast shadows and environmental spill remain available.
+
+### Stage light and card light are different creative decisions
+
+- **Stage attachment** keeps the source fixed in screen space. A card rolls beneath it, and the shadow counter-rotates locally so the cast remains screen-aligned.
+- **Card attachment** binds the source to each card. Key direction and cast rotate with the card, producing a designed object-light relationship rather than a photographed stage.
 
 ### Contact first, bloom second
 
-A single uniformly blurred rectangle looks detached and synthetic. Each shadow therefore has two coupled lobes:
+A uniformly blurred rectangle reads as a sticker. Each shadow has two coupled lobes:
 
-- a broad, directional cast whose softness and reach describe the source;
+- a broad directional cast whose softness and reach describe the source;
 - a tight contact lobe near the card that anchors it before the penumbra blooms away.
 
-The two alpha layers combine multiplicatively rather than simply adding, preventing the overlap from blowing past the requested density.
+The lobes combine multiplicatively, preventing overlap from exceeding the requested density.
 
 ### Light the world, not the presenter’s face
 
 The pinned presenter keeps neutral surface colour. The rig integrates it through a matching directional environmental shadow only. This avoids accidentally grading skin or making a talking-head insert look cosmetically inconsistent with its source video.
 
+### Pause means freeze
+
+The transport now stops carousel inertia, lighting time, environmental motion, presenter playback, and live frame sampling immediately. Static and paused compositions become event-driven: they redraw only when a setting, media asset, interaction, or context recovery actually changes the frame. This makes visual inspection trustworthy and reduces idle GPU work.
+
 ### Motion must close or freeze
 
-`Light breath` is deliberately small. In ordinary preview it produces a restrained source sway. In seamless export it uses integer phase harmonics and returns to the same complete state at the master boundary. Reduced-motion preview/output sets the phase to zero. Slide and background grain are spatial, not wall-clock driven.
+In ordinary playback, each authored movement resolves to a small bounded change in direction, intensity, and field centre. Seamless export uses integer phase harmonics and returns to the same complete state at the master boundary. Reduced motion and pause freeze the phase. Grain remains spatial rather than wall-clock driven.
 
 ## Authored rigs
 
-| Rig | Source logic | Shadow logic | Environmental shape | Best starting point |
-| --- | --- | --- | --- | --- |
-| Studio Soft | Broad warm key, cool readable fill | Short, soft, contact-rich | Softbox pool | Editorial, product, general use |
-| Window Rake | Low warm side key | Long afternoon cast | Window panes | Travel, memory, documentary warmth |
-| Projector Haze | Restrained frontal pool | Soft compact falloff | Projector aperture | Archive, evidence, screenings |
-| Noir Slice | Low hard source, negative fill | Dense long cast | Narrow slit | Horror, thriller, dread |
-| Golden Hour | Low amber key, violet air | Generous warm penumbra | Horizon rake | Romance, tenderness, nostalgia |
-| Electric Rim | Cyan edge, ultraviolet fill | Controlled glossy depth | Edge wash | Music, speculative, nocturnal work |
+| Rig | Source logic | Shadow / field logic | Best starting point |
+| --- | --- | --- | --- |
+| Studio Soft | Broad warm key, quiet cool fill | Short contact-rich softbox | Editorial, dialogue, dense typography |
+| Window Rake | Low warm side key | Long cast through window panes | Travel, memory, domestic drama |
+| Projector Haze | Restrained frontal pool | Compact projector aperture | Archive, evidence, screenings |
+| Noir Slice | Hard low source, negative fill | Dense long slit | Horror, thriller, psychological tension |
+| Golden Hour | Low amber key, violet air | Warm horizon rake | Romance, tenderness, nostalgia |
+| Electric Rim | Cyan edge, ultraviolet fill | Edge-bound orbital wash | Music, speculative, nightlife |
+| Overcast Window | Cloud-soft cool daylight | Broad nearly shadowless sky | Drama, documentary, architecture |
+| Moon Pool | High cold source | Circular pool with halo | Fantasy, dream, solitude, night |
+| Sodium Vapor | Narrow amber street source | Hard urban shaft | Crime, road films, industrial night |
+| Lantern Flicker | Small warm card-bound source | Intimate asymmetric pulse | Folklore, ritual, historical horror |
+| Fluorescent Flat | Cool overhead strip | Institutional ceiling field | Workplace, hospital, bureaucracy |
+| Headlight Sweep | Twin low travelling sources | Long urgent paired beams | Thriller, chase, road night |
 
-Every manual edit converts the selected recipe to `Custom rig`. Recipes change direction, elevation, fill ratio, roughness, shadow reach, contact, spill, motion, and gobo structure—not merely colour.
+Every manual edit converts the recipe to `Custom rig`. Recipes vary attachment, movement, pace, direction, elevation, fill ratio, surface response, hierarchy protection, shadow structure, spill, and architectural light shape—not merely colour.
 
-## Director controls
+## Director journey
 
-### Lighting
+### Fast path
 
-- **Cinematic lighting** — one master bypass for card light, cast shadow, spill, and lighting-only surface texture. Off means source pixels pass through unchanged.
-- **Light character** — authored coherent rig.
+1. Choose a **Film world** for a coherent motion, surface, atmosphere, and lighting starting point.
+2. Change **Light character** only when the story needs another source logic.
+3. Read the character note and intended use before touching sliders.
+4. Adjust **Protect artwork** before lowering fill or crushing the source image.
+5. Export a still at the intended aspect ratio before committing to a moving master.
+
+### Lighting controls
+
+- **Cinematic lighting** — master bypass. Off returns source pixels and removes lighting-owned shadows/spill.
+- **Light character** — twelve authored coherent rigs plus Custom.
+- **Light attachment** — stage-fixed or card-fixed direction and cast language.
+- **Light movement / pace / breath** — static, breathing, sweep, flicker, or orbit with deterministic closure.
 - **Key / fill colour** — restrained source tints.
-- **Key angle / elevation** — direction and apparent source height.
-- **Key intensity / fill / rim** — readable contrast architecture.
-- **Sheen / surface roughness** — highlight size and response.
-- **Light breath** — bounded source motion with seamless and reduced-motion rules.
+- **Key angle / elevation** — direction and source height.
+- **Key intensity / fill / rim** — contrast architecture.
+- **Sheen / roughness** — highlight size and response.
+- **Protect artwork / hero** — explicit hierarchy and colour-preservation controls.
 
-### Shadow and spill
+### Shadow and spill controls
 
 - **Shadow colour / density** — chromatic and alpha character.
 - **Shadow reach** — requested cast distance, shortened analytically as elevation rises.
 - **Shadow softness** — broad penumbra size.
 - **Contact anchor** — strength of the tight near-card lobe.
-- **Light shape** — softbox, window, projector, slit, sunset, or edge field.
+- **Light shape** — twelve structural fields matching the authored rigs.
+- **Light shape presence** — blends a broad source into the selected architectural field.
 - **Background spill / focus** — environmental strength and footprint.
 
 ## Rendering contract
@@ -78,12 +111,13 @@ Every manual edit converts the selected recipe to `Custom rig`. Recipes change d
 - No new runtime dependency.
 - No full-frame post-processing buffer.
 - No dynamic shadow-map allocation.
-- No additional draw call per light.
+- No extra scene render per light.
 - Existing bounded pool remains 24 moving slide groups plus the optional presenter.
-- Lighting uniforms update inside the existing render loop.
+- Lighting uniforms update inside the existing render path.
 - H.264 remains opaque.
-- Transparent PNG output omits the full-screen background and its spill but preserves compositable card and presenter shadows.
-- All custom materials still encode once through Three.js’ output colour-space chunk.
+- Transparent PNG output omits the full-screen background and spill but preserves compositable card and presenter shadows.
+- All custom materials encode once through Three.js’ output colour-space chunk.
+- Paused/static previews stop continuous rendering and redraw on invalidation.
 
 ## Portable-project compatibility
 
@@ -97,41 +131,46 @@ Legacy `slide.shadowOpacity` and `slide.shadowSoftness` remain in the schema for
 
 The branch must pass all existing checks plus dedicated falsification for:
 
-- six unique, fully valid rigs and six structural gobo fields;
+- twelve unique, fully valid rigs and twelve structural light fields;
+- every declared director field crossing the UI → settings → engine → shader boundary;
 - finite normalized light vectors at every control extreme;
+- true stage-fixed and card-fixed direction/cast behaviour;
+- focal hierarchy protection that is symmetric, bounded, and monotonic;
 - shorter shadows at higher source elevation;
 - exact complete-state closure at seamless boundaries;
-- time-invariant reduced-motion output;
+- time-invariant pause, reduced-motion output, and static light;
 - strict lighting bounds, colours, enums, and hostile unknown keys;
 - schema-v1 legacy hydration without silent repair of malformed new data;
 - derivative-based normals from the deformed surface;
 - spatial rather than wall-clock grain;
 - separate cast and contact shadow lobes;
-- ascending `smoothstep` vignette edges;
+- ascending `smoothstep` edges;
 - real Chromium/WebGL pixel change across rigs and pixel-stable rest frames;
+- stage-chrome exclusion from render-pixel assertions;
 - the repository’s complete TypeScript, unit, production-build, media, export, context-loss, accessibility, and portability suites.
 
 ## Human review matrix
 
-Automated checks cannot judge taste. Review the finished branch with:
+Automated checks cannot judge taste. Review with:
 
-- white editorial slides, dark photographic slides, dense charts, and edge-to-edge portraits;
-- both axes and every motion path;
+- white editorial slides, dark photography, dense charts, edge-to-edge portraits, and fine linework;
+- both light attachments, every movement mode, and all twelve fields;
+- both carousel axes and every motion path;
 - low and high tilt/depth;
-- all six rigs at 9:16, 4:5, 1:1, and 16:9;
+- all twelve rigs at 9:16, 4:5, 1:1, and 16:9;
 - opaque and transparent stills;
 - pinned presenter enabled and disabled;
-- maximum shadow reach and softness near frame edges;
-- reduced-motion master and a seamless multi-loop master;
+- maximum shadow reach/softness near frame edges;
+- paused preview, reduced-motion master, and a seamless multi-loop master;
 - 1080p and the largest surface accepted by the target GPU.
 
-Reject a rig if the lighting becomes more memorable than the slide, if text contrast collapses, if the shadow reads as a sticker effect, or if a presenter’s source image is visibly recoloured.
+Reject a rig if the lighting becomes more memorable than the slide, text contrast collapses, the shadow reads as a sticker effect, a stage-fixed cast rotates with the card, a card-fixed source floats in screen space, or a presenter’s source image is visibly recoloured.
 
 ## Primary references
 
-- Three.js `ShaderMaterial`, `WebGLRenderer`, and `Object3D.customDepthMaterial` documentation.
-- Three.js PCSS and contact-shadow examples.
-- NVIDIA’s Percentage-Closer Soft Shadows sample for the contact-hardening perceptual cue.
-- pmndrs/drei `ContactShadows` source for the explicit render-target and blur-pass cost model.
+- Three.js `ShaderMaterial` documentation for custom material integration and renderer-provided uniforms.
+- Three.js shadow manual for the additional scene renders and trade-offs inherent in shadow maps.
+- Google Filament’s material model for roughness, bounded microfacet response, and specular anti-aliasing principles.
+- NVIDIA’s Percentage-Closer Soft Shadows sample for contact-hardening cues.
 - Siena Film Foundation for restraint and ambient cinematic framing.
 - Codrops’ WebGL carousel work for authored motion and shader-native presentation.

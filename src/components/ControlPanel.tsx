@@ -47,6 +47,9 @@ export function ControlPanel({
     });
   };
   const stageLabel = `${settings.stage.width}:${settings.stage.height}`;
+  const selectedLightingPreset = LIGHTING_PRESETS.find(
+    (preset) => preset.id === settings.lighting.preset,
+  );
 
   return (
     <aside className="inspector" aria-label="Director controls" aria-busy={exporting} inert={exporting}>
@@ -182,7 +185,7 @@ export function ControlPanel({
       <InspectorGroup
         title="Lighting"
         eyebrow={settings.lighting.enabled
-          ? (LIGHTING_PRESETS.find((preset) => preset.id === settings.lighting.preset)?.name ?? "Custom rig")
+          ? (selectedLightingPreset?.name ?? "Custom rig")
           : "OFF"}
         open
       >
@@ -204,6 +207,45 @@ export function ControlPanel({
             else onSettings({ ...settings, lighting: applyLightingPreset(settings.lighting, preset) });
           }}
         />
+        <div className="output-spec lighting-brief">
+          <span>{selectedLightingPreset?.eyebrow ?? "CUSTOM RIG"}</span>
+          <strong>{selectedLightingPreset?.description ?? "A hand-tuned light with no authored recipe attached."}</strong>
+          <small>{selectedLightingPreset ? `Best for ${selectedLightingPreset.bestFor}.` : "Choose any authored character to recover a coherent starting point."}</small>
+        </div>
+        <Segmented
+          label="Light attachment"
+          value={settings.lighting.space}
+          options={[
+            { value: "stage" as const, label: "Stage" },
+            { value: "card" as const, label: "Card" },
+          ]}
+          onChange={(space) => patchLighting({ space })}
+        />
+        <SelectField<StudioSettings["lighting"]["motionMode"]>
+          label="Light movement"
+          value={settings.lighting.motionMode}
+          options={[
+            { value: "static", label: "Static" },
+            { value: "breathe", label: "Breathe" },
+            { value: "sweep", label: "Sweep" },
+            { value: "flicker", label: "Flicker" },
+            { value: "orbit", label: "Orbit" },
+          ]}
+          onChange={(motionMode) => patchLighting({ motionMode })}
+        />
+        {settings.lighting.motionMode !== "static" ? (
+          <Segmented
+            label="Motion pace"
+            value={settings.lighting.motionSpeed}
+            options={[
+              { value: 1 as const, label: "1" },
+              { value: 2 as const, label: "2" },
+              { value: 3 as const, label: "3" },
+              { value: 4 as const, label: "4" },
+            ]}
+            onChange={(motionSpeed) => patchLighting({ motionSpeed })}
+          />
+        ) : null}
         <ColorField label="Key colour" value={settings.lighting.keyColor} onChange={(keyColor) => patchLighting({ keyColor })} />
         <ColorField label="Fill colour" value={settings.lighting.fillColor} onChange={(fillColor) => patchLighting({ fillColor })} />
         <RangeField label="Key angle" value={settings.lighting.azimuth} min={-180} max={180} step={1} unit="°" onChange={(azimuth) => patchLighting({ azimuth })} />
@@ -213,6 +255,8 @@ export function ControlPanel({
         <RangeField label="Rim" value={settings.lighting.rimIntensity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchLighting({ rimIntensity: value / 100 })} />
         <RangeField label="Sheen" value={settings.lighting.sheen * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchLighting({ sheen: value / 100 })} />
         <RangeField label="Surface roughness" value={settings.lighting.roughness * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patchLighting({ roughness: value / 100 })} />
+        <RangeField label="Protect artwork" value={settings.lighting.artworkProtection * 100} min={0} max={100} step={1} unit="%" hint="Preserves the slide's authored colour and contrast while keeping spatial light cues." onChange={(value) => patchLighting({ artworkProtection: value / 100 })} />
+        <RangeField label="Protect hero" value={settings.lighting.heroProtection * 100} min={0} max={100} step={1} unit="%" hint="Keeps the focal card cleaner than the surrounding depth field." onChange={(value) => patchLighting({ heroProtection: value / 100 })} />
         <RangeField label="Light breath" value={settings.lighting.breath * 100} min={0} max={100} step={1} unit="%" hint="Subtle only. Seamless masters close this motion exactly; reduced motion freezes it." onChange={(value) => patchLighting({ breath: value / 100 })} />
       </InspectorGroup>
 
@@ -232,9 +276,16 @@ export function ControlPanel({
             { value: "slit", label: "Noir slit" },
             { value: "sunset", label: "Sunset rake" },
             { value: "edge", label: "Edge wash" },
+            { value: "overcast", label: "Overcast sky" },
+            { value: "moon", label: "Moon pool" },
+            { value: "sodium", label: "Sodium shaft" },
+            { value: "lantern", label: "Lantern pool" },
+            { value: "ceiling", label: "Ceiling strip" },
+            { value: "headlights", label: "Twin headlights" },
           ]}
           onChange={(gobo) => patchLighting({ gobo })}
         />
+        <RangeField label="Light shape presence" value={settings.lighting.goboStrength * 100} min={0} max={100} step={1} unit="%" hint="Blends from a broad source into the selected architectural shape." onChange={(value) => patchLighting({ goboStrength: value / 100 })} />
         <RangeField label="Background spill" value={settings.lighting.backgroundSpill * 100} min={0} max={100} step={1} unit="%" hint="Opaque worlds receive the light field. Transparent output keeps only compositable card shadows." onChange={(value) => patchLighting({ backgroundSpill: value / 100 })} />
         <RangeField label="Spill focus" value={settings.lighting.spillFocus * 100} min={15} max={150} step={1} unit="%" onChange={(value) => patchLighting({ spillFocus: value / 100 })} />
       </InspectorGroup>

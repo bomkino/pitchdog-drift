@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { assertExportSurfaceSupported, selectRenderableItems } from "../src/engine/CinematicCarousel";
+import {
+  assertExportSurfaceSupported,
+  focalLightingWeight,
+  resolveShadowOffsetForSpace,
+  selectRenderableItems,
+} from "../src/engine/CinematicCarousel";
 import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
 import { evaluateSlide, getLogicalSlotCount, getSlideGeometry, isPotentiallyVisible } from "../src/engine/evaluate";
 import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader, slideVertexShader } from "../src/engine/shaders";
@@ -66,7 +71,7 @@ describe("bounded renderer pool", () => {
 });
 
 describe("cinematic lighting shader contract", () => {
-  it("lights the actual deformed slide surface rather than an undeformed proxy", () => {
+  it("lights the actual deformed slide surface while protecting authored hierarchy", () => {
     expect(slideVertexShader).toContain("varying vec3 vViewPosition");
     expect(slideVertexShader).toContain("vViewPosition = viewPosition.xyz");
     expect(slideFragmentShader).toContain("dFdx(vViewPosition)");
@@ -74,6 +79,10 @@ describe("cinematic lighting shader contract", () => {
     expect(slideFragmentShader).toContain("gl_FrontFacing");
     expect(slideFragmentShader).toContain("uRoughness");
     expect(slideFragmentShader).toContain("uRimIntensity");
+    expect(slideFragmentShader).toContain("uArtworkProtection");
+    expect(slideFragmentShader).toContain("uHeroProtection");
+    expect(slideFragmentShader).toContain("uHeroWeight");
+    expect(slideFragmentShader).toContain("float protection = 1.0 -");
   });
 
   it("keeps slide and background grain spatial instead of wall-clock driven", () => {
@@ -93,15 +102,41 @@ describe("cinematic lighting shader contract", () => {
     expect(shadowFragmentShader).toContain("1.0 - (1.0 - castLayer) * (1.0 - contactLayer)");
   });
 
-  it("offers six structural background light fields and a defined vignette", () => {
+  it("offers twelve structural background light fields and a defined vignette", () => {
     expect(backgroundFragmentShader).toContain("authoredLightField");
     expect(backgroundFragmentShader).toContain("uLightGobo");
-    expect(backgroundFragmentShader).toContain("float window =");
-    expect(backgroundFragmentShader).toContain("float projector =");
-    expect(backgroundFragmentShader).toContain("float slit =");
-    expect(backgroundFragmentShader).toContain("float sunset =");
-    expect(backgroundFragmentShader).toContain("float edge =");
+    expect(backgroundFragmentShader).toContain("uGoboStrength");
+    expect(backgroundFragmentShader).toContain("if (uLightGobo < 0.5) selected = softbox;");
+    expect(backgroundFragmentShader).toContain("else if (uLightGobo < 1.5) selected = window;");
+    expect(backgroundFragmentShader).not.toContain("uLightGobo >= 0.5 && uLightGobo < 1.5");
+    expect(backgroundFragmentShader).toContain("uLightCenter");
+    expect(backgroundFragmentShader).toContain("uLightIntensity");
+    for (const field of [
+      "window", "projector", "slit", "sunset", "edge", "overcast",
+      "moon", "sodium", "lantern", "ceiling", "headlights",
+    ]) {
+      expect(backgroundFragmentShader).toContain(`float ${field}`);
+    }
+    expect(backgroundFragmentShader).toContain("return mix(softbox, selected");
     expect(backgroundFragmentShader).toContain("smoothstep(0.18, 0.88, dot(p, p))");
     expect(backgroundFragmentShader).not.toContain("smoothstep(0.88, 0.18");
+  });
+});
+
+describe("lighting composition helpers", () => {
+  it("protects the focal card smoothly and symmetrically", () => {
+    expect(focalLightingWeight(0)).toBe(1);
+    expect(focalLightingWeight(0.72)).toBe(0);
+    expect(focalLightingWeight(2)).toBe(0);
+    expect(focalLightingWeight(0.3)).toBeCloseTo(focalLightingWeight(-0.3), 12);
+    expect(focalLightingWeight(0.2)).toBeGreaterThan(focalLightingWeight(0.5));
+  });
+
+  it("keeps card-fixed casts local and stage-fixed casts screen-aligned", () => {
+    expect(resolveShadowOffsetForSpace([40, 0], Math.PI / 2, "card"))
+      .toEqual([40, 0]);
+    const stage = resolveShadowOffsetForSpace([40, 0], Math.PI / 2, "stage");
+    expect(stage[0]).toBeCloseTo(0, 12);
+    expect(stage[1]).toBeCloseTo(-40, 12);
   });
 });

@@ -1198,6 +1198,12 @@ test("authored lighting changes real WebGL pixels and remains still when directe
   });
 
   await waitForStudio(page);
+  // Element screenshots capture overlapping stage chrome as well as the
+  // canvas rectangle. Remove the live FPS counter and corner guides so
+  // this test compares the rendered composition itself.
+  await page.addStyleTag({
+    content: ".stage-hud, .stage-guide { visibility: hidden !important; }",
+  });
   await page.getByRole("button", { name: /Road Memory/ }).click();
   const lightCharacter = page.getByRole("combobox", { name: "Light character" });
   await expect(lightCharacter).toHaveValue("window-rake");
@@ -1248,6 +1254,12 @@ test("authored lighting changes real WebGL pixels and remains still when directe
 
   await lightCharacter.selectOption("noir-slice");
   await expect(lightCharacter).toHaveValue("noir-slice");
+  await expect(page.getByRole("combobox", { name: "Light movement" })).toHaveValue("static");
+  await page.getByText("Shadow & spill", { exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Light shape" })).toHaveValue("slit");
+  await expect(page.getByRole("combobox", { name: "Light shape" }).locator("option")).toHaveCount(12);
+  await expect(page.getByRole("slider", { name: "Protect artwork" })).toBeVisible();
+  await expect(page.getByRole("slider", { name: "Protect hero" })).toBeVisible();
   await page.getByRole("slider", { name: "Light breath" }).fill("0");
   await page.waitForTimeout(180);
   const noirPixels = await canvas.screenshot();

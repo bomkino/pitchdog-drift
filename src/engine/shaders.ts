@@ -56,6 +56,9 @@ export const slideFragmentShader = /* glsl */ `
   uniform float uRimIntensity;
   uniform float uSheen;
   uniform float uRoughness;
+  uniform float uArtworkProtection;
+  uniform float uHeroProtection;
+  uniform float uHeroWeight;
   uniform float uLightPhase;
   uniform float uLightBreath;
 
@@ -154,7 +157,16 @@ export const slideFragmentShader = /* glsl */ `
     vec3 lit = surface * multiplier * breath
       + keyTint * specular * 0.28
       + mix(uFillColor, uKeyColor, 0.5) * rim * 0.16;
-    vec3 color = mix(surface, lit, clamp(uLightingEnabled, 0.0, 1.0));
+
+    // Artwork protection preserves the authored deck globally. Hero
+    // protection adds a second, focal-card guard without flattening the
+    // neighboring cards that provide depth. At 100%, source pixels pass
+    // through unchanged while cast shadows and environmental light stay.
+    float artworkProtection = clamp(uArtworkProtection, 0.0, 1.0);
+    float heroGuard = clamp(uHeroProtection * uHeroWeight * 0.65, 0.0, 0.65);
+    float protection = 1.0 - (1.0 - artworkProtection) * (1.0 - heroGuard);
+    vec3 protectedLit = mix(lit, surface, protection);
+    vec3 color = mix(surface, protectedLit, clamp(uLightingEnabled, 0.0, 1.0));
 
     float alpha = outerMask * sampled.a * uOpacity;
     if (alpha <= 0.001) discard;
@@ -256,9 +268,12 @@ export const backgroundFragmentShader = /* glsl */ `
   uniform float uLightingEnabled;
   uniform vec3 uLightColor;
   uniform vec2 uLightDirection;
+  uniform vec2 uLightCenter;
+  uniform float uLightIntensity;
   uniform float uLightSpill;
   uniform float uLightFocus;
   uniform float uLightGobo;
+  uniform float uGoboStrength;
   uniform float uLightPhase;
   uniform float uLightBreath;
 
@@ -280,9 +295,10 @@ export const backgroundFragmentShader = /* glsl */ `
 
   float authoredLightField(vec2 p) {
     float angle = atan(uLightDirection.y, uLightDirection.x);
-    vec2 wobble = vec2(cos(uLightPhase), sin(uLightPhase * 2.0))
-      * uLightBreath * 0.035;
-    vec2 center = uLightDirection * 0.18 + wobble;
+    // The CPU resolves authored motion once for preview and export. Use
+    // that exact field centre here instead of layering generic wobble on
+    // top and making different motion modes converge on the same drift.
+    vec2 center = uLightCenter;
     vec2 q = rotate2(-angle) * (p - center);
     float focus = clamp(uLightFocus, 0.15, 1.5);
 
@@ -306,12 +322,66 @@ export const backgroundFragmentShader = /* glsl */ `
     float edge = (1.0 - smoothstep(-focus * 0.5, focus * 0.85, q.x))
       * (1.0 - smoothstep(focus * 0.65, focus * 1.6, abs(q.y)));
 
-    if (uLightGobo < 0.5) return softbox;
-    if (uLightGobo < 1.5) return window;
-    if (uLightGobo < 2.5) return clamp(projector, 0.0, 1.0);
-    if (uLightGobo < 3.5) return slit;
-    if (uLightGobo < 4.5) return sunset;
-    return edge;
+    float overcast = 0.58 + (1.0 - smoothstep(
+      focus * 0.52,
+      focus * 1.9,
+      length(q / vec2(1.45, 0.95))
+    )) * 0.42;
+
+    float moonCore = 1.0 - smoothstep(focus * 0.16, focus * 0.5, radial);
+    float moonHalo = 1.0 - smoothstep(focus * 0.48, focus * 1.24, radial);
+    float moon = clamp(moonCore + moonHalo * 0.28, 0.0, 1.0);
+
+    float sodium = (1.0 - smoothstep(
+      focus * 0.08,
+      focus * 0.34,
+      abs(q.x + q.y * 0.18)
+    )) * (1.0 - smoothstep(focus * 0.58, focus * 1.52, abs(q.y)));
+
+    float lanternFalloff = length(q / vec2(0.82, 1.0));
+    float lanternPulse = 1.0 + (
+      sin(uLightPhase * 3.0) * 0.56
+      + sin(uLightPhase * 7.0 + 0.8) * 0.29
+      + sin(uLightPhase * 11.0 + 1.7) * 0.15
+    ) * uLightBreath * 0.12;
+    float lantern = (1.0 - smoothstep(
+      focus * 0.12,
+      focus * 0.82,
+      lanternFalloff
+    )) * lanternPulse;
+
+    float ceiling = (1.0 - smoothstep(
+      focus * 0.055,
+      focus * 0.23,
+      abs(q.y + focus * 0.34)
+    )) * (1.0 - smoothstep(focus * 0.58, focus * 1.55, abs(q.x)));
+
+    float headlightLeft = 1.0 - smoothstep(
+      focus * 0.18,
+      focus * 0.9,
+      length((q - vec2(-focus * 0.2, 0.0)) / vec2(1.5, 0.42))
+    );
+    float headlightRight = 1.0 - smoothstep(
+      focus * 0.18,
+      focus * 0.9,
+      length((q - vec2(focus * 0.2, 0.0)) / vec2(1.5, 0.42))
+    );
+    float headlights = clamp(headlightLeft + headlightRight, 0.0, 1.0);
+
+    float selected = softbox;
+    if (uLightGobo < 0.5) selected = softbox;
+    else if (uLightGobo < 1.5) selected = window;
+    else if (uLightGobo < 2.5) selected = clamp(projector, 0.0, 1.0);
+    else if (uLightGobo < 3.5) selected = slit;
+    else if (uLightGobo < 4.5) selected = sunset;
+    else if (uLightGobo < 5.5) selected = edge;
+    else if (uLightGobo < 6.5) selected = overcast;
+    else if (uLightGobo < 7.5) selected = moon;
+    else if (uLightGobo < 8.5) selected = sodium;
+    else if (uLightGobo < 9.5) selected = clamp(lantern, 0.0, 1.0);
+    else if (uLightGobo < 10.5) selected = ceiling;
+    else selected = headlights;
+    return mix(softbox, selected, clamp(uGoboStrength, 0.0, 1.0));
   }
 
   void main() {
@@ -345,7 +415,7 @@ export const backgroundFragmentShader = /* glsl */ `
       color = mix(color, uAccent, slit * pulse * 0.28 * uIntensity);
     }
 
-    float lightField = authoredLightField(p) * uLightSpill * clamp(uLightingEnabled, 0.0, 1.0);
+    float lightField = authoredLightField(p) * uLightSpill * uLightIntensity * clamp(uLightingEnabled, 0.0, 1.0);
     color += uLightColor * lightField * (0.08 + uIntensity * 0.22);
 
     float vignette = 1.0 - smoothstep(0.18, 0.88, dot(p, p));
