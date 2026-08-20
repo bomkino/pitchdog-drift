@@ -18,9 +18,6 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
 def main() -> None:
     source = SOURCE.read_text(encoding="utf-8")
 
-    # Accept both the repository's inferred `as const` declaration and an
-    # explicitly annotated tuple. Migration code must follow the project, not
-    # demand that the project follow one formatter shape.
     source = replace_once(
         source,
         "r'const FLOWS:[^=]*=\\s*\\[[\\s\\S]*?\\];'",
@@ -28,14 +25,27 @@ def main() -> None:
         "FLOWS declaration matcher",
     )
 
-    # The current trust boundary uses `oneOf` and `number`; an older patcher
-    # expected `readEnum` and `readNumber`. Support both without weakening
-    # validation of explicitly supplied values.
     source = replace_once(
         source,
         "r'^(read(?:Enum|Number)\\()([^,\\n]+),'",
         "r'^((?:read(?:Enum|Number)|oneOf|number)\\()([^,\\n]+),'",
         "legacy extension validator matcher",
+    )
+
+    # Preserve `import type` when extending a type-only model import. Converting
+    # it to a runtime import would violate verbatim module syntax and create
+    # needless emitted dependencies.
+    source = replace_once(
+        source,
+        "rf'import\\s*\\{{(?P<body>.*?)\\}}\\s*from\\s*[\"\\\']{re.escape(module)}[\"\\\'];'",
+        "rf'import(?P<type>\\s+type)?\\s*\\{{(?P<body>.*?)\\}}\\s*from\\s*[\"\\\']{re.escape(module)}[\"\\\'];'",
+        "optional type-only model import matcher",
+    )
+    source = replace_once(
+        source,
+        'replacement = "import {\\n" + "\\n".join(lines).strip("\\n") + f\'\\n}} from "{module}";\'',
+        'replacement = "import" + (match.group("type") or "") + " {\\n" + "\\n".join(lines).strip("\\n") + f\'\\n}} from "{module}";\'',
+        "type-only model import reconstruction",
     )
 
     # A cloned percentage formatter may otherwise remove JSX closing braces.
@@ -45,8 +55,6 @@ def main() -> None:
         if not ("bank = re.sub(" in line and "100" in line)
     ) + "\n"
 
-    # Insert the spatial import after the complete final import statement,
-    # including multiline imports.
     old = '''        insertion = text.find("\\n", text.rfind("import ", 0, text.find("export ")))
         expect(insertion >= 0, "Could not find carousel import insertion")'''
     new = '''        imports = list(re.finditer(r'(?ms)^import\\b.*?;\\s*$', text[: text.find("export ")]))
@@ -60,8 +68,6 @@ def main() -> None:
         "carousel import splice",
     )
 
-    # Prefer the authored front-plane mesh over the shadow mesh when both are
-    # constructed in the pool factory.
     old_mesh = '''        mesh_match = re.search(r'\\bconst\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*new\\s+THREE\\.Mesh\\s*\\(', create_body)
         expect(mesh_match is not None, "Could not find slide mesh construction")'''
     new_mesh = '''        mesh_match = re.search(r'\\bconst\\s+(slide)\\s*=\\s*new\\s+THREE\\.Mesh\\s*\\(', create_body)
