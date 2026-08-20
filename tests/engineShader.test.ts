@@ -32,7 +32,9 @@ describe("custom shader output contract", () => {
     expect(slideFragmentShader).toContain("float softFocusPx");
     expect(slideFragmentShader).toContain("float highlight");
     expect(slideFragmentShader).toContain("setSaturation");
-    expect(slideFragmentShader).toContain("floor(uTime * 24.0)");
+    expect(slideFragmentShader).toContain("vec2 grainCoordinate");
+    expect(slideFragmentShader).not.toContain("uTime");
+    expect(slideVertexShader).not.toContain("uTime");
     expect(slideFragmentShader.match(/sampleSource\(/g)?.length ?? 0).toBeGreaterThanOrEqual(14);
   });
 
@@ -40,8 +42,21 @@ describe("custom shader output contract", () => {
     expect(backgroundFragmentShader).toContain("float variant = mod(floor(uSeed + 0.5), 4.0)");
     expect(backgroundFragmentShader).toContain("float fbm(vec2 p)");
     expect(backgroundFragmentShader).toContain("float dust");
-    expect(backgroundFragmentShader).toContain("floor(uPhase * 24.0)");
+    expect(backgroundFragmentShader).toContain("vec2 dustDrift");
+    expect(backgroundFragmentShader).toContain("vec2(uSeed * 0.37, uSeed * 0.19)");
     expect(backgroundFragmentShader.match(/variant </g)?.length ?? 0).toBeGreaterThanOrEqual(12);
+  });
+
+  it("pins slide texture and closes procedural motion on integer phase harmonics", () => {
+    expect(slideFragmentShader).toContain("floor(vUv * uSizePx * 0.58)");
+    expect(slideFragmentShader).not.toContain("gl_FragCoord");
+    expect(backgroundFragmentShader).not.toContain("floor(uPhase");
+
+    const harmonics = [...backgroundFragmentShader.matchAll(/phase\s*\*\s*([-+]?\d+(?:\.\d+)?)/g)];
+    expect(harmonics.length).toBeGreaterThan(0);
+    for (const harmonic of harmonics) {
+      expect(Number.isInteger(Number(harmonic[1]))).toBe(true);
+    }
   });
 
   it("never relies on undefined reversed literal smoothstep edges", () => {

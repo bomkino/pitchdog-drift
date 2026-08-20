@@ -14,7 +14,7 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 - Drag, wheel, keyboard, autoplay, pause, reverse, inertia, and seamless-output lock.
 - Custom stage, output, slide, and pinned-frame ratios.
 - Cover/contain fit, focal point, scale, spacing, depth, tilt, continuous corners, borders, shadows, focus lift, edge falloff, and drag weight.
-- A bounded lens-response system: velocity-linked directional smear, chromatic separation, soft focus, halation, saturation drift, gate weave, and mesh deformation. Motion settles cleanly at rest.
+- A bounded lens-response system: velocity-linked directional smear, chromatic separation, soft focus, halation, saturation drift, slide-locked registration, and mesh deformation. Motion settles cleanly at rest.
 - Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL, with four seeded procedural compositions inside the gradient, aura, paper, and void families.
 - Eighteen authored motion worlds spanning editorial, travel, horror, documentary, romance, music, classic cinema, thriller, holiday, fantasy, comedy, history, western, science fiction, crime, experimental horror, and human drama.
 - One optional pinned image or presenter video, off by default.
@@ -44,7 +44,7 @@ npm run test:e2e   # Real-browser media, WebGL, fallback, and portability checks
 
 ## Directing the image
 
-`Lens response` is deliberately one coherent master rather than six unrelated effect sliders. At zero, slides remain optically clean. As it rises, speed produces a trailing directional smear, a small RGB split, warmer highlight spread, slight desaturation, gate weave, and mesh flex. High settings are still bounded so typography remains readable and a paused composition does not keep wobbling.
+`Lens response` is deliberately one coherent master rather than six unrelated effect sliders. At zero, slides remain optically clean. As it rises, speed produces a trailing directional smear, a small RGB split, warmer highlight spread, slight desaturation, slide-locked registration, and mesh flex. High settings are still bounded so typography remains readable, paused frames stay still, reduced-motion masters do not shimmer, and seamless masters close cleanly.
 
 `World variation` changes the deterministic background seed. It alters the procedural composition—projector cone, prism wash, emulsion cloud, paper fold, eclipse, night streak, and related structures—without changing the selected colours. The same seed and time always render the same frame.
 

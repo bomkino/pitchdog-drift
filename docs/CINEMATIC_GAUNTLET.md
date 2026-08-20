@@ -34,13 +34,13 @@ The new shader uses the existing bounded `distortion` setting as a coherent **Le
 At each fragment:
 
 1. Normalize carousel velocity to `[-1, 1]`.
-2. Apply a small velocity-linked UV bend and gate weave.
+2. Apply a small velocity-linked UV bend and slide-locked registration offset.
 3. Accumulate seven trailing samples along the motion axis for directional smear.
 4. Sample red and blue at opposed offsets for a restrained chromatic split.
 5. Mix four cross-axis samples for soft focus.
 6. Spread warm colour only from highlights for halation.
 7. Ease saturation down slightly as speed rises.
-8. Quantize fine grain to a 24 fps film cadence.
+8. Pin fine microtexture to slide space so it travels with the frame instead of flickering over it.
 9. Draw the border after optical processing so the frame remains geometrically clean.
 
 ### Bounds
@@ -48,7 +48,7 @@ At each fragment:
 - Motion blur radius: at most `12 × speed × lensResponse` pixels before weighted trailing taps.
 - Chromatic offset: sub-pixel at quiet settings; a few pixels only in fast, aggressive worlds.
 - Soft focus: persists at a sub-pixel level in high-response worlds but does not animate at rest.
-- Gate weave: multiplied by velocity, so paused and reduced-motion frames stop moving.
+- Registration offset: multiplied by velocity and fixed to the slide, so paused and reduced-motion frames do not swim.
 - Presenter media: remains optically clean because its velocity and distortion uniforms stay at zero.
 - All output remains in the shader’s linear working space until the final sRGB conversion.
 
@@ -82,7 +82,7 @@ Each opaque family contains four deterministic compositions selected by `seed mo
 - **Paper:** fold, stain, archival bars, fogged emulsion.
 - **Void:** projector cone, breathing slit, eclipse corona, night-road streaks.
 
-Every family also receives sparse dust, restrained temporal grain, and aspect-correct vignette. `World variation` exposes the seed directly. The same settings and timestamp always produce the same frame.
+Every family also receives sparse dust, restrained static grain, and aspect-correct vignette. `World variation` exposes the seed directly. The same settings and timestamp always produce the same frame. In seamless mode, every animated background term is a closed periodic orbit, so the state at the loop boundary returns exactly.
 
 The shader uses compact value-noise FBM only where structure needs it. Solid avoids procedural field structure while retaining the global grain, dust, and vignette controls. Transparent bypasses the background scene entirely.
 
@@ -117,7 +117,6 @@ Regression tests require unique IDs and seeds, both axes and directions, all eig
 
 The Director panel now exposes previously hidden engine settings:
 
-- Autoplay.
 - Edge falloff.
 - Drag weight.
 - Background seed as World variation.
@@ -131,15 +130,16 @@ The Director panel now exposes previously hidden engine settings:
 | Failure | Guard |
 | --- | --- |
 | Typography becomes unreadable | Bounded sample radii; clean border drawn after optics; chroma mix capped |
-| Paused frame still swims | Dynamic weave/blur depend on velocity |
-| Reduced-motion export retains effects | Export velocity becomes zero; only sub-pixel static softness may remain |
+| Paused frame still swims | Dynamic registration/blur depend on velocity; microtexture is slide-locked |
+| Reduced-motion export retains effects | Export velocity becomes zero; only deliberate static softness and slide-locked texture may remain |
 | Pinned talking head becomes blurry | Presenter material keeps distortion and velocity at zero |
 | Seed makes exports nondeterministic | No runtime randomness; seed and analytic phase are uniforms |
-| Background becomes noise soup | Sparse dust, low grain ceiling, family-specific composition before texture |
+| Background becomes noise soup | Sparse dust, low grain ceiling, static grain, family-specific composition before texture |
 | New paths produce NaN/Infinity | Full axis/path sweep in deterministic evaluator tests |
 | Theme registry drifts from validation | Theme and flow unions derive from exported constant registries |
 | Custom shaders double-convert colour | One `colorspace_fragment` include after final output per fragment shader |
 | Large theme corpus becomes palette spam | Tests require path, direction, axis, speed, optics, seed, and background diversity |
+| Seamless master jumps at the cut | Background drift uses closed sine/cosine orbits and integer phase harmonics; slide texture has no time dependency |
 
 ## Gauntlet gates
 

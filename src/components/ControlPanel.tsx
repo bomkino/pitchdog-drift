@@ -138,7 +138,6 @@ export function ControlPanel({
       </InspectorGroup>
 
       <InspectorGroup title="Motion" eyebrow={`${settings.motion.speed.toFixed(2)} slides/s`} open>
-        <SwitchField label="Autoplay" checked={settings.motion.autoplay} hint="Pause remains available in the stage controls." onChange={(autoplay) => patch("motion", { autoplay })} />
         <Segmented label="Flow axis" value={settings.motion.axis} options={[{ value: "horizontal", label: "Horizontal" }, { value: "vertical", label: "Vertical" }]} onChange={(axis) => patch("motion", { axis })} />
         <Segmented label="Direction" value={settings.motion.direction} options={[{ value: -1 as const, label: "Reverse" }, { value: 1 as const, label: "Forward" }]} onChange={(direction) => patch("motion", { direction })} />
         <SelectField
@@ -167,7 +166,7 @@ export function ControlPanel({
           max={100}
           step={1}
           unit="%"
-          hint="One bounded master shapes directional blur, chromatic split, soft focus, halation, gate weave, and mesh bend. Motion settles cleanly when velocity reaches zero."
+          hint="One bounded master shapes directional blur, chromatic split, soft focus, halation, slide-locked registration, and mesh bend. Motion settles cleanly when velocity reaches zero."
           onChange={(value) => patch("motion", { distortion: value / 100 })}
         />
         <RangeField label="Focus pull" value={settings.motion.focusScale * 100} min={0} max={24} step={1} unit="%" hint="Gently lifts the frame nearest the playhead." onChange={(value) => patch("motion", { focusScale: value / 100 })} />
