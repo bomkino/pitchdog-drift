@@ -310,27 +310,28 @@ export function evaluateSlide(
 
   const tilt = Math.max(0, settings.motion.tilt) * DEG;
   const bank = clamp(settings.motion.bank, 0, 1);
-  const maximumBank = tilt * (0.42 + bank * 1.58);
+  const tangentLimit = (4 + Math.max(0, settings.motion.tilt) * 1.5) * DEG;
   const tangentRoll = Math.atan2(tangent.cross, Math.max(0.001, tangent.primary));
   const tangentPitch = Math.atan2(-tangent.z, Math.max(0.001, tangent.primary));
   const softTwist = Math.sin(normalized * Math.PI) * tilt * 0.18;
-  const bankStrength = bank;
+  const bankedRoll = clamp(tangentRoll, -tangentLimit, tangentLimit) * bank;
+  const bankedPitch = clamp(tangentPitch, -tangentLimit, tangentLimit) * bank;
+  const combinedLimit = tilt + tangentLimit * bank;
 
   let rotationX = 0;
   let rotationY = 0;
-  let rotationZ = clamp(tangentRoll * bankStrength + softTwist, -maximumBank, maximumBank);
+  let rotationZ = bankedRoll + softTwist;
   if (settings.motion.axis === "vertical") {
-    rotationX = clamp(tangentPitch * bankStrength, -maximumBank, maximumBank);
+    rotationX = bankedPitch;
   } else {
-    rotationY = clamp(-tangentPitch * bankStrength, -maximumBank, maximumBank);
+    rotationY = -bankedPitch;
   }
   if (settings.motion.flow === "helix" || settings.motion.flow === "orbit") {
-    rotationZ = clamp(
-      rotationZ + Math.sin(normalized * Math.PI * 1.15) * maximumBank * 0.34 * bank,
-      -maximumBank,
-      maximumBank,
-    );
+    rotationZ += Math.sin(normalized * Math.PI * 1.15) * tangentLimit * 0.34 * bank;
   }
+  rotationX = clamp(rotationX, -combinedLimit, combinedLimit);
+  rotationY = clamp(rotationY, -combinedLimit, combinedLimit);
+  rotationZ = clamp(rotationZ, -combinedLimit, combinedLimit);
 
   const focus = 1 - clamp(abs, 0, 1);
   const depthScale = clamp(1 + path.z / Math.max(1, visibleRadius) * 0.34, 0.62, 1.08);
