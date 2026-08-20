@@ -147,14 +147,31 @@ export function ControlPanel({
             { value: "ribbon", label: "Ribbon" },
             { value: "cylinder", label: "Cylinder" },
             { value: "tunnel", label: "Tunnel" },
+            { value: "helix", label: "Helix" },
+            { value: "orbit", label: "Orbit" },
+            { value: "cascade", label: "Cascade" },
+            { value: "lemniscate", label: "Figure eight" },
+            { value: "switchback", label: "Switchback" },
           ]}
           onChange={(flow) => patch("motion", { flow })}
+        />
+        <SelectField
+          label="Physics"
+          value={settings.motion.dynamics}
+          options={[
+            { value: "direct", label: "Direct" },
+            { value: "weighted", label: "Weighted" },
+            { value: "spring", label: "Spring" },
+            { value: "drift", label: "Drift" },
+          ]}
+          onChange={(dynamics) => patch("motion", { dynamics })}
         />
         <RangeField label="Speed" value={settings.motion.speed} min={0} max={1.5} step={0.01} decimals={2} unit="×" onChange={(speed) => patch("motion", { speed })} />
         <RangeField label="Curve" value={settings.motion.curvature * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("motion", { curvature: value / 100 })} />
         <RangeField label="Depth" value={settings.motion.depth * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("motion", { depth: value / 100 })} />
         <RangeField label="Tilt" value={settings.motion.tilt} min={0} max={18} step={0.5} decimals={1} unit="°" onChange={(tilt) => patch("motion", { tilt })} />
-        <RangeField label="Optical bend" value={settings.motion.distortion * 100} min={0} max={100} step={1} unit="%" hint="Velocity drives shader deformation; still frames return crisp." onChange={(value) => patch("motion", { distortion: value / 100 })} />
+        <RangeField label="Path banking" value={settings.motion.bank * 100} min={0} max={100} step={1} unit="%" hint="How strongly each slide follows the path tangent." onChange={(value) => patch("motion", { bank: value / 100 })} />
+        <RangeField label="Fabric flex" value={settings.motion.distortion * 100} min={0} max={100} step={1} unit="%" hint="Motion and material drive bounded deformation; zero returns the slide crisp." onChange={(value) => patch("motion", { distortion: value / 100 })} />
         <RangeField label="Focus lift" value={settings.motion.focusScale * 100} min={0} max={24} step={1} unit="%" onChange={(value) => patch("motion", { focusScale: value / 100 })} />
         <SwitchField label="Seamless export lock" checked={settings.motion.seamless} hint="Forces whole loops across master duration." onChange={(seamless) => patch("motion", { seamless })} />
         {settings.motion.seamless ? <RangeField label="Loops per master" value={settings.motion.seamlessLoops} min={1} max={6} step={1} onChange={(seamlessLoops) => patch("motion", { seamlessLoops })} /> : null}
@@ -163,10 +180,23 @@ export function ControlPanel({
 
       <InspectorGroup title="Surface" eyebrow={`${Math.round(settings.slide.smoothing * 100)}% smoothing`}>
         <Segmented label="Image fit" value={settings.slide.fit} options={[{ value: "cover", label: "Cover" }, { value: "contain", label: "Contain" }]} onChange={(fit) => patch("slide", { fit })} />
+        <SelectField
+          label="Material"
+          value={settings.slide.surface}
+          options={[
+            { value: "card", label: "Card · rigid" },
+            { value: "paper", label: "Paper · curled" },
+            { value: "silk", label: "Silk · folded" },
+            { value: "gel", label: "Gel · elastic" },
+          ]}
+          onChange={(surface) => patch("slide", { surface })}
+        />
         <RangeField label="Focal point X" value={settings.slide.focalX * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { focalX: value / 100 })} />
         <RangeField label="Focal point Y" value={settings.slide.focalY * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { focalY: value / 100 })} />
         <RangeField label="Corner radius" value={settings.slide.radius} min={0} max={180} step={1} unit=" px" onChange={(radius) => patch("slide", { radius })} />
         <RangeField label="Corner smoothing" value={settings.slide.smoothing * 100} min={0} max={100} step={1} unit="%" hint="60% is the familiar iOS-style continuous corner." onChange={(value) => patch("slide", { smoothing: value / 100 })} />
+
+        <RangeField label="3D thickness" value={settings.slide.thickness} min={0} max={32} step={0.5} decimals={1} unit=" px" hint="Scene-space edge depth; zero keeps the slide perfectly flat." onChange={(thickness) => patch("slide", { thickness })} />
         <RangeField label="Border" value={settings.slide.borderWidth} min={0} max={16} step={0.5} decimals={1} unit=" px" onChange={(borderWidth) => patch("slide", { borderWidth })} />
         <ColorField label="Border colour" value={settings.slide.borderColor} onChange={(borderColor) => patch("slide", { borderColor })} />
         <RangeField label="Border presence" value={settings.slide.borderOpacity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { borderOpacity: value / 100 })} />

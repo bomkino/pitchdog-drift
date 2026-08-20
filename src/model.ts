@@ -5,7 +5,19 @@ export const THEME_VERSION = "1.0.0";
 
 export type Axis = "horizontal" | "vertical";
 export type Direction = 1 | -1;
-export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel";
+export type Flow =
+  | "straight"
+  | "arc"
+  | "ribbon"
+  | "cylinder"
+  | "tunnel"
+  | "helix"
+  | "orbit"
+  | "cascade"
+  | "lemniscate"
+  | "switchback";
+export type DynamicsMode = "direct" | "weighted" | "spring" | "drift";
+export type SurfaceMode = "card" | "paper" | "silk" | "gel";
 export type ImageFit = "cover" | "contain";
 export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
 export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
@@ -22,10 +34,12 @@ export interface MotionSettings {
   autoplay: boolean;
   speed: number;
   flow: Flow;
+  dynamics: DynamicsMode;
   gap: number;
   curvature: number;
   depth: number;
   tilt: number;
+  bank: number;
   distortion: number;
   focusScale: number;
   edgeFade: number;
@@ -44,6 +58,8 @@ export interface SlideSettings {
   focalY: number;
   radius: number;
   smoothing: number;
+  surface: SurfaceMode;
+  thickness: number;
   borderWidth: number;
   borderColor: string;
   borderOpacity: number;
@@ -155,10 +171,12 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     autoplay: true,
     speed: 0.34,
     flow: "ribbon",
+    dynamics: "weighted",
     gap: 0.22,
     curvature: 0.36,
     depth: 0.18,
     tilt: 4.5,
+    bank: 0.58,
     distortion: 0.32,
     focusScale: 0.08,
     edgeFade: 0.28,
@@ -176,6 +194,8 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     focalY: 0.5,
     radius: 36,
     smoothing: 0.6,
+    surface: "paper",
+    thickness: 6,
     borderWidth: 1.5,
     borderColor: "#f0e6d4",
     borderOpacity: 0.42,

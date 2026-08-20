@@ -79,3 +79,7 @@ Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.
 Project-authored software and documentation are licensed under **GNU AGPL-3.0-or-later**. Original demo slides and synthetic test fixtures are **CC BY-SA 4.0**. Dependencies retain their own licenses. See [ASSET-LICENSE.md](ASSET-LICENSE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and [TRADEMARKS.md](TRADEMARKS.md).
 
 Fork it. Study it. Change it. Share the changes. Do not use the pitch.dog marks to make a fork look official.
+
+## Spatial fabric dynamics
+
+The `gauntlet/spatial-fabric-dynamics` line adds tangent-led spatial paths, four authored material surfaces, bounded inertial preview physics, and scene-space slide thickness while preserving timestamp-deterministic export. See [`docs/SPATIAL_FABRIC_GAUNTLET.md`](docs/SPATIAL_FABRIC_GAUNTLET.md) for the architecture, guardrails, and acceptance gates.

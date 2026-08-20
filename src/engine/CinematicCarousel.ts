@@ -18,6 +18,12 @@ import {
   slideVertexShader,
 } from "./shaders";
 
+import {
+  integrateMotionState,
+  surfaceModeIndex,
+  surfacePhaseAtTime,
+  SURFACE_PROFILES,
+} from "./spatialDynamics";
 const MAX_POOL_SIZE = 24;
 const TEXTURE_CACHE_LIMIT = 24;
 const PREVIEW_TEXTURE_EDGE = 2048;
@@ -39,6 +45,7 @@ interface TextureRecord {
 interface SlidePoolItem {
   group: THREE.Group;
   slide: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  shell: THREE.Mesh;
   shadow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   material: THREE.ShaderMaterial;
   shadowMaterial: THREE.ShaderMaterial;
@@ -217,6 +224,8 @@ export class CinematicCarousel {
   private elapsed = 0;
   private motionPosition = 0;
   private motionVelocity = 0;
+  private motionAcceleration = 0;
+  private activeExportMode = false;
   private paused = false;
   private dragging = false;
   private dragPointerId: number | null = null;
@@ -328,6 +337,16 @@ export class CinematicCarousel {
     const material = createSlideMaterial(this.placeholderTexture);
     const shadowMaterial = createShadowMaterial();
     const slide = new THREE.Mesh(this.geometry, material);
+    const shellMaterial = new THREE.MeshBasicMaterial({
+      color: 0x171513,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: true,
+    });
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), shellMaterial);
+    shell.position.z = -1;
+    shell.renderOrder = -1;
+    slide.add(shell);
     const shadow = new THREE.Mesh(this.geometry, shadowMaterial);
     slide.renderOrder = index * 2 + 2;
     shadow.renderOrder = index * 2 + 1;
@@ -335,7 +354,8 @@ export class CinematicCarousel {
     group.add(shadow, slide);
     group.visible = false;
     if (index < MAX_POOL_SIZE) this.track.add(group);
-    return { group, slide, shadow, material, shadowMaterial, assetKey: null };
+    return {
+ shell, group, slide, shadow, material, shadowMaterial, assetKey: null };
   }
 
   get capabilities(): EngineCapabilitySnapshot {
@@ -545,6 +565,7 @@ export class CinematicCarousel {
     const geometry = getSlideGeometry(this.settings);
     this.motionPosition += geometry.stride * amount * this.settings.motion.direction;
     this.motionVelocity = 0;
+    this.motionAcceleration = 0;
     this.renderPreview();
   }
 
@@ -674,8 +695,20 @@ export class CinematicCarousel {
     const desiredVelocity = autoplay ? this.settings.motion.direction * this.settings.motion.speed * geometry.stride : 0;
     if (!this.dragging) {
       const response = 1 - Math.exp(-delta * (autoplay ? 4.8 : 7.5));
-      this.motionVelocity += (desiredVelocity - this.motionVelocity) * response;
-      this.motionPosition += this.motionVelocity * delta;
+      const integratedMotion = integrateMotionState(
+        {
+          position: this.motionPosition,
+          velocity: this.motionVelocity,
+          acceleration: this.motionAcceleration,
+        },
+        desiredVelocity,
+        delta,
+        this.settings.motion.dynamics,
+        geometry.stride,
+      );
+      this.motionPosition = integratedMotion.position;
+      this.motionVelocity = integratedMotion.velocity;
+      this.motionAcceleration = integratedMotion.acceleration;
     }
   }
 
@@ -685,6 +718,7 @@ export class CinematicCarousel {
   }
 
   private renderInternal(time: number, distance: number, velocity: number, exportMode: boolean): void {
+    this.activeExportMode = exportMode;
     const geometry = getSlideGeometry(this.settings);
     const slotCount = getLogicalSlotCount(this.assets.length, geometry);
     const normalizedVelocity = this.reducedMotionPreview && !exportMode ? 0 : THREE.MathUtils.clamp(velocity / Math.max(1, geometry.stride), -1, 1);
@@ -758,9 +792,15 @@ export class CinematicCarousel {
     uniforms.uVelocity!.value = velocity;
     uniforms.uDistortion!.value = this.settings.motion.distortion;
     uniforms.uAxis!.value = this.settings.motion.axis === "horizontal" ? 0 : 1;
-    uniforms.uPhase!.value = logicalIndex;
-    uniforms.uTime!.value = time;
-
+    uniforms.uPhase!.value = surfaceModeIndex(this.settings.slide.surface) +
+      ((((logicalIndex % Math.max(1, this.assets.length)) + Math.max(1, this.assets.length)) %
+        Math.max(1, this.assets.length)) / Math.max(1, this.assets.length));
+    uniforms.uTime!.value = surfacePhaseAtTime(
+      this.settings,
+      time,
+      this.activeExportMode,
+      this.reducedMotionPreview,
+    );
     const shadowUniforms = item.shadowMaterial.uniforms;
     shadowUniforms.uSizePx!.value.set(width + shadowMargin * 2, height + shadowMargin * 2);
     shadowUniforms.uRadiusPx!.value = this.settings.slide.radius + shadowMargin * 0.35;
@@ -796,7 +836,15 @@ export class CinematicCarousel {
           this.callbacks.onError?.(error instanceof Error ? error.message : `Could not load ${asset.name}.`);
         });
     }
-  }
+  const surfaceProfile = SURFACE_PROFILES[this.settings.slide.surface];
+  const thickness = Math.max(0, this.settings.slide.thickness);
+  item.shell.visible = thickness > 0.05 && evaluated.opacity > 0.015;
+  item.shell.scale.set(0.998, 0.998, Math.max(0.1, thickness));
+  item.shell.position.z = -Math.max(0.1, thickness) * 0.5 - 0.6;
+  const shellMaterial = item.shell.material as THREE.MeshBasicMaterial;
+  shellMaterial.color.set(this.settings.slide.borderColor).multiplyScalar(surfaceProfile.edgeTone);
+  shellMaterial.opacity = Math.min(0.94, Math.max(0.08, evaluated.opacity * surfaceProfile.edgeOpacity));
+}
 
   private updatePresenterGeometry(time = this.elapsed): void {
     const settings = this.settings.presenter;
@@ -1094,6 +1142,8 @@ export class CinematicCarousel {
     this.textureCache.clear();
     this.placeholderTexture.dispose();
     this.pool.forEach((item) => {
+      item.shell.geometry.dispose();
+      (item.shell.material as THREE.Material).dispose();
       item.material.dispose();
       item.shadowMaterial.dispose();
     });

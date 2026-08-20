@@ -1,11 +1,13 @@
 export const slideVertexShader = /* glsl */ `
   varying vec2 vUv;
   varying float vWarp;
+  varying float vSurfaceLight;
 
   uniform float uVelocity;
   uniform float uDistortion;
   uniform float uAxis;
   uniform float uPhase;
+  uniform float uTime;
 
   void main() {
     vUv = uv;
@@ -13,11 +15,49 @@ export const slideVertexShader = /* glsl */ `
     float along = uAxis < 0.5 ? uv.x - 0.5 : uv.y - 0.5;
     float across = uAxis < 0.5 ? uv.y - 0.5 : uv.x - 0.5;
     float velocity = clamp(uVelocity, -1.0, 1.0);
-    float envelope = sin(uv.x * 3.14159265) * sin(uv.y * 3.14159265);
-    float warp = sin(along * 3.14159265 + uPhase * 0.15) * envelope * velocity * uDistortion;
-    transformed.z += warp * 72.0;
-    transformed.z += across * velocity * uDistortion * 18.0;
+    float direction = sign(velocity + 0.0001);
+    float edgeAlong = sin(uv.x * 3.14159265);
+    float edgeAcross = sin(uv.y * 3.14159265);
+    float envelope = max(0.0, edgeAlong * edgeAcross);
+    float surface = floor(max(0.0, uPhase));
+    float slidePhase = fract(uPhase) * 6.28318530718;
+    float phase = uTime + slidePhase;
+    float energy = clamp(abs(velocity) * 0.82 + 0.12, 0.0, 1.0) * uDistortion;
+    float warp = 0.0;
+    float shear = 0.0;
+
+    if (surface < 0.5) {
+      // Card: mostly rigid, with a restrained bow and a crisp torsional edge.
+      float bow = (1.0 - across * across * 4.0) * (1.0 - along * along * 3.4);
+      warp = bow * energy * 19.0 + across * along * direction * energy * 14.0;
+      shear = across * direction * energy * 0.004;
+    } else if (surface < 1.5) {
+      // Paper: cylindrical curl, slight buckle, no rubbery high-frequency wobble.
+      float curl = along * along * direction * 74.0;
+      float buckle = sin(along * 8.4 + phase) * envelope * 14.0;
+      warp = (curl + buckle) * energy * (0.68 + edgeAcross * 0.32);
+      shear = sin(across * 4.2 + phase) * envelope * energy * 0.006;
+    } else if (surface < 2.5) {
+      // Silk: broad travelling folds with pinned, quiet edges.
+      float foldA = sin(along * 10.0 - phase + across * 2.2);
+      float foldB = sin(along * 4.4 + phase * 2.0 - across * 7.0) * 0.48;
+      float bias = sin(across * 5.0 + phase) * 0.24;
+      warp = (foldA + foldB + bias) * envelope * energy * 48.0;
+      shear = (foldB + bias) * envelope * energy * 0.012;
+    } else {
+      // Gel: one coherent elastic mass, with a delayed velocity bulge.
+      float radius = length(vec2(along * 1.15, across));
+      float bulge = cos(radius * 7.4 - phase) * (1.0 - smoothstep(0.0, 0.72, radius));
+      float lag = velocity * along * 26.0;
+      warp = (bulge * 42.0 + lag) * energy * envelope;
+      shear = velocity * across * energy * 0.008;
+    }
+
+    if (uAxis > 0.5) transformed.x += shear;
+    else transformed.y += shear;
+    transformed.z += warp;
     vWarp = warp;
+    vSurfaceLight = clamp(0.5 + warp * 0.0065 + across * direction * energy * 0.18, 0.0, 1.0);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
   }
 `;
@@ -25,6 +65,7 @@ export const slideVertexShader = /* glsl */ `
 export const slideFragmentShader = /* glsl */ `
   varying vec2 vUv;
   varying float vWarp;
+  varying float vSurfaceLight;
 
   uniform sampler2D uMap;
   uniform float uTextureAspect;
@@ -41,7 +82,7 @@ export const slideFragmentShader = /* glsl */ `
   uniform float uVelocity;
   uniform float uDistortion;
   uniform float uAxis;
-  uniform float uTime;
+  uniform float uPhase;
 
   float roundedSuperellipseDistance(vec2 p, vec2 halfSize, float radius, float smoothing) {
     if (radius < 0.5) {
@@ -60,19 +101,12 @@ export const slideFragmentShader = /* glsl */ `
     vec2 scale = vec2(1.0);
     if (imageAspect > planeAspect) scale.x = planeAspect / imageAspect;
     else scale.y = imageAspect / planeAspect;
-    // A covered image samples only a sub-rectangle of the source. Move that
-    // rectangle through the complete crop slack so 0/1 can reach either edge.
-    // Texture UV origin is bottom-left; the director's Y origin is top-left.
     vec2 objectPosition = clamp(vec2(focal.x, 1.0 - focal.y), 0.0, 1.0);
     return uv * scale + objectPosition * (1.0 - scale);
   }
 
   vec2 containUv(vec2 uv, float planeAspect, float imageAspect, vec2 focal) {
     vec2 scale = vec2(1.0);
-    // scale is the fraction of the plane occupied by the contained image.
-    // Divide by that fraction so the unused axis lands outside 0..1 and can
-    // become a letterbox. Focal position aligns the intact image within that
-    // free space, matching object-position semantics without cropping it.
     if (imageAspect > planeAspect) scale.y = planeAspect / imageAspect;
     else scale.x = imageAspect / planeAspect;
     vec2 objectPosition = clamp(vec2(focal.x, 1.0 - focal.y), 0.0, 1.0);
@@ -108,14 +142,19 @@ export const slideFragmentShader = /* glsl */ `
       sampled.a = 1.0;
     }
 
-    float grain = (hash12(gl_FragCoord.xy + fract(uTime) * 113.0) - 0.5) * 0.018;
-    sampled.rgb += grain + abs(vWarp) * 0.025;
+    float fabricShade = mix(0.955, 1.055, vSurfaceLight);
+    float grazing = smoothstep(10.0, 54.0, abs(vWarp)) * 0.035;
+    sampled.rgb = sampled.rgb * fabricShade + grazing;
+
+    // Slide-locked grain: tactile, stable at rest, and closed at seamless cuts.
+    vec2 grainCell = floor(vUv * max(uSizePx, vec2(1.0)));
+    float grain = hash12(grainCell + vec2(fract(uPhase) * 41.0, fract(uPhase) * 73.0)) - 0.5;
+    sampled.rgb += grain * 0.012;
+
     vec3 color = mix(sampled.rgb, uBorderColor, borderMask * uBorderOpacity);
     float alpha = outerMask * sampled.a * uOpacity;
     if (alpha <= 0.001) discard;
     gl_FragColor = vec4(color, alpha);
-    // ShaderMaterial does not append Three's output transfer automatically.
-    // Everything above is linear; encode once for the renderer's sRGB target.
     #include <colorspace_fragment>
   }
 `;
@@ -203,7 +242,7 @@ export const backgroundFragmentShader = /* glsl */ `
       color = mix(uColorA, uColorB, gradient);
       color = mix(color, uAccent, softBlob(p, vec2(0.35 + cos(uPhase) * 0.08, -0.3), 0.7) * 0.32 * uIntensity);
     } else if (uMode < 2.5) {
-      vec2 centerA = vec2(cos(uPhase) * 0.34, sin(uPhase * 1.0) * 0.22);
+      vec2 centerA = vec2(cos(uPhase) * 0.34, sin(uPhase) * 0.22);
       vec2 centerB = vec2(cos(uPhase + 2.1) * 0.42, sin(uPhase + 1.4) * 0.3);
       float a = softBlob(p, centerA, 0.72);
       float b = softBlob(p, centerB, 0.62);
@@ -220,7 +259,7 @@ export const backgroundFragmentShader = /* glsl */ `
       color = mix(color, uAccent, slit * pulse * 0.28 * uIntensity);
     }
 
-    float vignette = smoothstep(0.88, 0.18, dot(p, p));
+    float vignette = 1.0 - smoothstep(0.18, 0.88, dot(p, p));
     color *= mix(1.0 - uVignette * 0.62, 1.0, vignette);
     float grain = (hash12(gl_FragCoord.xy + vec2(cos(uPhase), sin(uPhase)) * 97.0) - 0.5) * uGrain * 0.16;
     color += grain;
