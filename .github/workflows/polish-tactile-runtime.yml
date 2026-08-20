@@ -1,0 +1,106 @@
+name: Polish tactile sound runtime
+
+on:
+  push:
+    branches:
+      - gauntlet/tactile-foley-sound
+
+concurrency:
+  group: polish-tactile-runtime
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  polish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out current sound branch
+        uses: actions/checkout@v4
+        with:
+          ref: gauntlet/tactile-foley-sound
+          fetch-depth: 0
+
+      - name: Wait for sound integration
+        run: |
+          for attempt in $(seq 1 60); do
+            git fetch origin gauntlet/tactile-foley-sound
+            git reset --hard origin/gauntlet/tactile-foley-sound
+            if grep -q "class TactileSoundRuntime" src/sound/runtime.ts 2>/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+
+      - name: Respect reduced motion and vary live cues
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/sound/runtime.ts')
+          s = p.read_text()
+          if 'private cueSerial = 0;' not in s:
+              s = s.replace(
+                  '  private lastCueAt = 0;\n  private activeSources',
+                  '  private lastCueAt = 0;\n  private cueSerial = 0;\n  private activeSources',
+              )
+          if 'private canPlayAutomaticCue' not in s:
+              needle = '  async unlock(): Promise<void> {'
+              method = "  private canPlayAutomaticCue(): boolean {\n    if (!this.settings.respectReducedMotion || typeof window === 'undefined') return true;\n    return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;\n  }\n\n"
+              s = s.replace(needle, method + needle)
+          s = s.replace(
+              '  async audition(strength = 1): Promise<void> {\n    if (!this.settings.enabled || !this.settings.previewEnabled) return;',
+              '  async audition(strength = 1, automatic = false): Promise<void> {\n    if (!this.settings.enabled || !this.settings.previewEnabled) return;\n    if (automatic && !this.canPlayAutomaticCue()) return;',
+          )
+          s = s.replace(
+              "    const rendered = renderAuditionCue({\n      ...this.settings,\n      level: Math.min(1, this.settings.level * Math.max(0.36, strength)),\n    }, this.context.sampleRate);",
+              "    const cueSeed = (this.settings.seed + Math.imul(this.cueSerial++, 2_654_435_761)) >>> 0;\n    const rendered = renderAuditionCue({\n      ...this.settings,\n      seed: cueSeed,\n      level: Math.min(1, this.settings.level * Math.max(0.36, strength)),\n    }, this.context.sampleRate);",
+          )
+          for old, new in [
+              ('tactileSoundRuntime.audition(0.46)', 'tactileSoundRuntime.audition(0.46, true)'),
+              ('tactileSoundRuntime.audition(0.36 + velocity * 0.48)', 'tactileSoundRuntime.audition(0.36 + velocity * 0.48, true)'),
+              ('tactileSoundRuntime.audition(0.72)', 'tactileSoundRuntime.audition(0.72, true)'),
+              ('tactileSoundRuntime.audition(strength)', 'tactileSoundRuntime.audition(strength, true)'),
+              ("tactileSoundRuntime.audition(target.matches('input[type=\"range\"]') ? 0.38 : 0.58)", "tactileSoundRuntime.audition(target.matches('input[type=\"range\"]') ? 0.38 : 0.58, true)"),
+          ]:
+              s = s.replace(old, new)
+          p.write_text(s)
+          PY
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run full source gate
+        run: npm run check
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run complete browser gate
+        run: npm run test:e2e
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm -f .github/workflows/polish-tactile-runtime.yml
+          git config user.name "pitchdog-sound-bot"
+          git config user.email "pitchdog-sound-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(sound): respect reduced motion in live cues" || true
+          git fetch origin gauntlet/tactile-foley-sound
+          git rebase origin/gauntlet/tactile-foley-sound || (git rebase --abort && exit 1)
+          git push origin HEAD:gauntlet/tactile-foley-sound
+
+      - name: Keep PR ready after proven polish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr ready 10 || true
