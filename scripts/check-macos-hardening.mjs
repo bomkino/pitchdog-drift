@@ -26,6 +26,11 @@ const forbidMarkers = (path, markers) => {
 const broker = requireMarkers("macos/App/NativeFileBroker.swift", [
   "private let driftRenameExclusiveFlag: UInt32 = 0x00000004",
   "private struct FileIdentity: Equatable",
+  "let size: UInt64",
+  "let modificationSeconds: Int64",
+  "let modificationNanoseconds: Int64",
+  "let changeSeconds: Int64",
+  "let changeNanoseconds: Int64",
   "var committedEntries: [String: FileIdentity] = [:]",
   "releaseAfterFullRead: Bool",
   "enum WriteDisposition",
@@ -43,8 +48,10 @@ const broker = requireMarkers("macos/App/NativeFileBroker.swift", [
   "Commit-time frame collision unexpectedly overwrote a file",
   "Rollback deleted an unowned commit-time collision",
   "Rollback deleted a frame replaced after Drift committed it",
+  "Rollback deleted an in-place modified committed frame",
+  "In-place modified frame bytes changed during rollback",
   "A fully read sequence-frame grant remained live",
-  "Owned sequence-frame cleanup did not remove its exact committed inode",
+  "Owned sequence-frame cleanup did not remove its exact committed identity",
   "Aborted sequence write left a final frame behind",
   "fileGrants.removeAll()",
   "directoryGrants.removeAll()",
@@ -192,5 +199,5 @@ requireMarkers("macos/App/WebViewSelfTest.swift", [
 ]);
 
 console.log(
-  "macOS hardening contract passed: sequence commits are exclusive; rollback is inode-owned and preserves races or replacements; frame readback grants self-revoke; document boots, reloads, and failed navigations revoke capabilities; Finder projects cannot queue surprise replacement; native import grants are transactional; File-menu imports have static, unit, real-browser, and packaged-WKWebView evidence.",
+  "macOS hardening contract passed: sequence commits are exclusive; rollback is full-metadata-owned and preserves collisions, replacements, or in-place mutation; frame readback grants self-revoke; document boots, reloads, and failed navigations revoke capabilities; Finder projects cannot queue surprise replacement; native import grants are transactional; File-menu imports have static, unit, real-browser, and packaged-WKWebView evidence.",
 );
