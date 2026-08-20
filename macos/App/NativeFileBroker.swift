@@ -3,6 +3,11 @@ import Foundation
 
 private let driftRenameExclusiveFlag: UInt32 = 0x00000004 // RENAME_EXCL
 
+private struct FileIdentity: Equatable {
+    let device: UInt64
+    let inode: UInt64
+}
+
 private final class SecurityScope {
     let url: URL
     private let active: Bool
@@ -30,6 +35,8 @@ private final class FileGrant {
     let mimeType: String
     let mode: GrantMode
     let writeDisposition: WriteDisposition
+    let directoryToken: String?
+    let releaseAfterFullRead: Bool
     let scope: SecurityScope
     let createdAt = Date()
 
@@ -38,13 +45,17 @@ private final class FileGrant {
         url: URL,
         mimeType: String,
         mode: GrantMode,
-        writeDisposition: WriteDisposition
+        writeDisposition: WriteDisposition,
+        directoryToken: String?,
+        releaseAfterFullRead: Bool
     ) {
         self.token = token
         self.url = url
         self.mimeType = mimeType
         self.mode = mode
         self.writeDisposition = writeDisposition
+        self.directoryToken = directoryToken
+        self.releaseAfterFullRead = releaseAfterFullRead
         self.scope = SecurityScope(url: url)
     }
 }
@@ -54,6 +65,7 @@ private final class DirectoryGrant {
     let url: URL
     let scope: SecurityScope
     let createdAt = Date()
+    var committedEntries: [String: FileIdentity] = [:]
 
     init(token: String, url: URL) {
         self.token = token
@@ -69,6 +81,7 @@ private final class WriteSession {
     let destinationURL: URL
     let replacementDirectory: URL
     let writeDisposition: WriteDisposition
+    let directoryToken: String?
     var handle: FileHandle?
 
     init(
@@ -78,6 +91,7 @@ private final class WriteSession {
         destinationURL: URL,
         replacementDirectory: URL,
         writeDisposition: WriteDisposition,
+        directoryToken: String?,
         handle: FileHandle
     ) {
         self.token = token
@@ -86,6 +100,7 @@ private final class WriteSession {
         self.destinationURL = destinationURL
         self.replacementDirectory = replacementDirectory
         self.writeDisposition = writeDisposition
+        self.directoryToken = directoryToken
         self.handle = handle
     }
 }
@@ -115,7 +130,9 @@ final class NativeFileBroker {
             rawURL,
             mode: mode,
             suppliedMimeType: suppliedMimeType,
-            writeDisposition: .replaceOrCreate
+            writeDisposition: .replaceOrCreate,
+            directoryToken: nil,
+            releaseAfterFullRead: false
         )
     }
 
@@ -123,7 +140,9 @@ final class NativeFileBroker {
         _ rawURL: URL,
         mode: GrantMode,
         suppliedMimeType: String? = nil,
-        writeDisposition: WriteDisposition
+        writeDisposition: WriteDisposition,
+        directoryToken: String?,
+        releaseAfterFullRead: Bool
     ) throws -> JSONDictionary {
         let url = try ensureLocalFileURL(rawURL)
         let exists = fileManager.fileExists(atPath: url.path)
@@ -143,7 +162,9 @@ final class NativeFileBroker {
             url: url,
             mimeType: suppliedMimeType ?? mimeType(for: url),
             mode: mode,
-            writeDisposition: writeDisposition
+            writeDisposition: writeDisposition,
+            directoryToken: directoryToken,
+            releaseAfterFullRead: releaseAfterFullRead
         )
         fileGrants[token] = grant
         return try descriptor(for: grant)
@@ -177,6 +198,9 @@ final class NativeFileBroker {
 
     func releaseDirectory(_ payload: JSONDictionary) throws -> JSONDictionary {
         let token = try requiredString(payload, "token")
+        guard !writeSessions.values.contains(where: { $0.directoryToken == token }) else {
+            throw BridgeFailure("InvalidStateError", "That directory still has an active frame write.")
+        }
         directoryGrants.removeValue(forKey: token)
         return ["released": true]
     }
@@ -247,6 +271,7 @@ final class NativeFileBroker {
                 destinationURL: destinationURL,
                 replacementDirectory: replacementDirectory,
                 writeDisposition: grant.writeDisposition,
+                directoryToken: grant.directoryToken,
                 handle: handle
             )
             return [
@@ -346,6 +371,12 @@ final class NativeFileBroker {
                 )
             }
 
+            if session.writeDisposition == .createOnly,
+               let directoryToken = session.directoryToken,
+               let directory = directoryGrants[directoryToken] {
+                directory.committedEntries[session.destinationURL.lastPathComponent] = try identity(at: session.destinationURL)
+            }
+
             // Best-effort directory sync narrows the crash window after the
             // atomic rename. A valid committed file remains usable if a volume
             // refuses directory fsync.
@@ -417,6 +448,10 @@ final class NativeFileBroker {
         defer { try? handle.close() }
         try handle.seek(toOffset: offset)
         let data = try handle.read(upToCount: Int(safeLength)) ?? Data()
+        let end = offset + UInt64(data.count)
+        if grant.releaseAfterFullRead && end >= totalSize {
+            fileGrants.removeValue(forKey: token)
+        }
         return ["data": data.base64EncodedString(), "length": data.count]
     }
 
@@ -449,7 +484,9 @@ final class NativeFileBroker {
             return try registerFile(
                 fileURL,
                 mode: .readWrite,
-                writeDisposition: .createOnly
+                writeDisposition: .createOnly,
+                directoryToken: directoryToken,
+                releaseAfterFullRead: true
             )
         }
 
@@ -458,7 +495,13 @@ final class NativeFileBroker {
         }
         // Existing sequence entries may be inspected for collision/readback,
         // but a directory grant never turns them into replacement targets.
-        return try registerFile(fileURL, mode: .readOnly)
+        return try registerFile(
+            fileURL,
+            mode: .readOnly,
+            writeDisposition: .replaceOrCreate,
+            directoryToken: nil,
+            releaseAfterFullRead: true
+        )
     }
 
     func removeDirectoryEntry(_ payload: JSONDictionary) throws -> JSONDictionary {
@@ -475,12 +518,28 @@ final class NativeFileBroker {
         guard !writeSessions.values.contains(where: { $0.destinationURL == fileURL }) else {
             throw BridgeFailure("InvalidStateError", "That directory file is still being written.")
         }
+        guard let committedIdentity = directory.committedEntries[name] else {
+            throw BridgeFailure(
+                "NotAllowedError",
+                "Drift only removes numbered frames committed by this export. An unowned file was preserved."
+            )
+        }
         guard fileManager.fileExists(atPath: fileURL.path) else {
-            throw BridgeFailure("NotFoundError", "The requested file does not exist.")
+            directory.committedEntries.removeValue(forKey: name)
+            throw BridgeFailure("NotFoundError", "The requested file no longer exists.")
         }
         try rejectSymlink(fileURL, allowMissing: false)
         try rejectDirectory(fileURL, allowMissing: false)
+        let currentIdentity = try identity(at: fileURL)
+        guard currentIdentity == committedIdentity else {
+            directory.committedEntries.removeValue(forKey: name)
+            throw BridgeFailure(
+                "InvalidModificationError",
+                "The numbered frame changed after Drift committed it. The replacement file was preserved."
+            )
+        }
         try fileManager.removeItem(at: fileURL)
+        directory.committedEntries.removeValue(forKey: name)
         fileGrants = fileGrants.filter { $0.value.url != fileURL }
         return ["removed": true]
     }
@@ -524,6 +583,19 @@ final class NativeFileBroker {
             "InvalidModificationError",
             "The selected folder already contains \(name). Existing PNG sequence files are never overwritten."
         )
+    }
+
+    private func identity(at url: URL) throws -> FileIdentity {
+        var metadata = stat()
+        let result = url.path.withCString { path in Darwin.lstat(path, &metadata) }
+        guard result == 0 else {
+            let code = errno
+            throw BridgeFailure(
+                code == ENOENT ? "NotFoundError" : "InvalidStateError",
+                "Drift could not verify the committed file identity: \(String(cString: strerror(code)))."
+            )
+        }
+        return FileIdentity(device: UInt64(metadata.st_dev), inode: UInt64(metadata.st_ino))
     }
 
     private func cleanupFailedWriteSession(sessionToken: String, session: WriteSession) {
@@ -683,6 +755,12 @@ final class NativeFileBroker {
         guard Data(base64Encoded: read["data"] as! String) == frameBytes else {
             throw BridgeFailure("DataError", "Native readback self-test changed the output bytes.")
         }
+        do {
+            _ = try broker.fileInfo(["token": frameToken])
+            throw BridgeFailure("DataError", "A fully read sequence-frame grant remained live.")
+        } catch let failure as BridgeFailure where failure.name == "NotAllowedError" {
+            // Expected.
+        }
 
         let priorBytes = try Data(contentsOf: frameURL)
         do {
@@ -710,7 +788,7 @@ final class NativeFileBroker {
             ])
             throw BridgeFailure("DataError", "Existing directory entry became writable.")
         } catch let failure as BridgeFailure where failure.name == "NotAllowedError" {
-            // Expected.
+            _ = try broker.releaseFile(["token": readOnlyFrame["token"] as! String])
         }
 
         let racedURL = root.appendingPathComponent("drift_000002.png")
@@ -737,6 +815,41 @@ final class NativeFileBroker {
                 throw BridgeFailure("DataError", "Exclusive sequence commit changed the colliding file.")
             }
         }
+        do {
+            _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": racedURL.lastPathComponent])
+            throw BridgeFailure("DataError", "Rollback deleted an unowned commit-time collision.")
+        } catch let failure as BridgeFailure where failure.name == "NotAllowedError" {
+            guard try Data(contentsOf: racedURL) == intruder else {
+                throw BridgeFailure("DataError", "Unowned collision bytes changed during rollback.")
+            }
+        }
+
+        let replacedURL = root.appendingPathComponent("drift_000004.png")
+        let replacedDescriptor = try broker.directoryFile([
+            "token": directoryToken,
+            "name": replacedURL.lastPathComponent,
+            "create": true,
+        ])
+        let replacedToken = replacedDescriptor["token"] as! String
+        let replacedOpen = try broker.openWriteSession(["token": replacedToken, "keepExistingData": false])
+        let replacedSession = replacedOpen["session"] as! String
+        _ = try broker.writeChunk([
+            "session": replacedSession,
+            "position": 0,
+            "data": Data("owned-frame".utf8).base64EncodedString(),
+        ])
+        _ = try broker.closeWriteSession(["session": replacedSession])
+        try manager.removeItem(at: replacedURL)
+        let replacementBytes = Data("replacement-wins".utf8)
+        try replacementBytes.write(to: replacedURL)
+        do {
+            _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": replacedURL.lastPathComponent])
+            throw BridgeFailure("DataError", "Rollback deleted a frame replaced after Drift committed it.")
+        } catch let failure as BridgeFailure where failure.name == "InvalidModificationError" {
+            guard try Data(contentsOf: replacedURL) == replacementBytes else {
+                throw BridgeFailure("DataError", "Post-commit replacement bytes changed during rollback.")
+            }
+        }
 
         let abortedFrameURL = root.appendingPathComponent("drift_000003.png")
         let abortedDescriptor = try broker.directoryFile([
@@ -758,6 +871,9 @@ final class NativeFileBroker {
         }
 
         _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": frameURL.lastPathComponent])
+        guard !manager.fileExists(atPath: frameURL.path) else {
+            throw BridgeFailure("DataError", "Owned sequence-frame cleanup did not remove its exact committed inode.")
+        }
 
         do {
             _ = try broker.readFile(["token": token, "offset": 999, "length": 1])
@@ -806,6 +922,6 @@ final class NativeFileBroker {
             // Expected.
         }
 
-        print("Drift native file broker self-test passed: staged replacement, exclusive sequence commits, collision preservation, abort cleanup, capability revocation, traversal rejection, and readback hold.")
+        print("Drift native file broker self-test passed: staged replacement, exclusive sequence commits, inode-owned rollback, collision preservation, one-shot frame readback grants, abort cleanup, capability revocation, traversal rejection, and readback hold.")
     }
 }
