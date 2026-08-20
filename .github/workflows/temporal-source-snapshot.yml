@@ -1,4 +1,4 @@
-name: Temporal payload applicator
+name: Apply temporal direction source
 
 on:
   push:
@@ -9,13 +9,14 @@ permissions:
   contents: write
 
 concurrency:
-  group: temporal-payload-${{ github.ref }}
+  group: temporal-source-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply:
+  apply-and-verify:
+    if: ${{ hashFiles('scripts/apply_temporal_feel.py') != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
     steps:
       - name: Check out branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -23,32 +24,55 @@ jobs:
           ref: gauntlet/temporal-feel-direction
           fetch-depth: 0
 
-      - name: Check payload readiness
-        id: payload
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply reviewable source
+        run: python scripts/apply_temporal_feel.py
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck, unit-test, and build
+        run: npm run check
+
+      - name: Install Chromium runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run real-browser gauntlet
+        run: npm run test:e2e
+
+      - name: Remove recovery machinery
         shell: bash
         run: |
-          if [[ -f .github/temporal-payload.ready ]]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Apply verified temporal payload
-        if: steps.payload.outputs.ready == 'true'
-        shell: bash
-        run: |
-          cat .github/temporal-payload/part-* | base64 --decode > "$RUNNER_TEMP/temporal-product.tgz"
-          echo "acc515bb53f63115f768b1be5075ce8c6c1370c0755cddf04416756ac7a1f32e  $RUNNER_TEMP/temporal-product.tgz" | sha256sum --check --strict
-          tar -xzf "$RUNNER_TEMP/temporal-product.tgz" -C .
-
           rm -rf .github/temporal-payload
           rm -f .github/temporal-payload.ready
+          rm -f scripts/apply_temporal_feel.py
           rm -f .github/workflows/temporal-source-snapshot.yml
-
           git fetch origin main --depth=1
           git checkout origin/main -- .github/workflows/ci.yml
+          git diff --check
+
+      - name: Commit verified source
+        shell: bash
+        run: |
           git config user.name "pitch.dog temporal gauntlet"
           git config user.email "111725271+bomkino@users.noreply.github.com"
           git add -A
+          git diff --cached --check
           git commit -m "feat: direct cinematic temporal feel"
           git push origin HEAD:gauntlet/temporal-feel-direction
+
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: temporal-direction-failure-evidence
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
