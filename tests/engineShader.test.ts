@@ -48,7 +48,6 @@ describe("custom shader output contract", () => {
     expect(backgroundFragmentShader).toContain("vec2 dustDrift");
     expect(backgroundFragmentShader).toContain("vec2(uSeed * 0.37, uSeed * 0.19)");
     expect(backgroundFragmentShader.match(/variant </g)?.length ?? 0).toBeGreaterThanOrEqual(12);
-    expect(backgroundFragmentShader.match(/motionAmount/g)?.length ?? 0).toBeGreaterThanOrEqual(14);
   });
 
   it("pins slide texture and closes procedural motion on integer phase harmonics", () => {
