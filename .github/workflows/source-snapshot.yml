@@ -1,0 +1,29 @@
+name: Source snapshot
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Pack clean checkout
+        run: |
+          rm .github/workflows/source-snapshot.yml
+          tar --exclude=.git -czf /tmp/pitchdog-drift-main.tar.gz .
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pitchdog-drift-main-source
+          path: /tmp/pitchdog-drift-main.tar.gz
+          if-no-files-found: error
+          retention-days: 1
