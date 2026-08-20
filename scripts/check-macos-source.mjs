@@ -74,9 +74,11 @@ const webSources = [
   "src/components/MediaLibrary.tsx",
   "src/lib/macosAacEncoder.ts",
   "src/lib/nativeMac.ts",
+  "src/lib/projectMediaBudget.ts",
   "tests/macosAacEncoder.test.ts",
   "tests/macosExportProbe.ts",
   "tests/nativeMac.test.ts",
+  "tests/projectMediaBudget.test.ts",
 ];
 const required = [
   ...appSwift,
@@ -178,14 +180,34 @@ requireMarkers("src/App.tsx", [
   "installNativeMacAppBridge",
   "reportNativeMacClientState",
   "saveNativeMacBlob",
+  "selectProjectMediaWithinBudget(",
+  "projectMediaViolation(file.size, existingSlideBytes)",
+  "projectAssetBytes(",
   "imageInputRef={imageInputRef}",
   "presenterInputRef={presenterInputRef}",
 ]);
 requireMarkers("src/components/MediaLibrary.tsx", ["imageInputRef: RefObject", "presenterInputRef: RefObject"]);
 requireMarkers("src/lib/nativeMac.ts", ['lastNotice: state.lastNotice ? "present" : null']);
+requireMarkers("src/lib/projectStore.ts", [
+  "maxArchiveBytes: 96 * 1024 * 1024",
+  "maxAssetBytes: 64 * 1024 * 1024",
+  "maxTotalAssetBytes: 80 * 1024 * 1024",
+]);
+requireMarkers("src/lib/projectMediaBudget.ts", [
+  "DEFAULT_PROJECT_BUNDLE_LIMITS.maxAssetBytes",
+  "DEFAULT_PROJECT_BUNDLE_LIMITS.maxTotalAssetBytes",
+  "selectProjectMediaWithinBudget",
+  "projectMediaViolation",
+]);
 requireMarkers("tests/nativeMac.test.ts", [
   "without carrying confidential notice text into AppKit",
   "not.toContain(\"/Users/\")",
+]);
+requireMarkers("tests/projectMediaBudget.test.ts", [
+  "64 MiB",
+  "80 MiB",
+  "rejectedForBudget",
+  "rejectedForCount",
 ]);
 
 requireMarkers("macos/App/NativeModels.swift", [
@@ -203,6 +225,9 @@ requireMarkers("macos/App/NativeModels.swift", [
   ".suddenTerminationDisabled",
   "func end()",
   "runSelfTest()",
+  "driftMaximumProjectArchiveBytes: UInt64 = 96 * 1024 * 1024",
+  "driftMaximumProjectAssetBytes: UInt64 = 64 * 1024 * 1024",
+  "driftMaximumProjectTotalAssetBytes: UInt64 = 80 * 1024 * 1024",
 ]);
 requireMarkers("macos/App/NativeBridgeHost.swift", [
   "private let trustedIndexURL = TrustedWebRuntime.bundledIndexURL()",
@@ -212,6 +237,12 @@ requireMarkers("macos/App/NativeBridgeHost.swift", [
   "exportActivityGuard.update(isExporting: clientState.exportInProgress)",
   "exportActivityGuard.end()",
   "exportPowerAssertionActive",
+  "size <= driftMaximumProjectAssetBytes",
+  "total <= driftMaximumProjectTotalAssetBytes",
+  "fileSize(at: url) <= driftMaximumProjectArchiveBytes",
+  "projectAssetLimitBytes",
+  "projectTotalMediaLimitBytes",
+  "projectArchiveLimitBytes",
 ]);
 requireMarkers("macos/App/DriftAppDelegate.swift", [
   "private var trustedIndexURL: URL?",
@@ -326,5 +357,5 @@ requireMarkers(".github/workflows/macos-release.yml", [
 forbidMarkers(".github/workflows/macos-release.yml", ["ref: ${{ inputs.source_ref }}"]);
 
 console.log(
-  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge and surface trust, export power activity, stable-incident recovery, command parity, sandbox and codec boundaries, explicit native probes, and a non-publishing release-evidence lane.`,
+  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge and surface trust, export power activity, stable-incident recovery, portable-project media budget parity, command parity, sandbox and codec boundaries, explicit native probes, and a non-publishing release-evidence lane.`,
 );
