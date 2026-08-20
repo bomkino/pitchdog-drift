@@ -16,6 +16,7 @@ final class DriftAppDelegate: NSObject,
     private var trustedIndexURL: URL?
     private var nativeBridge: NativeBridgeHost?
     private var contentRuleList: WKContentRuleList?
+    private var userGuideController: NativeUserGuideController?
     private var preparingRuntime = false
     private var webRuntimeReady = false
     private var receivedAuthoritativeClientState = false
@@ -36,10 +37,16 @@ final class DriftAppDelegate: NSObject,
         invalidateRecoveryStabilityWindow()
         nativeBridge?.abortAllWrites()
         removeNativeMessageHandler()
+        userGuideController?.close()
+        userGuideController = nil
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        true
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -543,7 +550,8 @@ final class DriftAppDelegate: NSObject,
         let item = NSMenuItem()
         let menu = NSMenu(title: "Drift")
         item.submenu = menu
-        menu.addItem(withTitle: "About Drift", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let about = menu.addItem(withTitle: "About Drift", action: #selector(showAbout(_:)), keyEquivalent: "")
+        about.target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Copy Diagnostics", action: #selector(copyDiagnostics(_:)), keyEquivalent: "")
         menu.addItem(.separator())
@@ -731,12 +739,22 @@ final class DriftAppDelegate: NSObject,
         webView?.reload()
     }
 
+    @objc private func showAbout(_ sender: Any?) {
+        NativeAboutPanel.show()
+    }
+
     @objc private func openUserGuide(_ sender: Any?) {
-        guard let url = Bundle.main.url(forResource: "MACOS_USER_GUIDE", withExtension: "md", subdirectory: "Documentation") else {
-            NSSound.beep()
-            return
+        do {
+            if userGuideController == nil {
+                userGuideController = try NativeUserGuideController()
+            }
+            userGuideController?.present()
+        } catch {
+            presentWarning(
+                title: "The Drift User Guide could not open",
+                message: (error as? BridgeFailure)?.message ?? error.localizedDescription
+            )
         }
-        NSWorkspace.shared.open(url)
     }
 
     @objc private func openSource(_ sender: Any?) {
@@ -748,6 +766,7 @@ final class DriftAppDelegate: NSObject,
         let state = nativeBridge?.clientState ?? ClientState()
         let diagnostics = """
         Drift \(appVersionString())
+        Source revision: \(driftShortSourceRevision())
         macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)
         Architecture: \(currentArchitecture())
         Native bridge: \(driftBridgeVersion)
