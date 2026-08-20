@@ -1,0 +1,560 @@
+.director-entry {
+  position: fixed;
+  right: clamp(12px, 2vw, 24px);
+  bottom: max(66px, calc(env(safe-area-inset-bottom) + 58px));
+  z-index: 34;
+  min-width: 118px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  padding: 9px 12px 8px;
+  border: 1px solid rgba(231, 187, 151, 0.34);
+  border-radius: 2px;
+  color: #efe7dc;
+  background: rgba(14, 13, 12, 0.88);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.35),
+    inset 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(18px) saturate(0.82);
+  text-align: left;
+  cursor: pointer;
+}
+
+.director-entry:hover,
+.director-entry[aria-expanded="true"] {
+  border-color: rgba(239, 181, 139, 0.72);
+  background: rgba(29, 23, 19, 0.94);
+}
+
+.director-entry > span {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.director-entry > small {
+  color: #81786e;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 7px;
+  letter-spacing: 0.11em;
+}
+
+.intent-director {
+  position: fixed;
+  top: 58px;
+  right: clamp(12px, 2vw, 24px);
+  bottom: 58px;
+  z-index: 35;
+  width: min(438px, calc(100vw - 24px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  color: #d7d0c5;
+  background:
+    radial-gradient(circle at 84% 4%, rgba(173, 98, 58, 0.11), transparent 28%),
+    rgba(11, 11, 10, 0.975);
+  box-shadow:
+    0 34px 100px rgba(0, 0, 0, 0.66),
+    inset 0 1px rgba(255, 255, 255, 0.045);
+  backdrop-filter: blur(24px) saturate(0.76);
+}
+
+.intent-director-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 18px;
+  padding: 17px 18px 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  background: rgba(11, 11, 10, 0.94);
+  backdrop-filter: blur(18px);
+}
+
+.intent-director-header > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.intent-director-header span {
+  color: #a86b4d;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 7px;
+  letter-spacing: 0.16em;
+}
+
+.intent-director-header h2 {
+  max-width: 330px;
+  margin: 0;
+  color: #eee7dc;
+  font-size: 18px;
+  font-weight: 530;
+  letter-spacing: -0.025em;
+  line-height: 1.16;
+}
+
+.intent-director-header > button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 50%;
+  color: #9b9388;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.director-status {
+  min-height: 42px;
+  margin: 0;
+  padding: 11px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: #8e867c;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.director-section {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.director-section > summary {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.director-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.director-section > summary > span {
+  color: #cfc7bb;
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.director-section > summary > small,
+.director-section > summary > button {
+  color: #6d665e;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.director-section > summary > button {
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  cursor: pointer;
+}
+
+.director-section > summary::after {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  justify-self: end;
+  margin-bottom: 3px;
+  color: #4e4943;
+  content: "+";
+}
+
+.director-section[open] > summary::after {
+  content: "−";
+}
+
+.director-section > summary > small,
+.director-section > summary > button {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  margin-top: 6px;
+}
+
+.director-recipe-grid,
+.director-master-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 0 18px 18px;
+}
+
+.director-recipe-grid > button,
+.director-master-grid > button {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 2px;
+  color: #c9c1b5;
+  background: rgba(255, 255, 255, 0.018);
+  text-align: left;
+  cursor: pointer;
+}
+
+.director-recipe-grid > button {
+  min-height: 132px;
+}
+
+.director-recipe-grid > button:hover,
+.director-master-grid > button:hover,
+.director-pace-row > button:hover {
+  border-color: rgba(225, 155, 106, 0.42);
+  background: rgba(225, 155, 106, 0.045);
+}
+
+.director-recipe-grid strong,
+.director-master-grid strong,
+.director-pace-row strong {
+  color: #e5ddd2;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.director-recipe-grid span,
+.director-master-grid span {
+  color: #a69e94;
+  font-size: 9px;
+  line-height: 1.38;
+}
+
+.director-recipe-grid small,
+.director-master-grid small,
+.director-pace-row small {
+  color: #67615a;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.director-pace-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  padding: 0 18px 18px;
+}
+
+.director-pace-row > button {
+  min-width: 0;
+  min-height: 72px;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding: 9px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 2px;
+  color: #c9c1b5;
+  background: rgba(255, 255, 255, 0.016);
+  text-align: left;
+  cursor: pointer;
+}
+
+.director-guide-list {
+  display: grid;
+  padding: 0 18px 16px;
+}
+
+.director-guide-list > label {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+}
+
+.director-guide-list > label:first-child {
+  border-top: 0;
+}
+
+.director-guide-list > label > span {
+  display: grid;
+  gap: 3px;
+}
+
+.director-guide-list strong {
+  color: #bdb5aa;
+  font-size: 9px;
+  font-weight: 570;
+}
+
+.director-guide-list small {
+  color: #6f6961;
+  font-size: 8px;
+}
+
+.director-guide-list input {
+  width: 14px;
+  height: 14px;
+  accent-color: #aa6646;
+}
+
+.director-clear-guides {
+  justify-self: start;
+  margin-top: 9px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #8f877e;
+  background: transparent;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.director-audit-list {
+  display: grid;
+  padding: 0 18px 17px;
+}
+
+.director-audit-list article {
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.director-audit-list article:first-child {
+  border-top: 0;
+}
+
+.director-audit-mark {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #777067;
+}
+
+.director-audit-list article[data-tone="pass"] .director-audit-mark {
+  background: #7c947d;
+}
+
+.director-audit-list article[data-tone="warning"] .director-audit-mark {
+  background: #bd8752;
+}
+
+.director-audit-list article[data-tone="error"] .director-audit-mark {
+  background: #b65f56;
+}
+
+.director-audit-list article > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.director-audit-list strong {
+  color: #bbb3a8;
+  font-size: 9px;
+  font-weight: 580;
+}
+
+.director-audit-list small {
+  color: #6d675f;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.director-audit-list article > button {
+  padding: 5px 7px;
+  border: 1px solid rgba(225, 155, 106, 0.22);
+  color: #b98968;
+  background: rgba(225, 155, 106, 0.025);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 7px;
+  cursor: pointer;
+}
+
+.intent-director-footer {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 18px;
+}
+
+.intent-director-footer > button {
+  padding: 8px 10px;
+  border: 1px solid rgba(225, 155, 106, 0.28);
+  color: #d1aa8d;
+  background: rgba(225, 155, 106, 0.035);
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.intent-director-footer > span {
+  color: #5e5852;
+  font-size: 7px;
+  white-space: nowrap;
+}
+
+.intent-director kbd {
+  min-width: 17px;
+  display: inline-grid;
+  place-items: center;
+  margin: 0 1px;
+  padding: 2px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 2px;
+  color: #898178;
+  background: rgba(255, 255, 255, 0.025);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 7px;
+}
+
+.intent-director button:disabled {
+  opacity: 0.42;
+  cursor: progress;
+}
+
+.director-entry:focus-visible,
+.intent-director button:focus-visible,
+.intent-director input:focus-visible,
+.intent-director summary:focus-visible {
+  outline: 2px solid #d8966f;
+  outline-offset: 2px;
+}
+
+.director-guides {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.director-thirds {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent calc(33.333% - 0.5px), rgba(255, 236, 217, 0.34) calc(33.333% - 0.5px), rgba(255, 236, 217, 0.34) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px), transparent calc(66.666% - 0.5px), rgba(255, 236, 217, 0.34) calc(66.666% - 0.5px), rgba(255, 236, 217, 0.34) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px)),
+    linear-gradient(0deg, transparent calc(33.333% - 0.5px), rgba(255, 236, 217, 0.34) calc(33.333% - 0.5px), rgba(255, 236, 217, 0.34) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px), transparent calc(66.666% - 0.5px), rgba(255, 236, 217, 0.34) calc(66.666% - 0.5px), rgba(255, 236, 217, 0.34) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px));
+  mix-blend-mode: difference;
+}
+
+.director-title-safe,
+.director-caption-safe,
+.director-interface-safe {
+  position: absolute;
+  border: 1px solid rgba(255, 235, 214, 0.48);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.24);
+}
+
+.director-title-safe {
+  inset: 7%;
+}
+
+.director-caption-safe {
+  right: 7%;
+  bottom: 6%;
+  left: 7%;
+  height: 22%;
+  border-color: rgba(235, 187, 134, 0.58);
+  background: rgba(12, 10, 8, 0.08);
+}
+
+.director-interface-safe {
+  inset: 10% 11% 17% 7%;
+  border-style: dashed;
+  border-color: rgba(181, 204, 218, 0.58);
+}
+
+.director-title-safe span,
+.director-caption-safe span,
+.director-interface-safe span {
+  position: absolute;
+  top: 4px;
+  left: 5px;
+  padding: 2px 4px;
+  color: rgba(255, 244, 231, 0.76);
+  background: rgba(0, 0, 0, 0.36);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: clamp(5px, 0.7vw, 8px);
+  letter-spacing: 0.08em;
+}
+
+.director-caption-safe span {
+  color: rgba(244, 201, 154, 0.88);
+}
+
+.director-interface-safe span {
+  color: rgba(198, 222, 235, 0.86);
+}
+
+@media (max-width: 760px) {
+  .director-entry {
+    right: 10px;
+    bottom: max(58px, calc(env(safe-area-inset-bottom) + 52px));
+    min-width: 104px;
+    padding: 8px 10px;
+  }
+
+  .intent-director {
+    top: 8px;
+    right: 8px;
+    bottom: max(54px, calc(env(safe-area-inset-bottom) + 50px));
+    width: calc(100vw - 16px);
+  }
+
+  .director-recipe-grid,
+  .director-master-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .director-recipe-grid > button {
+    min-height: 104px;
+  }
+
+  .director-pace-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .intent-director-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 360px) {
+  .intent-director-header,
+  .director-status,
+  .director-section > summary,
+  .intent-director-footer {
+    padding-right: 13px;
+    padding-left: 13px;
+  }
+
+  .director-recipe-grid,
+  .director-master-grid,
+  .director-pace-row,
+  .director-guide-list,
+  .director-audit-list {
+    padding-right: 13px;
+    padding-left: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .director-entry,
+  .intent-director,
+  .intent-director button {
+    scroll-behavior: auto;
+    transition: none;
+  }
+}
