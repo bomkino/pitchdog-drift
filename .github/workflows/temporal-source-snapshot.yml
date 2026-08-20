@@ -1,0 +1,24 @@
+name: Temporal source snapshot
+
+on:
+  push:
+    branches:
+      - gauntlet/temporal-feel-direction
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+      - name: Pack source
+        run: tar --exclude=.git -czf temporal-source.tgz .
+      - name: Upload snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: temporal-source-snapshot
+          path: temporal-source.tgz
+          retention-days: 1
