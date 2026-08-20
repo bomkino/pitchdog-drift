@@ -58,7 +58,7 @@ fi
 rm -rf "${APP_BUNDLE}"
 mkdir -p "${MACOS_DIR}" "${WEB_DIR}" "${LEGAL_DIR}" "${DOCS_DIR}"
 cp macos/Info.plist "${CONTENTS_DIR}/Info.plist"
-cp macos/NativeBridge.js "${RESOURCES_DIR}/NativeBridge.js"
+cat macos/NativeBridge-*.inc.js > "${RESOURCES_DIR}/NativeBridge.js"
 cp -R dist/. "${WEB_DIR}/"
 cp LICENSE NOTICE ASSET-LICENSE.md THIRD_PARTY_NOTICES.md "${LEGAL_DIR}/"
 cp docs/MACOS_APP.md docs/MACOS_PRODUCT_CONTRACT.md docs/MACOS_USER_GUIDE.md docs/MACOS_QA.md docs/MACOS_THREAT_MODEL.md docs/MACOS_RELEASE_CHECKLIST.md "${DOCS_DIR}/"
@@ -99,7 +99,7 @@ for architecture in ${ARCHITECTURES}; do
     -framework UniformTypeIdentifiers \
     -framework WebKit \
     -Xlinker -dead_strip \
-    macos/DriftApp.swift \
+    macos/*.swift \
     -o "${binary}"
   BINARIES+=("${binary}")
 done

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { Script } from "node:vm";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (path) => readFileSync(resolve(root, path), "utf8");
@@ -15,8 +16,23 @@ const forbidText = (source, needle, label) => {
 
 const packageJson = JSON.parse(read("package.json"));
 const vite = read("vite.config.ts");
-const swift = read("macos/DriftApp.swift");
-const bridge = read("macos/NativeBridge.js");
+const swift = [
+  "macos/DriftMain.swift",
+  "macos/DriftAppDelegate.swift",
+  "macos/DriftMenus.swift",
+  "macos/DriftWebKit.swift",
+  "macos/NSAlert+Sheet.swift",
+  "macos/NativeSupport.swift",
+  "macos/NativeFileBroker.swift",
+  "macos/NativeBridgeHost.swift",
+].map(read).join("\n");
+const bridgeParts = [
+  "macos/NativeBridge-0.inc.js",
+  "macos/NativeBridge-1.inc.js",
+  "macos/NativeBridge-2.inc.js",
+];
+const bridge = bridgeParts.map(read).join("");
+new Script(bridge, { filename: "NativeBridge.js" });
 const info = read("macos/Info.plist");
 const entitlements = read("macos/Drift.entitlements");
 const build = read("scripts/build-macos-app.sh");
