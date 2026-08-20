@@ -8,14 +8,6 @@ function replaceRequired(path, search, replacement) {
   writeFileSync(path, source.replace(search, replacement), "utf8");
 }
 
-function replaceAllRequired(path, search, replacement) {
-  const source = readFileSync(path, "utf8");
-  if (!source.includes(search)) {
-    throw new Error(`Could not find required repeated target in ${path}: ${search.slice(0, 120)}`);
-  }
-  writeFileSync(path, source.replaceAll(search, replacement), "utf8");
-}
-
 const media = "src/components/MediaLibrary.tsx";
 
 replaceRequired(
@@ -206,7 +198,11 @@ writeFileSync(
 );
 
 const journeyDoc = "docs/USER_JOURNEY_GAUNTLET.md";
-replaceAllRequired(journeyDoc, "Autoplay", "Master motion");
-replaceAllRequired(journeyDoc, "autoplay", "master motion");
+const journeySource = readFileSync(journeyDoc, "utf8");
+writeFileSync(
+  journeyDoc,
+  journeySource.replaceAll("Autoplay", "Master motion").replaceAll("autoplay", "master motion"),
+  "utf8",
+);
 
 rmSync("scripts/gauntlet-fix-generated.mjs", { force: true });
