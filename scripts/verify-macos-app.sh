@@ -18,7 +18,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   fail "bundle verification requires macOS."
 fi
 
-for command in codesign lipo node otool plutil python3; do
+for command in codesign lipo node open otool plutil python3; do
   command -v "${command}" >/dev/null 2>&1 || fail "missing required command ${command}."
 done
 
@@ -180,7 +180,113 @@ fi
 
 "${EXECUTABLE}" --smoke-test
 "${EXECUTABLE}" --native-self-test
-"${EXECUTABLE}" --webview-self-test
+
+# A sandboxed GUI application is not faithfully exercised by invoking its Mach-O
+# directly from a shell. LaunchServices supplies the application/container/
+# WindowServer bootstrap that users actually receive. The app writes a bounded
+# receipt inside its own container; this verifier treats that receipt—not the
+# `open` command's exit code—as the authoritative result.
+RECEIPT_NAME="webview-self-test-$(date +%s)-${PPID}-${RANDOM}.json"
+python3 - "${APP_BUNDLE}" "${RECEIPT_NAME}" <<'PY'
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+app = Path(sys.argv[1]).resolve()
+receipt_name = sys.argv[2]
+home = Path.home()
+roots = [
+    home / "Library" / "Containers" / "dog.pitch.drift" / "Data" / "Library" / "Caches" / "Drift" / "SelfTests",
+    home / "Library" / "Caches" / "Drift" / "SelfTests",
+]
+for root in roots:
+    candidate = root / receipt_name
+    try:
+        candidate.unlink()
+    except FileNotFoundError:
+        pass
+
+command = [
+    "open",
+    "-W",
+    "-n",
+    str(app),
+    "--args",
+    "--webview-self-test",
+    f"--webview-self-test-report-name={receipt_name}",
+]
+try:
+    completed = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+except subprocess.TimeoutExpired as error:
+    raise SystemExit(f"Drift.app verification failed: LaunchServices WebView self-test timed out: {error}") from error
+
+# The app may terminate with a failing self-test while `open -W` still returns
+# zero. Conversely, LaunchServices diagnostics are useful when no receipt was
+# written. Poll only for filesystem propagation, never to hide a process crash.
+deadline = time.monotonic() + 8
+receipt_path: Path | None = None
+while time.monotonic() < deadline and receipt_path is None:
+    for root in roots:
+        candidate = root / receipt_name
+        if candidate.is_file():
+            receipt_path = candidate
+            break
+    if receipt_path is None:
+        time.sleep(0.1)
+
+if receipt_path is None:
+    container = home / "Library" / "Containers" / "dog.pitch.drift"
+    if container.is_dir():
+        matches = list(container.rglob(receipt_name))
+        if len(matches) == 1:
+            receipt_path = matches[0]
+
+if receipt_path is None:
+    raise SystemExit(
+        "Drift.app verification failed: LaunchServices produced no WebView receipt; "
+        f"open exit={completed.returncode}; stdout={completed.stdout!r}; stderr={completed.stderr!r}"
+    )
+
+try:
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+finally:
+    receipt_path.unlink(missing_ok=True)
+
+failures: list[str] = []
+def expect(condition: bool, message: str) -> None:
+    if not condition:
+        failures.append(message)
+
+expect(receipt.get("schemaVersion") == 1, "unknown receipt schema")
+expect(receipt.get("ok") is True, str(receipt.get("message") or "packaged WebView self-test failed"))
+expect(receipt.get("bundleIdentifier") == "dog.pitch.drift", "receipt has the wrong bundle identifier")
+expect(receipt.get("startedNavigation") is True, "packaged WebView never started navigation")
+expect(receipt.get("committedNavigation") is True, "packaged WebView never committed navigation")
+expect(receipt.get("finishedNavigation") is True, "packaged WebView never finished navigation")
+expect(int(receipt.get("contentProcessTerminationCount", 99)) <= 1, "WebKit content process terminated more than once")
+expect(receipt.get("saveState") == "saved", "React project state never settled to saved")
+expect(receipt.get("projectBusy") is False, "React project operation remained busy")
+expect(receipt.get("exportInProgress") is False, "React export remained in progress")
+
+if failures:
+    details = "; ".join(failures)
+    raise SystemExit(
+        "Drift.app verification failed: packaged LaunchServices/WebKit receipt did not hold: "
+        f"{details}; receipt={json.dumps(receipt, sort_keys=True)}"
+    )
+
+print("Drift packaged WebView self-test passed through LaunchServices.")
+PY
 
 printf 'Verified %s\n' "${APP_BUNDLE}"
 printf 'Bundle size: %s\n' "$(du -sh "${APP_BUNDLE}" | awk '{print $1}')"
