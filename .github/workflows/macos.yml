@@ -1,0 +1,90 @@
+name: macOS app
+
+on:
+  pull_request:
+    paths:
+      - "macos/**"
+      - "scripts/build-macos-app.sh"
+      - "scripts/check-macos-source.mjs"
+      - "scripts/generate-macos-icon.py"
+      - "scripts/package-macos-dmg.sh"
+      - "scripts/verify-macos-app.sh"
+      - "docs/MACOS_*.md"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - ".github/workflows/macos.yml"
+  push:
+    branches:
+      - feat/native-macos-studio
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Enforce native source contract
+        run: npm run check:mac-source
+
+  universal-app:
+    runs-on: macos-14
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify web and native source
+        run: npm run check
+
+      - name: Build sandboxed universal app
+        env:
+          DRIFT_SKIP_WEB_BUILD: "1"
+          DRIFT_BUILD_NUMBER: ${{ github.run_number }}
+          DRIFT_SOURCE_REVISION: ${{ github.sha }}
+        run: npm run build:mac
+
+      - name: Re-run signed bundle gauntlet
+        env:
+          DRIFT_EXPECT_ARCHS: arm64 x86_64
+        run: npm run verify:mac
+
+      - name: Exercise local install image
+        env:
+          DRIFT_SKIP_APP_BUILD: "1"
+        run: |
+          npm run package:mac
+          hdiutil verify build/macos/Drift.dmg
+
+      - name: Confirm no distributable was published
+        run: |
+          test -d build/macos/Drift.app
+          test -f build/macos/Drift.dmg
+          echo "Build evidence stays inside the ephemeral runner; no binary artifact is uploaded."

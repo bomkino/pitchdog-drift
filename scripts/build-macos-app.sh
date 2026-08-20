@@ -9,10 +9,13 @@ CONTENTS_DIR="${APP_BUNDLE}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 WEB_DIR="${RESOURCES_DIR}/Web"
+LEGAL_DIR="${RESOURCES_DIR}/Legal"
+DOCS_DIR="${RESOURCES_DIR}/Documentation"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/drift-macos.XXXXXX")"
 MINIMUM_MACOS="${DRIFT_MACOS_DEPLOYMENT_TARGET:-13.0}"
 ARCHITECTURES="${DRIFT_MACOS_ARCHS:-arm64 x86_64}"
 SIGNING_IDENTITY="${DRIFT_CODESIGN_IDENTITY:--}"
+ENTITLEMENTS="${ROOT_DIR}/macos/Drift.entitlements"
 
 cleanup() {
   rm -rf "${TEMP_DIR}"
@@ -31,17 +34,16 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-for command in node npm python3 xcrun lipo iconutil plutil codesign; do
+for command in node npm python3 xcrun lipo iconutil plutil codesign xattr; do
   require_command "${command}"
 done
 
 cd "${ROOT_DIR}"
-node --check macos/NativeBridge.js
-python3 -m py_compile scripts/generate-macos-icon.py
-bash -n scripts/build-macos-app.sh
 
-if [[ "${DRIFT_SKIP_WEB_BUILD:-0}" != "1" ]]; then
-  npm run build
+if [[ "${DRIFT_SKIP_WEB_BUILD:-0}" == "1" ]]; then
+  npm run check:mac-source
+else
+  npm run check
 fi
 
 if [[ ! -f dist/index.html ]]; then
@@ -54,17 +56,21 @@ if grep -Eq '(src|href)="/assets/' dist/index.html; then
 fi
 
 rm -rf "${APP_BUNDLE}"
-mkdir -p "${MACOS_DIR}" "${WEB_DIR}"
+mkdir -p "${MACOS_DIR}" "${WEB_DIR}" "${LEGAL_DIR}" "${DOCS_DIR}"
 cp macos/Info.plist "${CONTENTS_DIR}/Info.plist"
 cp macos/NativeBridge.js "${RESOURCES_DIR}/NativeBridge.js"
 cp -R dist/. "${WEB_DIR}/"
+cp LICENSE NOTICE ASSET-LICENSE.md THIRD_PARTY_NOTICES.md "${LEGAL_DIR}/"
+cp docs/MACOS_APP.md docs/MACOS_PRODUCT_CONTRACT.md docs/MACOS_USER_GUIDE.md docs/MACOS_QA.md docs/MACOS_THREAT_MODEL.md docs/MACOS_RELEASE_CHECKLIST.md "${DOCS_DIR}/"
 
 PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-BUILD_NUMBER="${DRIFT_BUILD_NUMBER:-1}"
+BUILD_NUMBER="${DRIFT_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || printf '1')}"
+SOURCE_REVISION="${DRIFT_SOURCE_REVISION:-$(git rev-parse --verify HEAD 2>/dev/null || printf 'unknown')}"
 plutil -replace CFBundleShortVersionString -string "${PACKAGE_VERSION}" "${CONTENTS_DIR}/Info.plist"
 plutil -replace CFBundleVersion -string "${BUILD_NUMBER}" "${CONTENTS_DIR}/Info.plist"
 plutil -replace LSMinimumSystemVersion -string "${MINIMUM_MACOS}" "${CONTENTS_DIR}/Info.plist"
-plutil -lint "${CONTENTS_DIR}/Info.plist"
+plutil -replace DriftSourceRevision -string "${SOURCE_REVISION}" "${CONTENTS_DIR}/Info.plist"
+plutil -lint "${CONTENTS_DIR}/Info.plist" "${ENTITLEMENTS}"
 
 ICONSET_DIR="${TEMP_DIR}/${APP_NAME}.iconset"
 python3 scripts/generate-macos-icon.py "${ICONSET_DIR}"
@@ -92,6 +98,7 @@ for architecture in ${ARCHITECTURES}; do
     -framework Foundation \
     -framework UniformTypeIdentifiers \
     -framework WebKit \
+    -Xlinker -dead_strip \
     macos/DriftApp.swift \
     -o "${binary}"
   BINARIES+=("${binary}")
@@ -103,16 +110,28 @@ else
   lipo -create "${BINARIES[@]}" -output "${MACOS_DIR}/${APP_NAME}"
 fi
 chmod 0755 "${MACOS_DIR}/${APP_NAME}"
+find "${RESOURCES_DIR}" -type f -exec chmod 0644 {} +
 
-xattr -cr "${APP_BUNDLE}" 2>/dev/null || true
+xattr -cr "${APP_BUNDLE}"
 if [[ "${SIGNING_IDENTITY}" == "-" ]]; then
-  codesign --force --sign - --timestamp=none "${APP_BUNDLE}"
+  codesign \
+    --force \
+    --options runtime \
+    --entitlements "${ENTITLEMENTS}" \
+    --sign - \
+    --timestamp=none \
+    "${APP_BUNDLE}"
 else
-  codesign --force --options runtime --sign "${SIGNING_IDENTITY}" --timestamp "${APP_BUNDLE}"
+  codesign \
+    --force \
+    --options runtime \
+    --entitlements "${ENTITLEMENTS}" \
+    --sign "${SIGNING_IDENTITY}" \
+    --timestamp \
+    "${APP_BUNDLE}"
 fi
-codesign --verify --deep --strict "${APP_BUNDLE}"
 
-"${MACOS_DIR}/${APP_NAME}" --smoke-test
+DRIFT_EXPECT_ARCHS="${ARCHITECTURES}" bash scripts/verify-macos-app.sh "${APP_BUNDLE}"
 
 printf '\nBuilt %s\n' "${APP_BUNDLE}"
 printf 'Architectures: %s\n' "$(lipo -archs "${MACOS_DIR}/${APP_NAME}")"
