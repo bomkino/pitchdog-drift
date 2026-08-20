@@ -1,11 +1,16 @@
 name: Temporary audit snapshot
 
 on:
+  pull_request:
   push:
     branches: [gauntlet/directors-cut-optical-pipeline]
 
 permissions:
   contents: read
+
+concurrency:
+  group: audit-snapshot-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   snapshot:
