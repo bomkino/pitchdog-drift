@@ -1,0 +1,96 @@
+name: Spatial fabric v3 gauntlet
+
+on:
+  push:
+    branches:
+      - gauntlet/spatial-fabric-dynamics
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: spatial-fabric-v3-gauntlet
+  cancel-in-progress: false
+
+jobs:
+  apply-prove-clean:
+    if: ${{ contains(github.event.head_commit.message, 'stage spatial fabric v3 gauntlet') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gauntlet/spatial-fabric-dynamics
+          fetch-depth: 0
+
+      - name: Apply the reviewed spatial implementation
+        run: |
+          python3 scripts/apply_spatial_v3.py
+          rm -f scripts/spatial_v3_payload_*.txt
+
+      - name: Commit inspectable candidate before validation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: spatial fabric v3 candidate"
+          git push origin HEAD:gauntlet/spatial-fabric-dynamics
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit and contract gauntlet
+        run: npm test -- --run
+
+      - name: Production build
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Rendered-pixel and interaction gauntlet
+        run: npm run test:e2e
+
+      - name: Diff hygiene
+        run: |
+          git diff --check HEAD^ HEAD
+          test -z "$(git status --porcelain)"
+
+      - name: Upload browser evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spatial-v3-playwright-evidence
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Remove one-shot machinery
+        run: |
+          rm -f \
+            .github/workflows/spatial-v3-gauntlet.yml \
+            scripts/apply_spatial_v3.py \
+            scripts/spatial_v3_payload_*.txt
+
+      - name: Commit clean verified product branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add -A
+          git commit -m "feat: spatial fabric v3 verified"
+          git push origin HEAD:gauntlet/spatial-fabric-dynamics
+          pr_url="$(gh pr list --repo bomkino/pitchdog-drift --head gauntlet/spatial-fabric-dynamics --state open --json url --jq '.[0].url')"
+          if [ -n "$pr_url" ]; then
+            gh pr comment "$pr_url" --body $'Spatial fabric v3 gauntlet passed.\n\n- deterministic TypeScript contracts\n- full unit suite\n- production build\n- rendered-pixel Playwright suite\n- direct-manipulation physics\n- pause stability\n- rounded lit sidewalls\n- one-shot machinery removed'
+          fi
