@@ -10,8 +10,12 @@ let driftMaximumWriteChunkBytes = 512 * 1024
 // Refuse a destination larger than the same readback ceiling before a user
 // spends minutes rendering an artifact Drift would have to neutralize later.
 let driftMaximumNativeOutputBytes: UInt64 = 512 * 1024 * 1024
-let driftMaximumImportFileBytes: UInt64 = 96 * 1024 * 1024
-let driftMaximumImageBatchBytes: UInt64 = 80 * 1024 * 1024
+// These three limits mirror DEFAULT_PROJECT_BUNDLE_LIMITS in projectStore.ts.
+// A native picker must never admit media that the verified portable-project
+// format cannot autosave, export, and reopen.
+let driftMaximumProjectArchiveBytes: UInt64 = 96 * 1024 * 1024
+let driftMaximumProjectAssetBytes: UInt64 = 64 * 1024 * 1024
+let driftMaximumProjectTotalAssetBytes: UInt64 = 80 * 1024 * 1024
 let driftMaximumGrantCount = 512
 let driftJavaScriptSafeInteger = 9_007_199_254_740_991.0
 
