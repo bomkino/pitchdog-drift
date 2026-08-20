@@ -80,7 +80,7 @@ requireMarkers("docs/MACOS_EXPORT_PRESENCE.md", [
   "The badge reads **EXPORT** only while Drift reports an authoritative active export.",
   "The badge is presence, not progress.",
   "No new renderer message, timer, DOM observer, polling loop, or high-frequency bridge event was added.",
-  "completion, cancellation, native abort, document reload, WebKit content-process termination, window teardown, and app termination",
+  "Completion, cancellation, native abort, document reload, WebKit content-process termination, window teardown, and app termination",
   "EXPORT\nclear",
   "Physical-Mac review",
   "is Drift still exporting?",
