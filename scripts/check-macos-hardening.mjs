@@ -180,7 +180,17 @@ requireMarkers("e2e/native-menu-import.e2e.ts", [
   "File-menu picker failure remains visible and operable",
   "Dismiss native file error",
 ]);
+requireMarkers("macos/App/WebViewSelfTest.swift", [
+  "private var webKitFileInputVerified = false",
+  "hasNativeFileInputBridge: document.documentElement.dataset.driftNativeFileInputBridge === 'ready'",
+  "testWebKitFileInputRoundTrip(in: webView)",
+  "new File([bytes], 'wkwebview-input-probe.png'",
+  "pollWebKitFileInputResult(",
+  "WKWebView DataTransfer reached the hidden input but never produced one settled React asset",
+  "WebKit DataTransfer file ingestion",
+  "\"webKitFileInputVerified\": webKitFileInputVerified",
+]);
 
 console.log(
-  "macOS hardening contract passed: sequence commits are exclusive; rollback is inode-owned and preserves races or replacements; frame readback grants self-revoke; document boots, reloads, and failed navigations revoke capabilities; Finder projects cannot queue surprise replacement; native import grants are transactional; and File-menu imports have static, unit, and real-browser evidence.",
+  "macOS hardening contract passed: sequence commits are exclusive; rollback is inode-owned and preserves races or replacements; frame readback grants self-revoke; document boots, reloads, and failed navigations revoke capabilities; Finder projects cannot queue surprise replacement; native import grants are transactional; File-menu imports have static, unit, real-browser, and packaged-WKWebView evidence.",
 );
