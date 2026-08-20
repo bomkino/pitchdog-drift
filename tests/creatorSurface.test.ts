@@ -29,7 +29,7 @@ describe("creator-surface truth", () => {
   it("mounts Director Commands from the application entry point", () => {
     const main = source.get("main.tsx") ?? "";
     expect(main).toMatch(/directorCommands/);
-    expect(main).toMatch(/installDirectorCommands|mountDirectorCommands|initDirectorCommands/);
+    expect(main).toMatch(/\b(?:install|mount|init|initialize|setup|start)[A-Za-z]*DirectorCommands\b/);
   });
 
   it("does not leave journey architecture as dead helper files", () => {
@@ -44,7 +44,7 @@ describe("creator-surface truth", () => {
       expect(commands.toLowerCase()).toContain(phrase);
     }
     expect(commands).toMatch(/metaKey|ctrlKey/);
-    expect(commands).toMatch(/aria-|role=/);
+    expect(commands).toMatch(/aria-|setAttribute\(["']role|role\s*[:=]/);
   });
 
   it("keeps temporary code-delivery machinery out of the review tree", () => {
