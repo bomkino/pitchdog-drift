@@ -1,8 +1,9 @@
-import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-const macosAacShim = fileURLToPath(new URL("./src/lib/macosAacEncoder.ts", import.meta.url));
+// Vite resolves root-relative replacements from the project root. Keeping this
+// as a plain string avoids adding Node type packages solely for one config path.
+const macosAacShim = "/src/lib/macosAacEncoder.ts";
 
 export default defineConfig(({ mode }) => ({
   // Drift.app loads the production bundle from its signed Resources directory.
@@ -11,8 +12,6 @@ export default defineConfig(({ mode }) => ({
   plugins: [react()],
   resolve: mode === "macos"
     ? {
-        // The browser build keeps Mediabunny's reviewed software AAC extension.
-        // The standalone app ships no FFmpeg WASM and uses system WebCodecs only.
         alias: {
           "@mediabunny/aac-encoder": macosAacShim,
         },
