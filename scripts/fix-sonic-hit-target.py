@@ -48,3 +48,22 @@ replace_once(
     'await expect(page.getByLabel("Master")).toHaveValue("0.41");',
     'await expect(page.getByRole("slider", { name: "Sound level", exact: true })).toHaveValue("0.41");',
 )
+
+# Blob and data URLs are in-memory browser resources, not outbound network
+# requests. The privacy assertion must reject only external HTTP(S) traffic.
+replace_once(
+    "e2e/studio.e2e.ts",
+    '''  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") externalRequests.push(request.url());
+  });''',
+    '''  page.on("request", (request) => {
+    const url = new URL(request.url());
+    const isNetworkRequest = url.protocol === "http:" || url.protocol === "https:";
+    if (
+      isNetworkRequest
+      && url.hostname !== "127.0.0.1"
+      && url.hostname !== "localhost"
+    ) externalRequests.push(request.url());
+  });''',
+)
