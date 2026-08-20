@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/gauntlet-synthesis.yml
       - scripts/gauntlet-synthesis.mjs
+      - scripts/gauntlet-fix-generated.mjs
 
 permissions:
   contents: write
@@ -37,6 +38,9 @@ jobs:
 
       - name: Synthesize the user journey onto the cinematic branch
         run: node scripts/gauntlet-synthesis.mjs
+
+      - name: Complete the generated media journey
+        run: node scripts/gauntlet-fix-generated.mjs
 
       - name: Install locked dependencies
         run: npm ci
