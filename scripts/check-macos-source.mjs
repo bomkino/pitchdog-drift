@@ -27,14 +27,12 @@ const forbidMarkers = (path, markers) => {
 const appSwift = [
   "macos/App/DriftAppDelegate.swift",
   "macos/App/DriftMain.swift",
-  "macos/App/ExportActivityGuard.swift",
   "macos/App/NativeAacEncoder.swift",
   "macos/App/NativeBridgeHost+Finder.swift",
   "macos/App/NativeBridgeHost.swift",
   "macos/App/NativeFileBroker.swift",
   "macos/App/NativeGauntlet.swift",
   "macos/App/NativeModels.swift",
-  "macos/App/TrustedWebRuntime.swift",
   "macos/App/WebViewSelfTest.swift",
 ];
 const probes = [
@@ -194,14 +192,12 @@ requireMarkers("macos/App/NativeModels.swift", [
   "struct WebContentRecoveryPolicy",
   "mutating func consumeAttempt() -> Bool",
   "present (content withheld)",
-]);
-requireMarkers("macos/App/TrustedWebRuntime.swift", [
+  "enum TrustedWebRuntime",
   "acceptsMainFrameURL",
   "resolvingSymlinksInPath()",
   "data document",
   "sibling document",
-]);
-requireMarkers("macos/App/ExportActivityGuard.swift", [
+  "final class ExportActivityGuard",
   "beginActivity(",
   ".idleSystemSleepDisabled",
   ".suddenTerminationDisabled",
