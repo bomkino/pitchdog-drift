@@ -179,7 +179,8 @@ codec_policy=system-frameworks-only
 video_codec=WKWebView-H264-capability-gated
 audio_codec=AudioToolbox-Apple-software-AAC-LC
 sandbox=user-selected-read-write
-network_entitlement=none
+network_entitlement=webkit-client-only
+application_network_policy=blocked
 EOF
 
 # The resource manifest is generated before signing. Code signing subsequently
@@ -228,5 +229,6 @@ printf '\nBuilt %s\n' "${APP_BUNDLE}"
 printf 'Architectures: %s\n' "$(lipo -archs "${MACOS_DIR}/${APP_NAME}")"
 printf 'Audio: Apple software AAC-LC through AudioToolbox\n'
 printf 'Video: WKWebView H.264, capability-gated and output-verified\n'
+printf 'Network: WebKit client entitlement present; application traffic blocked\n'
 printf 'Web bootstrap: classic IIFE, single boot-critical entry\n'
 printf 'Open with: open %q\n' "${APP_BUNDLE}"
