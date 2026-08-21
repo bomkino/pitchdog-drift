@@ -62,7 +62,7 @@ export function evaluateFrame(
   const motion = resolvedTrackMotion(project, track, previousTime);
   const sourceCount = project.media.order.length;
   const visibleMagnitude = Math.abs(track.visibleSlides);
-  const logicalSlot = Math.max(0, Math.floor(visibleMagnitude + track.cadence.focusHandoff + TIMELINE_EPSILON));
+  const logicalSlot = Math.max(0, track.cadence.cycle + (track.cadence.focusHandoff >= 0.5 ? 1 : 0));
   const currentSource = sourceIndex(logicalSlot, sourceCount);
   const previousSource = sourceIndex(logicalSlot - 1, sourceCount);
   const loopIndex = sourceCount > 0 ? Math.floor(track.rawSlides / sourceCount) : 0;
@@ -71,6 +71,7 @@ export function evaluateFrame(
   const trackPhase = sourceCount > 0
     ? positiveModulo(visibleMagnitude / sourceCount, 1) * TAU
     : 0;
+  const poseFps = poseCadenceFps(project.motion.cadence.poseCadence);
 
   const base: Omit<FrameEvaluation, "slides"> = {
     time: clampedTime,
@@ -90,8 +91,8 @@ export function evaluateFrame(
     },
     cadence: {
       beat: track.cadence.beat,
-      poseIndex: poseCadenceFps(project.motion.cadence.poseCadence)
-        ? Math.floor(track.poseTime * (poseCadenceFps(project.motion.cadence.poseCadence) ?? 1) + TIMELINE_EPSILON)
+      poseIndex: poseFps
+        ? Math.floor(track.poseTime * poseFps + TIMELINE_EPSILON)
         : null,
       holdProgress: track.cadence.beatProgress,
       focusHandoff: track.cadence.focusHandoff,
@@ -109,7 +110,9 @@ export function evaluateFrame(
     },
     events: previousTime === null
       ? clampedTime <= TIMELINE_EPSILON ? planSemanticEvents(project, 0, 0) : []
-      : planSemanticEvents(project, Math.max(0, previousTime), clampedTime),
+      : previousTime <= clampedTime
+        ? planSemanticEvents(project, Math.max(0, previousTime), clampedTime)
+        : [],
   };
 
   const slides = options.spatialEvaluator?.({ project, sourceCount, track, frame: base }) ?? [];
