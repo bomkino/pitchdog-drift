@@ -34,6 +34,21 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Publish runner-started receipt
+        shell: bash
+        run: |
+          cat > docs/.native-authority-gauntlet-running <<EOF
+          workflow=codex-prove-native-document-authority
+          source=${GITHUB_SHA}
+          runner=${RUNNER_OS}-${RUNNER_ARCH}
+          state=running
+          EOF
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add docs/.native-authority-gauntlet-running
+          git commit -m "chore(mac): record authority gauntlet start"
+          git push origin HEAD:feat/native-macos-document-authority
+
       - name: Repair stale assumptions and apply authority model
         shell: bash
         run: |
@@ -69,8 +84,6 @@ jobs:
                   raise SystemExit(f'Could not locate replace_once end for {marker!r}')
               return text[:start] + text[end + 1:]
 
-          # Current NativeDocumentSession already validates before cancellation.
-          # Remove transformations written against an older source shape.
           source = remove_replace_block(
               source,
               "'''    func claimBootstrap(rawNonce: String) throws -> NativeDocumentTicket {",
@@ -106,7 +119,7 @@ jobs:
           exec(compiled, namespace, namespace)
           PY
 
-      - name: Run source, unit, browser, and production-build gauntlet
+      - name: Run source, unit, and production-build gauntlet
         run: npm run check
 
       - name: Build and verify the signed local app
@@ -118,6 +131,7 @@ jobs:
       - name: Remove temporary transport and commit only proven source
         shell: bash
         run: |
+          rm docs/.native-authority-gauntlet-running
           rm .github/workflows/codex-native-document-authority.yml
           rm .github/workflows/codex-repair-document-authority-runner.yml
           git config user.name "pitch.dog"
