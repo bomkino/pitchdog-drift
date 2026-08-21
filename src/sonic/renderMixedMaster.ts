@@ -5,10 +5,23 @@ const MIX_SAMPLE_RATE = 48_000;
 const MIX_CHANNELS = 2;
 const DUCK_ATTACK_SECONDS = 0.025;
 const DUCK_RELEASE_SECONDS = 0.12;
+const ACTIVITY_WINDOW_SECONDS = 0.02;
+const MIN_ACTIVITY_RMS = 0.0015;
 
 export interface PresenterCoverageInterval {
   start: number;
   end: number;
+}
+
+export interface PresenterActivityWindow extends PresenterCoverageInterval {
+  rms: number;
+}
+
+export interface ReadablePresenterBuffer {
+  readonly sampleRate: number;
+  readonly length: number;
+  readonly numberOfChannels: number;
+  getChannelData(channel: number): Float32Array;
 }
 
 export interface MixedPresenterMasterOptions {
@@ -61,9 +74,105 @@ async function renderInterruptibly(
 }
 
 /**
- * Combines decoded presenter coverage into stable dialogue regions. Brief codec
- * packet gaps stay ducked to avoid pumping; meaningful pauses remain available
- * for the tactile bed to breathe at full level.
+ * Measures short-window decoded energy. This distinguishes real narration from
+ * zero-filled decoder coverage: some media sinks return a continuous AudioBuffer
+ * across packet gaps, so timestamps alone are not a voice-activity signal.
+ */
+export function measurePresenterActivity(
+  buffer: ReadablePresenterBuffer,
+  sourceOffset: number,
+  segmentDuration: number,
+  outputStart: number,
+): PresenterActivityWindow[] {
+  if (
+    !buffer
+    || !Number.isFinite(buffer.sampleRate)
+    || buffer.sampleRate <= 0
+    || !Number.isInteger(buffer.length)
+    || buffer.length <= 0
+    || !Number.isInteger(buffer.numberOfChannels)
+    || buffer.numberOfChannels <= 0
+    || !Number.isFinite(sourceOffset)
+    || !Number.isFinite(segmentDuration)
+    || !Number.isFinite(outputStart)
+    || segmentDuration <= 0
+  ) return [];
+
+  const channels = Array.from(
+    { length: buffer.numberOfChannels },
+    (_, channel) => buffer.getChannelData(channel),
+  );
+  if (channels.some((channel) => (
+    !(channel instanceof Float32Array) || channel.length !== buffer.length
+  ))) return [];
+
+  const firstFrame = clamp(
+    Math.floor(Math.max(0, sourceOffset) * buffer.sampleRate),
+    0,
+    buffer.length,
+  );
+  const lastFrame = clamp(
+    Math.ceil((Math.max(0, sourceOffset) + segmentDuration) * buffer.sampleRate),
+    firstFrame,
+    buffer.length,
+  );
+  const windowFrames = Math.max(
+    1,
+    Math.round(ACTIVITY_WINDOW_SECONDS * buffer.sampleRate),
+  );
+  const windows: PresenterActivityWindow[] = [];
+
+  for (let startFrame = firstFrame; startFrame < lastFrame; startFrame += windowFrames) {
+    const endFrame = Math.min(lastFrame, startFrame + windowFrames);
+    let squareSum = 0;
+    let sampleCount = 0;
+    for (const channel of channels) {
+      for (let frame = startFrame; frame < endFrame; frame += 1) {
+        const value = channel[frame]!;
+        squareSum += value * value;
+        sampleCount += 1;
+      }
+    }
+    const relativeStart = (startFrame - firstFrame) / buffer.sampleRate;
+    const relativeEnd = (endFrame - firstFrame) / buffer.sampleRate;
+    windows.push({
+      start: outputStart + relativeStart,
+      end: outputStart + relativeEnd,
+      rms: sampleCount > 0 ? Math.sqrt(squareSum / sampleCount) : 0,
+    });
+  }
+  return windows;
+}
+
+/**
+ * Uses an adaptive threshold: absolute silence stays silent, a measured noise
+ * floor does not permanently duck foley, and genuinely quiet speech still
+ * receives protection. The threshold is capped below the strongest region so
+ * a valid but low-level track cannot classify itself entirely inactive.
+ */
+export function getPresenterActivityThreshold(
+  windows: readonly PresenterActivityWindow[],
+): number {
+  const levels = windows
+    .map((window) => window.rms)
+    .filter((level) => Number.isFinite(level) && level >= 0)
+    .sort((a, b) => a - b);
+  if (levels.length === 0) return Number.POSITIVE_INFINITY;
+  const maximum = levels.at(-1)!;
+  if (maximum < MIN_ACTIVITY_RMS) return Number.POSITIVE_INFINITY;
+  const noiseFloor = levels[Math.floor((levels.length - 1) * 0.2)] ?? 0;
+  const candidate = Math.max(
+    MIN_ACTIVITY_RMS,
+    noiseFloor * 2.5,
+    maximum * 0.06,
+  );
+  return Math.min(candidate, maximum * 0.65);
+}
+
+/**
+ * Combines voice-active windows into stable dialogue regions. Brief codec or
+ * consonant gaps stay ducked to avoid pumping; meaningful pauses remain
+ * available for the tactile bed to breathe at full level.
  */
 export function mergePresenterCoverage(
   intervals: readonly PresenterCoverageInterval[],
@@ -96,6 +205,18 @@ export function mergePresenterCoverage(
   return merged;
 }
 
+export function getPresenterVoiceRegions(
+  windows: readonly PresenterActivityWindow[],
+  duration: number,
+): PresenterCoverageInterval[] {
+  const threshold = getPresenterActivityThreshold(windows);
+  if (!Number.isFinite(threshold)) return [];
+  return mergePresenterCoverage(
+    windows.filter((window) => window.rms >= threshold),
+    duration,
+  );
+}
+
 function scheduleUnderVoiceEnvelope(
   gain: AudioParam,
   coverage: readonly PresenterCoverageInterval[],
@@ -126,10 +247,10 @@ function scheduleUnderVoiceEnvelope(
 /**
  * Builds one exact-duration 48 kHz stereo master before AAC encoding.
  *
- * Presenter buffers retain their real timestamps, including intentional gaps.
- * The tactile bed spans the complete export independently, so foley cannot
- * disappear merely because a presenter packet is absent. Routing through a
- * stereo offline context also preserves lateral motion when narration is mono.
+ * Presenter buffers retain their real timestamps. Voice activity is measured
+ * from decoded PCM rather than inferred from packet coverage, so zero-filled
+ * gaps release the tactile bed. Routing through a stereo offline context also
+ * preserves lateral motion when narration is mono.
  */
 export async function renderMixedPresenterMaster(
   options: MixedPresenterMasterOptions,
@@ -185,7 +306,7 @@ export async function renderMixedPresenterMaster(
   const rangeStart = options.timelineStart;
   const rangeEnd = rangeStart + options.duration;
   const sink = new AudioBufferSink(options.track);
-  const presenterCoverage: PresenterCoverageInterval[] = [];
+  const activityWindows: PresenterActivityWindow[] = [];
   let scheduledBuffers = 0;
   let coveredUntil = 0;
 
@@ -216,7 +337,12 @@ export async function renderMixedPresenterMaster(
       outputStart + segmentDuration,
     );
     presenterSource.start(outputStart, sourceOffset, segmentDuration);
-    presenterCoverage.push({ start: outputStart, end: outputEnd });
+    activityWindows.push(...measurePresenterActivity(
+      wrapped.buffer,
+      sourceOffset,
+      segmentDuration,
+      outputStart,
+    ));
     scheduledBuffers += 1;
     coveredUntil = Math.max(coveredUntil, outputEnd);
     options.onPresenterCoverage?.(Math.min(coveredUntil, options.duration));
@@ -226,13 +352,9 @@ export async function renderMixedPresenterMaster(
     throw new Error("Presenter declares audio, but no decodable samples cover this export.");
   }
 
-  const coverage = mergePresenterCoverage(
-    presenterCoverage,
-    options.duration,
-  );
   scheduleUnderVoiceEnvelope(
     tactileGain.gain,
-    coverage,
+    getPresenterVoiceRegions(activityWindows, options.duration),
     options.soundtrackGain,
     options.duration,
   );
