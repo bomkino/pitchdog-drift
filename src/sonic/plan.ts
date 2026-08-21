@@ -41,6 +41,7 @@ function paletteSeed(palette: SonicPalette): number {
   switch (palette) {
     case "cinematic": return 0x3f21;
     case "paper": return 0x7a11;
+    case "editorial": return 0x5e93;
     case "studio":
     default: return 0x1c87;
   }
@@ -50,6 +51,7 @@ function paletteRate(palette: SonicPalette): number {
   switch (palette) {
     case "cinematic": return 0.94;
     case "paper": return 1.04;
+    case "editorial": return 1.02;
     case "studio":
     default: return 1;
   }
