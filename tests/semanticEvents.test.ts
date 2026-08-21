@@ -38,8 +38,19 @@ describe("semantic timeline events", () => {
     expect(second).toEqual(first);
     expect(first.filter((event) => event.type === "focus-handoff")).toHaveLength(4);
     expect(first.filter((event) => event.type === "loop-boundary")).toHaveLength(1);
-    expect(first.at(0)?.type).toBe("master-start");
+    expect(first.filter((event) => event.type === "master-start")).toHaveLength(0);
     expect(first.at(-1)?.type).toBe("master-finish");
+  });
+
+  it("emits master start only for the exact initial frame", () => {
+    const project = seamlessProject();
+    expect(planSemanticEvents(project, 0, 0).map((event) => event.type)).toEqual(["master-start"]);
+    expect(planSemanticEvents(project, 0, 1 / 30).some((event) => event.type === "master-start")).toBe(false);
+  });
+
+  it("suppresses automatic passage events while scrubbing backward", () => {
+    const project = seamlessProject();
+    expect(planSemanticEvents(project, 4, 2)).toEqual([]);
   });
 
   it("keeps content order stable while travel direction changes", () => {
