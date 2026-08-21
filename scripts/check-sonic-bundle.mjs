@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { parseJsonStrict } from "./strict-json.mjs";
 
@@ -55,16 +56,23 @@ for (const recording of manifest.recordings) {
     throw new Error(`${output} was claimed by more than one source recording.`);
   }
   claimedOutputs.add(output);
-  const outputBytes = statSync(join(assetsRoot, output)).size;
-  if (outputBytes !== recording.bytes) {
+
+  const outputData = readFileSync(join(assetsRoot, output));
+  if (outputData.length !== recording.bytes) {
     throw new Error(
-      `${output} changed byte length: manifest ${recording.bytes}, output ${outputBytes}.`,
+      `${output} changed byte length: manifest ${recording.bytes}, output ${outputData.length}.`,
+    );
+  }
+  const outputSha256 = createHash("sha256").update(outputData).digest("hex");
+  if (outputSha256 !== recording.sha256) {
+    throw new Error(
+      `${output} changed bytes: manifest SHA-256 ${recording.sha256}, output ${outputSha256}.`,
     );
   }
 }
 
-const totalWaveBytes = waveFiles.reduce(
-  (sum, file) => sum + statSync(join(assetsRoot, file)).size,
+const totalWaveBytes = [...claimedOutputs].reduce(
+  (sum, file) => sum + readFileSync(join(assetsRoot, file)).length,
   0,
 );
 const expectedBytes = manifest.recordings.reduce(
@@ -78,5 +86,5 @@ if (totalWaveBytes !== expectedBytes) {
 }
 
 console.log(
-  `Sonic bundle gate passed: ${waveFiles.length} one-to-one hashed WAV assets, ${totalWaveBytes} bytes, no inlined audio.`,
+  `Sonic bundle gate passed: ${waveFiles.length} one-to-one hashed WAV assets, ${totalWaveBytes} bytes, exact SHA-256 parity, no inlined audio.`,
 );
