@@ -3,6 +3,13 @@ import type { InputAudioTrack } from "mediabunny";
 
 const MIX_SAMPLE_RATE = 48_000;
 const MIX_CHANNELS = 2;
+const DUCK_ATTACK_SECONDS = 0.025;
+const DUCK_RELEASE_SECONDS = 0.12;
+
+export interface PresenterCoverageInterval {
+  start: number;
+  end: number;
+}
 
 export interface MixedPresenterMasterOptions {
   track: InputAudioTrack;
@@ -12,6 +19,10 @@ export interface MixedPresenterMasterOptions {
   soundtrackGain: number;
   signal?: AbortSignal;
   onPresenterCoverage?: (coveredSeconds: number) => void;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -46,6 +57,69 @@ async function renderInterruptibly(
     return await Promise.race([rendering, cancellation]);
   } finally {
     if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
+/**
+ * Combines decoded presenter coverage into stable dialogue regions. Brief codec
+ * packet gaps stay ducked to avoid pumping; meaningful pauses remain available
+ * for the tactile bed to breathe at full level.
+ */
+export function mergePresenterCoverage(
+  intervals: readonly PresenterCoverageInterval[],
+  duration: number,
+): PresenterCoverageInterval[] {
+  if (!Number.isFinite(duration) || duration <= 0) return [];
+  const normalized = intervals
+    .filter((interval) => (
+      Number.isFinite(interval.start)
+      && Number.isFinite(interval.end)
+      && interval.end > interval.start
+    ))
+    .map((interval) => ({
+      start: clamp(interval.start, 0, duration),
+      end: clamp(interval.end, 0, duration),
+    }))
+    .filter((interval) => interval.end > interval.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+
+  const merged: PresenterCoverageInterval[] = [];
+  const bridge = DUCK_ATTACK_SECONDS + DUCK_RELEASE_SECONDS;
+  for (const interval of normalized) {
+    const previous = merged.at(-1);
+    if (!previous || interval.start > previous.end + bridge) {
+      merged.push({ ...interval });
+      continue;
+    }
+    previous.end = Math.max(previous.end, interval.end);
+  }
+  return merged;
+}
+
+function scheduleUnderVoiceEnvelope(
+  gain: AudioParam,
+  coverage: readonly PresenterCoverageInterval[],
+  underVoiceGain: number,
+  duration: number,
+): void {
+  gain.cancelScheduledValues(0);
+  gain.setValueAtTime(1, 0);
+  if (underVoiceGain >= 0.999 || coverage.length === 0) return;
+
+  for (const interval of coverage) {
+    const attackStart = Math.max(0, interval.start - DUCK_ATTACK_SECONDS);
+    const releaseEnd = Math.min(duration, interval.end + DUCK_RELEASE_SECONDS);
+
+    if (interval.start <= 0) {
+      gain.setValueAtTime(underVoiceGain, 0);
+    } else {
+      gain.setValueAtTime(1, attackStart);
+      gain.linearRampToValueAtTime(underVoiceGain, interval.start);
+    }
+    gain.setValueAtTime(underVoiceGain, interval.end);
+    if (releaseEnd > interval.end) {
+      gain.linearRampToValueAtTime(1, releaseEnd);
+    }
   }
 }
 
@@ -105,14 +179,13 @@ export async function renderMixedPresenterMaster(
   const tactileSource = context.createBufferSource();
   const tactileGain = context.createGain();
   tactileSource.buffer = options.soundtrack;
-  tactileGain.gain.value = options.soundtrackGain;
   tactileSource.connect(tactileGain);
   tactileGain.connect(mixBus);
-  tactileSource.start(0, 0, options.duration);
 
   const rangeStart = options.timelineStart;
   const rangeEnd = rangeStart + options.duration;
   const sink = new AudioBufferSink(options.track);
+  const presenterCoverage: PresenterCoverageInterval[] = [];
   let scheduledBuffers = 0;
   let coveredUntil = 0;
 
@@ -138,15 +211,32 @@ export async function renderMixedPresenterMaster(
     presenterSource.buffer = wrapped.buffer;
     presenterSource.connect(mixBus);
     const outputStart = sourceStart - rangeStart;
+    const outputEnd = Math.min(
+      options.duration,
+      outputStart + segmentDuration,
+    );
     presenterSource.start(outputStart, sourceOffset, segmentDuration);
+    presenterCoverage.push({ start: outputStart, end: outputEnd });
     scheduledBuffers += 1;
-    coveredUntil = Math.max(coveredUntil, outputStart + segmentDuration);
+    coveredUntil = Math.max(coveredUntil, outputEnd);
     options.onPresenterCoverage?.(Math.min(coveredUntil, options.duration));
   }
 
   if (scheduledBuffers === 0) {
     throw new Error("Presenter declares audio, but no decodable samples cover this export.");
   }
+
+  const coverage = mergePresenterCoverage(
+    presenterCoverage,
+    options.duration,
+  );
+  scheduleUnderVoiceEnvelope(
+    tactileGain.gain,
+    coverage,
+    options.soundtrackGain,
+    options.duration,
+  );
+  tactileSource.start(0, 0, options.duration);
 
   const rendered = await renderInterruptibly(context, options.signal);
   throwIfAborted(options.signal);
