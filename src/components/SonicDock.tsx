@@ -121,7 +121,11 @@ export function SonicDock({
             disabled={disabled || state === "unavailable" || state === "loading"}
           >
             <legend>Material direction</legend>
-            <div>
+            <div
+              style={{
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              }}
+            >
               {PALETTES.map((palette) => (
                 <label
                   key={palette}
