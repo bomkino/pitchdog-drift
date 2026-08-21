@@ -67,10 +67,12 @@ export function planSemanticEvents(
   const duration = project.master.duration;
   const startTime = Math.max(0, Math.min(duration, fromTime));
   const endTime = Math.max(0, Math.min(duration, toTime));
-  if (endTime < startTime) return planSemanticEvents(project, endTime, startTime);
+  // Backward scrubbing is direct manipulation, not automatic authored playback.
+  // Grab/release feedback is emitted by the interaction controller separately.
+  if (endTime < startTime) return [];
 
   const events: SemanticEvent[] = [];
-  if (startTime <= TIMELINE_EPSILON && endTime >= 0) {
+  if (startTime <= TIMELINE_EPSILON && endTime <= TIMELINE_EPSILON) {
     events.push(event(project, "master-start", 0, 0, 0));
   }
 
