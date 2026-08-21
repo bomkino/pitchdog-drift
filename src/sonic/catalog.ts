@@ -60,6 +60,10 @@ export const SONIC_PALETTE_LABELS: Readonly<Record<SonicPalette, Readonly<{
     name: "Paper",
     description: "Page turns, cloth and book movement for quieter compositions.",
   },
+  editorial: {
+    name: "Editorial",
+    description: "Dry paper, cloth, photo-card contact and restrained mechanical punctuation.",
+  },
 };
 
 export interface SonicAssetSpec {
@@ -173,6 +177,21 @@ const CATALOG: Readonly<Record<
     success: [ASSETS.bookPlace3, ASSETS.bookPlace1],
     failure: [ASSETS.leatherDrop],
   },
+  editorial: {
+    passage: [
+      ASSETS.cloth2,
+      ASSETS.cardSlide1,
+      ASSETS.bookFlip1,
+      ASSETS.cardSlide2,
+      ASSETS.cloth4,
+    ],
+    grab: [ASSETS.leatherHandle1, ASSETS.cloth4, ASSETS.leatherHandle2],
+    release: [ASSETS.cardPlace2, ASSETS.bookPlace3, ASSETS.bookFlip2],
+    settle: [ASSETS.bookPlace1, ASSETS.softImpact1, ASSETS.cardPlace2],
+    control: [ASSETS.bookClose, ASSETS.metalClick],
+    success: [ASSETS.cardPlace3, ASSETS.bookPlace1],
+    failure: [ASSETS.leatherDrop, ASSETS.softImpact2],
+  },
 };
 
 const byteLoads = new Map<string, Promise<ArrayBuffer>>();
@@ -205,7 +224,6 @@ export function getSonicAssetUri(
 ): string {
   return getSonicAssetSpec(palette, cue, variant).uri;
 }
-
 
 function cancelledAssetLoad(signal: AbortSignal): Error {
   if (signal.reason instanceof Error) return signal.reason;
