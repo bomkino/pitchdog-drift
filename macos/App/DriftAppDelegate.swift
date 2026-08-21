@@ -217,7 +217,7 @@ final class DriftAppDelegate: NSObject,
 
         let bridge = NativeBridgeHost()
         bridge.clientStateDidChange = { [weak self, weak bridge] _ in
-            guard let self, let bridge, bridge.hasActiveDocument else { return }
+            guard let self, bridge?.hasActiveDocument == true else { return }
             self.receivedAuthoritativeClientState = true
             self.updateWebRuntimeReadiness()
             self.refreshMenuState()
@@ -389,9 +389,9 @@ final class DriftAppDelegate: NSObject,
             arguments: ["documentNonce": ticket.nonceString],
             in: nil,
             contentWorld: .page
-        ) { [weak self, weak bridge] result in
+        ) { [weak self] result in
             DispatchQueue.main.async {
-                guard let self, let bridge,
+                guard let self,
                       self.activeDocumentTicket == ticket,
                       bridge.isPreparedOrCurrentDocument(ticket) else { return }
                 switch result {
@@ -567,7 +567,7 @@ final class DriftAppDelegate: NSObject,
         activeWebKitPanelDocument = document
 
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self, weak bridge] result in
-            guard let self, let bridge else {
+            guard let self, bridge != nil else {
                 completionHandler(nil)
                 return
             }
@@ -578,12 +578,16 @@ final class DriftAppDelegate: NSObject,
                 }
             }
             guard self.activeWebKitPanelDocument == document,
-                  bridge.isCurrentDocument(document),
+                  bridge?.isCurrentDocument(document) == true,
                   result == .OK else {
                 completionHandler(nil)
                 return
             }
             do {
+                guard let bridge else {
+                    completionHandler(nil)
+                    return
+                }
                 let urls = try bridge.validateOpenPanelSelection(panel.urls, kind: intent.kind)
                 guard bridge.isCurrentDocument(document) else {
                     completionHandler(nil)
@@ -592,7 +596,7 @@ final class DriftAppDelegate: NSObject,
                 bridge.rememberOpenPanelDirectory(urls)
                 completionHandler(urls)
             } catch {
-                guard bridge.isCurrentDocument(document) else {
+                guard bridge?.isCurrentDocument(document) == true else {
                     completionHandler(nil)
                     return
                 }
@@ -639,7 +643,7 @@ final class DriftAppDelegate: NSObject,
         activeWebKitPanel = panel
         activeWebKitPanelDocument = document
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self, weak bridge] result in
-            guard let self, let bridge else {
+            guard let self, bridge != nil else {
                 completionHandler(nil)
                 return
             }
@@ -650,7 +654,7 @@ final class DriftAppDelegate: NSObject,
                 }
             }
             guard self.activeWebKitPanelDocument == document,
-                  bridge.isCurrentDocument(document),
+                  bridge?.isCurrentDocument(document) == true,
                   result == .OK else {
                 completionHandler(nil)
                 return
