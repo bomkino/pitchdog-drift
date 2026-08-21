@@ -224,17 +224,30 @@ function migrateLegacyPayload(
   });
 }
 
+function driftProjectEnvelope(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value) || !isRecord(value.project)) return null;
+  return value.project.schema === DRIFT_PROJECT_SCHEMA ? value.project : null;
+}
+
 function isProjectV3Payload(value: unknown): value is DriftProjectPayloadV3 {
-  return isRecord(value)
-    && isRecord(value.project)
-    && value.project.schema === DRIFT_PROJECT_SCHEMA
-    && value.project.formatVersion === DRIFT_PROJECT_VERSION;
+  const project = driftProjectEnvelope(value);
+  return project !== null && project.formatVersion === DRIFT_PROJECT_VERSION;
 }
 
 export function parseStudioProjectPayload(
   value: unknown,
   context: StudioPayloadContext,
 ): ParsedStudioPayload {
+  const driftProject = driftProjectEnvelope(value);
+  if (driftProject && driftProject.formatVersion !== DRIFT_PROJECT_VERSION) {
+    const version = typeof driftProject.formatVersion === "number"
+      ? String(driftProject.formatVersion)
+      : "unknown";
+    throw new Error(
+      `Project format ${version} is not supported by this Drift build. Open it with the version of Drift that created it or a newer release.`,
+    );
+  }
+
   if (isProjectV3Payload(value)) {
     const project = validateDriftProjectV3(value.project);
     if (
