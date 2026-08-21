@@ -45,9 +45,23 @@ const DOMAIN_PATHS: Readonly<Record<ProjectDomain, readonly string[]>> = {
 
 function collectChangedPaths(previous: unknown, next: unknown, prefix: string, output: string[]): void {
   if (Object.is(previous, next)) return;
+
+  const previousArray = Array.isArray(previous);
+  const nextArray = Array.isArray(next);
+  if (previousArray || nextArray) {
+    if (!previousArray || !nextArray || previous.length !== next.length) {
+      output.push(prefix || "project");
+      return;
+    }
+    for (let index = 0; index < previous.length; index += 1) {
+      collectChangedPaths(previous[index], next[index], `${prefix}[${index}]`, output);
+    }
+    return;
+  }
+
   if (
-    typeof previous !== "object" || previous === null || Array.isArray(previous)
-    || typeof next !== "object" || next === null || Array.isArray(next)
+    typeof previous !== "object" || previous === null
+    || typeof next !== "object" || next === null
   ) {
     output.push(prefix || "project");
     return;
@@ -72,7 +86,7 @@ export function projectChangePaths(previous: DriftProjectV3, next: DriftProjectV
 }
 
 function pathOwned(path: string, domains: readonly ProjectDomain[]): boolean {
-  return domains.some((domain) => DOMAIN_PATHS[domain].some((root) => path === root || path.startsWith(`${root}.`)));
+  return domains.some((domain) => DOMAIN_PATHS[domain].some((root) => path === root || path.startsWith(`${root}.`) || path.startsWith(`${root}[`)));
 }
 
 function receipt(
