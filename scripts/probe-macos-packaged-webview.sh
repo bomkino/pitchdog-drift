@@ -5,7 +5,9 @@ IFS=$'\n\t'
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${1:-${DRIFT_MACOS_OUTPUT_DIR:-$ROOT/build/macos}/Drift.app}"
 EVIDENCE="${DRIFT_WEBVIEW_MATRIX_DIR:-$ROOT/build/macos/packaged-webview}"
-TIMEOUT_SECONDS="${DRIFT_WEBVIEW_MATRIX_TIMEOUT:-100}"
+TIMEOUT_SECONDS="${DRIFT_WEBVIEW_MATRIX_TIMEOUT:-75}"
+LOG_TIMEOUT_SECONDS="${DRIFT_WEBVIEW_LOG_TIMEOUT:-18}"
+COMMAND_TIMEOUT_SECONDS="${DRIFT_WEBVIEW_COMMAND_TIMEOUT:-20}"
 TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/drift-webview-matrix.XXXXXX")"
 KEYCHAIN="$TEMP_ROOT/DriftCIRuntime.keychain-db"
 KEYCHAIN_PASSWORD="drift-ci-$(uuidgen | tr '[:upper:]' '[:lower:]')"
@@ -154,22 +156,83 @@ print(json.dumps(result, indent=2, sort_keys=True))
 raise SystemExit(0 if result["passed"] else 1)
 PY
 
+cat > "$TEMP_ROOT/run-bounded.py" <<'PY'
+from __future__ import annotations
+
+import subprocess
+import sys
+
+timeout = float(sys.argv[1])
+command = sys.argv[2:]
+try:
+    completed = subprocess.run(command, check=False, timeout=timeout)
+except subprocess.TimeoutExpired:
+    print(
+        f"bounded command exceeded {timeout:g}s: {' '.join(command)}",
+        file=sys.stderr,
+    )
+    raise SystemExit(124)
+raise SystemExit(completed.returncode)
+PY
+
+bounded() {
+  local seconds="$1"
+  shift
+  python3 "$TEMP_ROOT/run-bounded.py" "$seconds" "$@"
+}
+
 capture_signature() {
   local app_path="$1"
   local variant="$2"
-  codesign -dv --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-signature.txt" 2>&1 || true
-  codesign -d --entitlements :- "$app_path" >"$EVIDENCE/variants/$variant-entitlements.plist" 2>"$EVIDENCE/variants/$variant-entitlements.stderr" || true
-  codesign --verify --deep --strict --all-architectures --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-codesign-verify.txt" 2>&1 || true
-  spctl --assess --type execute --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-spctl.txt" 2>&1 || true
+  bounded "$COMMAND_TIMEOUT_SECONDS" codesign -dv --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-signature.txt" 2>&1 || true
+  bounded "$COMMAND_TIMEOUT_SECONDS" codesign -d --entitlements :- "$app_path" >"$EVIDENCE/variants/$variant-entitlements.plist" 2>"$EVIDENCE/variants/$variant-entitlements.stderr" || true
+  bounded "$COMMAND_TIMEOUT_SECONDS" codesign --verify --deep --strict --all-architectures --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-codesign-verify.txt" 2>&1 || true
+  bounded "$COMMAND_TIMEOUT_SECONDS" spctl --assess --type execute --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-spctl.txt" 2>&1 || true
 }
 
 capture_runtime_logs() {
   local variant="$1"
-  log show \
-    --last 8m \
-    --style compact \
-    --predicate '(process == "Drift") OR (process == "sandboxd") OR (process CONTAINS[c] "WebKit") OR (eventMessage CONTAINS[c] "dog.pitch.drift")' \
-    >"$EVIDENCE/logs/$variant-system.log" 2>&1 || true
+  python3 - \
+    "$EVIDENCE/logs/$variant-system.log" \
+    "$LOG_TIMEOUT_SECONDS" <<'PY'
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+output = Path(sys.argv[1])
+timeout = float(sys.argv[2])
+command = [
+    "log", "show",
+    "--last", "4m",
+    "--style", "compact",
+    "--predicate",
+    '(process == "Drift") OR (process == "sandboxd") OR (process CONTAINS[c] "WebKit") OR (eventMessage CONTAINS[c] "dog.pitch.drift")',
+]
+try:
+    completed = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    text = completed.stdout
+    if completed.stderr:
+        text += "\n--- stderr ---\n" + completed.stderr
+    if completed.returncode != 0:
+        text += f"\nlog show returned {completed.returncode}\n"
+except subprocess.TimeoutExpired as error:
+    stdout = error.stdout if isinstance(error.stdout, str) else ""
+    stderr = error.stderr if isinstance(error.stderr, str) else ""
+    text = (
+        stdout
+        + ("\n--- stderr ---\n" + stderr if stderr else "")
+        + f"\nlog collection stopped after its {timeout:g}s evidence budget.\n"
+    )
+output.write_text(text, encoding="utf-8")
+PY
 
   local diagnostics="$HOME/Library/Logs/DiagnosticReports"
   if [[ -d "$diagnostics" ]]; then
@@ -177,7 +240,7 @@ capture_runtime_logs() {
       local basename
       basename="$(basename "$report")"
       cp "$report" "$EVIDENCE/crashes/$variant-$basename" || true
-    done < <(find "$diagnostics" -type f -mmin -20 \
+    done < <(find "$diagnostics" -type f -mmin -10 \
       \( -name 'Drift*' -o -name 'WebKit*' -o -name 'com.apple.WebKit*' \) -print0 2>/dev/null)
   fi
 }
@@ -203,13 +266,13 @@ SANDBOX_ADHOC_STATUS=0
 run_variant "sandbox-adhoc" "$APP" || SANDBOX_ADHOC_STATUS=$?
 
 UNSANDBOXED="$TEMP_ROOT/variants/Drift-unsandboxed-adhoc.app"
-ditto "$APP" "$UNSANDBOXED"
-codesign --force --options runtime --sign - --timestamp=none "$UNSANDBOXED"
+bounded "$COMMAND_TIMEOUT_SECONDS" ditto "$APP" "$UNSANDBOXED"
+bounded "$COMMAND_TIMEOUT_SECONDS" codesign --force --options runtime --sign - --timestamp=none "$UNSANDBOXED"
 UNSANDBOXED_STATUS=0
 run_variant "unsandboxed-adhoc" "$UNSANDBOXED" || UNSANDBOXED_STATUS=$?
 
 SELF_SIGNED="$TEMP_ROOT/variants/Drift-sandbox-self-signed.app"
-ditto "$APP" "$SELF_SIGNED"
+bounded "$COMMAND_TIMEOUT_SECONDS" ditto "$APP" "$SELF_SIGNED"
 cat > "$TEMP_ROOT/certificate.cnf" <<'EOF'
 [req]
 prompt = no
@@ -232,7 +295,7 @@ EOF
 
 SELF_SIGNED_STATUS=125
 set +e
-openssl req \
+bounded "$COMMAND_TIMEOUT_SECONDS" openssl req \
   -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
   -config "$TEMP_ROOT/certificate.cnf" \
   -keyout "$TEMP_ROOT/private-key.pem" \
@@ -240,7 +303,7 @@ openssl req \
   >"$EVIDENCE/variants/self-signed-openssl.txt" 2>&1
 CERT_STATUS=$?
 if [[ $CERT_STATUS -eq 0 ]]; then
-  openssl pkcs12 -export \
+  bounded "$COMMAND_TIMEOUT_SECONDS" openssl pkcs12 -export \
     -inkey "$TEMP_ROOT/private-key.pem" \
     -in "$TEMP_ROOT/certificate.pem" \
     -out "$TEMP_ROOT/identity.p12" \
@@ -249,24 +312,24 @@ if [[ $CERT_STATUS -eq 0 ]]; then
   CERT_STATUS=$?
 fi
 if [[ $CERT_STATUS -eq 0 ]]; then
-  security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-  security set-keychain-settings -lut 3600 "$KEYCHAIN"
-  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-  security import "$TEMP_ROOT/identity.p12" \
+  bounded "$COMMAND_TIMEOUT_SECONDS" security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+  bounded "$COMMAND_TIMEOUT_SECONDS" security set-keychain-settings -lut 3600 "$KEYCHAIN"
+  bounded "$COMMAND_TIMEOUT_SECONDS" security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+  bounded "$COMMAND_TIMEOUT_SECONDS" security import "$TEMP_ROOT/identity.p12" \
     -k "$KEYCHAIN" -P "$KEYCHAIN_PASSWORD" -T /usr/bin/codesign \
     >"$EVIDENCE/variants/self-signed-security-import.txt" 2>&1
   CERT_STATUS=$?
 fi
 if [[ $CERT_STATUS -eq 0 ]]; then
-  security set-key-partition-list \
+  bounded "$COMMAND_TIMEOUT_SECONDS" security set-key-partition-list \
     -S apple-tool:,apple:,codesign: \
     -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" \
     >>"$EVIDENCE/variants/self-signed-security-import.txt" 2>&1
-  security add-trusted-cert -d -r trustRoot -k "$KEYCHAIN" "$TEMP_ROOT/certificate.pem" \
+  bounded "$COMMAND_TIMEOUT_SECONDS" security add-trusted-cert -d -r trustRoot -k "$KEYCHAIN" "$TEMP_ROOT/certificate.pem" \
     >>"$EVIDENCE/variants/self-signed-security-import.txt" 2>&1 || true
-  IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/Drift CI Runtime/ {print $2; exit}')"
+  IDENTITY="$(bounded "$COMMAND_TIMEOUT_SECONDS" security find-identity -v -p codesigning "$KEYCHAIN" | awk '/Drift CI Runtime/ {print $2; exit}')"
   if [[ -n "$IDENTITY" ]]; then
-    codesign \
+    bounded "$COMMAND_TIMEOUT_SECONDS" codesign \
       --keychain "$KEYCHAIN" \
       --force \
       --options runtime \
