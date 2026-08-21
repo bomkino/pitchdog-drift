@@ -26,6 +26,22 @@ describe("project command ownership", () => {
     expect(applied.receipt.toRevision).toBe(1);
   });
 
+  it("keeps no-op commands revision and timestamp neutral", () => {
+    const project = createDefaultDriftProject("project-1", NOW);
+    const applied = applyProjectCommand(project, createProjectRevisionState(), {
+      id: "motion.no-op",
+      source: "director",
+      ownedDomains: ["motion"],
+      apply: (candidate) => candidate,
+    }, LATER);
+
+    expect(applied.project).toBe(project);
+    expect(applied.project.updatedAt).toBe(NOW);
+    expect(applied.revision.currentRevision).toBe(0);
+    expect(applied.receipt.changed).toBe(false);
+    expect(applied.receipt.changedPaths).toEqual([]);
+  });
+
   it("rejects a command that changes a domain it did not declare", () => {
     const project = createDefaultDriftProject("project-1", NOW);
     expect(() => applyProjectCommand(project, createProjectRevisionState(), {
