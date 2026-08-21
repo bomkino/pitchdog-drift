@@ -72,8 +72,25 @@ export function projectChangePaths(previous: DriftProjectV3, next: DriftProjectV
 }
 
 function pathOwned(path: string, domains: readonly ProjectDomain[]): boolean {
-  if (path === "updatedAt") return true;
   return domains.some((domain) => DOMAIN_PATHS[domain].some((root) => path === root || path.startsWith(`${root}.`)));
+}
+
+function receipt(
+  revision: ProjectRevisionState,
+  command: ProjectCommand,
+  changedPaths: string[],
+  toRevision: number,
+): ProjectChangeReceipt {
+  return {
+    commandId: command.id,
+    source: command.source,
+    ownedDomains: [...command.ownedDomains],
+    preservedDomains: PROJECT_DOMAINS.filter((domain) => !command.ownedDomains.includes(domain)),
+    changedPaths,
+    fromRevision: revision.currentRevision,
+    toRevision,
+    changed: changedPaths.length > 0,
+  };
 }
 
 export function applyProjectCommand(
@@ -91,29 +108,29 @@ export function applyProjectCommand(
     if (!PROJECT_DOMAINS.includes(domain)) throw new Error(`Project command ${command.id} declares an unknown domain.`);
   }
 
-  const candidate = command.apply(cloneDriftProject(current));
-  candidate.updatedAt = now;
-  const next = validateDriftProjectV3(candidate);
-  const changedPaths = projectChangePaths(current, next);
-  const illegal = changedPaths.find((path) => !pathOwned(path, command.ownedDomains));
-  if (illegal) {
-    throw new Error(`Project command ${command.id} changed ${illegal} outside its owned domains.`);
+  const authoredCandidate = validateDriftProjectV3(command.apply(cloneDriftProject(current)));
+  const authoredPaths = projectChangePaths(current, authoredCandidate);
+  if (authoredPaths.includes("updatedAt")) {
+    throw new Error(`Project command ${command.id} attempted to own the reducer-managed updatedAt timestamp.`);
+  }
+  const illegal = authoredPaths.find((path) => !pathOwned(path, command.ownedDomains));
+  if (illegal) throw new Error(`Project command ${command.id} changed ${illegal} outside its owned domains.`);
+
+  if (authoredPaths.length === 0) {
+    return {
+      project: current,
+      revision,
+      receipt: receipt(revision, command, [], revision.currentRevision),
+    };
   }
 
-  const changed = changedPaths.length > 0;
-  const nextRevision = changed ? recordProjectMutation(revision) : revision;
+  authoredCandidate.updatedAt = now;
+  const next = validateDriftProjectV3(authoredCandidate);
+  const changedPaths = projectChangePaths(current, next);
+  const nextRevision = recordProjectMutation(revision);
   return {
     project: next,
     revision: nextRevision,
-    receipt: {
-      commandId: command.id,
-      source: command.source,
-      ownedDomains: [...command.ownedDomains],
-      preservedDomains: PROJECT_DOMAINS.filter((domain) => !command.ownedDomains.includes(domain)),
-      changedPaths,
-      fromRevision: revision.currentRevision,
-      toRevision: nextRevision.currentRevision,
-      changed,
-    },
+    receipt: receipt(revision, command, changedPaths, nextRevision.currentRevision),
   };
 }
