@@ -21,7 +21,7 @@ jobs:
           ref: feat/native-macos-document-authority
           fetch-depth: 0
 
-      - name: Make repeated panel substitutions intentionally sequential
+      - name: Repair stale patch assumptions without weakening source checks
         shell: bash
         run: |
           python3 - <<'PY'
@@ -29,19 +29,52 @@ jobs:
 
           path = Path('.github/workflows/codex-native-document-authority.yml')
           source = path.read_text(encoding='utf-8')
-          old = '''              count = text.count(old)
+
+          old_helper = '''              count = text.count(old)
               if count != 1:
                   raise SystemExit(f"{path}: expected one replacement, found {count}: {old[:120]!r}")
               write(path, text.replace(old, new, 1))
           '''
-          new = '''              count = text.count(old)
+          new_helper = '''              count = text.count(old)
               if count < 1:
                   raise SystemExit(f"{path}: replacement target was not found: {old[:120]!r}")
               write(path, text.replace(old, new, 1))
           '''
-          if source.count(old) != 1:
+          if source.count(old_helper) != 1:
               raise SystemExit('The authority runner replacement helper changed unexpectedly.')
-          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          source = source.replace(old_helper, new_helper, 1)
+
+          def remove_replace_block(text: str, marker: str) -> str:
+              marker_at = text.find(marker)
+              if marker_at < 0:
+                  raise SystemExit(f'Stale authority patch marker was not found: {marker!r}')
+              start = text.rfind('          replace_once(', 0, marker_at)
+              if start < 0:
+                  raise SystemExit(f'Could not locate replace_once start for {marker!r}')
+              end = text.find('\n          replace_once(', marker_at)
+              if end < 0:
+                  raise SystemExit(f'Could not locate replace_once end for {marker!r}')
+              return text[:start] + text[end + 1:]
+
+          # The current session model already parses the nonce before it can
+          # cancel a panel or replace authority. Do not force an obsolete source
+          # shape into otherwise-correct code.
+          source = remove_replace_block(
+              source,
+              "'''    func claimBootstrap(rawNonce: String) throws -> NativeDocumentTicket {",
+          )
+          source = remove_replace_block(
+              source,
+              "'''        do:\n                      _ = try session.claimBootstrap(rawNonce: firstNonce)",
+          )
+
+          old_marker = '            "A malformed bootstrap nonce was accepted.",\n'
+          new_marker = '            "Malformed document nonce unexpectedly bootstrapped.",\n'
+          if source.count(old_marker) != 1:
+              raise SystemExit('The generated authority checker malformed-nonce marker changed unexpectedly.')
+          source = source.replace(old_marker, new_marker, 1)
+
+          path.write_text(source, encoding='utf-8')
           PY
 
       - name: Remove repair transport and commit
@@ -52,5 +85,5 @@ jobs:
           git config user.email "111725271+bomkino@users.noreply.github.com"
           git add -A
           git diff --cached --check
-          git commit -m "chore(mac): repair authority gauntlet substitutions"
+          git commit -m "chore(mac): repair authority gauntlet against current source"
           git push origin HEAD:feat/native-macos-document-authority
