@@ -4,6 +4,8 @@ import { mixSoundtrackIntoPlanar, type ReadableAudioBuffer } from "../src/sonic/
 import {
   buildSonicTimeline,
   getSonicPassageDecision,
+  getSonicPassageDistance,
+  getSonicPassageStep,
   shouldIncludeSonicPassage,
 } from "../src/sonic/plan";
 
@@ -42,6 +44,8 @@ describe("sonic timeline", () => {
       expect(event.time).toBeLessThan(settings.output.duration);
       expect(event.gain).toBeGreaterThan(0);
       expect(event.gain).toBeLessThanOrEqual(1);
+      expect(event.intensity).toBeGreaterThanOrEqual(0.34);
+      expect(event.intensity).toBeLessThanOrEqual(1);
       expect(event.playbackRate).toBeGreaterThan(0);
       expect(Math.abs(event.pan)).toBeLessThanOrEqual(0.78);
       expect(Number.isInteger(event.variant)).toBe(true);
@@ -102,6 +106,24 @@ describe("sonic timeline", () => {
         sequence,
       ).included);
     expect(paper).toEqual(studio);
+  });
+
+  it("uses one direction-symmetric visual focus hand-off", () => {
+    const stride = 640;
+    expect(getSonicPassageStep(0.499 * stride, stride)).toBe(0);
+    expect(getSonicPassageStep(0.5 * stride, stride)).toBe(1);
+    expect(getSonicPassageStep(-0.499 * stride, stride)).toBe(0);
+    expect(getSonicPassageStep(-0.5 * stride, stride)).toBe(-1);
+    expect(getSonicPassageDistance(1, stride)).toBe(0.5 * stride);
+    expect(getSonicPassageDistance(4, stride)).toBe(3.5 * stride);
+  });
+
+  it("keeps primary takes and pitch stable while texture changes", () => {
+    for (let sequence = 1; sequence <= 96; sequence += 1) {
+      const dry = getSonicPassageDecision("studio", 0.72, 0, 17, sequence);
+      const rich = getSonicPassageDecision("studio", 0.72, 1, 17, sequence);
+      expect(rich).toEqual(dry);
+    }
   });
 
   it("shares passage inclusion, take, and pitch decisions with live preview", () => {

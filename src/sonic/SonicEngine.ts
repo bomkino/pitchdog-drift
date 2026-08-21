@@ -6,6 +6,20 @@ import {
   type SonicAssetSpec,
   type SonicCue,
 } from "./catalog";
+import {
+  buildSonicGestureLayers,
+  getBalancedSonicVariant,
+  getSonicGestureDependencies,
+  type SonicSemanticCue,
+} from "./grammar";
+import {
+  configureSonicCompressor,
+  SONIC_OUTPUT_HEADROOM,
+} from "./dynamics";
+import {
+  createSonicFilters,
+  getSonicEnvelopePoints,
+} from "./graph";
 import { getSonicPassageDecision } from "./plan";
 
 export type SonicRuntimeState =
@@ -21,11 +35,11 @@ export interface SonicGesture {
   pan?: number;
   /** Absolute carousel crossing when available; makes preview match export. */
   sequence?: number;
-  /** Composition seed used by deterministic density and variation decisions. */
+  /** Composition seed used by deterministic density and texture decisions. */
   seed?: number;
-  /** Horizontal passages receive the same restrained variation as export. */
+  /** Horizontal passages receive the same restrained pan variation as export. */
   panVariation?: boolean;
-  /** Audition can demonstrate a palette even when authored density is zero. */
+  /** Audition can demonstrate the complete palette even at zero density. */
   force?: boolean;
 }
 
@@ -34,11 +48,22 @@ interface DecodedSonicAsset {
   spec: SonicAssetSpec;
 }
 
-const MAX_VOICES = 8;
+const MAX_VOICES = 12;
 const CORE_CUES: readonly SonicCue[] = ["passage", "settle"];
-const MOTION_PRIME_CUES: readonly SonicCue[] = ["grab", "release"];
-const MOTION_CUES = new Set<SonicCue>(["passage", "grab", "release", "settle"]);
-const COOLDOWN_MS: Readonly<Record<SonicCue, number>> = {
+const INTERACTIVE_PRIME_CUES: readonly SonicSemanticCue[] = [
+  "grab",
+  "release",
+  "control",
+  "success",
+  "failure",
+];
+const MOTION_CUES = new Set<SonicSemanticCue>([
+  "passage",
+  "grab",
+  "release",
+  "settle",
+]);
+const COOLDOWN_MS: Readonly<Record<SonicSemanticCue, number>> = {
   passage: 85,
   grab: 110,
   release: 110,
@@ -84,6 +109,7 @@ export class SonicEngine {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
+  private output: GainNode | null = null;
   private readonly decoded = new Map<
     SonicPalette,
     Map<SonicCue, readonly DecodedSonicAsset[]>
@@ -93,8 +119,9 @@ export class SonicEngine {
     Promise<readonly DecodedSonicAsset[]>
   >();
   private readonly coreLoads = new Map<SonicPalette, Promise<void>>();
+  private readonly assetDecodes = new Map<string, Promise<AudioBuffer>>();
   private readonly voices = new Set<AudioBufferSourceNode>();
-  private readonly lastPlayed = new Map<SonicCue, number>();
+  private readonly lastPlayed = new Map<SonicSemanticCue, number>();
   private readonly timers = new Set<number>();
   private readonly reportedLoadErrors = new Set<string>();
   private sequence = 0;
@@ -134,17 +161,26 @@ export class SonicEngine {
     }
     this.settingsRevision += 1;
     const paletteChanged = settings.palette !== this.settings.palette;
+    const textureChanged = settings.variation !== this.settings.variation;
     const previewEnabled = !this.settings.previewEnabled && settings.previewEnabled;
     this.settings = { ...settings };
     this.updateMasterGain();
     if (
-      (paletteChanged || previewEnabled)
+      (paletteChanged || textureChanged || previewEnabled)
       && this.context
       && !this.unavailable
       && this.settings.previewEnabled
     ) {
       void this.ensureCore(settings.palette)
-        .then(() => this.primeMotionCues(settings.palette))
+        .then(async () => {
+          await this.ensureGestureDependencies(
+            settings.palette,
+            "passage",
+            settings.variation,
+            1,
+          );
+          this.primeInteractiveCues(settings.palette);
+        })
         .catch((error: unknown) => this.reportRecoverable(error, "core"));
     }
     this.publishState();
@@ -156,8 +192,8 @@ export class SonicEngine {
   }
 
   async unlock(): Promise<void> {
-    // The explicit enable button can update this engine synchronously before
-    // React commits the project state, so a single trusted click is sufficient.
+    // The explicit enable button updates this engine before React commits the
+    // project state, so a single trusted gesture is sufficient.
     if (this.disposed || this.unavailable) return;
     try {
       if (!this.context) {
@@ -168,36 +204,38 @@ export class SonicEngine {
         const context = new AudioContext({ latencyHint: "interactive" });
         const master = context.createGain();
         const compressor = context.createDynamicsCompressor();
-        compressor.threshold.value = -17;
-        compressor.knee.value = 20;
-        compressor.ratio.value = 4;
-        compressor.attack.value = 0.003;
-        compressor.release.value = 0.18;
+        const output = context.createGain();
+        configureSonicCompressor(compressor);
+        output.gain.value = SONIC_OUTPUT_HEADROOM;
         master.connect(compressor);
-        compressor.connect(context.destination);
+        compressor.connect(output);
+        output.connect(context.destination);
         this.context = context;
         this.master = master;
         this.compressor = compressor;
+        this.output = output;
       }
       if (this.context.state === "suspended") await this.context.resume();
       await this.ensureCore(this.settings.palette);
-      this.primeMotionCues(this.settings.palette);
+      await this.ensureGestureDependencies(
+        this.settings.palette,
+        "passage",
+        this.settings.variation,
+        1,
+      );
+      this.primeInteractiveCues(this.settings.palette);
       this.updateMasterGain();
       this.publishState();
     } catch (error) {
-      if (!this.context) {
-        this.markUnavailable(error);
-      } else {
-        this.reportRecoverable(error, "core");
-      }
+      if (!this.context) this.markUnavailable(error);
+      else this.reportRecoverable(error, "core");
     }
   }
 
-  play(cue: SonicCue, gesture: SonicGesture = {}): boolean {
+  play(cue: SonicSemanticCue, gesture: SonicGesture = {}): boolean {
     const context = this.context;
     const master = this.master;
     const palette = this.settings.palette;
-    const variants = this.decoded.get(palette)?.get(cue);
     if (
       this.disposed
       || this.unavailable
@@ -208,33 +246,49 @@ export class SonicEngine {
       || !master
     ) return false;
 
-    if (!variants?.length) {
-      void this.loadCue(palette, cue)
-        .then(() => this.publishState())
-        .catch((error: unknown) => {
-          this.reportRecoverable(error, assetKey(palette, cue));
-        });
-      return false;
-    }
-
+    const intensity = clamp(gesture.intensity ?? 0.7, 0.08, 1);
     let passageDecision: ReturnType<typeof getSonicPassageDecision> | null = null;
-    let passageSequence = gesture.sequence;
+    let semanticSequence = gesture.sequence;
     if (cue === "passage") {
-      if (typeof passageSequence !== "number" || !Number.isFinite(passageSequence)) {
+      if (typeof semanticSequence !== "number" || !Number.isFinite(semanticSequence)) {
         this.motionSequence += 1;
-        passageSequence = this.motionSequence;
+        semanticSequence = this.motionSequence;
       } else {
-        passageSequence = Math.max(1, Math.abs(Math.trunc(passageSequence)));
-        this.motionSequence = Math.max(this.motionSequence, passageSequence);
+        semanticSequence = Math.max(1, Math.abs(Math.trunc(semanticSequence)));
+        this.motionSequence = Math.max(this.motionSequence, semanticSequence);
       }
       passageDecision = getSonicPassageDecision(
         palette,
         this.settings.density,
         this.settings.variation,
         gesture.seed ?? 0,
-        passageSequence,
+        semanticSequence,
       );
       if (!gesture.force && !passageDecision.included) return false;
+    }
+
+    this.sequence += 1;
+    if (typeof semanticSequence !== "number" || !Number.isFinite(semanticSequence)) {
+      semanticSequence = this.sequence;
+    }
+
+    const dependencies = getSonicGestureDependencies(
+      palette,
+      cue,
+      this.settings.variation,
+      intensity,
+      Boolean(gesture.force),
+    );
+    const missing = dependencies.filter(
+      (dependency) => !this.decoded.get(palette)?.get(dependency)?.length,
+    );
+    if (missing.length > 0) {
+      void Promise.all(missing.map(async (dependency) => {
+        await this.loadCue(palette, dependency);
+      })).then(() => this.publishState()).catch((error: unknown) => {
+        this.reportRecoverable(error, `${palette}:${cue}:gesture`);
+      });
+      return false;
     }
 
     const nowMs = performance.now();
@@ -242,52 +296,21 @@ export class SonicEngine {
     if (nowMs - previous < COOLDOWN_MS[cue]) return false;
     this.lastPlayed.set(cue, nowMs);
 
-    this.sequence += 1;
     const pitchUnit = hashUnit(this.sequence + cue.length * 17);
-    const sampleUnit = hashUnit(this.sequence * 131 + cue.length * 47);
     const signedVariation = passageDecision?.signedVariation
-      ?? (pitchUnit * 2 - 1) * this.settings.variation;
-    const selectedVariant = passageDecision?.variant
-      ?? (
-        this.settings.variation <= 0.01
-          ? 0
-          : Math.floor(sampleUnit * variants.length)
-      );
-    const variantIndex = (
-      (Math.trunc(selectedVariant) % variants.length) + variants.length
-    ) % variants.length;
-    const asset = variants[variantIndex]!;
-    const window = playbackWindow(asset);
-    if (window.duration <= 0) return false;
-
-    while (this.voices.size >= MAX_VOICES) {
-      const oldest = this.voices.values().next().value as
-        | AudioBufferSourceNode
-        | undefined;
-      if (!oldest) break;
-      try {
-        oldest.stop();
-      } catch {
-        // Already ended.
-      }
-      this.voices.delete(oldest);
-    }
-
-    const intensity = clamp(gesture.intensity ?? 0.7, 0.08, 1);
-    const familyGain = MOTION_CUES.has(cue)
-      ? this.settings.motionGain
-      : this.settings.interfaceGain;
-    const source = context.createBufferSource();
-    const gain = context.createGain();
-    const panner = context.createStereoPanner();
-
-    source.buffer = asset.buffer;
-    source.playbackRate.value = passageDecision?.playbackRate ?? clamp(
+      ?? (pitchUnit * 2 - 1) * 0.18;
+    const baseVariant = passageDecision?.variant ?? getBalancedSonicVariant(
+      palette,
+      cue,
+      gesture.seed ?? 0,
+      semanticSequence,
+    );
+    const basePlaybackRate = passageDecision?.playbackRate ?? clamp(
       1 + signedVariation * 0.085,
       0.8,
       1.2,
     );
-    panner.pan.value = clamp(
+    const basePan = clamp(
       (gesture.pan ?? 0)
       + (
         cue === "passage" && gesture.panVariation
@@ -297,7 +320,6 @@ export class SonicEngine {
       -0.82,
       0.82,
     );
-
     const authoredGain = cue === "passage"
       ? clamp(
         0.42 + intensity * 0.43 + signedVariation * 0.05,
@@ -305,37 +327,95 @@ export class SonicEngine {
         0.92,
       )
       : 0.4 + intensity * 0.6;
-    const voiceGain = clamp(
-      familyGain * authoredGain * asset.spec.gain,
-      0,
-      4,
-    );
-    const start = context.currentTime + 0.003;
-    const audibleDuration = window.duration / source.playbackRate.value;
-    const end = start + audibleDuration;
-    gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(
-      voiceGain,
-      start + Math.min(0.012, audibleDuration * 0.2),
-    );
-    gain.gain.setValueAtTime(
-      voiceGain,
-      Math.max(start + 0.012, end - Math.min(0.024, audibleDuration * 0.28)),
-    );
-    gain.gain.linearRampToValueAtTime(0, end);
+    const familyGain = MOTION_CUES.has(cue)
+      ? this.settings.motionGain
+      : this.settings.interfaceGain;
+    const layers = buildSonicGestureLayers({
+      palette,
+      cue,
+      sequence: semanticSequence,
+      seed: gesture.seed ?? 0,
+      texture: this.settings.variation,
+      intensity,
+      baseVariant,
+      basePlaybackRate,
+      baseGain: authoredGain,
+      basePan,
+      spatial: MOTION_CUES.has(cue) && Math.abs(basePan) > 1e-6,
+      force: gesture.force,
+    });
 
-    source.connect(gain);
-    gain.connect(panner);
-    panner.connect(master);
-    source.onended = () => {
-      this.voices.delete(source);
-      source.disconnect();
-      gain.disconnect();
-      panner.disconnect();
-    };
-    this.voices.add(source);
-    source.start(start, window.offset, window.duration);
-    return true;
+    let played = false;
+    const gestureStart = context.currentTime + 0.003;
+    for (const layer of layers) {
+      const variants = this.decoded.get(palette)?.get(layer.cue);
+      if (!variants?.length) continue;
+      const variantIndex = (
+        (Math.trunc(layer.variant) % variants.length) + variants.length
+      ) % variants.length;
+      const asset = variants[variantIndex]!;
+      const window = playbackWindow(asset);
+      if (window.duration <= 0) continue;
+
+      while (this.voices.size >= MAX_VOICES) {
+        const oldest = this.voices.values().next().value as
+          | AudioBufferSourceNode
+          | undefined;
+        if (!oldest) break;
+        try {
+          oldest.stop();
+        } catch {
+          // Already ended.
+        }
+        this.voices.delete(oldest);
+      }
+
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      const panner = context.createStereoPanner();
+      const filters = createSonicFilters(context, layer.filters);
+      source.buffer = asset.buffer;
+      source.playbackRate.value = layer.playbackRate;
+      panner.pan.value = layer.pan;
+
+      const voiceGain = clamp(
+        familyGain * layer.gain * asset.spec.gain,
+        0,
+        4,
+      );
+      const start = gestureStart + layer.delay;
+      const audibleDuration = window.duration / source.playbackRate.value;
+      const end = start + audibleDuration;
+      const { attackEnd, releaseStart } = getSonicEnvelopePoints(
+        start,
+        end,
+        layer.envelope,
+      );
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(voiceGain, attackEnd);
+      gain.gain.setValueAtTime(voiceGain, releaseStart);
+      gain.gain.linearRampToValueAtTime(0, end);
+
+      let tail: AudioNode = source;
+      for (const filter of filters) {
+        tail.connect(filter);
+        tail = filter;
+      }
+      tail.connect(gain);
+      gain.connect(panner);
+      panner.connect(master);
+      source.onended = () => {
+        this.voices.delete(source);
+        source.disconnect();
+        for (const filter of filters) filter.disconnect();
+        gain.disconnect();
+        panner.disconnect();
+      };
+      this.voices.add(source);
+      source.start(start, window.offset, window.duration);
+      played = true;
+    }
+    return played;
   }
 
   async audition(): Promise<void> {
@@ -364,6 +444,13 @@ export class SonicEngine {
 
     try {
       await this.unlock();
+      await this.ensureGestureDependencies(
+        this.settings.palette,
+        "passage",
+        1,
+        0.72,
+        true,
+      );
       if (!this.play("passage", {
         intensity: 0.72,
         pan: -0.34,
@@ -378,14 +465,14 @@ export class SonicEngine {
       const settleTimer = window.setTimeout(() => {
         this.timers.delete(settleTimer);
         this.play("settle", { intensity: 0.58, pan: 0.18 });
-      }, 210);
+      }, 240);
       this.timers.add(settleTimer);
 
       if (temporaryPreview) {
         const restoreTimer = window.setTimeout(() => {
           this.timers.delete(restoreTimer);
           restoreTemporaryPreview();
-        }, 950);
+        }, 1_050);
         this.timers.add(restoreTimer);
       }
     } catch (error) {
@@ -423,12 +510,15 @@ export class SonicEngine {
     this.voices.clear();
     this.master?.disconnect();
     this.compressor?.disconnect();
+    this.output?.disconnect();
     void this.context?.close().catch(() => undefined);
     this.context = null;
     this.master = null;
     this.compressor = null;
+    this.output = null;
     this.coreLoads.clear();
     this.cueLoads.clear();
+    this.assetDecodes.clear();
   }
 
   private hasCore(palette: SonicPalette): boolean {
@@ -452,9 +542,34 @@ export class SonicEngine {
     return await load;
   }
 
-  private primeMotionCues(palette: SonicPalette): void {
-    for (const cue of MOTION_PRIME_CUES) {
-      void this.loadCue(palette, cue).catch((error: unknown) => {
+  private async ensureGestureDependencies(
+    palette: SonicPalette,
+    cue: SonicSemanticCue,
+    texture: number,
+    intensity: number,
+    force = false,
+  ): Promise<void> {
+    const dependencies = getSonicGestureDependencies(
+      palette,
+      cue,
+      texture,
+      intensity,
+      force,
+    );
+    await Promise.all(dependencies.map(async (dependency) => {
+      await this.loadCue(palette, dependency);
+    }));
+  }
+
+  private primeInteractiveCues(palette: SonicPalette): void {
+    for (const cue of INTERACTIVE_PRIME_CUES) {
+      const intensity = cue === "failure" ? 0.82 : cue === "success" ? 0.64 : 0.72;
+      void this.ensureGestureDependencies(
+        palette,
+        cue,
+        this.settings.variation,
+        intensity,
+      ).catch((error: unknown) => {
         this.reportRecoverable(error, assetKey(palette, cue));
       });
     }
@@ -476,10 +591,12 @@ export class SonicEngine {
       Array.from(
         { length: getSonicAssetVariantCount(palette, cue) },
         async (_, variant): Promise<DecodedSonicAsset> => {
-          const bytes = await getSonicAssetBytes(palette, cue, variant);
+          const spec = getSonicAssetSpec(palette, cue, variant);
           return {
-            buffer: await context.decodeAudioData(bytes),
-            spec: getSonicAssetSpec(palette, cue, variant),
+            buffer: await this.decodeAsset(context, spec, async () => (
+              await getSonicAssetBytes(palette, cue, variant)
+            )),
+            spec,
           };
         },
       ),
@@ -499,6 +616,26 @@ export class SonicEngine {
 
     this.cueLoads.set(key, load);
     return await load;
+  }
+
+  private async decodeAsset(
+    context: AudioContext,
+    spec: SonicAssetSpec,
+    loadBytes: () => Promise<ArrayBuffer>,
+  ): Promise<AudioBuffer> {
+    let decode = this.assetDecodes.get(spec.uri);
+    if (!decode) {
+      decode = loadBytes().then(async (bytes) => (
+        await context.decodeAudioData(bytes)
+      ));
+      this.assetDecodes.set(spec.uri, decode);
+      void decode.catch(() => {
+        if (this.assetDecodes.get(spec.uri) === decode) {
+          this.assetDecodes.delete(spec.uri);
+        }
+      });
+    }
+    return await decode;
   }
 
   private updateMasterGain(): void {

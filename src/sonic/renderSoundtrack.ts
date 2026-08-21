@@ -7,6 +7,15 @@ import {
   type SonicCue,
 } from "./catalog";
 import { buildSonicTimeline } from "./plan";
+import { buildSonicLayerTimeline } from "./orchestrate";
+import {
+  configureSonicCompressor,
+  SONIC_OUTPUT_HEADROOM,
+} from "./dynamics";
+import {
+  createSonicFilters,
+  getSonicEnvelopePoints,
+} from "./graph";
 
 export const SONIC_SAMPLE_RATE = 48_000;
 export const SONIC_CHANNELS = 2;
@@ -15,6 +24,8 @@ interface DecodedSonicAsset {
   buffer: AudioBuffer;
   spec: SonicAssetSpec;
 }
+
+type SonicDecodeCache = Map<string, Promise<AudioBuffer>>;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -35,8 +46,8 @@ async function renderInterruptibly(
   const rendering = context.startRendering();
   if (!signal) return await rendering;
 
-  // OfflineAudioContext cannot be canceled. Reject the export transaction as
-  // soon as the user aborts, keep the losing render observed, and discard it.
+  // OfflineAudioContext cannot be canceled. Reject promptly, keep the losing
+  // render observed, and discard it after the transaction aborts.
   void rendering.catch(() => undefined);
   let onAbort: (() => void) | null = null;
   const cancellation = new Promise<never>((_resolve, reject) => {
@@ -59,17 +70,29 @@ async function decodeCueVariants(
   context: BaseAudioContext,
   palette: StudioSettings["sound"]["palette"],
   cue: SonicCue,
+  decodes: SonicDecodeCache,
   signal?: AbortSignal,
 ): Promise<readonly DecodedSonicAsset[]> {
   const variantCount = getSonicAssetVariantCount(palette, cue);
   return await Promise.all(
     Array.from({ length: variantCount }, async (_, variant) => {
       throwIfAborted(signal);
-      const bytes = await getSonicAssetBytes(palette, cue, variant, signal);
-      throwIfAborted(signal);
+      const spec = getSonicAssetSpec(palette, cue, variant);
+      let decode = decodes.get(spec.uri);
+      if (!decode) {
+        decode = getSonicAssetBytes(palette, cue, variant, signal)
+          .then(async (bytes) => {
+            throwIfAborted(signal);
+            return await context.decodeAudioData(bytes);
+          });
+        decodes.set(spec.uri, decode);
+        void decode.catch(() => {
+          if (decodes.get(spec.uri) === decode) decodes.delete(spec.uri);
+        });
+      }
       return {
-        buffer: await context.decodeAudioData(bytes),
-        spec: getSonicAssetSpec(palette, cue, variant),
+        buffer: await decode,
+        spec,
       };
     }),
   );
@@ -99,10 +122,9 @@ function playbackWindow(asset: DecodedSonicAsset): Readonly<{
 }
 
 /**
- * Renders the authored cue plan into an exact-length 48 kHz stereo buffer.
- * Source selection, timing, pitch, gain, pan and non-destructive recording
- * treatments are deterministic. Export later mixes this effects bed beneath
- * presenter speech into one verified AAC track.
+ * Renders semantic edit events through the shared body/air/contact/landing
+ * grammar into an exact-length 48 kHz stereo buffer. Preview and export share
+ * source selection, timing, filters, envelopes, gain, pitch and pan.
  */
 export async function renderSonicSoundtrack(
   settings: StudioSettings,
@@ -111,7 +133,9 @@ export async function renderSonicSoundtrack(
   signal?: AbortSignal,
 ): Promise<AudioBuffer | null> {
   throwIfAborted(signal);
-  const events = buildSonicTimeline(settings, assetCount, duration);
+  const semanticEvents = buildSonicTimeline(settings, assetCount, duration);
+  if (semanticEvents.length === 0) return null;
+  const events = buildSonicLayerTimeline(settings, semanticEvents, duration);
   if (events.length === 0) return null;
   if (typeof OfflineAudioContext === "undefined") {
     throw new Error("This browser cannot render the tactile sound track offline.");
@@ -124,6 +148,7 @@ export async function renderSonicSoundtrack(
     SONIC_SAMPLE_RATE,
   );
   const requiredCues = [...new Set(events.map((event) => event.cue))];
+  const assetDecodes: SonicDecodeCache = new Map();
   const decoded = new Map<SonicCue, readonly DecodedSonicAsset[]>();
   await Promise.all(requiredCues.map(async (cue) => {
     decoded.set(
@@ -132,6 +157,7 @@ export async function renderSonicSoundtrack(
         context,
         settings.sound.palette,
         cue,
+        assetDecodes,
         signal,
       ),
     );
@@ -140,20 +166,16 @@ export async function renderSonicSoundtrack(
 
   const master = context.createGain();
   const compressor = context.createDynamicsCompressor();
+  const output = context.createGain();
   master.gain.value = Math.min(
     1,
     Math.max(0, settings.sound.masterGain * settings.sound.motionGain),
   );
-  // These dynamics deliberately match SonicEngine's live preview graph. The
-  // exported gesture should not become flatter, louder, or softer merely
-  // because it moved from the stage into the master.
-  compressor.threshold.value = -17;
-  compressor.knee.value = 20;
-  compressor.ratio.value = 4;
-  compressor.attack.value = 0.003;
-  compressor.release.value = 0.18;
+  configureSonicCompressor(compressor);
+  output.gain.value = SONIC_OUTPUT_HEADROOM;
   master.connect(compressor);
-  compressor.connect(context.destination);
+  compressor.connect(output);
+  output.connect(context.destination);
 
   for (const event of events) {
     const variants = decoded.get(event.cue);
@@ -168,6 +190,7 @@ export async function renderSonicSoundtrack(
     const source = context.createBufferSource();
     const gain = context.createGain();
     const panner = context.createStereoPanner();
+    const filters = createSonicFilters(context, event.filters);
     source.buffer = asset.buffer;
     source.playbackRate.value = event.playbackRate;
     panner.pan.value = event.pan;
@@ -179,13 +202,10 @@ export async function renderSonicSoundtrack(
     );
     const end = Math.min(duration, start + audibleDuration);
     if (end <= start) continue;
-    const attackEnd = Math.min(
+    const { attackEnd, releaseStart } = getSonicEnvelopePoints(
+      start,
       end,
-      start + Math.min(0.012, audibleDuration * 0.2),
-    );
-    const releaseStart = Math.max(
-      attackEnd,
-      end - Math.min(0.032, audibleDuration * 0.28),
+      event.envelope,
     );
     const treatedGain = event.gain * asset.spec.gain;
     gain.gain.setValueAtTime(0, start);
@@ -193,7 +213,12 @@ export async function renderSonicSoundtrack(
     gain.gain.setValueAtTime(treatedGain, releaseStart);
     gain.gain.linearRampToValueAtTime(0, end);
 
-    source.connect(gain);
+    let tail: AudioNode = source;
+    for (const filter of filters) {
+      tail.connect(filter);
+      tail = filter;
+    }
+    tail.connect(gain);
     gain.connect(panner);
     panner.connect(master);
     const renderedDuration = Math.max(0, end - start);

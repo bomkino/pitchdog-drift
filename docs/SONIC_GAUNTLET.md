@@ -34,10 +34,28 @@ build is necessary but not sufficient.
 - Continuous autoplay never emits a false settle, and wheel packets never each
   become a settle cue.
 - Slider movement is silent; it does not chatter on every input event.
-- Variation changes both sample choice and restrained playback rate.
-- Variation zero is stable and repeatable.
+- Texture adds deterministic air/contact/landing detail without changing the body take, body time, body pitch, or body pan.
+- Texture zero is stable, repeatable, and body-only.
+- Raising Texture is monotonic: existing layers remain unchanged while new layers may appear.
+- Balanced take rotation uses every available recording before repeating and prevents adjacent cycle-boundary repeats.
+- A layered gesture does not reuse the same physical source recording across roles when a distinct take exists.
+- Passage speed subtly changes real-recording rate and envelope duration while preserving the selected take.
 - Horizontal direction affects pan; vertical motion remains centred.
 - Pausing, focus mode, theme changes, and discrete controls remain restrained.
+
+## Organic grammar and mix restraint
+
+- Every semantic event has exactly one body layer.
+- Forced audition exposes the complete supported body/air/contact/landing grammar.
+- Normal default Texture remains sparse: passage contact and landing are absent.
+- Air is high-passed and softly low-passed; contact occupies a narrower transient band; landing is low-passed.
+- Air attack is slower than body, contact attack is faster, and landing release is longer.
+- Deterministic micro-delay and pan variation remain bounded and never schedule a negative start.
+- Secondary passage gain totals no more than 30% of body gain; other gestures no more than 24%.
+- High-cadence passages have fewer and quieter secondary layers than calm passages.
+- Live preview and offline export use identical layer recipes, filters, envelopes, and take rotation.
+- The final dynamics graph leaves 0.8 output headroom after the shared compressor.
+- Reusing one source recording across cue families does not decode duplicate AudioBuffers inside the same context or render.
 
 ## Journey 3 — narration
 
@@ -81,6 +99,7 @@ build is necessary but not sufficient.
 - Every sound control is keyboard accessible and labelled.
 - Loading, auditioning, armed, muted, and unavailable states are announced
   without relying on colour.
+- Status notices do not block the sound controls they overlap; only the explicit dismiss button captures input.
 - Reduced-motion output is silent.
 - Hidden tabs suspend preview audio.
 - No sound file is requested from a third-party origin at runtime.

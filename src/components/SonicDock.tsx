@@ -103,10 +103,11 @@ export function SonicDock({
           aria-label="Sound direction"
         >
           <header>
-            <span>AUTHENTIC TACTILE FOLEY</span>
-            <strong>Motion with physical consequence.</strong>
+            <span>ORGANIC EDITORIAL MICRO-FOLEY</span>
+            <strong>Every edit gets a physical cause.</strong>
             <p>
-              Recorded cards, paper, cloth, leather, wood and metal. No music,
+              Local CC0 cards, paper, cloth, leather, wood and metal become
+              restrained body, air, contact and landing layers. No music,
               generated bleeps, hover chatter or third-party sound requests.
             </p>
           </header>
@@ -163,7 +164,7 @@ export function SonicDock({
               onChange={(density) => onSettings({ density })}
             />
             <RangeRow
-              label="Variation"
+              label="Texture"
               value={settings.variation}
               disabled={disabled}
               onChange={(variation) => onSettings({ variation })}
@@ -204,18 +205,18 @@ export function SonicDock({
             aria-describedby="sonic-audition-note"
             title={
               settings.previewEnabled
-                ? "Play a short passage and settle gesture"
-                : "Play one deliberate gesture without arming ongoing preview"
+                ? "Play one layered material gesture"
+                : "Play one layered gesture without arming ongoing preview"
             }
             onClick={onAudition}
           >
             Audition gesture
           </button>
           <p id="sonic-audition-note" className="sonic-audition-note">
-            An explicit audition is still available while ongoing preview is muted.
+            Audition reveals the full material grammar; normal playback remains sparser.
           </p>
           <footer>
-            <span>Kenney recordings · CC0 · pinned and local</span>
+            <span>23 Kenney recordings · CC0 · pinned and local</span>
             <span>Audio master · 24 / 25 / 30 fps</span>
           </footer>
         </div>

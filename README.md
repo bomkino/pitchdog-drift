@@ -18,7 +18,7 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 - Six authored motion worlds: Editorial Drift, Road Memory, Dread, Noir Contact, Tender Light, and Chrome Dream.
 - One optional pinned image or presenter video, off by default.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
-- Authentic CC0 card, paper, cloth, leather, wood, and metal foley for semantic motion and controls—bundled locally, never music or generated UI bleeps.
+- Organic editorial micro-Foley built from 23 pinned CC0 card, paper, cloth, leather, wood, and metal recordings—body, air, contact, and landing layers, never music or generated UI bleeps.
 - One verified AAC track at 48 kHz stereo: presenter speech, authored sound design, or one continuous exact-duration stereo master of both.
 - IndexedDB autosave and portable `.pitched` project bundles with SHA-256 asset verification.
 - Visible DOM fallback when WebGL2 is unavailable. It keeps media and project management usable while refusing to fake cinematic export.
@@ -53,7 +53,7 @@ The default master is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque 
 - File export writes through a rollback-aware target. Cancelled work is aborted or neutralised instead of being presented as a valid master.
 - MP4 completion includes container readback, dimensions, frame count, duration, codec, colour, decoded probe frames, and audio timing checks.
 
-See [the architecture](docs/ARCHITECTURE.md), [sonic design](docs/SONIC_DESIGN.md), [sonic gauntlet](docs/SONIC_GAUNTLET.md), [research notes](docs/RESEARCH.md), [product contract](docs/PRODUCT_CONTRACT.md), and [QA receipt](docs/QA_REPORT.md) for the boundaries behind those claims.
+See [the architecture](docs/ARCHITECTURE.md), [sonic design](docs/SONIC_DESIGN.md), [sonic research](docs/SONIC_RESEARCH.md), [sonic gauntlet](docs/SONIC_GAUNTLET.md), [research notes](docs/RESEARCH.md), [product contract](docs/PRODUCT_CONTRACT.md), and [QA receipt](docs/QA_REPORT.md) for the boundaries behind those claims.
 
 ## Browser support
 

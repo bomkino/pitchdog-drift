@@ -1194,6 +1194,7 @@ a:focus-visible {
   background: rgba(24, 22, 19, 0.94);
   box-shadow: 0 12px 42px rgba(0, 0, 0, 0.42);
   transform: translateX(-50%);
+  pointer-events: none;
   backdrop-filter: blur(16px);
 }
 
@@ -1201,7 +1202,7 @@ a:focus-visible {
 .notice[data-kind="error"] { border-color: rgba(193, 88, 67, 0.52); color: #e1b6ab; }
 .notice > span { color: var(--rust-light); font-family: ui-monospace, monospace; }
 .notice p { margin: 0; font-size: 9px; line-height: 1.4; }
-.notice button { width: 22px; height: 22px; padding: 0; border: 0; color: #777168; background: transparent; cursor: pointer; }
+.notice button { width: 22px; height: 22px; padding: 0; border: 0; color: #777168; background: transparent; pointer-events: auto; cursor: pointer; }
 .notice button:hover { color: var(--ink); }
 
 .app-footer {

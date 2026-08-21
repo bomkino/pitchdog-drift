@@ -1,12 +1,14 @@
-# Authentic tactile sound direction
+# Organic editorial sound direction
 
 Drift uses sound as a material response to motion. It does not add music,
 ambient beds, synthetic notification tones, or decorative hover noise.
 
-The intended impression is a film editor handling physical media: cards
-sliding, a page turning, cloth catching, leather lifting, a book landing, a
-small latch engaging. The sounds are brief enough to preserve narration and
-restrained enough that silence remains the dominant state.
+The intended impression is visual journalism assembled by hand: a card moves,
+cloth catches the air, paper changes state, a contact punctuates the edit, and a
+soft landing confirms physical consequence. The system does not imitate Vox's
+proprietary assets or signature cues. It applies the general craft principle of
+grounding abstract animation in literal, material sound. Silence remains the
+dominant state.
 
 ## Product rules
 
@@ -27,12 +29,12 @@ restrained enough that silence remains the dominant state.
 6. **One audio master.** Presenter speech and effects become one exact-duration
    stereo master before AAC encoding. Drift never emits competing audio tracks
    or silently drops one.
-7. **Deterministic authorship.** Passage inclusion, cue time, sample choice,
-   gain, playback rate, and pan derive from saved project state and the pure
-   carousel evaluator.
-8. **Preview and export speak one language.** Given the same passage sequence,
-   seed, density, palette, and variation, both paths choose the same inclusion,
-   recording, and playback-rate decision.
+7. **Deterministic authorship.** Passage inclusion, focus time, take rotation,
+   micro-delay, filter role, envelope, gain, playback rate, and pan derive from
+   saved project state and pure evaluators.
+8. **Preview and export speak one language.** Given the same semantic event,
+   seed, density, material, texture, intensity, and direction, both paths build
+   the same body, air, contact, and landing plan.
 9. **Restraint beats coverage.** There are no hover sounds, continuous scrub
    loops, background ambience, or sounds on every slider tick.
 
@@ -63,12 +65,43 @@ Density only adds passages; it does not replace already accepted ones. Changing
 a material palette changes the sound of a passage without changing the authored
 rhythm of where passages occur.
 
+## Organic micro-Foley grammar
+
+Each visible semantic event owns one **body** layer. Texture can add up to three
+quiet, deterministic companions:
+
+| Layer | Physical job | Spectral job | Timing job |
+| --- | --- | --- | --- |
+| body | identifies the material action | untouched treated source | exactly on visual focus hand-off |
+| air | describes travel through space | high-passed and softly low-passed | within a few milliseconds of body |
+| contact | punctuates a state change | narrower transient band | shortly after body |
+| landing | gives consequence without trailer weight | low-passed soft body | latest and sparsest layer |
+
+The source recordings remain untouched. Filtering, envelopes, pan, trim, rate,
+and gain exist only in the playback graph. Air receives a slower attack and
+longer decay; contact receives the fastest attack and shortest decay; landing is
+softened and lengthened. Material palettes use different frequency boundaries
+rather than merely swapping files.
+
+Texture is additive and monotonic: raising it may reveal more layers, but it
+never changes an existing body's take, time, pitch, or pan. A balanced take
+scheduler uses every available recording before repeating and prevents adjacent
+cycle-boundary repeats. Deterministic millisecond-scale timing and pan offsets
+remove rigid stacking without introducing export randomness.
+
+Fast motion is intentionally simpler. As passage intensity approaches maximum,
+contact and landing probability and gain collapse; air is also slightly reduced.
+A rapid carousel therefore tends toward a clean body-and-air gesture instead of
+turning into a four-layer machine gun. An explicit audition demonstrates the
+full grammar, while ordinary playback remains sparser.
+
 ## Material palettes
 
-### Studio
+### Editorial
 
-Playing-card slides, leather handling, paper, a small metal click, and soft
-surface impacts. This is the restrained default: dry, close, and editorial.
+Playing-card slides, cloth air, paper grain, close leather handling, and tiny
+contact punctuation. This is the restrained default: dry, literal, and suited
+to explanatory visual journalism.
 
 ### Cinema
 
@@ -80,10 +113,10 @@ physical weight without becoming a trailer-effects pack.
 Page turns, cloth, book movement, and soft landings. It is the least mechanical
 palette and suits quiet, tender, archival, or literary decks.
 
-Each semantic cue can draw from multiple authentic recordings. Variation is
-therefore not just pitch modulation: deterministic sample selection prevents
-the same page turn or card slide from repeating mechanically. Setting Variation
-to zero pins every cue to its first recording and neutral playback rate.
+Each cue family draws from multiple authentic recordings. The **Texture**
+control changes layer richness, not the primary edit rhythm. Body takes rotate
+through the available corpus deterministically even at zero Texture, preventing
+the same page turn or card slide from repeating mechanically.
 
 ## Non-destructive acoustic treatment
 
@@ -121,20 +154,23 @@ shape the authored result.
 
 `SonicEngine` owns a lazy Web Audio graph:
 
-- one master gain and one restrained compressor;
-- a maximum of eight simultaneous voices;
+- one master gain, one restrained compressor, and 0.8 output headroom;
+- a maximum of twelve simultaneous short voices for layered gestures;
 - per-cue cooldowns;
 - a deliberate drag threshold that keeps ordinary canvas clicks silent;
 - one-shot settle state for drag, wheel, and paused-autoplay inertia;
 - continuous seeded density gating for passages;
 - separate motion and interface gain families;
 - stereo pan derived from horizontal direction;
-- short attack and release ramps to prevent clicks;
+- role-specific envelopes and filter chains: airy, transient, full-body, or soft landing;
 - visibility suspension and complete teardown on unmount;
 - abort-aware asset waits so cancelled work stops promptly while the shared
   local cache remains reusable;
-- core passage and settle assets loaded first, with interaction and status cues
-  loaded only when needed;
+- core passage, air, and settle material loaded first; remaining interaction
+  and status families warm in the background only after trusted intent, so the
+  first real control or export outcome is not silently missed;
+- one decoded buffer per physical source file and audio context, even when the
+  same CC0 take appears in more than one semantic family;
 - no decoding of a disabled migrated project's palette until the user opts in.
 
 The engine is suppressed during export so preview feedback cannot leak into
@@ -144,10 +180,12 @@ Surface recovery and suppression release run before any success or failure cue; 
 
 ## Export engine
 
-`buildSonicTimeline()` produces a deterministic list of passage and optional
-settle events. `renderSonicSoundtrack()` renders that list through an exact
-48,000 Hz, two-channel `OfflineAudioContext` using the same recording treatments
-and passage decisions as preview.
+`buildSonicTimeline()` produces deterministic semantic passage and optional
+settle events at the visual focus hand-off. `buildSonicLayerTimeline()` expands
+them through the same organic grammar used by preview. `renderSonicSoundtrack()`
+renders the result through an exact 48,000 Hz, two-channel
+`OfflineAudioContext`, including the same take rotation, micro-timing, filters,
+envelopes, gain, pitch, and pan.
 
 At export:
 
@@ -187,8 +225,9 @@ being emitted as hashed same-origin assets.
 
 ## Tuning boundaries
 
-- Master, passages, controls, density, variation, and under-voice gain are
-  normalized from 0 to 1.
+- Master, passages, controls, density, texture, and under-voice gain are
+  normalized from 0 to 1. The persisted field remains named `variation` for
+  schema compatibility.
 - Passage density is deterministic, continuous, monotonic, and independent of
   preview frame rate.
 - Cues within 45 ms of a seamless loop boundary are omitted to prevent a
@@ -196,7 +235,10 @@ being emitted as hashed same-origin assets.
 - Reduced-motion output is silent.
 - Vertical motion remains centred; horizontal motion uses restrained pan.
 - No cue is scheduled by `setTimeout()` in exported audio.
-- Short-lived preview nodes use bounded gain, pan, rate, cooldown, and polyphony.
+- Short-lived preview nodes use bounded gain, delay, filters, envelopes, pan,
+  rate, cooldown, secondary-layer budget, and polyphony.
+- Secondary passage layers total at most 30% of body gain and shrink further at
+  high cadence; other gestures use a 24% ceiling.
 - The committed WAV files are never peak-normalized or destructively trimmed.
 
 ## Non-goals

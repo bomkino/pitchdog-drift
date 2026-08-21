@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { StudioAsset, StudioSettings } from "../model";
+import { getSonicPassageStep } from "../sonic/plan";
 import {
   distanceAtTime,
   evaluateSlide,
@@ -736,7 +737,7 @@ export class CinematicCarousel {
 
   private emitPassageCue(stride: number): void {
     if (!this.callbacks.onSonicEvent || stride <= 0 || this.assets.length === 0) return;
-    const step = Math.round(this.motionPosition / stride);
+    const step = getSonicPassageStep(this.motionPosition, stride);
     if (this.lastSonicStep === null) {
       this.lastSonicStep = step;
       return;

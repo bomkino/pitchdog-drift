@@ -27,6 +27,8 @@ import woodImpact1 from "./assets/recordings/wood-impact-1.wav?no-inline";
 
 export type SonicCue =
   | "passage"
+  | "air"
+  | "contact"
   | "grab"
   | "release"
   | "settle"
@@ -36,6 +38,8 @@ export type SonicCue =
 
 export const SONIC_CUES: readonly SonicCue[] = [
   "passage",
+  "air",
+  "contact",
   "grab",
   "release",
   "settle",
@@ -49,8 +53,8 @@ export const SONIC_PALETTE_LABELS: Readonly<Record<SonicPalette, Readonly<{
   description: string;
 }>>> = {
   studio: {
-    name: "Studio",
-    description: "Cards, leather, paper and soft landings. Dry editorial precision.",
+    name: "Editorial",
+    description: "Cards, cloth, paper grain and close contact. Dry visual-journalism tactility.",
   },
   cinematic: {
     name: "Cinema",
@@ -148,6 +152,8 @@ const CATALOG: Readonly<Record<
 >> = {
   studio: {
     passage: [ASSETS.cardSlide1, ASSETS.cardSlide2, ASSETS.bookFlip1],
+    air: [ASSETS.cloth2, ASSETS.cloth4, ASSETS.leatherHandle1],
+    contact: [ASSETS.metalClick, ASSETS.cardPlace2, ASSETS.bookClose],
     grab: [ASSETS.leatherHandle1, ASSETS.leatherHandle2],
     release: [ASSETS.cardPlace2, ASSETS.cardPlace3],
     settle: [ASSETS.softImpact1, ASSETS.softImpact2],
@@ -157,6 +163,8 @@ const CATALOG: Readonly<Record<
   },
   cinematic: {
     passage: [ASSETS.cardShove1, ASSETS.cardShove2],
+    air: [ASSETS.cloth2, ASSETS.leatherHandle2, ASSETS.cardSlide1],
+    contact: [ASSETS.metalClick, ASSETS.metalLatch, ASSETS.woodImpact1],
     grab: [ASSETS.metalLatch, ASSETS.leatherHandle2],
     release: [ASSETS.woodImpact1, ASSETS.genericImpact2],
     settle: [ASSETS.genericImpact1, ASSETS.softImpact2],
@@ -166,6 +174,8 @@ const CATALOG: Readonly<Record<
   },
   paper: {
     passage: [ASSETS.bookFlip1, ASSETS.cardSlide2, ASSETS.cloth2],
+    air: [ASSETS.cloth2, ASSETS.cloth4, ASSETS.bookFlip1],
+    contact: [ASSETS.bookClose, ASSETS.cardPlace2, ASSETS.metalClick],
     grab: [ASSETS.cloth4, ASSETS.leatherHandle1],
     release: [ASSETS.bookFlip2, ASSETS.bookPlace3],
     settle: [ASSETS.bookPlace1, ASSETS.softImpact1],
