@@ -22,7 +22,7 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check:mac-source": "node scripts/check-macos-source.mjs && node scripts/check-macos-hardening.mjs && node scripts/check-macos-export-presence.mjs && node scripts/check-macos-finder-truth.mjs && bash -n scripts/build-macos-app.sh && bash -n scripts/verify-macos-app.sh && bash -n scripts/package-macos-dmg.sh && bash -n scripts/verify-macos-dmg.sh && bash -n scripts/release-macos-app.sh && bash -n scripts/verify-macos-release.sh && python3 -m py_compile scripts/generate-macos-icon.py",
+    "check:mac-source": "node scripts/check-macos-source.mjs && node scripts/check-macos-native-presentation.mjs && node scripts/check-macos-hardening.mjs && node scripts/check-macos-export-presence.mjs && node scripts/check-macos-finder-truth.mjs && bash -n scripts/build-macos-app.sh && bash -n scripts/verify-macos-app.sh && bash -n scripts/package-macos-dmg.sh && bash -n scripts/verify-macos-dmg.sh && bash -n scripts/release-macos-app.sh && bash -n scripts/verify-macos-release.sh && python3 -m py_compile scripts/generate-macos-icon.py",
     "build:mac": "bash scripts/build-macos-app.sh",
     "verify:mac": "bash scripts/verify-macos-app.sh",
     "package:mac:dmg": "bash scripts/package-macos-dmg.sh",
