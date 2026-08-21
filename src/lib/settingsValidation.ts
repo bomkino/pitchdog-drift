@@ -121,7 +121,7 @@ const THEMES = [
   "chrome-dream",
 ] as const;
 const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
-const SONIC_PALETTES = ["studio", "cinematic", "paper"] as const;
+const SONIC_PALETTES = ["studio", "cinematic", "paper", "editorial"] as const;
 
 /**
  * Validates the complete current settings schema and rebuilds it field by
