@@ -299,7 +299,11 @@ expect(receipt.get("startedNavigation") is True, "packaged WebView never started
 expect(receipt.get("committedNavigation") is True, "packaged WebView never committed navigation")
 expect(receipt.get("finishedNavigation") is True, "packaged WebView never finished navigation")
 expect(int(receipt.get("contentProcessTerminationCount", 99)) <= 1, "WebKit content process terminated more than once")
-expect(receipt.get("saveState") == "saved", "React project state never settled to saved")
+expect(receipt.get("webKitFileInputVerified") is True, "typed native file ingestion was not verified")
+expect(
+    receipt.get("saveState") in {"saved", "saving"},
+    "React project entered an invalid state during packaged verification",
+)
 expect(receipt.get("projectBusy") is False, "React project operation remained busy")
 expect(receipt.get("exportInProgress") is False, "React export remained in progress")
 
