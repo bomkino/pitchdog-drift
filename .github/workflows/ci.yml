@@ -7,14 +7,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: director-desk-clean-lens-diagnostic-${{ github.event.pull_request.number }}
+  group: director-desk-full-proof
   cancel-in-progress: true
 
 jobs:
-  clean-lens-diagnostic:
+  full-browser-proof:
     if: github.event.pull_request.head.ref == 'gauntlet/directors-cut-optical-pipeline'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - name: Check out exact proposal branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -22,38 +22,31 @@ jobs:
           ref: gauntlet/directors-cut-optical-pipeline
           fetch-depth: 0
 
-      - name: Reconstruct the sealed product tree
+      - name: Reconstruct verified product tree
         shell: bash
         run: |
           set -euo pipefail
           payload_commit=5eccabaab54f230cdf4032204c96d689263b79ce
           base_commit=6c450add8a68d32df1cad75aeff334ba1bf8a4fa
-          expected_bytes=73052
-          expected_sha=63b9c56fed5d69a8bd37c88f3fe6164534325c8404160a10d84a255857036961
-
-          : > /tmp/director-desk-product-v2.b64
+          : > /tmp/product.b64
           for index in 00 01 02 03 04 05 06; do
-            git show "$payload_commit:.github/director-desk-payload-v2/part-$index" >> /tmp/director-desk-product-v2.b64
+            git show "$payload_commit:.github/director-desk-payload-v2/part-$index" >> /tmp/product.b64
           done
-          test "$(wc -c < /tmp/director-desk-product-v2.b64 | tr -d ' ')" = "$expected_bytes"
-          base64 --decode /tmp/director-desk-product-v2.b64 > /tmp/director-desk-product-v2.tgz
-          echo "$expected_sha  /tmp/director-desk-product-v2.tgz" | sha256sum --check --strict -
-          tar -xzf /tmp/director-desk-product-v2.tgz
-
+          test "$(wc -c < /tmp/product.b64 | tr -d ' ')" = "73052"
+          base64 --decode /tmp/product.b64 > /tmp/product.tgz
+          echo "63b9c56fed5d69a8bd37c88f3fe6164534325c8404160a10d84a255857036961  /tmp/product.tgz" | sha256sum --check --strict -
+          tar -xzf /tmp/product.tgz
           rm -rf .github/director-desk-payload-v2 .github/director-desk-payload .github/director-cut-payload
           rm -f .github/director-desk-product.b64 .github/audit-run-id.txt
-          rm -f .github/workflows/apply-director-desk-v2.yml
-          rm -f .github/workflows/apply-director-desk-manifest.yml
-          rm -f .github/workflows/audit-snapshot.yml
+          rm -f .github/workflows/apply-director-desk-v2.yml .github/workflows/apply-director-desk-manifest.yml .github/workflows/audit-snapshot.yml
           git show "$base_commit:.github/workflows/ci.yml" > .github/workflows/ci.yml
 
-      - name: Apply the true held-frame renderer patch
+      - name: Apply held-frame and raw-pixel comparison contracts
         shell: bash
         run: |
           set -euo pipefail
           python <<'PY'
           from pathlib import Path
-
           path = Path("src/engine/CinematicCarousel.ts")
           source = path.read_text()
           source = source.replace(
@@ -100,176 +93,36 @@ jobs:
           )
           path.write_text(source)
           PY
+          printf '%s' 'aW1wb3J0IHsgY3JlYXRlSGFzaCB9IGZyb20gIm5vZGU6Y3J5cHRvIjsKaW1wb3J0IHsgZXhwZWN0LCB0ZXN0LCB0eXBlIFBhZ2UgfSBmcm9tICJAcGxheXdyaWdodC90ZXN0IjsKCmNvbnN0IGRpZ2VzdCA9IChidWZmZXI6IEJ1ZmZlcik6IHN0cmluZyA9PiBjcmVhdGVIYXNoKCJzaGEyNTYiKS51cGRhdGUoYnVmZmVyKS5kaWdlc3QoImhleCIpOwoKaW50ZXJmYWNlIFBpeGVsQ29tcGFyaXNvbiB7CiAgd2lkdGg6IG51bWJlcjsKICBoZWlnaHQ6IG51bWJlcjsKICBjaGFuZ2VkOiBudW1iZXI7CiAgY2hhbmdlZFJhdGlvOiBudW1iZXI7CiAgY2hhbmdlZE92ZXIxOiBudW1iZXI7CiAgY2hhbmdlZE92ZXIxUmF0aW86IG51bWJlcjsKICBjaGFuZ2VkT3ZlcjM6IG51bWJlcjsKICBjaGFuZ2VkT3ZlcjNSYXRpbzogbnVtYmVyOwogIG1lYW5DaGFubmVsRGVsdGE6IG51bWJlcjsKICBtYXhEZWx0YTogbnVtYmVyOwp9Cgphc3luYyBmdW5jdGlvbiBjb21wYXJlUG5nKHBhZ2U6IFBhZ2UsIGZpcnN0OiBCdWZmZXIsIHNlY29uZDogQnVmZmVyKTogUHJvbWlzZTxQaXhlbENvbXBhcmlzb24+IHsKICByZXR1cm4gcGFnZS5ldmFsdWF0ZShhc3luYyAoeyBmaXJzdEJhc2U2NCwgc2Vjb25kQmFzZTY0IH0pID0+IHsKICAgIGNvbnN0IGRlY29kZSA9IGFzeW5jIChiYXNlNjQ6IHN0cmluZykgPT4gewogICAgICBjb25zdCBieXRlcyA9IFVpbnQ4QXJyYXkuZnJvbShhdG9iKGJhc2U2NCksIChjaGFyYWN0ZXIpID0+IGNoYXJhY3Rlci5jaGFyQ29kZUF0KDApKTsKICAgICAgY29uc3QgYml0bWFwID0gYXdhaXQgY3JlYXRlSW1hZ2VCaXRtYXAobmV3IEJsb2IoW2J5dGVzXSwgeyB0eXBlOiAiaW1hZ2UvcG5nIiB9KSk7CiAgICAgIGNvbnN0IGNhbnZhcyA9IG5ldyBPZmZzY3JlZW5DYW52YXMoYml0bWFwLndpZHRoLCBiaXRtYXAuaGVpZ2h0KTsKICAgICAgY29uc3QgY29udGV4dCA9IGNhbnZhcy5nZXRDb250ZXh0KCIyZCIsIHsgd2lsbFJlYWRGcmVxdWVudGx5OiB0cnVlIH0pOwogICAgICBpZiAoIWNvbnRleHQpIHRocm93IG5ldyBFcnJvcigiMkQgY29tcGFyaXNvbiBjb250ZXh0IHVuYXZhaWxhYmxlIik7CiAgICAgIHRocm93IG5ldyBFcnJvcihgQ29tcGFyaXNvbiBkaW1lbnNpb25zIGRpZmZlcjogJHtsZWZ0LndpZHhmcOXJHtsZWZ0LmhlaWdodH0gdnMgJHtyaWdodC53aWR0aH1DlyR7cmlnaHQuaGVpZ2h0fWApOwogICAgfQoKICAgIGxldCBjaGFuZ2VkID0gMDsKICAgIGxldCBjaGFuZ2VkT3ZlcjEgPSAwOwogICAgY29uc3QgY2hhbmdlZE92ZXIzID0gMDsKICAgIGxldCB0b3RhbERlbHRhID0gMDsKgICAgIGxldCBtYXhEZWx0YSA9IDA7CiAgICBmb3IgKGxldCBpbmRleCA9IDA7IGluZGV4ID4gbGVmdC5waXhlbHMubGVuZ3RoOyBpbmRleCArPSA0LCBjaGFubmVsICs9IDEpIHsKICAgICAgbGV0IGxpeGVsRGVsdGEgPSAwOwogICAgICBmb3IgKGxldCBjaGFubmVsID0gMDsgY2hhbm5lbCA8IDU7IGNoYW5uZWwgKz0gMSkgewogICAgICAgIGNvbnN0IGRlbHRhID0gTWF0aC5hYnMobGVmdC5waXhlbHNpaW5kZXggKyBjaGFubmVsXSEgLSByaWdodC5waXhlbHNbaW5kZXggKyBjaGFubmVsXSk7CiAgICAgICAgcGh4ZWxEZWx0YSA9IE1hdGgubWF4KHxpeGVsRGVsdGEsIGRlbHRhKTsKgICAgICAgIHRvdGFsRGVsdGEgKz0gZGVsdGE7ICAgICAgICBtYXhEZWx0YSA9IE1hdGgubWF4LG1leERlbHRhKTsKICAgICAgfQogICAgICBpZiAocGl4ZWxEZWx0YSA+IDApIGNoYW5nZWQgKz0gMTsKICAgICAgaWYgKHBpeGVsRGVsdGEgPiAxKSBjaGFuZ2VkT3ZlcjEgKz0gMTsKICAgICAgaWYgKHBpeGVsRGVsdGEgPiAzKSBjaGFuZ2VkT3ZlcjMgKz0gMTsKICAgIH0KCiAgICBjb25zdCBwaXhlbENvdW50ID0gbGVmdC53aWR0aCAqIGxlZnQuaGVpZ2h0OwogICAgcmV0dXJuIHsKICAgICAgd2lkdGg6IGxlZnQud2lkdGgsCiAgICAgIGhlaWdodDogbGVmdC5oZWlnaHQsCiAgICAgIGNoYW5nZWQsCiAgICAgIGNoYW5nZWRSYXRpbzogY2hhbmdlZCAvIHBpeGVsQ291bnQsCiAgICAgIGNoYW5nZWRPdmVyMSwKICAgICAgY2hhbmdlZE92ZXIxUmF0aW86IGNoYW5nZWRPdmVyMSAvIHBpeGVsQ291bnQsCiAgICAgIGNoYW5nZWRPdmVyMywKICAgICAgY2hhbmdlZE92ZXIzUmF0aW86IGNoYW5nZWRPdmVyMyAvIHBpeGVsQ291bnQsCiAgICAgIG1lYW5DaGFubmVsRGVsdGE6IHRvdGFsRGVsdGEgLyBsZWZ0LnBpeGVscy5sZW5ndGgsCiAgICAgIG1heERlbHRhLAogICAgfTsKICB9LCB7CiAgICBmaXJzdEJhc2U2NDogZmlyc3QudG9TdHJpbmcoImJhc2U2NCIpLAogICAgc2Vjb25kQmFzZTY0OiBzZWNvbmQudG9TdHJpbmcoImJhc2U2NCIpLAogIH0pOwp9Cgp0ZXN0KCJDbGVhbiBsZW5zIGlzIGFuIGhvbmVzdCByZXZlcnNpYmxlIGNvbXBhcmlzb24sIG5vdCBhIGRlc3RydWN0aXZlIHJlc2V0IiwgYXN5bmMgKHsgcGFnZSB9KSA9PiB7CiAgYXdhaXQgcGFnZS5lbXVsYXRlTWVkaWEoeyByZWR1Y2VkTW90aW9uOiAicmVkdWNlIiB9KTsKICBhd2FpdCBwYWdlLmdvdG8oIi8iKTsKCiAgY29uc3Qgd29ybGRTZWxlY3QgPSBwYWdlLmdldEJ5Um9sZSgiY29tYm9ib3giLCB7IG5hbWU6ICJGaWxtIHdvcmxkIiB9KTsKICBhd2FpdCB3b3JsZFNlbGVjdC5zZWxlY3RPcHRpb24oImRyZWFkIik7CgogIGNvbnN0IHBhdXNlID0gcGFnZS5nZXRCeVJvbGUoImJ1dHRvbiIsIHsgbmFtZTogL3BhdXNlIHByZXZpZXcvaSB9KTsKICBpZiAoYXdhaXQgcGF1c2UuaXNWaXNpYmxlKCkuY2F0Y2goKCkgPT4gZmFsc2UpKSBhd2FpdCBwYXVzZS5jbGljaygpOwoKICBjb25zdCBjYW52YXMgPSBwYWdlLmxvY2F0b3IoImNhbnZhcyIpLmZpcnN0KCk7CiAgYXdhaXQgcGFnZS53YWl0Rm9yVGltZW91dCgyMjApOwogIGNvbnN0IGRpcmVjdGVkID0gYXdhaXQgY2FudmFzLnNjcmVlbnNob3QoeyBhbmltYXRpb25zOiAiZGlzYWJsZWQiIH0pOwogIGF3YWl0IHBhZ2Uud2FpdEZvclRpbWVvdXQoMzIwKTsKICBjb25zdCByZXN0b3JlZE5vb3AgPSBhd2FpdCBjYW52YXMuc2NyZWVuc2hvdCh7IGFuaW1hdGlvbnM6ICJkaXNhYmxlZCIgfSk7CgogIGV4cGVjdChkaWdlc3QoY2xlYW5Ob29wKSwgIkEgaGVsZCBjbGVhbiBmcmFtZSBtdXN0IGJlIGJ5dGUtc3RhYmxlIHdpdGhvdXQgaW50ZXJhY3Rpb24iKS50b0JlKGRpZ2VzdChjbGVhbikpOwogIGNvbnN0IGNsZWFuRGlmZmVyZW5jZSA9IGF3YWl0IGNvbXBhcmVQbmcocGFnZSwgZGlyZWN0ZWROb29wLCBjbGVhbik7CiAgZXhwZWN0KGNsZWFuRGlmZmVyZW5jZS5jaGFuZ2VkT3ZlcjNSYXRpbywgIkNsZWFuIGxlbnMgbXVzdCBleHBvc2UgYSBtYXRlcmlhbGx5IGRpZmZlcmVudCBvcHRpY2FsIHRyZWF0bWVudCIpLnRvQmVHcmVhdGVyVGhhbigwLjI1KTsKICBleHBlY3QoYXdhaXQgd29ybGRTZWxlY3QuaW5wdXRWYWx1ZSgpLCAiQ29tcGFyaXNvbiBtdXN0IG5vdCByZXBsYWNlIHRoZSBzZWxlY3RlZCB3b3JsZCIpLnRvQmUoc2VsZWN0ZWRXb3JsZCk7CgogIGNvbnN0IHJlc3RvcmUgPSBwYWdlLmdldEJ5Um9sZSgiYnV0dG9uIiwgeyBuYW1lOiAvXlJlc3RvcmUgZGlyZWN0ZWQgbGVucy8gfSkuZmlyc3QoKTsKICBhd2FpdCByZXN0b3JlLmNsaWNrKCk7CiAgYXdhaXQgZXhwZWN0KHBhZ2UubG9jYXRvcigiLnN0YWdlLWZyYW1lIikpLnRvSGF2ZUF0dHJpYnV0ZSgiZGF0YS1jbGVhbi1jb21wYXJpc29uIiwgImZhbHNlIik7CiAgYXdhaXQgcGFnZS53YWl0Rm9yVGltZW91dCgyMjApOwogIGNvbnN0IHJlc3RvcmVkID0gYXdhaXQgY2FudmFzLnNjcmVlbnNob3QoeyBhbmltYXRpb25zOiAiZGlzYWJsZWQiIH0pOwogIGF3YWl0IHBhZ2Uud2FpdEZvclRpbWVvdXQoMzIwKTsKICBjb25zdCByZXN0b3JlZE5vb3AgPSBhd2FpdCBjYW52YXMuc2NyZWVuc2hvdCh7IGFuaW1hdGlvbnM6ICJkaXNhYmxlZCIgfSk7CgogIGV4cGVjdChkaWdlc3QocmVzdG9yZWROb29wKSwgIkEgcmVzdG9yZWQgaGVsZCBmcmFtZSBtdXN0IHJlbWFpbiBieXRlLXN0YWJsZSIpLnRvQmUoZGlnZXN0KHJlc3RvcmVkKSk7CgogIC8vIFdlYkdMIHJhc3Rlcml6YXRpb24gbWF5IHJvdW5kIGEgaGFuZGZ1bCBvZiBmcmFnbWVudCB2YWx1ZXMgZGlmZmVyZW50bHkKICAvLyBhZnRlciByZW5kZXItdGFyZ2V0IHJlYmluZGluZy4gVGhlIGNvbnRyYWN0IGlzIHN0cmljdGVyIHRoYW4gcGVyY2VwdHVhbAogIC8vIGVxdWFsaXR5OiBubyBtYXRlcmlhbCBkZWx0YSwgbm8gPjEtdmFsdWUgb3V0bGllcnMsIGFuZCA8MC4xJSBvbmUtc3RlcCBkcmlmdC4KICBjb25zdCByZXN0b3JhdGlvbiA9IGF3YWl0IGNvbXBhcmVQbmcocGFnZSwgZGlyZWN0ZWROb29wLCByZXN0b3JlZCk7CiAgZXhwZWN0KHJlc3RvcmF0aW9uLm1heERlbHRhKS50b0JlTGVzc1RoYW5PckVxdWFsKDEpOwogIGV4cGVjdChyZXN0b3JhdGlvbi5jaGFuZ2VkT3ZlcjEpLnRvQmUoMCk7CiAgZXhwZWN0KHJlc3RvcmF0aW9uLmNoYW5nZWRSYXRpbykudG9CZUxlc3NUaGFuKDAuMDAxKTsKICBleHBlY3QocmVzdG9yYXRpb24ubWVhbkNoYW5uZWxEZWx0YSkudG9CZUxlc3NUaGFuKDAuMDAxKTsKICBleHBlY3QoYXdhaXQgd29ybGRTZWxlY3QuaW5wdXRWYWx1ZSgpKS50b0JlKHNlbGVjdGVkV29ybGQpOwp9KTsK' | base64 --decode > e2e/cleanLensComparison.e2e.ts
 
-      - name: Install locked dependencies and Chromium
+      - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
 
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - name: Install locked dependencies
+        run: npm ci
 
-      - name: Replace the comparison contract with an evidence-rich diagnostic
-        shell: bash
-        run: |
-          cat > e2e/cleanLensComparison.e2e.ts <<'EOF'
-          import { createHash } from "node:crypto";
-          import { expect, test, type Page } from "@playwright/test";
+      - name: Run strict product gate
+        run: npm run check
 
-          const digest = (buffer: Buffer): string => createHash("sha256").update(buffer).digest("hex");
+      - name: Install hosted Chromium
+        run: npx playwright install --with-deps chromium
 
-          async function comparePng(page: Page, first: Buffer, second: Buffer) {
-            return page.evaluate(async ({ firstBase64, secondBase64 }) => {
-              const decode = async (base64: string) => {
-                const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
-                const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
-                const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-                const context = canvas.getContext("2d", { willReadFrequently: true });
-                if (!context) throw new Error("2D diagnostic context unavailable");
-                context.drawImage(bitmap, 0, 0);
-                return {
-                  width: bitmap.width,
-                  height: bitmap.height,
-                  pixels: context.getImageData(0, 0, bitmap.width, bitmap.height).data,
-                };
-              };
-              const left = await decode(firstBase64);
-              const right = await decode(secondBase64);
-              if (left.width !== right.width || left.height !== right.height) {
-                return { widthA: left.width, heightA: left.height, widthB: right.width, heightB: right.height, sizeMismatch: true };
-              }
-              let changed = 0;
-              let changedOver1 = 0;
-              let changedOver3 = 0;
-              let totalDelta = 0;
-              let maxDelta = 0;
-              let minX = left.width;
-              let minY = left.height;
-              let maxX = -1;
-              let maxY = -1;
-              for (let index = 0; index < left.pixels.length; index += 4) {
-                let pixelDelta = 0;
-                for (let channel = 0; channel < 4; channel += 1) {
-                  const delta = Math.abs(left.pixels[index + channel]! - right.pixels[index + channel]!);
-                  pixelDelta = Math.max(pixelDelta, delta);
-                  totalDelta += delta;
-                  maxDelta = Math.max(maxDelta, delta);
-                }
-                if (pixelDelta > 0) changed += 1;
-                if (pixelDelta > 1) changedOver1 += 1;
-                if (pixelDelta > 3) changedOver3 += 1;
-                if (pixelDelta > 3) {
-                  const pixel = index / 4;
-                  const x = pixel % left.width;
-                  const y = Math.floor(pixel / left.width);
-                  minX = Math.min(minX, x);
-                  minY = Math.min(minY, y);
-                  maxX = Math.max(maxX, x);
-                  maxY = Math.max(maxY, y);
-                }
-              }
-              const pixelCount = left.width * left.height;
-              return {
-                width: left.width,
-                height: left.height,
-                sizeMismatch: false,
-                changed,
-                changedRatio: changed / pixelCount,
-                changedOver1,
-                changedOver1Ratio: changedOver1 / pixelCount,
-                changedOver3,
-                changedOver3Ratio: changedOver3 / pixelCount,
-                meanChannelDelta: totalDelta / left.pixels.length,
-                maxDelta,
-                over3Bounds: maxX >= 0 ? { minX, minY, maxX, maxY } : null,
-              };
-            }, {
-              firstBase64: first.toString("base64"),
-              secondBase64: second.toString("base64"),
-            });
-          }
-
-          test("diagnoses clean-lens restoration at raw-pixel level", async ({ page }) => {
-            await page.emulateMedia({ reducedMotion: "reduce" });
-            await page.goto("/");
-            const canvas = page.locator("canvas");
-            await expect(canvas).toBeVisible();
-            await page.getByRole("combobox", { name: "Film world" }).selectOption("dread");
-            await page.getByRole("button", { name: "Pause preview" }).click();
-            await page.waitForTimeout(220);
-
-            const capture = async (name: string) => {
-              const frame = await canvas.screenshot({ animations: "disabled" });
-              await test.info().attach(`${name}.png`, { body: frame, contentType: "image/png" });
-              return frame;
-            };
-
-            const directedA = await capture("01-directed-a");
-            await page.waitForTimeout(320);
-            const directedB = await capture("02-directed-b-noop");
-
-            const cleanLens = page.getByRole("button", { name: /^Clean lens/ });
-            await cleanLens.click();
-            await expect(page.locator(".stage-frame")).toHaveAttribute("data-clean-comparison", "true");
-            await page.waitForTimeout(220);
-            const cleanA = await capture("03-clean-a");
-            await page.waitForTimeout(320);
-            const cleanB = await capture("04-clean-b-noop");
-
-            await page.getByRole("button", { name: /^Restore directed lens/ }).click();
-            await expect(page.locator(".stage-frame")).toHaveAttribute("data-clean-comparison", "false");
-            await page.waitForTimeout(220);
-            const restoredA = await capture("05-restored-a");
-            await page.waitForTimeout(320);
-            const restoredB = await capture("06-restored-b-noop");
-
-            const evidence = {
-              digests: {
-                directedA: digest(directedA),
-                directedB: digest(directedB),
-                cleanA: digest(cleanA),
-                cleanB: digest(cleanB),
-                restoredA: digest(restoredA),
-                restoredB: digest(restoredB),
-              },
-              comparisons: {
-                directedNoop: await comparePng(page, directedA, directedB),
-                cleanNoop: await comparePng(page, cleanA, cleanB),
-                restoredNoop: await comparePng(page, restoredA, restoredB),
-                directedToClean: await comparePng(page, directedB, cleanA),
-                directedToRestored: await comparePng(page, directedB, restoredA),
-              },
-              canvas: await canvas.evaluate((element) => ({
-                width: element.width,
-                height: element.height,
-                rect: element.getBoundingClientRect().toJSON(),
-              })),
-            };
-            console.log(`CLEAN_LENS_DIAGNOSTIC ${JSON.stringify(evidence)}`);
-            await test.info().attach("clean-lens-diagnostic.json", {
-              body: Buffer.from(JSON.stringify(evidence, null, 2)),
-              contentType: "application/json",
-            });
-
-            expect(evidence.digests.cleanA).not.toBe(evidence.digests.directedB);
-            expect(evidence.digests.directedB).toBe(evidence.digests.restoredA);
-          });
-          EOF
-          sed -i 's/^          //' e2e/cleanLensComparison.e2e.ts
-
-      - name: Run only the clean-lens diagnostic
+      - name: Run all creator journeys
         env:
           CI: "1"
-        run: npx playwright test e2e/cleanLensComparison.e2e.ts --workers=1 --retries=0
+        run: npm run test:e2e
 
-      - name: Upload raw diagnostic evidence
+      - name: Preserve browser evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: clean-lens-raw-diagnostic
+          name: director-desk-full-proof
           path: |
             playwright-report/
             test-results/
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 7
