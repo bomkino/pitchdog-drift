@@ -16,16 +16,20 @@ build is necessary but not sufficient.
   click; it does not require a second interaction.
 - Muting preview does not change MP4 inclusion.
 - Enabling MP4 inclusion does not force preview sound on.
+- Production startup fetches neither WAV assets nor the software AAC encoder
+  before sound intent or an audio-bearing export.
 
 ## Journey 2 — shaping the carousel
 
-- A passage cue occurs once per logical threshold, not once per rendered frame.
+- A passage cue occurs at the incoming slide's half-stride focus hand-off, not
+  once per rendered frame or at a guessed full-stride pre-roll.
+- The half-stride rule is symmetric in both travel directions.
+- Preview and export use the same passage hand-off, gain graph, compressor,
+  inclusion, take, restrained pitch, and pan for the same saved state.
 - Fast motion is density-limited rather than machine-gunned.
 - Density is continuous and monotonic: increasing it adds cues without replacing
   already accepted cues.
 - Changing palette preserves passage placement and therefore authored rhythm.
-- Preview and export choose the same inclusion, take, and restrained pitch for
-  the same passage sequence and saved state.
 - Dragging emits one grab and one release, not a continuous loop.
 - Slider movement is silent; it does not chatter on every input event.
 - Variation changes both sample choice and restrained playback rate.
@@ -36,18 +40,25 @@ build is necessary but not sufficient.
 ## Journey 3 — narration
 
 - Presenter speech remains intelligible at every built-in palette.
-- Under-voice gain applies only when sound and presenter audio coexist.
+- Under-voice gain applies only while decoded PCM contains measured dialogue,
+  not merely because a media packet or zero-filled decoder buffer covers time.
+- Short consonant and codec gaps stay bridged to avoid audible pumping.
+- Meaningful narration pauses release foley smoothly to full presence.
 - Muting presenter audio cannot accidentally mute authored effects.
 - Disabling authored effects cannot remove presenter speech.
 - The MP4 contains exactly one audio track.
-- A deliberately gapped mono presenter cannot erase, center, or mono-fold
+- A deliberately gapped mono presenter cannot erase, centre, or mono-fold
   laterally panned foley inside the gap.
+- Mixed-master proof measures stereo side energy (`R−L`) so centred narration
+  cannot masquerade as surviving lateral sound.
 
 ## Journey 4 — export
 
 - Picture and sound use the exact encoded duration, not nominal UI duration.
 - 24, 25, and 30 fps sound-bearing exports pass codec and decode readback.
-- 50/60 fps fails visibly while audio is enabled.
+- Authored 50/60 fps sound fails before opening a destination picker.
+- A 50/60 fps project with no actual authored sound event is not blocked merely
+  because the MP4 inclusion switch remains enabled.
 - Sound-only output is valid AAC, not a silent placeholder track.
 - Mixed output is one continuous exact-duration stereo PCM master before AAC.
 - Decoded AAC padding is bounded to at most one 1,024-sample access unit.
@@ -75,6 +86,7 @@ build is necessary but not sufficient.
 - Reduced-motion output is silent.
 - Hidden tabs suspend preview audio.
 - No sound file is requested from a third-party origin at runtime.
+- Production foley URLs are hashed, same-origin, and loaded lazily.
 - Offline export works from committed assets.
 
 ## Asset and treatment integrity
@@ -82,7 +94,10 @@ build is necessary but not sufficient.
 - Every committed recording has a RIFF/WAVE PCM16 header.
 - Every recording matches the pinned upstream Git blob SHA-1.
 - Every manifest SHA-256 and byte length matches the committed file.
-- Every source pack has a local CC0 licence text.
+- Every source pack has one local CC0 licence text with an independently pinned
+  SHA-256, not merely a digest copied from the same mutable manifest.
+- The mirror's documented WAV conversions are identified honestly; the branch
+  does not claim those bytes are untouched Kenney archive originals.
 - No generated UI bleeps or Freesound preview files remain.
 - The catalogue imports only committed local recordings.
 - The licensed WAV bytes are never rewritten by acoustic treatment.
@@ -90,20 +105,27 @@ build is necessary but not sufficient.
 - Meaningful treated onset is no later than 50 ms.
 - Treated active-event energy spread is no more than 3.5 dB.
 - Pre-mix treated peak is no higher than +6 dBFS.
-- Production output emits hashed same-origin WAV files and does not inline audio
-  into JavaScript.
+- Production output emits one hashed WAV for every manifest recording, with
+  exact byte length and SHA-256 parity, and does not inline audio in JavaScript.
+- Download failure and injected failures after the recording, licence, and
+  manifest swap boundaries restore the previous corpus byte-for-byte.
+- A successful refresh replaces stale vendored bytes without rewriting the
+  independent acoustic-treatment ledger.
 
 ## Required automated gates
 
 - TypeScript typecheck.
-- Unit tests for deterministic planning, continuous nested density, shared
-  preview/export decisions, seam handling, panning, migration, PCM mixing,
+- Unit tests for deterministic planning, continuous nested density, exact
+  half-stride focus timing, shared preview/export decisions, seam handling,
+  panning, migration, PCM dialogue activity, duck envelopes, PCM mixing,
   catalogue treatment bounds, and asset integrity.
 - Production build plus sonic bundle and acoustic treatment audits.
-- Pinned-source and licence verification.
+- Transactional vendor fault injection and pinned source/licence verification.
 - Chromium end-to-end persistence test with zero external requests.
 - Chromium sound-design-only MP4 test with verified AAC readback.
-- Chromium mixed-master test with mono narration, a deliberate packet gap,
-  lateral foley, and full encode/decode inspection.
+- Chromium mixed-master test with mono narration, decoded silence, lateral
+  foley, dialogue ducking, gap recovery, and full encode/decode inspection.
+- Chromium production-preview test proving lazy hashed same-origin delivery and
+  no eager software AAC request.
 - Existing repository CI with no unrelated regression.
 - `git diff --check` and a final changed-path audit.
