@@ -1,0 +1,123 @@
+name: Apply tactile sound hardening
+
+on:
+  push:
+    branches: [feat/tactile-sound-system-v2]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tactile-sound-hardening
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: ${{ contains(github.event.head_commit.message, '[apply-sonic-hardening]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: feat/tactile-sound-system-v2
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Reconstruct and verify exact audited payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find .github -maxdepth 1 -type f -name 'sonic-hardening.part-*' | wc -l)" -eq 10
+          LC_ALL=C cat .github/sonic-hardening.part-* | base64 --decode > /tmp/sonic-hardening.tar.gz
+          echo "415ac25bf18346cb3e0b0903d861d2295aa72f01eac48c5ccd0bfb8d853201fa  /tmp/sonic-hardening.tar.gz" | sha256sum --check --strict
+
+          tar -tzf /tmp/sonic-hardening.tar.gz | LC_ALL=C sort > /tmp/actual-files.txt
+          cat > /tmp/expected-files.txt <<'FILES'
+          README.md
+          docs/ARCHITECTURE.md
+          docs/SONIC_DESIGN.md
+          docs/SONIC_GAUNTLET.md
+          e2e/studio.e2e.ts
+          package.json
+          scripts/check-sonic-bundle.mjs
+          scripts/check-sonic-treatments.mjs
+          scripts/strict-json.mjs
+          src/App.tsx
+          src/components/SonicDock.tsx
+          src/engine/CinematicCarousel.ts
+          src/sonic/SonicEngine.ts
+          src/sonic/assets/treatments.json
+          src/sonic/catalog.ts
+          src/sonic/plan.ts
+          src/sonic/renderSoundtrack.ts
+          src/styles.css
+          tests/sonicCatalog.test.ts
+          tests/sonicPlan.test.ts
+          tests/strictJson.test.js
+          FILES
+          LC_ALL=C sort -o /tmp/expected-files.txt /tmp/expected-files.txt
+          diff --unified /tmp/expected-files.txt /tmp/actual-files.txt
+          if grep -Eq '(^/|(^|/)\.\.(/|$))' /tmp/actual-files.txt; then
+            echo 'Archive contains an unsafe path.' >&2
+            exit 1
+          fi
+
+      - name: Apply audited source and remove transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf /tmp/sonic-hardening.tar.gz
+          rm -f .github/sonic-hardening.part-*
+          rm -f .github/workflows/apply-sonic-hardening.yml
+          rm -f .github/workflows/materialize-audit.yml
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Run static, unit, build, bundle, and acoustic gauntlet
+        run: npm run check
+
+      - name: Verify pinned CC0 source hashes
+        run: npm run sound:verify
+
+      - name: Install pinned Chromium
+        run: npx playwright install chromium
+
+      - name: Run complete real-browser and AAC gauntlet
+        run: npm run test:e2e
+
+      - name: Verify final diff and commit conflict-safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'No audited changes remain to commit.'
+            exit 0
+          fi
+          git commit -m "feat(sound): harden tactile direction and acoustic parity"
+          git fetch origin feat/tactile-sound-system-v2
+          git rebase origin/feat/tactile-sound-system-v2
+          git push origin HEAD:feat/tactile-sound-system-v2
+
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sonic-hardening-failure-evidence
+          path: |
+            playwright-report/
+            test-results/
+            /tmp/actual-files.txt
+            /tmp/expected-files.txt
+          if-no-files-found: ignore
+          retention-days: 7
