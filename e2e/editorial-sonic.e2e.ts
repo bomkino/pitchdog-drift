@@ -13,6 +13,14 @@ async function waitForStudio(page: Page): Promise<void> {
   );
 }
 
+async function waitForDurableSave(page: Page): Promise<void> {
+  const status = page.locator(".header-status");
+  // An old saved label may still be visible in the frame that commits the
+  // radio change. Require the dirty transition before accepting persistence.
+  await expect(status).toContainText("saving locally…", { timeout: 5_000 });
+  await expect(status).toContainText("saved locally", { timeout: 15_000 });
+}
+
 test("Editorial is a balanced, persistent, local material direction", async ({ page }) => {
   const externalRequests: string[] = [];
   page.on("request", (request) => {
@@ -65,9 +73,7 @@ test("Editorial is a balanced, persistent, local material direction", async ({ p
     name: "Editorial",
     exact: true,
   })).toBeChecked();
-  await expect(page.locator(".header-status")).toContainText("saved locally", {
-    timeout: 10_000,
-  });
+  await waitForDurableSave(page);
 
   await page.reload();
   await expect(page.getByText("Local project reopened with verified media.")).toBeVisible({
