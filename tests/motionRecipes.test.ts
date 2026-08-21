@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyProjectCommand } from "../src/core/commands/projectCommand";
 import { createDefaultDriftProject } from "../src/core/project/defaults";
-import { initialProjectRevisionState } from "../src/core/project/revisions";
+import { createProjectRevisionState } from "../src/core/project/revisions";
 import {
   EDITORIAL_CUTS,
   MOTION_CHARACTERS,
@@ -62,7 +62,7 @@ describe("authored motion recipes", () => {
     });
     const applied = applyProjectCommand(
       current,
-      initialProjectRevisionState(),
+      createProjectRevisionState(),
       applyEditorialCutCommand("paper-argument"),
       "2026-08-21T00:01:00.000Z",
     );
@@ -88,7 +88,7 @@ describe("authored motion recipes", () => {
     current.motion.performance.take = 7;
     const applied = applyProjectCommand(
       current,
-      initialProjectRevisionState(),
+      createProjectRevisionState(),
       applyPerformanceCommand("twelve-frame-hand"),
       "2026-08-21T00:01:00.000Z",
     );
@@ -112,13 +112,13 @@ describe("authored motion recipes", () => {
     let current = project();
     current = applyProjectCommand(
       current,
-      initialProjectRevisionState(),
+      createProjectRevisionState(),
       applyEditorialCutCommand("clean-data"),
       "2026-08-21T00:01:00.000Z",
     ).project;
     current = applyProjectCommand(
       current,
-      initialProjectRevisionState(),
+      createProjectRevisionState(),
       applyPerformanceCommand("cut-on-breath"),
       "2026-08-21T00:02:00.000Z",
     ).project;
@@ -135,7 +135,7 @@ describe("authored motion recipes", () => {
     for (const character of MOTION_CHARACTERS) {
       const applied = applyProjectCommand(
         project(),
-        initialProjectRevisionState(),
+        createProjectRevisionState(),
         applyMotionCharacterCommand(character.id),
         "2026-08-21T00:01:00.000Z",
       );
@@ -152,7 +152,7 @@ describe("authored motion recipes", () => {
     const before = structuredClone(current);
     expect(() => applyProjectCommand(
       current,
-      initialProjectRevisionState(),
+      createProjectRevisionState(),
       applyEditorialCutCommand("not-a-cut"),
       "2026-08-21T00:01:00.000Z",
     )).toThrow(/Unknown editorial cut/);
