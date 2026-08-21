@@ -107,6 +107,11 @@ jobs:
     name: Build and falsify universal signed app
     runs-on: macos-15
     timeout-minutes: 35
+    # Build, signature, entitlement, manifest, broker and packaging verification
+    # defer only the one sandboxed GUI launch. The immediately following matrix
+    # is mandatory and exercises the exact app across signing/sandbox variants.
+    env:
+      DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST: "1"
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -196,7 +201,7 @@ jobs:
             exit 1
           fi
 
-      - name: Re-run the complete signed-bundle gauntlet
+      - name: Re-run the complete signed-bundle structural gauntlet
         env:
           DRIFT_EXPECT_ARCHS: "arm64 x86_64"
         run: npm run verify:mac
