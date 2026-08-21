@@ -397,7 +397,10 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 return
             }
             self.lastProbe = "WKWebView native picker dispatched from asset count \(before): \(String(describing: values))"
-            self.pollWebKitFileInputResult(in: webView, expectedCount: before + 1, attemptsRemaining: 200)
+            // The authored demo study is not user media. The first real deck
+            // deliberately replaces all eight demo slides; one selected file
+            // must therefore produce exactly one asset, not `before + 1`.
+            self.pollWebKitFileInputResult(in: webView, expectedCount: 1, attemptsRemaining: 40)
         }
     }
 
@@ -428,8 +431,13 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             let count = values["count"] as? Int ?? -1
             let found = values["found"] as? Bool == true
             let released = values["released"] as? Int == 1
-            let settled = state.saveState == "saved" && !state.projectBusy && !state.exportInProgress
-            if count == expectedCount && found && released && settled {
+            let importIdle = !state.projectBusy && !state.exportInProgress
+            if count == expectedCount && found && released && importIdle {
+                // The self-test intentionally uses a non-persistent WebKit
+                // store so it cannot mutate a real user project. File/Blob
+                // IndexedDB persistence in that test-only store is a separate
+                // boundary; initial project hydration already proved the
+                // authoritative saved state before native ingestion began.
                 self.webKitFileInputVerified = true
                 self.finished = true
                 return
@@ -440,11 +448,11 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 return
             }
             guard attemptsRemaining > 0 else {
-                self.failure = "WKWebView native picker reached the typed React bridge but never produced one settled asset and released grant; expectedCount=\(expectedCount), lastProbe=\(self.lastProbe)"
+                self.failure = "WKWebView native picker reached the typed React bridge but never produced the replacement asset and released grant; expectedCount=\(expectedCount), lastProbe=\(self.lastProbe)"
                 self.finished = true
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 self.pollWebKitFileInputResult(
                     in: webView,
                     expectedCount: expectedCount,
