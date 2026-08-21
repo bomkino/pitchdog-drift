@@ -1,0 +1,1 @@
+Trigger the isolated final-delta recovery workflow after its definition exists on the scratch branch.
