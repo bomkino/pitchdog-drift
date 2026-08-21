@@ -2,14 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, integration/mega-main-native]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -19,6 +20,27 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Record checkout identity
+        env:
+          DRIFT_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          DRIFT_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/evidence
+          TESTED_COMMIT_SHA="$(git rev-parse HEAD)"
+          TREE_SHA="$(git rev-parse 'HEAD^{tree}')"
+          {
+            echo "event=$GITHUB_EVENT_NAME"
+            echo "ref=$GITHUB_REF"
+            echo "head_ref=$GITHUB_HEAD_REF"
+            echo "base_ref=$GITHUB_BASE_REF"
+            echo "source_head_sha=$DRIFT_SOURCE_HEAD_SHA"
+            echo "tested_commit_sha=$TESTED_COMMIT_SHA"
+            echo "base_sha=$DRIFT_BASE_SHA"
+            echo "tree_sha=$TREE_SHA"
+          } > build/evidence/checkout-identity.txt
+          cat build/evidence/checkout-identity.txt
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -38,11 +60,20 @@ jobs:
       - name: Run real-browser gauntlet
         run: npm run test:e2e
 
+      - name: Preserve checkout evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-ci-identity-${{ github.run_id }}
+          path: build/evidence/checkout-identity.txt
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Preserve failure evidence
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-failure-evidence
+          name: playwright-failure-evidence-${{ github.run_id }}
           path: |
             playwright-report/
             test-results/

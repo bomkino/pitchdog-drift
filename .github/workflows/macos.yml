@@ -25,6 +25,8 @@ on:
       - "package.json"
       - "package-lock.json"
       - "vite.config.ts"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/macos-runtime.yml"
       - ".github/workflows/macos.yml"
   pull_request:
     paths:
@@ -49,6 +51,8 @@ on:
       - "package.json"
       - "package-lock.json"
       - "vite.config.ts"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/macos-runtime.yml"
       - ".github/workflows/macos.yml"
   workflow_dispatch:
 
@@ -56,7 +60,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: macos-${{ github.ref }}
+  group: macos-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -67,6 +71,19 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Record native-test checkout identity
+        env:
+          DRIFT_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          DRIFT_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          echo "event=$GITHUB_EVENT_NAME"
+          echo "ref=$GITHUB_REF"
+          echo "source_head_sha=$DRIFT_SOURCE_HEAD_SHA"
+          echo "tested_commit_sha=$(git rev-parse HEAD)"
+          echo "base_sha=$DRIFT_BASE_SHA"
+          echo "tree_sha=$(git rev-parse 'HEAD^{tree}')"
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -109,12 +126,33 @@ jobs:
     timeout-minutes: 35
     # Build, signature, entitlement, manifest, broker and packaging verification
     # defer only the one sandboxed GUI launch. The immediately following matrix
-    # is mandatory and exercises the exact app across signing/sandbox variants.
+    # is mandatory and exercises the tested app across signing/sandbox variants.
     env:
       DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST: "1"
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Record checkout identity
+        env:
+          DRIFT_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          DRIFT_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/macos/packaged-webview
+          TESTED_COMMIT_SHA="$(git rev-parse HEAD)"
+          TREE_SHA="$(git rev-parse 'HEAD^{tree}')"
+          {
+            echo "event=$GITHUB_EVENT_NAME"
+            echo "ref=$GITHUB_REF"
+            echo "head_ref=$GITHUB_HEAD_REF"
+            echo "base_ref=$GITHUB_BASE_REF"
+            echo "source_head_sha=$DRIFT_SOURCE_HEAD_SHA"
+            echo "tested_commit_sha=$TESTED_COMMIT_SHA"
+            echo "base_sha=$DRIFT_BASE_SHA"
+            echo "tree_sha=$TREE_SHA"
+          } > build/macos/packaged-webview/checkout-identity.txt
+          cat build/macos/packaged-webview/checkout-identity.txt
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

@@ -2,31 +2,20 @@ name: macOS WKWebView runtime
 
 on:
   push:
-    branches: [main, feat/native-macos-studio]
-    paths:
-      - "macos/**"
-      - "scripts/**macos**"
-      - "scripts/**probe**"
-      - "src/lib/exportStudio.ts"
-      - "src/lib/macosAacEncoder.ts"
-      - "tests/macos-export-probe.html"
-      - "tests/macosExportProbe.ts"
-      - "tests/macosAacEncoder.test.ts"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/macos-runtime.yml"
+    branches: [main, feat/native-macos-studio, integration/mega-main-native]
   pull_request:
     paths:
       - "macos/**"
       - "scripts/**macos**"
       - "scripts/**probe**"
-      - "src/lib/exportStudio.ts"
-      - "src/lib/macosAacEncoder.ts"
-      - "tests/macos-export-probe.html"
-      - "tests/macosExportProbe.ts"
-      - "tests/macosAacEncoder.test.ts"
+      - "src/**"
+      - "tests/**"
+      - "docs/mega-main/**"
       - "package.json"
       - "package-lock.json"
+      - "vite.config.ts"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/macos.yml"
       - ".github/workflows/macos-runtime.yml"
   workflow_dispatch:
 
@@ -34,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: macos-runtime-${{ github.ref }}
+  group: macos-runtime-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -55,11 +44,23 @@ jobs:
         run: npm ci
 
       - name: Record runtime identity
+        env:
+          DRIFT_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          DRIFT_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
         run: |
           set -euo pipefail
           mkdir -p build/macos
+          TESTED_COMMIT_SHA="$(git rev-parse HEAD)"
+          TREE_SHA="$(git rev-parse 'HEAD^{tree}')"
           {
-            echo "commit=$(git rev-parse HEAD)"
+            echo "event=$GITHUB_EVENT_NAME"
+            echo "ref=$GITHUB_REF"
+            echo "head_ref=$GITHUB_HEAD_REF"
+            echo "base_ref=$GITHUB_BASE_REF"
+            echo "source_head_sha=$DRIFT_SOURCE_HEAD_SHA"
+            echo "tested_commit_sha=$TESTED_COMMIT_SHA"
+            echo "base_sha=$DRIFT_BASE_SHA"
+            echo "tree_sha=$TREE_SHA"
             echo "runner=${RUNNER_NAME}"
             echo "arch=$(uname -m)"
             sw_vers
@@ -67,6 +68,7 @@ jobs:
             xcrun swiftc --version
             system_profiler SPHardwareDataType SPSoftwareDataType
           } > build/macos/runtime-identity.txt
+          sed -n '1,12p' build/macos/runtime-identity.txt
 
       - name: Prove WebGL, PNG, and AVC inside WKWebView
         env:
