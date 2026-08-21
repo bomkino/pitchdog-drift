@@ -2,13 +2,13 @@
 
 Audited: 2026-08-21  
 Branch: `integration/mega-main-native`  
-Exact audited head: `20db7ccbd53004fb6d077fecab04bd1453278202`
+Audited source head: `20db7ccbd53004fb6d077fecab04bd1453278202`
 
 ## Verdict
 
 **The foundation is strong, but it is not cleared for higher feature construction yet.**
 
-The exact audited head was green across CI, packaged macOS, and WKWebView runtime workflows. The gauntlet nevertheless found one P0 false-green and four P1 native/release-boundary defects. These are concentrated and repairable. The native-boundary defects must be closed before renderer, atmosphere, lens, sound, worlds, or final interface work continues. The release-lane contradiction must be closed before any release-candidate claim.
+The audited source tree was green through CI, packaged macOS, and WKWebView runtime workflows. The gauntlet nevertheless found one P0 false-green and five P1 native/evidence/release-boundary defects. These are concentrated and repairable. The native and evidence defects must be closed before renderer, atmosphere, lens, sound, worlds, or final interface work continues. The release-lane contradiction must be closed before any release-candidate claim.
 
 `main` remains untouched. PR #30 remains a draft.
 
@@ -21,15 +21,16 @@ The exact audited head was green across CI, packaged macOS, and WKWebView runtim
 - The spatial core contains ten path definitions, bounded evaluated output, deterministic imperfection, and a resident-render ceiling.
 - The native file broker stages writes on the destination volume, commits atomically, rejects traversal and symlinks, preserves sequence collisions, and rolls back only files it can still identify as its own.
 - The Mac build uses pinned actions and locked npm dependencies, builds the packaged app, exercises WKWebView codecs, verifies a local DMG, and keeps signing/notarisation secrets isolated from ordinary CI.
-- Existing browser and packaged-app regressions are coherent at this checkpoint.
+- Existing browser and packaged-app regressions are coherent against the current base.
 
-Green means those tested contracts hold. It does not mean every claimed native security property is wired into the product, or that the release policy can currently be satisfied.
+Green means those tested contracts hold. It does not mean every claimed native security property is wired into the product, every workflow tested the literal branch-head commit, or the release policy can currently be satisfied.
 
 ## Gauntlet loops
 
 | Loop | Result | Finding |
 |---|---|---|
-| Exact-head truth | Pass | The audited SHA, PR head, and three workflow runs agree. |
+| Source-tree compatibility | Pass | The current branch merges cleanly with the current `main`, and PR workflows pass against that combined tree. |
+| Exact-commit evidence | **P1 fail** | Default pull-request checkout uses the synthetic `refs/pull/30/merge` commit. CI/runtime receipts must not call that the exact branch-head SHA. |
 | CI independence | Pass with caveat | Unit, browser, native broker, packaged app, and runtime probes are separate; one authority check is marker-based rather than behavioural. |
 | Project integrity | Pass | Strict V3 envelopes, media hashes, references, future-version refusal, archive metadata limits, and recovery lock hold. |
 | Save-race truth | Pass at current browser boundary | Queued saves and revision comparison prevent an older completion from claiming the latest state. Real associated Mac documents remain unfinished. |
@@ -40,7 +41,26 @@ Green means those tested contracts hold. It does not mean every claimed native s
 | Destructive-write containment | Pass with P1 edge | Atomic write and rollback logic are strong; grant eviction can discard a directory still referenced by an active frame write. |
 | Resource bounds | Pass with P2 debt | GPU residency is capped; spatial evaluation still scales with source count before the 24-slide cap. |
 | Release truth | **P1 process fail** | The merge policy requires pre-merge signing/notarisation, while the release workflow accepts only commits already reachable from `main`. |
-| Documentation truth | Corrected by this audit | Previous wording overstated native document authority and release readiness. This file is now the construction gate. |
+| Documentation truth | Corrected by this audit | Previous wording overstated exact-head evidence, native document authority, and release readiness. This file is now the construction gate. |
+
+## P1 — current PR checks are not exact-head evidence
+
+GitHub pull-request workflows check out the synthetic merge ref by default. Job logs identify a commit such as `refs/remotes/pull/30/merge`, created by combining the PR head with the current base.
+
+That is useful merge-compatibility evidence. It is not proof that the literal branch-head or future RC commit was built and tested as itself. The distinction matters because:
+
+- the synthetic SHA differs from the source head;
+- it can change when `main` moves without any source-head change;
+- build receipts can record the merge SHA while the PR UI associates the run with the head SHA;
+- an exact release candidate must be traceable to one immutable source commit.
+
+Required repair before the foundation gate clears:
+
+1. Add an exact-head lane for same-repository integration work, using the explicit PR head SHA or an integration-branch push checkout.
+2. Keep a separate synthetic-merge lane to prove compatibility with the current `main`.
+3. Record `sourceHeadSha`, `testedCommitSha`, `baseSha`, `treeSha`, event type, and checkout ref in every build/runtime receipt.
+4. Never label a synthetic merge run “exact-head verified.”
+5. Require unit, browser, packaged-app, and WKWebView runtime proof on the same literal source SHA before an RC is cut.
 
 ## P0 — native document authority is present but not connected
 
@@ -135,7 +155,8 @@ Required repair before an RC declaration:
 3. Verify the exact requested SHA is reachable from that protected RC ref and belongs to this repository.
 4. Build, sign, notarise, staple, Gatekeeper-test, and retain text receipts without publishing a binary.
 5. After approval, move `main` to the exact already-verified SHA; do not rebuild a merely equivalent commit.
-6. Alternatively, explicitly change the merge policy—but never claim pre-merge notarisation while the workflow structurally forbids it.
+6. Add a later explicitly authorised distribution lane that preserves or publishes the exact notarised artifact rather than silently rebuilding it.
+7. Alternatively, explicitly change the merge policy—but never claim pre-merge notarisation while the workflow structurally forbids it.
 
 ## P2 debts to close during their owning waves
 
@@ -161,8 +182,10 @@ The current ZIP filter checks entry count and declared expanded sizes before acc
 
 ## Foundation construction gate
 
-Higher feature work may start only after one exact head proves all of the following:
+Higher feature work may start only after one literal source head proves all of the following:
 
+- [ ] Exact-head and synthetic-merge evidence are separate and correctly labelled.
+- [ ] Unit, browser, packaged-app, and runtime receipts identify one literal source SHA.
 - [ ] Native-issued document authority guards every privileged message.
 - [ ] Stale panel, download, Finder-delivery, and asynchronous broker completions are rejected.
 - [ ] Packaged WebKit exercises the production authority path through a termination and reload.
@@ -170,10 +193,10 @@ Higher feature work may start only after one exact head proves all of the follow
 - [ ] Remote attachment downloads cannot obtain a native save destination.
 - [ ] Active directory authorities survive grant pressure, or new grants fail safely.
 - [ ] Structural CI checks integration, not merely the existence of an unused session file.
-- [ ] CI, macOS standalone app, and macOS WKWebView runtime all pass on the same exact commit.
+- [ ] CI, macOS standalone app, and macOS WKWebView runtime all pass on the same literal source SHA.
 - [ ] A second clean rerun passes without source changes.
 
-Until then, allowed work is restricted to these foundation repairs, tests, and documentation. Do not begin atmosphere, lens, sound, final worlds, or the final directing interface on top of a privileged boundary we already know is incomplete.
+Until then, allowed work is restricted to these foundation repairs, tests, workflow evidence, and documentation. Do not begin atmosphere, lens, sound, final worlds, or the final directing interface on top of a privileged boundary we already know is incomplete.
 
 ## Release-candidate gate
 
@@ -182,7 +205,8 @@ Before any RC is called verified:
 - [ ] A protected non-`main` RC ref can authorise one exact source SHA.
 - [ ] Signing/notarisation secrets are exposed only after repository, ref, and SHA verification plus environment approval.
 - [ ] The exact pre-merge SHA passes signing, notarisation, stapling, quarantine, and Gatekeeper evidence.
-- [ ] `main` receives that exact SHA after explicit approval.
+- [ ] The exact notarised artifact has an authorised preservation/publication path.
+- [ ] `main` receives that exact source SHA after explicit approval.
 
 ## Merge boundary
 

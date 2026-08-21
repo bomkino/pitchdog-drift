@@ -2,21 +2,23 @@
 
 Updated: 2026-08-21  
 Branch: `integration/mega-main-native`  
-Latest completed gauntlet target: `20db7ccbd53004fb6d077fecab04bd1453278202`
+Audited source head: `20db7ccbd53004fb6d077fecab04bd1453278202`
 
 ## Verdict
 
 **Drift 1.0 is not finished, and the foundation is not yet cleared for higher feature construction.**
 
-The current integration branch is a strong, coherent construction checkpoint. Its tests are green. A deeper foundation gauntlet found one P0 false-green, three P1 native-boundary defects, and one P1 release-process contradiction. The native-boundary defects must be repaired before renderer, atmosphere, lens, sound, worlds, or final interface work continues. The release contradiction must be repaired before any release-candidate claim.
+The current integration branch is a strong, coherent construction checkpoint. Its current source tree passes against `main`. A deeper foundation gauntlet found one P0 false-green, four P1 native/release defects, and one P1 evidence-integrity defect: default pull-request jobs test a synthetic merge commit, not the literal branch-head SHA they are displayed against.
+
+The native and evidence defects must be repaired before renderer, atmosphere, lens, sound, worlds, or final interface work continues. The release contradiction must be repaired before any release-candidate claim.
 
 See [`FOUNDATION_GAUNTLET.md`](./FOUNDATION_GAUNTLET.md) for the evidence, failure modes, and exact construction gates.
 
 PR #30 remains a draft. `main` remains untouched.
 
-## Verified green evidence
+## Verified evidence—and its boundary
 
-The audited checkpoint passed:
+The audited source tree passed through:
 
 - CI;
 - 130 unit and contract tests across 21 files;
@@ -25,7 +27,7 @@ The audited checkpoint passed:
 - universal standalone-app build and packaged-lifecycle verification;
 - native source, file-broker, sandbox, signing-structure, and local DMG gauntlets.
 
-This proves the tested checkpoint is internally coherent. It does not prove every native capability claim is connected to the production path, or that the current release policy can be satisfied.
+On pull-request events, GitHub’s default checkout is the synthetic `refs/pull/30/merge` commit. That proves compatibility with the current base. It must not be described as literal exact-head proof until an explicit head-SHA lane exists.
 
 ## Implemented foundation
 
@@ -70,7 +72,19 @@ The document-session model is **not yet wired into the privileged bridge**. The 
 - Portable `.pitched` import/export.
 - Browser fallback and accessibility regression coverage.
 
-## Foundation blockers before the next product wave
+## Evidence blocker before the next product wave
+
+### P1 — separate exact-head proof from merge-compatibility proof
+
+Required:
+
+- Add a lane that explicitly checks out the PR head SHA or integration-branch push SHA.
+- Keep a separate job on the synthetic merge ref.
+- Record source head, tested commit, base, tree, event, and ref in receipts.
+- Run unit, browser, packaged-app, and WKWebView runtime tests against one literal source SHA.
+- Never call a synthetic merge run exact-head verification.
+
+## Native foundation blockers before the next product wave
 
 ### P0 — wire native-issued document authority
 
@@ -116,7 +130,8 @@ Before an RC declaration:
 - verify the exact requested SHA against that ref before secrets;
 - require environment approval;
 - sign, notarise, staple, quarantine-test, and retain receipts without publishing;
-- move `main` to that exact already-verified SHA only after explicit approval.
+- provide an explicitly authorised path for preserving or publishing the exact notarised artifact;
+- move `main` to that exact already-verified source SHA only after explicit approval.
 
 ## Important architectural truth
 
@@ -150,8 +165,8 @@ After the foundation gate passes:
 
 ## Next dependency order
 
-1. Close every item in the foundation construction gate.
-2. Rerun all three exact-head workflows twice without source changes.
+1. Close the exact-head evidence and native foundation gates.
+2. Rerun exact-head and synthetic-merge lanes twice without source changes.
 3. Finish the native document model.
 4. Decompose renderer/exporter and make Project V3 authoritative.
 5. Integrate temporal direction → space/matter → lighting → atmosphere → lens → sound.
@@ -162,6 +177,6 @@ After the foundation gate passes:
 
 ## Completion rule
 
-Green CI means a tested checkpoint is coherent. It does not mean Drift 1.0 is complete or safe to merge.
+Green CI means a tested tree is coherent. It does not mean the literal source head, Drift 1.0, or the release process is complete.
 
-Drift 1.0 is complete only when every foundation blocker and major unfinished system is implemented in the packaged Mac app, preview/export parity holds, the pre-merge release lane is satisfiable, final physical and human review passes, and the exact verified candidate receives explicit approval to merge into `main`.
+Drift 1.0 is complete only when every evidence, foundation, and product blocker is closed in the packaged Mac app; preview/export parity holds; the pre-merge release lane is satisfiable; final physical and human review passes; and the exact verified candidate receives explicit approval to merge into `main`.
