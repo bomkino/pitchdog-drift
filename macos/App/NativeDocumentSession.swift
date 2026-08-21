@@ -164,8 +164,8 @@ final class NativeDocumentSession {
             // Expected. An invalid claim must not consume the prepared ticket.
         }
         let first = try session.claimBootstrap(rawNonce: firstExpected.nonceString)
-        guard first == firstExpected,
-              try session.validateMessage(rawNonce: first.nonceString) == first else {
+        let firstValidated = try session.validateMessage(rawNonce: first.nonceString)
+        guard first == firstExpected, firstValidated == first else {
             throw BridgeFailure("DataError", "Native-issued bootstrap did not establish authority.")
         }
 
