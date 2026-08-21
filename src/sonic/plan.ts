@@ -28,6 +28,7 @@ export interface SonicPassageDecision {
 }
 
 const GOLDEN_CONJUGATE = 0.618_033_988_749_894_9;
+const EDITORIAL_PASSAGE_TAKE_COUNT = 5;
 
 function hashUnit(seed: number): number {
   let value = seed | 0;
@@ -64,6 +65,30 @@ function variantSeed(seed: number): number {
 function normalizeSequence(sequence: number): number {
   if (!Number.isFinite(sequence)) return 1;
   return Math.max(1, Math.abs(Math.trunc(sequence)));
+}
+
+/**
+ * Editorial has five materially distinct passage takes. At full density each
+ * five-crossing cycle uses every take once, then rotates its starting point.
+ * This removes adjacent identical body takes without introducing mutable
+ * shuffle state or making preview/export depend on frame rate.
+ */
+function editorialPassageVariant(seed: number, sequence: number): number {
+  const normalizedSeed = Number.isFinite(seed) ? Math.trunc(seed) : 0;
+  const normalizedSequence = normalizeSequence(sequence);
+  const zeroBased = normalizedSequence - 1;
+  const cycle = Math.floor(zeroBased / EDITORIAL_PASSAGE_TAKE_COUNT);
+  const slot = zeroBased % EDITORIAL_PASSAGE_TAKE_COUNT;
+  const start = Math.floor(
+    hashUnit(normalizedSeed ^ 0x6e624eb7) * EDITORIAL_PASSAGE_TAKE_COUNT,
+  );
+  // Both 2 and 3 are coprime with five, so each cycle is a full permutation.
+  const step = hashUnit(normalizedSeed ^ 0x4f1bbcdc) < 0.5 ? 2 : 3;
+  return (
+    start
+    + cycle
+    + slot * step
+  ) % EDITORIAL_PASSAGE_TAKE_COUNT;
 }
 
 /**
@@ -131,7 +156,11 @@ export function getSonicPassageDecision(
       0.78,
       1.2,
     ),
-    variant: normalizedVariation <= 0.01 ? 0 : variantSeed(eventSeed),
+    variant: normalizedVariation <= 0.01
+      ? 0
+      : palette === "editorial"
+        ? editorialPassageVariant(seed, normalizedSequence)
+        : variantSeed(eventSeed),
   };
 }
 
