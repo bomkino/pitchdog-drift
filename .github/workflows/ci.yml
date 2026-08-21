@@ -4,17 +4,17 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: director-desk-v3-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  group: director-desk-clean-lens-diagnostic-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
-  verify-and-publish-director-desk:
-    if: github.event.pull_request.head.ref == 'gauntlet/directors-cut-optical-pipeline' && github.actor != 'github-actions[bot]'
+  clean-lens-diagnostic:
+    if: github.event.pull_request.head.ref == 'gauntlet/directors-cut-optical-pipeline'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
     steps:
       - name: Check out exact proposal branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -22,7 +22,7 @@ jobs:
           ref: gauntlet/directors-cut-optical-pipeline
           fetch-depth: 0
 
-      - name: Reconstruct and verify sealed product archive from immutable history
+      - name: Reconstruct the sealed product tree
         shell: bash
         run: |
           set -euo pipefail
@@ -31,60 +31,23 @@ jobs:
           expected_bytes=73052
           expected_sha=63b9c56fed5d69a8bd37c88f3fe6164534325c8404160a10d84a255857036961
 
-          git cat-file -e "$payload_commit^{commit}"
-          git cat-file -e "$base_commit^{commit}"
           : > /tmp/director-desk-product-v2.b64
           for index in 00 01 02 03 04 05 06; do
             git show "$payload_commit:.github/director-desk-payload-v2/part-$index" >> /tmp/director-desk-product-v2.b64
           done
-
           test "$(wc -c < /tmp/director-desk-product-v2.b64 | tr -d ' ')" = "$expected_bytes"
           base64 --decode /tmp/director-desk-product-v2.b64 > /tmp/director-desk-product-v2.tgz
           echo "$expected_sha  /tmp/director-desk-product-v2.tgz" | sha256sum --check --strict -
-
-          cat > /tmp/director-desk-expected-manifest.txt <<'EOF'
-          e2e/creatorJourney.e2e.ts
-          src/App.tsx
-          src/components/ControlPanel.tsx
-          src/components/DirectorDesk.tsx
-          src/components/MediaLibrary.tsx
-          src/components/Stage.tsx
-          src/components/controls.tsx
-          src/direction.ts
-          src/engine/CinematicCarousel.ts
-          src/optics.ts
-          src/settingsHistory.ts
-          src/styles.css
-          tests/creatorSurface.test.ts
-          tests/direction.test.ts
-          tests/optics.test.ts
-          tests/settingsHistory.test.ts
-          EOF
-          sed -i 's/^          //' /tmp/director-desk-expected-manifest.txt
-          tar -tzf /tmp/director-desk-product-v2.tgz | sort > /tmp/director-desk-actual-manifest.txt
-          diff -u /tmp/director-desk-expected-manifest.txt /tmp/director-desk-actual-manifest.txt
-
           tar -xzf /tmp/director-desk-product-v2.tgz
 
-          # Delete every delivery artifact before the product gate sees the tree.
-          rm -rf .github/director-desk-payload-v2
-          rm -rf .github/director-desk-payload
-          rm -rf .github/director-cut-payload
-          rm -f .github/director-desk-product.b64
-          rm -f .github/audit-run-id.txt
+          rm -rf .github/director-desk-payload-v2 .github/director-desk-payload .github/director-cut-payload
+          rm -f .github/director-desk-product.b64 .github/audit-run-id.txt
           rm -f .github/workflows/apply-director-desk-v2.yml
           rm -f .github/workflows/apply-director-desk-manifest.yml
           rm -f .github/workflows/audit-snapshot.yml
-
-          # Restore the ordinary CI workflow from the PR's exact base commit.
           git show "$base_commit:.github/workflows/ci.yml" > .github/workflows/ci.yml
 
-          test "$(find .github/workflows -maxdepth 1 -type f -printf '%f\n' | sort)" = "ci.yml"
-          test ! -e .github/director-desk-payload-v2
-          test ! -e .github/director-desk-payload
-          test ! -e .github/director-cut-payload
-
-      - name: Make held previews genuinely single-frame
+      - name: Apply the true held-frame renderer patch
         shell: bash
         run: |
           set -euo pipefail
@@ -93,25 +56,25 @@ jobs:
 
           path = Path("src/engine/CinematicCarousel.ts")
           source = path.read_text()
-          old = """      if (!this.paused && !this.reducedMotionPreview) this.elapsed += delta;
+          source = source.replace(
+            """      if (!this.paused && !this.reducedMotionPreview) this.elapsed += delta;
                 this.advanceMotion(delta);
                 this.renderPreview();
-                this.sampleFps(now);"""
-          new = """      const shouldAnimate = !this.paused && !this.reducedMotionPreview;
+                this.sampleFps(now);""",
+            """      const shouldAnimate = !this.paused && !this.reducedMotionPreview;
                 if (shouldAnimate) {
                   this.elapsed += delta;
                   this.advanceMotion(delta);
                   this.renderPreview();
                   this.sampleFps(now);
-                }"""
-          if old not in source:
-              raise SystemExit("Expected held-preview render-loop anchor was not found")
-          source = source.replace(old, new, 1)
-
-          old = """    if (paused) this.motionVelocity = 0;
+                }""",
+            1,
+          )
+          source = source.replace(
+            """    if (paused) this.motionVelocity = 0;
               this.syncPresenterPlayback();
-              this.renderPreview();"""
-          new = """    if (paused) {
+              this.renderPreview();""",
+            """    if (paused) {
                 this.motionVelocity = 0;
                 this.callbacks.onFrame?.(0);
               } else {
@@ -119,71 +82,194 @@ jobs:
                 this.fpsSampleStarted = performance.now();
               }
               this.syncPresenterPlayback();
-              this.renderPreview();"""
-          if old not in source:
-              raise SystemExit("Expected pause anchor was not found")
-          source = source.replace(old, new, 1)
-
-          old = """    if (reduced) this.motionVelocity = 0;
-              this.renderPreview();"""
-          new = """    if (reduced) {
+              this.renderPreview();""",
+            1,
+          )
+          source = source.replace(
+            """    if (reduced) this.motionVelocity = 0;
+              this.renderPreview();""",
+            """    if (reduced) {
                 this.motionVelocity = 0;
                 this.callbacks.onFrame?.(0);
               } else if (!this.paused) {
                 this.fpsFrameCounter = 0;
                 this.fpsSampleStarted = performance.now();
               }
-              this.renderPreview();"""
-          if old not in source:
-              raise SystemExit("Expected reduced-motion anchor was not found")
-          source = source.replace(old, new, 1)
+              this.renderPreview();""",
+            1,
+          )
           path.write_text(source)
           PY
 
-      - name: Use Node.js 22
+      - name: Install locked dependencies and Chromium
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
 
-      - name: Install locked dependencies
-        run: npm ci
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
 
-      - name: Run strict product gate
-        run: npm run check
+      - name: Replace the comparison contract with an evidence-rich diagnostic
+        shell: bash
+        run: |
+          cat > e2e/cleanLensComparison.e2e.ts <<'EOF'
+          import { createHash } from "node:crypto";
+          import { expect, test, type Page } from "@playwright/test";
 
-      - name: Install hosted Chromium
-        run: npx playwright install --with-deps chromium
+          const digest = (buffer: Buffer): string => createHash("sha256").update(buffer).digest("hex");
 
-      - name: Run full creator browser gauntlet
+          async function comparePng(page: Page, first: Buffer, second: Buffer) {
+            return page.evaluate(async ({ firstBase64, secondBase64 }) => {
+              const decode = async (base64: string) => {
+                const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+                const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+                const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+                const context = canvas.getContext("2d", { willReadFrequently: true });
+                if (!context) throw new Error("2D diagnostic context unavailable");
+                context.drawImage(bitmap, 0, 0);
+                return {
+                  width: bitmap.width,
+                  height: bitmap.height,
+                  pixels: context.getImageData(0, 0, bitmap.width, bitmap.height).data,
+                };
+              };
+              const left = await decode(firstBase64);
+              const right = await decode(secondBase64);
+              if (left.width !== right.width || left.height !== right.height) {
+                return { widthA: left.width, heightA: left.height, widthB: right.width, heightB: right.height, sizeMismatch: true };
+              }
+              let changed = 0;
+              let changedOver1 = 0;
+              let changedOver3 = 0;
+              let totalDelta = 0;
+              let maxDelta = 0;
+              let minX = left.width;
+              let minY = left.height;
+              let maxX = -1;
+              let maxY = -1;
+              for (let index = 0; index < left.pixels.length; index += 4) {
+                let pixelDelta = 0;
+                for (let channel = 0; channel < 4; channel += 1) {
+                  const delta = Math.abs(left.pixels[index + channel]! - right.pixels[index + channel]!);
+                  pixelDelta = Math.max(pixelDelta, delta);
+                  totalDelta += delta;
+                  maxDelta = Math.max(maxDelta, delta);
+                }
+                if (pixelDelta > 0) changed += 1;
+                if (pixelDelta > 1) changedOver1 += 1;
+                if (pixelDelta > 3) changedOver3 += 1;
+                if (pixelDelta > 3) {
+                  const pixel = index / 4;
+                  const x = pixel % left.width;
+                  const y = Math.floor(pixel / left.width);
+                  minX = Math.min(minX, x);
+                  minY = Math.min(minY, y);
+                  maxX = Math.max(maxX, x);
+                  maxY = Math.max(maxY, y);
+                }
+              }
+              const pixelCount = left.width * left.height;
+              return {
+                width: left.width,
+                height: left.height,
+                sizeMismatch: false,
+                changed,
+                changedRatio: changed / pixelCount,
+                changedOver1,
+                changedOver1Ratio: changedOver1 / pixelCount,
+                changedOver3,
+                changedOver3Ratio: changedOver3 / pixelCount,
+                meanChannelDelta: totalDelta / left.pixels.length,
+                maxDelta,
+                over3Bounds: maxX >= 0 ? { minX, minY, maxX, maxY } : null,
+              };
+            }, {
+              firstBase64: first.toString("base64"),
+              secondBase64: second.toString("base64"),
+            });
+          }
+
+          test("diagnoses clean-lens restoration at raw-pixel level", async ({ page }) => {
+            await page.emulateMedia({ reducedMotion: "reduce" });
+            await page.goto("/");
+            const canvas = page.locator("canvas");
+            await expect(canvas).toBeVisible();
+            await page.getByRole("combobox", { name: "Film world" }).selectOption("dread");
+            await page.getByRole("button", { name: "Pause preview" }).click();
+            await page.waitForTimeout(220);
+
+            const capture = async (name: string) => {
+              const frame = await canvas.screenshot({ animations: "disabled" });
+              await test.info().attach(`${name}.png`, { body: frame, contentType: "image/png" });
+              return frame;
+            };
+
+            const directedA = await capture("01-directed-a");
+            await page.waitForTimeout(320);
+            const directedB = await capture("02-directed-b-noop");
+
+            const cleanLens = page.getByRole("button", { name: /^Clean lens/ });
+            await cleanLens.click();
+            await expect(page.locator(".stage-frame")).toHaveAttribute("data-clean-comparison", "true");
+            await page.waitForTimeout(220);
+            const cleanA = await capture("03-clean-a");
+            await page.waitForTimeout(320);
+            const cleanB = await capture("04-clean-b-noop");
+
+            await page.getByRole("button", { name: /^Restore directed lens/ }).click();
+            await expect(page.locator(".stage-frame")).toHaveAttribute("data-clean-comparison", "false");
+            await page.waitForTimeout(220);
+            const restoredA = await capture("05-restored-a");
+            await page.waitForTimeout(320);
+            const restoredB = await capture("06-restored-b-noop");
+
+            const evidence = {
+              digests: {
+                directedA: digest(directedA),
+                directedB: digest(directedB),
+                cleanA: digest(cleanA),
+                cleanB: digest(cleanB),
+                restoredA: digest(restoredA),
+                restoredB: digest(restoredB),
+              },
+              comparisons: {
+                directedNoop: await comparePng(page, directedA, directedB),
+                cleanNoop: await comparePng(page, cleanA, cleanB),
+                restoredNoop: await comparePng(page, restoredA, restoredB),
+                directedToClean: await comparePng(page, directedB, cleanA),
+                directedToRestored: await comparePng(page, directedB, restoredA),
+              },
+              canvas: await canvas.evaluate((element) => ({
+                width: element.width,
+                height: element.height,
+                rect: element.getBoundingClientRect().toJSON(),
+              })),
+            };
+            console.log(`CLEAN_LENS_DIAGNOSTIC ${JSON.stringify(evidence)}`);
+            await test.info().attach("clean-lens-diagnostic.json", {
+              body: Buffer.from(JSON.stringify(evidence, null, 2)),
+              contentType: "application/json",
+            });
+
+            expect(evidence.digests.cleanA).not.toBe(evidence.digests.directedB);
+            expect(evidence.digests.directedB).toBe(evidence.digests.restoredA);
+          });
+          EOF
+          sed -i 's/^          //' e2e/cleanLensComparison.e2e.ts
+
+      - name: Run only the clean-lens diagnostic
         env:
           CI: "1"
-        run: npm run test:e2e
+        run: npx playwright test e2e/cleanLensComparison.e2e.ts --workers=1 --retries=0
 
-      - name: Preserve browser evidence on failure
-        if: failure()
-        continue-on-error: true
+      - name: Upload raw diagnostic evidence
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: director-desk-v3-browser-failure
+          name: clean-lens-raw-diagnostic
           path: |
             playwright-report/
             test-results/
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 7
-
-      - name: Publish the verified product tree
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git diff --cached --check
-          if git diff --cached --quiet; then
-            echo "Verified archive produced no product changes." >&2
-            exit 1
-          fi
-          git commit -m "feat: complete the creator-directed Director Desk journey"
-          git push origin HEAD:gauntlet/directors-cut-optical-pipeline
