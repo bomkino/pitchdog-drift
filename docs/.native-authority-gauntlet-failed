@@ -1,0 +1,7 @@
+workflow=codex-native-issued-authority-core
+source=441059dbf2bf3026eac16fa4ebba58c90a3026f7
+runner=macOS-ARM64
+apply=failure
+check=skipped
+build=skipped
+state=failed
