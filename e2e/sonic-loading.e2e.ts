@@ -11,6 +11,14 @@ async function waitForStudio(page: Page): Promise<void> {
   );
 }
 
+async function waitForDurableSave(page: Page): Promise<void> {
+  const status = page.locator(".header-status");
+  // The previous saved label may still be visible during React's commit. Prove
+  // that this mutation entered the dirty state before accepting the saved one.
+  await expect(status).toContainText("saving locally…", { timeout: 5_000 });
+  await expect(status).toContainText("saved locally", { timeout: 15_000 });
+}
+
 function isWavePayloadRequest(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -56,9 +64,7 @@ test("a persisted mute can be enabled and armed on the first click after reload"
     name: "Mute tactile preview sound",
   }).click();
   await expect(page.getByText("muted", { exact: true })).toBeVisible();
-  await expect(page.locator(".header-status")).toContainText("saved locally", {
-    timeout: 10_000,
-  });
+  await waitForDurableSave(page);
 
   await page.reload();
   await expect(page.locator(".asset-list li").first()).toBeVisible({
