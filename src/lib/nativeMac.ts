@@ -88,6 +88,8 @@ const NATIVE_PICKER_TYPES: Readonly<Record<NativeMacImportKind, ReadonlyArray<{
   }],
 });
 
+let installedAppBridge: NativeMacAppBridge | null = null;
+
 export function isNativeMacRuntime(): boolean {
   return typeof window !== "undefined"
     && window.__DRIFT_NATIVE_MAC__?.platform === "macOS"
@@ -98,8 +100,52 @@ export function installNativeMacAppBridge(bridge: NativeMacAppBridge): () => voi
   if (!isNativeMacRuntime() || typeof window.__driftNativeInstallAppBridge !== "function") {
     return () => undefined;
   }
-  const cleanup = window.__driftNativeInstallAppBridge(bridge);
-  return typeof cleanup === "function" ? cleanup : () => undefined;
+  installedAppBridge = bridge;
+  const nativeCleanup = window.__driftNativeInstallAppBridge(bridge);
+  return () => {
+    if (installedAppBridge === bridge) installedAppBridge = null;
+    if (typeof nativeCleanup === "function") nativeCleanup();
+  };
+}
+
+/**
+ * Sends files already copied out of opaque native grants directly into the
+ * installed React bridge. WKWebView does not reliably construct a writable
+ * FileList through DataTransfer, so native imports must not depend on spoofing
+ * a hidden input. The browser build retains its ordinary input event path.
+ */
+export async function dispatchNativeMacFiles(
+  kind: NativeMacImportKind,
+  files: readonly File[],
+): Promise<boolean> {
+  if (!isNativeMacRuntime()) return false;
+  const bridge = installedAppBridge;
+  if (!bridge) {
+    throw new DOMException(
+      "Drift is still opening. Wait for the project to finish loading, then try the import again.",
+      "InvalidStateError",
+    );
+  }
+
+  const selected = [...files];
+  if (selected.length === 0) return true;
+  if (kind !== "slides" && selected.length !== 1) {
+    throw new DOMException(
+      kind === "presenter"
+        ? "Choose exactly one presenter video."
+        : "Choose exactly one Drift project.",
+      "TypeMismatchError",
+    );
+  }
+  if (selected.some((file) => !(file instanceof File))) {
+    throw new DOMException("The native picker returned an invalid file object.", "DataError");
+  }
+
+  // The app bridge serializes project/media operations. Dispatching a selected
+  // slide batch in picker order therefore preserves ordering and first-deck
+  // replacement semantics without manufacturing a browser-owned FileList.
+  for (const file of selected) await bridge.importFile(kind, file);
+  return true;
 }
 
 export function reportNativeMacClientState(state: NativeMacClientState): void {
