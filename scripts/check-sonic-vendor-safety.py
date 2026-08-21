@@ -112,9 +112,10 @@ def main() -> int:
                 )
 
             module.commit_staged_assets = fail_at_boundary
+            label = "licences" if boundary == "licenses" else boundary
             expect_failure(
                 module.vendor,
-                f"intentional failure after {boundary}",
+                f"intentional failure after {label}",
             )
             module.commit_staged_assets = original_commit
             if snapshot_files(asset_root) != before_boundary:
