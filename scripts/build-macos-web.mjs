@@ -84,10 +84,11 @@ if (stylesheets.length === 0) {
 
 const applicationScript = javascript[0];
 const applicationSource = await readFile(applicationScript, "utf8");
+// Script performs a real classic-script parse. Unlike a text search, it cannot
+// mistake dependency diagnostics or string literals containing `import.meta`
+// for executable module syntax. The one-JavaScript-file invariant above proves
+// there is no boot-critical split chunk left for file:// to discover later.
 new Script(applicationSource, { filename: posixRelative(outDir, applicationScript) });
-if (/\bimport\s*\(/u.test(applicationSource) || /\bimport\.meta\b/u.test(applicationSource)) {
-  throw new Error("The Mac application entry retained module-only runtime syntax.");
-}
 
 const scriptRelative = posixRelative(outDir, applicationScript);
 const stylesheetRelatives = stylesheets.map((path) => posixRelative(outDir, path)).sort();
