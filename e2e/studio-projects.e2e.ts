@@ -168,7 +168,7 @@ test("an unsupported saved project is quarantined instead of overwritten by fall
         request.onsuccess = () => resolve(request.result as Record<string, any>);
         request.onerror = () => reject(request.error);
       });
-      record.payload.project.formatVersion = 99;
+      record.manifest.payload.project.formatVersion = 99;
       store.put(record);
       await new Promise<void>((resolve, reject) => {
         transaction.oncomplete = () => resolve();
@@ -205,7 +205,7 @@ test("an unsupported saved project is quarantined instead of overwritten by fall
         request.onerror = () => reject(request.error);
       });
       return {
-        formatVersion: project.payload.project.formatVersion as number,
+        formatVersion: project.manifest.payload.project.formatVersion as number,
         assetName: project.manifest.assets[0]?.name as string,
         assetCount,
       };
