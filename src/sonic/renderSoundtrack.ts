@@ -140,13 +140,9 @@ export async function renderSonicSoundtrack(
 
   const master = context.createGain();
   const compressor = context.createDynamicsCompressor();
-  master.gain.value = Math.min(
-    1,
-    Math.max(0, settings.sound.masterGain * settings.sound.motionGain),
-  );
-  // These dynamics deliberately match SonicEngine's live preview graph. The
-  // exported gesture should not become flatter, louder, or softer merely
-  // because it moved from the stage into the master.
+  // Match SonicEngine's graph exactly: user master lives on the master node;
+  // motion, semantic intensity, and treatment correction live on each voice.
+  master.gain.value = clamp(settings.sound.masterGain, 0, 1);
   compressor.threshold.value = -17;
   compressor.knee.value = 20;
   compressor.ratio.value = 4;
@@ -187,7 +183,11 @@ export async function renderSonicSoundtrack(
       attackEnd,
       end - Math.min(0.032, audibleDuration * 0.28),
     );
-    const treatedGain = event.gain * asset.spec.gain;
+    const treatedGain = clamp(
+      settings.sound.motionGain * event.gain * asset.spec.gain,
+      0,
+      4,
+    );
     gain.gain.setValueAtTime(0, start);
     gain.gain.linearRampToValueAtTime(treatedGain, attackEnd);
     gain.gain.setValueAtTime(treatedGain, releaseStart);
