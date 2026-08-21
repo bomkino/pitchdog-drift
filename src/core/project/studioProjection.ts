@@ -52,6 +52,14 @@ function legacyBackground(project: DriftProjectV3): BackgroundStyle {
     : "aura";
 }
 
+function firstVisibleDirective(project: DriftProjectV3): SlideDirective | null {
+  for (const assetId of project.media.order) {
+    const directive = project.slides[assetId];
+    if (directive) return directive;
+  }
+  return null;
+}
+
 /**
  * Projects Project V3 through the renderer capabilities that exist on the
  * current integration head. It is deliberately one-way and explicit: hidden
@@ -62,6 +70,7 @@ export function studioSettingsFromDriftProject(projectInput: DriftProjectV3): St
   const project = validateDriftProjectV3(projectInput);
   const background = legacyBackground(project);
   const presenterAssetId = project.media.presenterAssetId;
+  const firstDirective = firstVisibleDirective(project);
   return {
     schemaVersion: SCHEMA_VERSION,
     engineVersion: ENGINE_VERSION,
@@ -94,9 +103,9 @@ export function studioSettingsFromDriftProject(projectInput: DriftProjectV3): St
       aspectWidth: project.card.aspectWidth,
       aspectHeight: project.card.aspectHeight,
       scale: project.card.scale,
-      fit: project.card.defaultFit,
-      focalX: 0.5,
-      focalY: 0.5,
+      fit: firstDirective?.fit ?? project.card.defaultFit,
+      focalX: firstDirective?.focalX ?? 0.5,
+      focalY: firstDirective?.focalY ?? 0.5,
       radius: project.card.radius,
       smoothing: project.card.smoothing,
       borderWidth: project.card.borderWidth,
