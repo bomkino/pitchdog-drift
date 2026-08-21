@@ -8,7 +8,7 @@ Exact audited head: `20db7ccbd53004fb6d077fecab04bd1453278202`
 
 **The foundation is strong, but it is not cleared for higher feature construction yet.**
 
-The exact audited head was green across CI, packaged macOS, and WKWebView runtime workflows. The gauntlet nevertheless found one P0 false-green and three P1 native-boundary defects. These are concentrated and repairable. They must be closed before renderer, atmosphere, lens, sound, worlds, or final interface work continues.
+The exact audited head was green across CI, packaged macOS, and WKWebView runtime workflows. The gauntlet nevertheless found one P0 false-green and four P1 native/release-boundary defects. These are concentrated and repairable. The native-boundary defects must be closed before renderer, atmosphere, lens, sound, worlds, or final interface work continues. The release-lane contradiction must be closed before any release-candidate claim.
 
 `main` remains untouched. PR #30 remains a draft.
 
@@ -20,10 +20,10 @@ The exact audited head was green across CI, packaged macOS, and WKWebView runtim
 - The temporal core is explicit-time, deterministic, monotonic, bounded, and seam-aware at its current tested boundary.
 - The spatial core contains ten path definitions, bounded evaluated output, deterministic imperfection, and a resident-render ceiling.
 - The native file broker stages writes on the destination volume, commits atomically, rejects traversal and symlinks, preserves sequence collisions, and rolls back only files it can still identify as its own.
-- The Mac build uses pinned actions and locked npm dependencies, builds the packaged app, exercises WKWebView codecs, verifies a local DMG, and keeps release signing/notarisation isolated from ordinary CI.
+- The Mac build uses pinned actions and locked npm dependencies, builds the packaged app, exercises WKWebView codecs, verifies a local DMG, and keeps signing/notarisation secrets isolated from ordinary CI.
 - Existing browser and packaged-app regressions are coherent at this checkpoint.
 
-Green means those tested contracts hold. It does not mean every claimed native security property is wired into the product.
+Green means those tested contracts hold. It does not mean every claimed native security property is wired into the product, or that the release policy can currently be satisfied.
 
 ## Gauntlet loops
 
@@ -31,7 +31,7 @@ Green means those tested contracts hold. It does not mean every claimed native s
 |---|---|---|
 | Exact-head truth | Pass | The audited SHA, PR head, and three workflow runs agree. |
 | CI independence | Pass with caveat | Unit, browser, native broker, packaged app, and runtime probes are separate; one authority check is marker-based rather than behavioural. |
-| Project integrity | Pass | Strict V3 envelopes, media hashes, references, future-version refusal, and recovery lock hold. |
+| Project integrity | Pass | Strict V3 envelopes, media hashes, references, future-version refusal, archive metadata limits, and recovery lock hold. |
 | Save-race truth | Pass at current browser boundary | Queued saves and revision comparison prevent an older completion from claiming the latest state. Real associated Mac documents remain unfinished. |
 | Timeline determinism | Pass | Explicit time, monotonic performance curves, cadence inversion, event planning, and source-deck seam tests hold. |
 | Render/export parity | Transitional | Existing renderer/export parity holds; the new V3 core is not yet authoritative in the live renderer. |
@@ -39,8 +39,8 @@ Green means those tested contracts hold. It does not mean every claimed native s
 | Local-only/network boundary | **P1 fail** | Runtime capability reporting contradicts the signed entitlement; remote download policy has a scheme-order bypass. |
 | Destructive-write containment | Pass with P1 edge | Atomic write and rollback logic are strong; grant eviction can discard a directory still referenced by an active frame write. |
 | Resource bounds | Pass with P2 debt | GPU residency is capped; spatial evaluation still scales with source count before the 24-slide cap. |
-| Release truth | Pass for evidence lane | Ordinary CI cannot publish; signed release evidence requires an exact commit already reachable from `main`. No release candidate exists. |
-| Documentation truth | Corrected by this audit | Previous wording overstated native document authority. This file is now the construction gate. |
+| Release truth | **P1 process fail** | The merge policy requires pre-merge signing/notarisation, while the release workflow accepts only commits already reachable from `main`. |
+| Documentation truth | Corrected by this audit | Previous wording overstated native document authority and release readiness. This file is now the construction gate. |
 
 ## P0 — native document authority is present but not connected
 
@@ -54,6 +54,7 @@ Green means those tested contracts hold. It does not mean every claimed native s
 - `DriftAppDelegate` treats trusted `didFinish` navigation as runtime readiness.
 - Native panels, downloads, Finder/Open-With delivery, broker registration completions, and other asynchronous callbacks are not bound to a document ticket.
 - The structural checker proves that the session file contains expected strings; it does not prove the session guards the bridge.
+- The current session API accepts a caller-supplied bootstrap nonce; it does not verify that the nonce was prepared by AppKit for the committed document.
 
 The URL check remains necessary. It is not sufficient across reloads because the replaced and replacement documents have the same signed local URL.
 
@@ -116,6 +117,26 @@ Required repair:
 - Refuse a new grant if every existing grant is protected rather than evicting an active authority.
 - Add a self-test that fills the grant table while a create-only frame write is open, then proves commit and rollback ownership remain intact.
 
+## P1 — the release policy and release workflow currently deadlock
+
+The construction contract says the exact Drift 1.0 candidate must be signed, notarised, stapled, and verified before it is merged into `main`.
+
+The manual release-evidence workflow rejects every source commit that is not already an ancestor of `origin/main` before signing secrets are exposed.
+
+Both rules cannot be true at once. Under the present design, either:
+
+- the candidate is merged before notarisation, violating the merge boundary; or
+- the release workflow refuses the unmerged candidate, making the required pre-merge evidence impossible.
+
+Required repair before an RC declaration:
+
+1. Introduce a protected release-candidate ref separate from `main`—for example an approved `release/drift-1.0-rc` branch or signed annotated RC tag.
+2. Require environment approval before secrets are exposed.
+3. Verify the exact requested SHA is reachable from that protected RC ref and belongs to this repository.
+4. Build, sign, notarise, staple, Gatekeeper-test, and retain text receipts without publishing a binary.
+5. After approval, move `main` to the exact already-verified SHA; do not rebuild a merely equivalent commit.
+6. Alternatively, explicitly change the merge policy—but never claim pre-merge notarisation while the workflow structurally forbids it.
+
 ## P2 debts to close during their owning waves
 
 ### Built-in study identity
@@ -134,7 +155,11 @@ Organic roll is clamped by a limit derived from banking. At zero banking, roll i
 
 Held-pose masters preserve the exact duration endpoint for seam truth. At output/cadence combinations that do not divide evenly, the final sampled frame can differ more than neighbouring held frames. Keep the exact endpoint, but add a delivery advisory and golden-frame test rather than hiding the jump.
 
-## Construction gate
+### In-memory portable archives
+
+The current ZIP filter checks entry count and declared expanded sizes before accepting entries, which is good. Import and export still materialise whole archives and media buffers in memory. Keep the existing limits until the native streaming archive and content-addressed asset store replace this browser-era path.
+
+## Foundation construction gate
 
 Higher feature work may start only after one exact head proves all of the following:
 
@@ -149,6 +174,15 @@ Higher feature work may start only after one exact head proves all of the follow
 - [ ] A second clean rerun passes without source changes.
 
 Until then, allowed work is restricted to these foundation repairs, tests, and documentation. Do not begin atmosphere, lens, sound, final worlds, or the final directing interface on top of a privileged boundary we already know is incomplete.
+
+## Release-candidate gate
+
+Before any RC is called verified:
+
+- [ ] A protected non-`main` RC ref can authorise one exact source SHA.
+- [ ] Signing/notarisation secrets are exposed only after repository, ref, and SHA verification plus environment approval.
+- [ ] The exact pre-merge SHA passes signing, notarisation, stapling, quarantine, and Gatekeeper evidence.
+- [ ] `main` receives that exact SHA after explicit approval.
 
 ## Merge boundary
 

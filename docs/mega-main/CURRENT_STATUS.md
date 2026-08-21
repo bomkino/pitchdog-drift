@@ -8,9 +8,9 @@ Latest completed gauntlet target: `20db7ccbd53004fb6d077fecab04bd1453278202`
 
 **Drift 1.0 is not finished, and the foundation is not yet cleared for higher feature construction.**
 
-The current integration branch is a strong, coherent construction checkpoint. Its tests are green. A deeper foundation gauntlet found one P0 false-green and three P1 native-boundary defects that must be repaired before renderer, atmosphere, lens, sound, worlds, or final interface work continues.
+The current integration branch is a strong, coherent construction checkpoint. Its tests are green. A deeper foundation gauntlet found one P0 false-green, three P1 native-boundary defects, and one P1 release-process contradiction. The native-boundary defects must be repaired before renderer, atmosphere, lens, sound, worlds, or final interface work continues. The release contradiction must be repaired before any release-candidate claim.
 
-See [`FOUNDATION_GAUNTLET.md`](./FOUNDATION_GAUNTLET.md) for the evidence, failure modes, and exact construction gate.
+See [`FOUNDATION_GAUNTLET.md`](./FOUNDATION_GAUNTLET.md) for the evidence, failure modes, and exact construction gates.
 
 PR #30 remains a draft. `main` remains untouched.
 
@@ -25,7 +25,7 @@ The audited checkpoint passed:
 - universal standalone-app build and packaged-lifecycle verification;
 - native source, file-broker, sandbox, signing-structure, and local DMG gauntlets.
 
-This proves the tested checkpoint is internally coherent. It does not prove every native capability claim is connected to the production path.
+This proves the tested checkpoint is internally coherent. It does not prove every native capability claim is connected to the production path, or that the current release policy can be satisfied.
 
 ## Implemented foundation
 
@@ -104,6 +104,20 @@ Required:
 - Fail safely when every grant is protected.
 - Add pressure, commit, and rollback self-tests.
 
+## Release-process blocker
+
+### P1 — pre-merge release evidence is currently impossible
+
+The merge boundary requires the exact candidate to be signed and notarised before it reaches `main`. The manual release workflow accepts only source commits already reachable from `main`.
+
+Before an RC declaration:
+
+- create a protected non-`main` release-candidate ref;
+- verify the exact requested SHA against that ref before secrets;
+- require environment approval;
+- sign, notarise, staple, quarantine-test, and retain receipts without publishing;
+- move `main` to that exact already-verified SHA only after explicit approval.
+
 ## Important architectural truth
 
 The new Project V3 core is **not yet the complete live product engine**.
@@ -143,10 +157,11 @@ After the foundation gate passes:
 5. Integrate temporal direction → space/matter → lighting → atmosphere → lens → sound.
 6. Compile worlds and rebuild the Director experience.
 7. Run donor parity and final convergence gauntlets.
-8. Produce one exact signed and notarised Drift 1.0 candidate.
+8. Repair and prove the protected pre-merge release-candidate lane.
+9. Produce one exact signed and notarised Drift 1.0 candidate.
 
 ## Completion rule
 
 Green CI means a tested checkpoint is coherent. It does not mean Drift 1.0 is complete or safe to merge.
 
-Drift 1.0 is complete only when every foundation blocker and major unfinished system is implemented in the packaged Mac app, preview/export parity holds, final physical and human review passes, and the exact verified candidate receives explicit approval to merge into `main`.
+Drift 1.0 is complete only when every foundation blocker and major unfinished system is implemented in the packaged Mac app, preview/export parity holds, the pre-merge release lane is satisfiable, final physical and human review passes, and the exact verified candidate receives explicit approval to merge into `main`.
