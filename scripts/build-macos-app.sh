@@ -102,8 +102,11 @@ plutil -replace DriftSourceRevision -string "${SOURCE_REVISION}" "${CONTENTS_DIR
 plutil -lint "${CONTENTS_DIR}/Info.plist" "${ENTITLEMENTS}"
 
 ICONSET_DIR="${TEMP_DIR}/${APP_NAME}.iconset"
+DOCUMENT_ICONSET_DIR="${TEMP_DIR}/${APP_NAME}Document.iconset"
 python3 scripts/generate-macos-icon.py "${ICONSET_DIR}"
+python3 scripts/generate-macos-document-icon.py "${DOCUMENT_ICONSET_DIR}"
 iconutil -c icns "${ICONSET_DIR}" -o "${RESOURCES_DIR}/${APP_NAME}.icns"
+iconutil -c icns "${DOCUMENT_ICONSET_DIR}" -o "${RESOURCES_DIR}/${APP_NAME}Document.icns"
 
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 SOURCE_FILES=(macos/App/*.swift)
@@ -159,6 +162,7 @@ renderer=WKWebView+Three.js
 codec_policy=system-frameworks-only
 video_codec=WKWebView-H264-capability-gated
 audio_codec=AudioToolbox-Apple-software-AAC-LC
+document_icon=DriftDocument.icns
 sandbox=user-selected-read-write
 network_entitlement=none
 EOF
@@ -207,6 +211,7 @@ DRIFT_EXPECT_ARCHS="${ARCHITECTURES}" bash scripts/verify-macos-app.sh "${APP_BU
 
 printf '\nBuilt %s\n' "${APP_BUNDLE}"
 printf 'Architectures: %s\n' "$(lipo -archs "${MACOS_DIR}/${APP_NAME}")"
+printf 'Document icon: DriftDocument.icns for .pitched projects\n'
 printf 'Audio: Apple software AAC-LC through AudioToolbox\n'
 printf 'Video: WKWebView H.264, capability-gated and output-verified\n'
 printf 'Open with: open %q\n' "${APP_BUNDLE}"

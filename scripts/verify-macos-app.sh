@@ -18,7 +18,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   fail "bundle verification requires macOS."
 fi
 
-for command in codesign lipo node open otool plutil python3; do
+for command in codesign iconutil lipo node open otool plutil python3; do
   command -v "${command}" >/dev/null 2>&1 || fail "missing required command ${command}."
 done
 
@@ -28,6 +28,7 @@ for path in \
   "${RESOURCES}/NativeBridge.js" \
   "${RESOURCES}/Web/index.html" \
   "${RESOURCES}/Drift.icns" \
+  "${RESOURCES}/DriftDocument.icns" \
   "${RESOURCES}/BuildReceipt.txt" \
   "${RESOURCES}/BuildManifest.txt" \
   "${RESOURCES}/Legal/LICENSE" \
@@ -45,6 +46,7 @@ for path in \
   [[ -f "${path}" ]] || fail "missing app-bundle file ${path}."
 done
 [[ -x "${EXECUTABLE}" ]] || fail "the main executable is not executable."
+[[ -s "${RESOURCES}/DriftDocument.icns" ]] || fail "the .pitched document icon is empty."
 
 plutil -lint "${INFO_PLIST}" >/dev/null
 [[ "$(plutil -extract CFBundleIdentifier raw -o - "${INFO_PLIST}")" == "dog.pitch.drift" ]] \
@@ -58,6 +60,81 @@ grep -F 'dog.pitch.pitched-project' <<<"${INFO_DUMP}" >/dev/null \
   || fail "the .pitched document type is missing."
 grep -F 'UTExportedTypeDeclarations' <<<"${INFO_DUMP}" >/dev/null \
   || fail "the app does not export its .pitched type declaration."
+python3 - "${INFO_PLIST}" <<'PY'
+from __future__ import annotations
+
+import plistlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+with path.open("rb") as stream:
+    info = plistlib.load(stream)
+
+document_types = info.get("CFBundleDocumentTypes")
+if not isinstance(document_types, list):
+    raise SystemExit("Drift.app verification failed: CFBundleDocumentTypes is missing or malformed.")
+matching_documents = [
+    item for item in document_types
+    if isinstance(item, dict)
+    and "dog.pitch.pitched-project" in item.get("LSItemContentTypes", [])
+]
+if len(matching_documents) != 1:
+    raise SystemExit("Drift.app verification failed: .pitched must have exactly one document declaration.")
+if matching_documents[0].get("CFBundleTypeIconFile") != "DriftDocument":
+    raise SystemExit("Drift.app verification failed: .pitched document declaration does not use DriftDocument.icns.")
+
+exported_types = info.get("UTExportedTypeDeclarations")
+if not isinstance(exported_types, list):
+    raise SystemExit("Drift.app verification failed: UTExportedTypeDeclarations is missing or malformed.")
+matching_utis = [
+    item for item in exported_types
+    if isinstance(item, dict)
+    and item.get("UTTypeIdentifier") == "dog.pitch.pitched-project"
+]
+if len(matching_utis) != 1 or matching_utis[0].get("UTTypeIconFile") != "DriftDocument":
+    raise SystemExit("Drift.app verification failed: exported .pitched UTI does not use DriftDocument.icns.")
+PY
+
+DOCUMENT_ICONSET="${TEMP_DIR}/DriftDocument.iconset"
+iconutil -c iconset "${RESOURCES}/DriftDocument.icns" -o "${DOCUMENT_ICONSET}"
+python3 - "${DOCUMENT_ICONSET}" <<'PY'
+from __future__ import annotations
+
+import struct
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+required = {
+    "icon_16x16.png": 16,
+    "icon_16x16@2x.png": 32,
+    "icon_32x32.png": 32,
+    "icon_32x32@2x.png": 64,
+    "icon_128x128.png": 128,
+    "icon_128x128@2x.png": 256,
+    "icon_256x256.png": 256,
+    "icon_256x256@2x.png": 512,
+    "icon_512x512.png": 512,
+    "icon_512x512@2x.png": 1024,
+}
+for name, expected_size in required.items():
+    path = root / name
+    if not path.is_file():
+        raise SystemExit(f"Drift.app verification failed: document iconset is missing {name}.")
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+        raise SystemExit(f"Drift.app verification failed: {name} is not a readable PNG.")
+    width, height, bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
+    if (width, height) != (expected_size, expected_size):
+        raise SystemExit(
+            f"Drift.app verification failed: {name} is {width}x{height}, expected {expected_size}x{expected_size}."
+        )
+    if bit_depth != 8 or color_type != 6:
+        raise SystemExit(
+            f"Drift.app verification failed: {name} must be 8-bit RGBA, got bit depth {bit_depth}, color type {color_type}."
+        )
+PY
 
 codesign --verify --deep --strict --all-architectures --verbose=2 "${APP_BUNDLE}"
 SIGNATURE="${TEMP_DIR}/signature.txt"
@@ -184,6 +261,7 @@ grep -Fx "minimum_macos=13.3" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail
 grep -Fx "codec_policy=system-frameworks-only" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong codec policy."
 grep -Fx "video_codec=WKWebView-H264-capability-gated" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt misstates the video path."
 grep -Fx "audio_codec=AudioToolbox-Apple-software-AAC-LC" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt misstates the presenter-audio path."
+grep -Fx "document_icon=DriftDocument.icns" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt omits the .pitched document icon."
 grep -Fx "network_entitlement=none" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong network policy."
 
 if [[ -n "$(find "${APP_BUNDLE}" -type f -perm -0002 -print -quit)" ]]; then
@@ -303,6 +381,7 @@ PY
 printf 'Verified %s\n' "${APP_BUNDLE}"
 printf 'Bundle size: %s\n' "$(du -sh "${APP_BUNDLE}" | awk '{print $1}')"
 printf 'Architectures: %s\n' "${actual_archs}"
+printf 'Document identity: DriftDocument.icns is bound to dog.pitch.pitched-project\n'
 printf 'Sandbox: enabled; user-selected read/write only; no network entitlement\n'
 printf 'Video: WKWebView H.264, capability-gated and output-verified\n'
 printf 'Audio: Apple software AAC-LC through AudioToolbox; no FFmpeg WASM\n'
