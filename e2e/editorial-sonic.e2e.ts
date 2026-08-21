@@ -281,7 +281,18 @@ test("Editorial recipes remain deterministic, unclipped, stereo, and audible aft
     };
   });
 
-  expect(receipt.first).toEqual(receipt.second);
+  // Web Audio can differ by sub-nanoscopic float accumulation while producing
+  // the same quantized PCM. Fingerprint and per-sample delta are the actual
+  // determinism contract; RMS comparisons therefore use numeric tolerance.
+  expect(receipt.first.fingerprint).toBe(receipt.second.fingerprint);
+  expect(receipt.first.channels).toBe(receipt.second.channels);
+  expect(receipt.first.sampleRate).toBe(receipt.second.sampleRate);
+  expect(receipt.first.length).toBe(receipt.second.length);
+  expect(receipt.first.finite).toBe(receipt.second.finite);
+  expect(receipt.first.activeRatio).toBe(receipt.second.activeRatio);
+  expect(receipt.first.peak).toBeCloseTo(receipt.second.peak, 10);
+  expect(receipt.first.rms).toBeCloseTo(receipt.second.rms, 10);
+  expect(receipt.first.sideRms).toBeCloseTo(receipt.second.sideRms, 10);
   expect(receipt.maximumDelta).toBeLessThan(1e-8);
   expect(receipt.first.channels).toBe(2);
   expect(receipt.first.sampleRate).toBe(48_000);
