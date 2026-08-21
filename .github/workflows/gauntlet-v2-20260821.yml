@@ -1,0 +1,130 @@
+name: Director's Cut V2 gauntlet
+
+on:
+  push:
+    branches:
+      - gauntlet/directors-cut-optical-pipeline
+
+permissions:
+  contents: write
+
+concurrency:
+  group: directors-cut-v2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out the isolated draft branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply the creator, visual, and performance gauntlet
+        run: python .github/gauntlet/finalize_v2.py
+
+      - name: Install the locked dependency graph
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Run unit and contract tests
+        run: npm test -- --run
+
+      - name: Build production output
+        run: npm run build
+
+      - name: Install Chromium runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the complete browser gauntlet
+        run: npm run test:e2e
+
+      - name: Capture every authored film world
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p visual-evidence
+          npm run dev -- --host 127.0.0.1 --port 5187 > /tmp/drift-vite.log 2>&1 &
+          for attempt in {1..60}; do
+            if curl -fsS http://127.0.0.1:5187 >/dev/null; then break; fi
+            sleep 1
+          done
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          import { writeFile } from 'node:fs/promises';
+          const worlds = [
+            'Editorial Drift', 'Road Memory', 'Dread', 'Noir Contact',
+            'Tender Light', 'Chrome Dream', 'Sunstruck Atlas', 'Blue Hour',
+            'Velvet Fever', 'Celluloid Archive', 'Night Run', 'Eclipse Ritual',
+            'Opal Nocturne', 'Projection Room', 'Wild Atlas', 'Silver Tide',
+            'Winter Glass', 'Neon Monsoon',
+          ];
+          const browser = await chromium.launch({
+            headless: true,
+            args: ['--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader'],
+          });
+          const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+          const errors = [];
+          page.on('console', message => { if (message.type() === 'error') errors.push(`console: ${message.text()}`); });
+          page.on('pageerror', error => errors.push(`page: ${error.message}`));
+          await page.goto('http://127.0.0.1:5187', { waitUntil: 'networkidle', timeout: 60000 });
+          await page.locator('[data-testid="webgl-stage"]').waitFor({ state: 'visible', timeout: 30000 });
+          for (let index = 0; index < worlds.length; index += 1) {
+            const name = worlds[index];
+            const control = page.getByRole('button', { name: new RegExp(name, 'i') });
+            if (await control.count() !== 1) throw new Error(`Missing authored world: ${name}`);
+            await control.click();
+            await page.waitForTimeout(700);
+            const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            await page.locator('.stage-frame').screenshot({
+              path: `visual-evidence/${String(index + 1).padStart(2, '0')}-${slug}.png`,
+            });
+          }
+          if (errors.length) throw new Error(errors.join('\n'));
+          await writeFile('visual-evidence/manifest.json', JSON.stringify({ worlds, capturedAt: new Date().toISOString() }, null, 2));
+          await browser.close();
+          NODE
+
+      - name: Upload visual evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: directors-cut-v2-visual-evidence
+          path: visual-evidence/
+          retention-days: 14
+
+      - name: Remove delivery scaffolding
+        shell: bash
+        run: |
+          rm -rf .github/gauntlet
+          rm -rf .github/director-cut-payload .github/directors-cut-payload
+          rm -f .github/workflows/gauntlet-v2-20260821.yml
+          rm -f .github/workflows/apply-directors-cut.yml
+          rm -f .github/workflows/apply-directors-cut-payload.yml
+          rm -f .github/workflows/branch-snapshot.yml
+          rm -f .github/workflows/dependency-snapshot.yml
+          rm -f .github/workflows/visual-evidence.yml
+          rm -f .github/workflows/directors-cut-visual-evidence.yml
+
+      - name: Commit the clean feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'OpenAI'
+          git config user.email 'noreply@openai.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No source changes were required.'
+            exit 0
+          fi
+          git commit -m 'feat: deepen the cinematic atmosphere atlas'
+          git push origin HEAD:gauntlet/directors-cut-optical-pipeline
