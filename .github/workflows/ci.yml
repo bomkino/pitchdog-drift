@@ -2,9 +2,7 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - gauntlet/tactile-sound-final-gpt56pro
+    branches: [main]
   pull_request:
 
 permissions:
@@ -16,7 +14,7 @@ concurrency:
 
 jobs:
   apply-final-sound-hardening:
-    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[apply-final-sound-hardening-v5]') }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'gauntlet/tactile-sound-final-gpt56pro' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -134,7 +132,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: final-tactile-sound-v5-failure-evidence
+          name: final-tactile-sound-visible-failure-evidence
           path: |
             playwright-report/
             playwright-production-report/
@@ -143,7 +141,7 @@ jobs:
           retention-days: 7
 
   verify:
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[apply-final-sound-hardening-v5]') }}
+    if: ${{ github.event_name != 'pull_request' || github.head_ref != 'gauntlet/tactile-sound-final-gpt56pro' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
