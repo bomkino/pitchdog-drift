@@ -22,7 +22,7 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 - One verified AAC track at 48 kHz stereo: presenter speech, authored sound design, or one continuous exact-duration stereo master of both.
 - IndexedDB autosave and portable `.pitched` project bundles with SHA-256 asset verification.
 - Visible DOM fallback when WebGL2 is unavailable. It keeps media and project management usable while refusing to fake cinematic export.
-- No analytics, cloud upload, remote font, runtime API, or hidden network request.
+- No analytics, cloud upload, remote font, runtime API, or third-party runtime request; committed foley is served only from Drift’s own origin after user intent.
 
 Moving-track media is deliberately image-only in v1. One pinned video keeps decoder load, export timing, and failure states legible.
 
