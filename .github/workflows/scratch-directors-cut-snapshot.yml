@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - scratch/directors-cut-audit-20260821
+  pull_request:
+    branches:
+      - gauntlet/directors-cut-clean-final
 
 permissions:
   contents: read
@@ -15,6 +18,8 @@ jobs:
     steps:
       - name: Check out exact scratch head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: scratch/directors-cut-audit-20260821
 
       - name: Archive exact source tree
         shell: bash
