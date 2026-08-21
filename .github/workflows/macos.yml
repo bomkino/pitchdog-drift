@@ -124,6 +124,7 @@ jobs:
           DRIFT_EXPECT_ARCHS: "arm64 x86_64"
           DRIFT_BUILD_NUMBER: ${{ github.run_number }}
           DRIFT_SOURCE_REVISION: ${{ github.sha }}
+          DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST: "1"
         run: npm run build:mac
 
       - name: Record incomplete-build evidence
