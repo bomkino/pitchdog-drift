@@ -96,6 +96,48 @@ const styleLinks = stylesheetRelatives
   .map((path) => `    <link rel="stylesheet" href="./${path}" />`)
   .join("\n");
 
+// This receipt exists only to make a failed signed-app boot falsifiable. It is
+// bounded, contains no project/media/path data, and is overwritten as soon as
+// the application mounts. The packaged WebView probe already records title,
+// so even a script-load or top-level runtime failure becomes visible without a
+// second diagnostic bridge or an unsafe console-log scrape.
+const bootstrapDiagnostics = String.raw`    <script>
+      (() => {
+        const state = {
+          phase: "bootstrap-installed",
+          errorName: null,
+          errorMessage: null,
+        };
+        Object.defineProperty(window, "__DRIFT_BOOT_RECEIPT__", {
+          value: state,
+          configurable: false,
+          enumerable: false,
+          writable: false,
+        });
+        const bounded = (value) => String(value ?? "unknown").replace(/[\r\n\t]+/g, " ").slice(0, 180);
+        const fail = (name, message) => {
+          state.phase = "failed";
+          state.errorName = bounded(name);
+          state.errorMessage = bounded(message);
+          document.title = `Drift boot error · ${state.errorName}: ${state.errorMessage}`;
+        };
+        window.addEventListener("error", (event) => {
+          fail(event.error?.name ?? "Error", event.error?.message ?? event.message);
+        });
+        window.addEventListener("unhandledrejection", (event) => {
+          fail(event.reason?.name ?? "UnhandledRejection", event.reason?.message ?? event.reason);
+        });
+        window.__driftMacApplicationLoaded = () => {
+          if (state.phase === "failed") return;
+          state.phase = "application-loaded";
+          document.title = "Drift boot loaded · awaiting React";
+        };
+        window.__driftMacApplicationLoadFailed = () => {
+          fail("ResourceError", "drift-app.js did not load");
+        };
+      })();
+    </script>`;
+
 const html = `<!doctype html>
 <html lang="en" data-drift-bootstrap="classic-iife-single-entry">
   <head>
@@ -110,7 +152,8 @@ ${styleLinks}
   <body>
     <div id="root"></div>
     <noscript>Drift needs JavaScript to render and export your local media.</noscript>
-    <script src="./${scriptRelative}"></script>
+${bootstrapDiagnostics}
+    <script src="./${scriptRelative}" onload="window.__driftMacApplicationLoaded?.()" onerror="window.__driftMacApplicationLoadFailed?.()"></script>
   </body>
 </html>
 `;
