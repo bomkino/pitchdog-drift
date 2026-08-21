@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyProjectCommand } from "../src/core/commands/projectCommand";
 import { createDefaultDriftProject } from "../src/core/project/defaults";
-import { initialProjectRevisionState } from "../src/core/project/revisions";
+import { createProjectRevisionState } from "../src/core/project/revisions";
 import {
   MAX_RESIDENT_SLIDES,
   PATH_RECIPES,
@@ -211,7 +211,7 @@ describe("Project V3 spatial fabric", () => {
     });
     const result = applyProjectCommand(
       current,
-      initialProjectRevisionState(),
+      createProjectRevisionState(),
       applyPathCommand("switchback"),
       "2026-08-21T00:01:00.000Z",
     );
