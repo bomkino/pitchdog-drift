@@ -3,40 +3,91 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/drift-log-shim.XXXXXX")"
+TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/drift-command-bounds.XXXXXX")"
 
 cleanup() {
   rm -rf "$TEMP_ROOT"
 }
 trap cleanup EXIT
 
-cat > "$TEMP_ROOT/log" <<'PY'
+for command in bash codesign ditto log openssl python3 security spctl; do
+  command -v "$command" >/dev/null 2>&1 || {
+    echo "packaged-webview-bounds(mac): required command is unavailable: $command" >&2
+    exit 1
+  }
+done
+
+REAL_LOG="$(command -v log)"
+REAL_SPCTL="$(command -v spctl)"
+REAL_SECURITY="$(command -v security)"
+REAL_CODESIGN="$(command -v codesign)"
+REAL_DITTO="$(command -v ditto)"
+REAL_OPENSSL="$(command -v openssl)"
+
+cat > "$TEMP_ROOT/bounded-exec.py" <<'PY'
 #!/usr/bin/env python3
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 
-real_log = os.environ.get("DRIFT_REAL_MACOS_LOG", "/usr/bin/log")
-arguments = sys.argv[1:]
-if arguments[:1] != ["show"]:
-    os.execv(real_log, [real_log, *arguments])
+if len(sys.argv) < 5:
+    raise SystemExit("usage: bounded-exec.py REAL_COMMAND TIMEOUT LABEL [ARG ...]")
 
-timeout = float(os.environ.get("DRIFT_WEBVIEW_LOG_TIMEOUT", "20"))
+real_command, timeout_raw, label, *arguments = sys.argv[1:]
+timeout = max(1.0, float(timeout_raw))
+process = subprocess.Popen(
+    [real_command, *arguments],
+    start_new_session=True,
+)
 try:
-    completed = subprocess.run([real_log, *arguments], check=False, timeout=timeout)
+    raise SystemExit(process.wait(timeout=timeout))
 except subprocess.TimeoutExpired:
     print(
-        f"Drift diagnostic log capture reached its {timeout:g}s ceiling; "
-        "the bounded application receipt remains authoritative.",
+        f"Drift {label} reached its {timeout:g}s ceiling; terminating that bounded evidence command.",
         file=sys.stderr,
     )
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
     raise SystemExit(124)
-raise SystemExit(completed.returncode)
 PY
-chmod 0700 "$TEMP_ROOT/log"
+chmod 0700 "$TEMP_ROOT/bounded-exec.py"
 
-PATH="$TEMP_ROOT:$PATH" \
-DRIFT_REAL_MACOS_LOG="/usr/bin/log" \
-bash "$ROOT/scripts/probe-macos-packaged-webview.sh" "$@"
+write_wrapper() {
+  local name="$1"
+  local real_command="$2"
+  local timeout="$3"
+  local label="$4"
+  cat > "$TEMP_ROOT/$name" <<EOF_WRAPPER
+#!/usr/bin/env bash
+exec python3 "$TEMP_ROOT/bounded-exec.py" "$real_command" "$timeout" "$label" "\$@"
+EOF_WRAPPER
+  chmod 0700 "$TEMP_ROOT/$name"
+}
+
+write_wrapper "log" "$REAL_LOG" "${DRIFT_WEBVIEW_LOG_TIMEOUT:-20}" "unified-log capture"
+write_wrapper "spctl" "$REAL_SPCTL" "${DRIFT_WEBVIEW_SPCTL_TIMEOUT:-15}" "Gatekeeper diagnostic"
+write_wrapper "security" "$REAL_SECURITY" "${DRIFT_WEBVIEW_SECURITY_TIMEOUT:-20}" "temporary-keychain command"
+write_wrapper "codesign" "$REAL_CODESIGN" "${DRIFT_WEBVIEW_CODESIGN_TIMEOUT:-30}" "matrix code-signing command"
+write_wrapper "ditto" "$REAL_DITTO" "${DRIFT_WEBVIEW_DITTO_TIMEOUT:-45}" "matrix app-copy command"
+write_wrapper "openssl" "$REAL_OPENSSL" "${DRIFT_WEBVIEW_OPENSSL_TIMEOUT:-30}" "temporary-certificate command"
+
+export PATH="$TEMP_ROOT:$PATH"
+python3 "$TEMP_ROOT/bounded-exec.py" \
+  "$(command -v bash)" \
+  "${DRIFT_WEBVIEW_MATRIX_BUDGET:-600}" \
+  "complete packaged-WebKit matrix" \
+  "$ROOT/scripts/probe-macos-packaged-webview.sh" \
+  "$@"
