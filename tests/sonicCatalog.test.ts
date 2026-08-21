@@ -6,7 +6,12 @@ import {
   SONIC_CUES,
 } from "../src/sonic/catalog";
 
-const PALETTES: readonly SonicPalette[] = ["studio", "cinematic", "paper"];
+const PALETTES: readonly SonicPalette[] = [
+  "studio",
+  "cinematic",
+  "paper",
+  "editorial",
+];
 
 describe("sonic catalogue treatments", () => {
   it("keeps every treatment finite, bounded, local, and non-destructive", () => {
