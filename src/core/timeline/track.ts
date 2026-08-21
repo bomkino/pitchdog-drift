@@ -1,6 +1,7 @@
 import type { DriftProjectV3 } from "../project/schema";
 import { evaluateCadence, type CadenceEvaluation } from "./cadence";
 import { evaluateMasterTimeline, samplePoseTime, type MasterTimelineSample } from "./master";
+import { canonicalZero } from "./math";
 import { evaluatePerformance, type PerformanceSample } from "./performance";
 
 export interface TrackEvaluation {
@@ -49,9 +50,9 @@ export function evaluateTrack(
     project.motion.character.amount,
   );
   const totalTravelSlides = totalMasterTravelSlides(project);
-  const rawSlides = totalTravelSlides * performance.progress;
-  const rawVelocitySlidesPerSecond = totalTravelSlides * performance.velocityPerSecond;
-  const rawAccelerationSlidesPerSecondSquared = totalTravelSlides * performance.accelerationPerSecondSquared;
+  const rawSlides = canonicalZero(totalTravelSlides * performance.progress);
+  const rawVelocitySlidesPerSecond = canonicalZero(totalTravelSlides * performance.velocityPerSecond);
+  const rawAccelerationSlidesPerSecondSquared = canonicalZero(totalTravelSlides * performance.accelerationPerSecondSquared);
   const cadence = evaluateCadence(project, rawSlides);
   const visibleMagnitude = cadence.cycle + cadence.progress;
   const visibleVelocityMagnitude = cadence.derivative * rawVelocitySlidesPerSecond;
@@ -70,8 +71,8 @@ export function evaluateTrack(
     rawSlides,
     rawVelocitySlidesPerSecond,
     rawAccelerationSlidesPerSecondSquared,
-    visibleSlides: direction * visibleMagnitude,
-    visibleVelocitySlidesPerSecond: direction * visibleVelocityMagnitude,
-    visibleAccelerationSlidesPerSecondSquared: direction * visibleAccelerationMagnitude,
+    visibleSlides: canonicalZero(direction * visibleMagnitude),
+    visibleVelocitySlidesPerSecond: canonicalZero(direction * visibleVelocityMagnitude),
+    visibleAccelerationSlidesPerSecondSquared: canonicalZero(direction * visibleAccelerationMagnitude),
   };
 }
