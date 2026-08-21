@@ -7,6 +7,7 @@ import {
   type SonicCue,
 } from "./catalog";
 import { getSonicPassageDecision } from "./plan";
+import { buildSonicRecipe } from "./recipe";
 
 export type SonicRuntimeState =
   | "idle"
@@ -37,6 +38,13 @@ interface DecodedSonicAsset {
 const MAX_VOICES = 8;
 const CORE_CUES: readonly SonicCue[] = ["passage", "settle"];
 const MOTION_PRIME_CUES: readonly SonicCue[] = ["grab", "release"];
+const EDITORIAL_PRIME_CUES: readonly SonicCue[] = [
+  "grab",
+  "release",
+  "control",
+  "success",
+  "failure",
+];
 const MOTION_CUES = new Set<SonicCue>(["passage", "grab", "release", "settle"]);
 const COOLDOWN_MS: Readonly<Record<SonicCue, number>> = {
   passage: 85,
@@ -253,41 +261,16 @@ export class SonicEngine {
           ? 0
           : Math.floor(sampleUnit * variants.length)
       );
-    const variantIndex = (
-      (Math.trunc(selectedVariant) % variants.length) + variants.length
-    ) % variants.length;
-    const asset = variants[variantIndex]!;
-    const window = playbackWindow(asset);
-    if (window.duration <= 0) return false;
-
-    while (this.voices.size >= MAX_VOICES) {
-      const oldest = this.voices.values().next().value as
-        | AudioBufferSourceNode
-        | undefined;
-      if (!oldest) break;
-      try {
-        oldest.stop();
-      } catch {
-        // Already ended.
-      }
-      this.voices.delete(oldest);
-    }
-
     const intensity = clamp(gesture.intensity ?? 0.7, 0.08, 1);
     const familyGain = MOTION_CUES.has(cue)
       ? this.settings.motionGain
       : this.settings.interfaceGain;
-    const source = context.createBufferSource();
-    const gain = context.createGain();
-    const panner = context.createStereoPanner();
-
-    source.buffer = asset.buffer;
-    source.playbackRate.value = passageDecision?.playbackRate ?? clamp(
+    const playbackRate = passageDecision?.playbackRate ?? clamp(
       1 + signedVariation * 0.085,
       0.8,
       1.2,
     );
-    panner.pan.value = clamp(
+    const pan = clamp(
       (gesture.pan ?? 0)
       + (
         cue === "passage" && gesture.panVariation
@@ -297,7 +280,6 @@ export class SonicEngine {
       -0.82,
       0.82,
     );
-
     const authoredGain = cue === "passage"
       ? clamp(
         0.42 + intensity * 0.43 + signedVariation * 0.05,
@@ -305,37 +287,97 @@ export class SonicEngine {
         0.92,
       )
       : 0.4 + intensity * 0.6;
-    const voiceGain = clamp(
-      familyGain * authoredGain * asset.spec.gain,
-      0,
-      4,
-    );
-    const start = context.currentTime + 0.003;
-    const audibleDuration = window.duration / source.playbackRate.value;
-    const end = start + audibleDuration;
-    gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(
-      voiceGain,
-      start + Math.min(0.012, audibleDuration * 0.2),
-    );
-    gain.gain.setValueAtTime(
-      voiceGain,
-      Math.max(start + 0.012, end - Math.min(0.024, audibleDuration * 0.28)),
-    );
-    gain.gain.linearRampToValueAtTime(0, end);
+    const recipe = buildSonicRecipe({
+      palette,
+      cue,
+      seed: gesture.seed ?? 0,
+      sequence: cue === "passage" ? passageSequence! : this.sequence,
+      variant: selectedVariant,
+      gain: authoredGain,
+      playbackRate,
+      pan,
+    });
 
-    source.connect(gain);
-    gain.connect(panner);
-    panner.connect(master);
-    source.onended = () => {
-      this.voices.delete(source);
-      source.disconnect();
-      gain.disconnect();
-      panner.disconnect();
-    };
-    this.voices.add(source);
-    source.start(start, window.offset, window.duration);
-    return true;
+    let scheduled = 0;
+    for (const recipeLayer of recipe) {
+      const layerVariants = this.decoded.get(palette)?.get(recipeLayer.cue);
+      if (!layerVariants?.length) {
+        void this.loadCue(palette, recipeLayer.cue)
+          .then(() => this.publishState())
+          .catch((error: unknown) => {
+            this.reportRecoverable(
+              error,
+              assetKey(palette, recipeLayer.cue),
+            );
+          });
+        continue;
+      }
+
+      const variantIndex = (
+        (Math.trunc(recipeLayer.variant) % layerVariants.length)
+        + layerVariants.length
+      ) % layerVariants.length;
+      const asset = layerVariants[variantIndex]!;
+      const window = playbackWindow(asset);
+      if (window.duration <= 0) continue;
+
+      while (this.voices.size >= MAX_VOICES) {
+        const oldest = this.voices.values().next().value as
+          | AudioBufferSourceNode
+          | undefined;
+        if (!oldest) break;
+        try {
+          oldest.stop();
+        } catch {
+          // Already ended.
+        }
+        this.voices.delete(oldest);
+      }
+
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      const panner = context.createStereoPanner();
+      source.buffer = asset.buffer;
+      source.playbackRate.value = recipeLayer.playbackRate;
+      panner.pan.value = recipeLayer.pan;
+
+      const voiceGain = clamp(
+        familyGain * recipeLayer.gain * asset.spec.gain,
+        0,
+        4,
+      );
+      const start = context.currentTime + 0.003 + recipeLayer.delay;
+      const audibleDuration = window.duration / source.playbackRate.value;
+      const end = start + audibleDuration;
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(
+        voiceGain,
+        start + Math.min(0.012, audibleDuration * 0.2),
+      );
+      gain.gain.setValueAtTime(
+        voiceGain,
+        Math.max(
+          start + 0.012,
+          end - Math.min(0.024, audibleDuration * 0.28),
+        ),
+      );
+      gain.gain.linearRampToValueAtTime(0, end);
+
+      source.connect(gain);
+      gain.connect(panner);
+      panner.connect(master);
+      source.onended = () => {
+        this.voices.delete(source);
+        source.disconnect();
+        gain.disconnect();
+        panner.disconnect();
+      };
+      this.voices.add(source);
+      source.start(start, window.offset, window.duration);
+      scheduled += 1;
+    }
+
+    return scheduled > 0;
   }
 
   async audition(): Promise<void> {
@@ -453,7 +495,10 @@ export class SonicEngine {
   }
 
   private primeMotionCues(palette: SonicPalette): void {
-    for (const cue of MOTION_PRIME_CUES) {
+    const cues = palette === "editorial"
+      ? EDITORIAL_PRIME_CUES
+      : MOTION_PRIME_CUES;
+    for (const cue of cues) {
       void this.loadCue(palette, cue).catch((error: unknown) => {
         this.reportRecoverable(error, assetKey(palette, cue));
       });
