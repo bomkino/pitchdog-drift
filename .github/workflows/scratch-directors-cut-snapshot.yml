@@ -1,0 +1,40 @@
+name: Scratch Director's Cut source snapshot
+
+on:
+  push:
+    branches:
+      - scratch/directors-cut-audit-20260821
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact scratch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Archive exact source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=node_modules \
+            --exclude=dist \
+            --exclude=playwright-report \
+            --exclude=test-results \
+            -czf /tmp/directors-cut-source.tgz .
+          sha256sum /tmp/directors-cut-source.tgz | tee /tmp/directors-cut-source.sha256
+
+      - name: Upload exact source snapshot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scratch-directors-cut-source
+          path: |
+            /tmp/directors-cut-source.tgz
+            /tmp/directors-cut-source.sha256
+          retention-days: 1
+          if-no-files-found: error
