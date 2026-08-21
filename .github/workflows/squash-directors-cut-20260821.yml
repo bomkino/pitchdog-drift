@@ -1,0 +1,67 @@
+name: Squash Director's Cut draft branch
+
+on:
+  push:
+    branches:
+      - gauntlet/directors-cut-optical-pipeline
+
+permissions:
+  contents: write
+
+concurrency:
+  group: squash-directors-cut-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-and-squash:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Run unit and contract tests
+        run: npm test -- --run
+
+      - name: Build production output
+        run: npm run build
+
+      - name: Install Chromium runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run complete browser gauntlet
+        run: npm run test:e2e
+
+      - name: Collapse staging history into one reviewable commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          rm -f .github/workflows/squash-directors-cut-20260821.yml
+          rm -rf .github/gauntlet .github/director-cut-payload .github/directors-cut-payload
+          rm -f .github/workflows/apply-directors-cut.yml
+          rm -f .github/workflows/apply-directors-cut-payload.yml
+          rm -f .github/workflows/branch-snapshot.yml
+          rm -f .github/workflows/dependency-snapshot.yml
+          rm -f .github/workflows/visual-evidence.yml
+          rm -f .github/workflows/directors-cut-visual-evidence.yml
+          git reset --soft origin/main
+          git add -A
+          git config user.name 'OpenAI'
+          git config user.email 'noreply@openai.com'
+          git commit -m 'feat: build the Director’s Cut cinematic carousel studio'
+          git push --force-with-lease origin HEAD:gauntlet/directors-cut-optical-pipeline
