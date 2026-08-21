@@ -193,13 +193,15 @@ fi
 "${EXECUTABLE}" --smoke-test
 "${EXECUTABLE}" --native-self-test
 
-# A sandboxed GUI application is not faithfully exercised by invoking its Mach-O
-# directly from a shell. LaunchServices supplies the application/container/
-# WindowServer bootstrap that users actually receive. The app writes a bounded
-# receipt inside its own container; this verifier treats that receipt—not the
-# `open` command's exit code—as the authoritative result.
-RECEIPT_NAME="webview-self-test-$(date +%s)-${PPID}-${RANDOM}.json"
-python3 - "${APP_BUNDLE}" "${RECEIPT_NAME}" <<'PY'
+run_packaged_webview_self_test() {
+  # A sandboxed GUI application is not faithfully exercised by invoking its
+  # Mach-O directly from a shell. LaunchServices supplies the application,
+  # container, and WindowServer bootstrap that users actually receive. The app
+  # writes a bounded receipt inside its own container; this verifier treats that
+  # receipt—not the `open` command's exit code—as the authoritative result.
+  local receipt_name
+  receipt_name="webview-self-test-$(date +%s)-${PPID}-${RANDOM}.json"
+  python3 - "${APP_BUNDLE}" "${receipt_name}" <<'PY'
 from __future__ import annotations
 
 import json
@@ -299,6 +301,13 @@ if failures:
 
 print("Drift packaged WebView self-test passed through LaunchServices.")
 PY
+}
+
+if [[ "${DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST:-0}" == "1" ]]; then
+  echo "Deferred packaged LaunchServices/WebKit self-test to the explicit runtime matrix."
+else
+  run_packaged_webview_self_test
+fi
 
 printf 'Verified %s\n' "${APP_BUNDLE}"
 printf 'Bundle size: %s\n' "$(du -sh "${APP_BUNDLE}" | awk '{print $1}')"
