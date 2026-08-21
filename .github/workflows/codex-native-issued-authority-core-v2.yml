@@ -1,0 +1,116 @@
+name: codex-native-issued-authority-core-v2
+
+on:
+  push:
+    branches:
+      - feat/native-macos-document-authority
+    paths:
+      - .github/workflows/codex-native-issued-authority-core-v2.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: codex-native-document-authority-v2
+  cancel-in-progress: true
+
+jobs:
+  prove-core:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - name: Check out authority branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/native-macos-document-authority
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Apply native-issued authority core
+        id: apply
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m py_compile scripts/apply-native-issued-authority-core.py
+          python3 scripts/apply-native-issued-authority-core.py 2>&1 | tee "$RUNNER_TEMP/authority-apply.log"
+
+      - name: Run source, unit, and production-build checks
+        id: check
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee "$RUNNER_TEMP/authority-check.log"
+
+      - name: Build and verify signed arm64 app
+        id: build
+        shell: bash
+        env:
+          DRIFT_MACOS_ARCHS: arm64
+          DRIFT_SKIP_WEB_CHECKS: "1"
+        run: |
+          set -o pipefail
+          npm run build:mac 2>&1 | tee "$RUNNER_TEMP/authority-build.log"
+
+      - name: Commit proven core and remove transport
+        if: success()
+        shell: bash
+        run: |
+          rm -f docs/.native-authority-gauntlet-running
+          rm -f docs/.native-authority-gauntlet-failed
+          rm -f docs/.native-authority-transform-diagnosis.json
+          rm -f docs/NATIVE_DOCUMENT_AUTHORITY_PLAN.md
+          rm -f scripts/apply-native-issued-authority-core.py
+          rm -f .github/workflows/codex-native-document-authority.yml
+          rm -f .github/workflows/codex-repair-document-authority-runner.yml
+          rm -f .github/workflows/codex-native-issued-authority-core.yml
+          rm -f .github/workflows/codex-native-issued-authority-core-v2.yml
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "security(mac): make document authority native-issued"
+          git push origin HEAD:feat/native-macos-document-authority
+
+      - name: Publish exact failure receipt
+        if: failure()
+        shell: bash
+        env:
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          CHECK_OUTCOME: ${{ steps.check.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          set -euo pipefail
+          git reset --hard HEAD
+          rm -f docs/.native-authority-gauntlet-running
+          {
+            echo "workflow=codex-native-issued-authority-core-v2"
+            echo "source=${GITHUB_SHA}"
+            echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
+            echo "apply=${APPLY_OUTCOME}"
+            echo "check=${CHECK_OUTCOME}"
+            echo "build=${BUILD_OUTCOME}"
+            echo "state=failed"
+            echo
+            echo "--- apply tail ---"
+            tail -n 80 "$RUNNER_TEMP/authority-apply.log" 2>/dev/null || true
+            echo
+            echo "--- check tail ---"
+            tail -n 80 "$RUNNER_TEMP/authority-check.log" 2>/dev/null || true
+            echo
+            echo "--- build tail ---"
+            tail -n 80 "$RUNNER_TEMP/authority-build.log" 2>/dev/null || true
+          } > docs/.native-authority-gauntlet-failed
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add docs/.native-authority-gauntlet-failed docs/.native-authority-gauntlet-running
+          git diff --cached --check
+          git commit -m "test(mac): record native-issued authority failure"
+          git push origin HEAD:feat/native-macos-document-authority
