@@ -6,5 +6,10 @@
   <true/>
   <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
+  <!-- WKWebView launches a system networking helper even for a signed local
+       file document. The app still blocks HTTP(S), WebSocket and FTP inside
+       WebKit, exposes no network bridge command, and ships no native client. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
 </dict>
 </plist>
