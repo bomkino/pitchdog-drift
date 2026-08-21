@@ -65,6 +65,29 @@ function normalizeSequence(sequence: number): number {
 }
 
 /**
+ * Maps physical carousel travel to the logical focus hand-off shared by live
+ * preview and fixed-step export. A passage changes when the incoming slide is
+ * closer to centre than the outgoing slide: exactly half a stride, with the
+ * same rule in either direction.
+ */
+export function getSonicPassageStep(distance: number, stride: number): number {
+  if (!Number.isFinite(distance) || !Number.isFinite(stride) || stride <= 0) {
+    return 0;
+  }
+  const magnitude = Math.floor(Math.abs(distance) / stride + 0.5);
+  if (magnitude <= 0) return 0;
+  return distance < 0 ? -magnitude : magnitude;
+}
+
+/** Exact physical travel at which a one-based passage sequence changes focus. */
+export function getSonicPassageDistance(sequence: number, stride: number): number {
+  if (!Number.isFinite(stride) || stride <= 0) return 0;
+  const normalized = normalizeSequence(sequence);
+  const sign = Number.isFinite(sequence) && sequence < 0 ? -1 : 1;
+  return sign * (normalized - 0.5) * stride;
+}
+
+/**
  * Continuous, deterministic and monotonic passage thinning.
  *
  * A golden-ratio sequence spreads selected crossings more evenly than a raw
@@ -136,7 +159,7 @@ export function getSonicPassageDecision(
 /**
  * Builds exact editorial sound events from the same pure motion evaluators as
  * picture export. The timeline is independent of preview frame rate and wall
- * clock timing, including density, sample choices and pitch.
+ * clock timing, including density, sample choices, pitch and focus hand-off.
  */
 export function buildSonicTimeline(
   settings: StudioSettings,
@@ -162,7 +185,9 @@ export function buildSonicTimeline(
   const travel = Math.abs(
     distanceAtTime(settings, duration, slotCount, geometry.stride, true),
   );
-  const crossingCount = Math.floor(travel / geometry.stride + 1e-8);
+  const crossingCount = Math.abs(
+    getSonicPassageStep(travel, geometry.stride),
+  );
   if (crossingCount <= 0) return [];
 
   const slidesPerSecond = speed / geometry.stride;
@@ -183,13 +208,12 @@ export function buildSonicTimeline(
     );
     if (!decision.included) continue;
 
-    const crossingTime = (crossing * geometry.stride) / speed;
-    const lead = clamp(
-      0.08 / Math.max(slidesPerSecond, 0.18),
-      0.024,
-      0.105,
-    );
-    const time = crossingTime - lead;
+    // Start the treated recording at the same half-stride focus hand-off that
+    // live preview emits. Treatment trim removes source dead air in both paths.
+    const time = getSonicPassageDistance(
+      crossing,
+      geometry.stride,
+    ) / speed;
     // A cue exactly on the loop seam is heard twice by repeating social players.
     if (time < 0 || time >= duration - 0.045) continue;
 
