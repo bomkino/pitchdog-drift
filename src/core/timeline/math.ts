@@ -6,13 +6,18 @@ export function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 export function finite(value: number, fallback = 0): number {
-  return Number.isFinite(value) ? value : fallback;
+  const result = Number.isFinite(value) ? value : fallback;
+  return Object.is(result, -0) ? 0 : result;
+}
+
+export function canonicalZero(value: number, epsilon = TIMELINE_EPSILON): number {
+  const result = finite(value);
+  return Math.abs(result) <= epsilon ? 0 : result;
 }
 
 export function positiveModulo(value: number, modulus: number): number {
   if (!Number.isFinite(value) || !Number.isFinite(modulus) || modulus <= 0) return 0;
-  const result = ((value % modulus) + modulus) % modulus;
-  return Object.is(result, -0) ? 0 : result;
+  return canonicalZero(((value % modulus) + modulus) % modulus);
 }
 
 export function smootherstep(value: number): number {
@@ -41,5 +46,5 @@ export function smoothstepDerivative(value: number): number {
 }
 
 export function stableEventTime(value: number): number {
-  return Math.round(Math.max(0, finite(value)) * 1_000_000) / 1_000_000;
+  return canonicalZero(Math.round(Math.max(0, finite(value)) * 1_000_000) / 1_000_000);
 }
