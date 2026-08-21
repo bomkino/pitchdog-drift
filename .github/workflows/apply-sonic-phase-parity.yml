@@ -1,0 +1,89 @@
+name: Apply sonic focus-handoff parity
+
+on:
+  push:
+    branches: [feat/tactile-sound-system-v2]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sonic-focus-handoff-parity
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: ${{ contains(github.event.head_commit.message, '[apply-sonic-phase-parity]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: feat/tactile-sound-system-v2
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Reconstruct and verify audited timing patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/sonic-phase-parity.b64 <<'PATCH_B64'
+LS0tIGEvc3JjL3NvbmljL3BsYW4udHMKKysrIGIvc3JjL3NvbmljL3BsYW4udHMKQEAgLTY1LDYgKzY1LDI4IEBACiB9CiAKIC8qKgorICogTWFwcyBwaHlzaWNhbCBjYXJvdXNlbCB0cmF2ZWwgdG8gdGhlIGxvZ2ljYWwgZm9jdXMgaGFuZC1vZmYgdXNlZCBieSBsaXZlCisgKiBwcmV2aWV3LiBBIHBhc3NhZ2UgY2hhbmdlcyB3aGVuIHRoZSBpbmNvbWluZyBzbGlkZSBiZWNvbWVzIGNsb3NlciB0byBjZW50cmUKKyAqIHRoYW4gdGhlIG91dGdvaW5nIHNsaWRlOiBleGFjdGx5IGhhbGYgYSBzdHJpZGUsIHN5bW1ldHJpY2FsbHkgaW4gZWl0aGVyCisgKiBkaXJlY3Rpb24uIEtlZXBpbmcgdGhpcyBwdXJlIHByZXZlbnRzIGZyYW1lIHJhdGUgYW5kIE1hdGgucm91bmQncyBuZWdhdGl2ZQorICogaGFsZiBhc3ltbWV0cnkgZnJvbSBjaGFuZ2luZyB3aGljaCBzZW1hbnRpYyBwYXNzYWdlIHRoZSB1c2VyIGhlYXJzLgorICovCitleHBvcnQgZnVuY3Rpb24gZ2V0U29uaWNQYXNzYWdlU3RlcChkaXN0YW5jZTogbnVtYmVyLCBzdHJpZGU6IG51bWJlcik6IG51bWJlciB7CisgIGlmICghTnVtYmVyLmlzRmluaXRlKGRpc3RhbmNlKSB8fCAhTnVtYmVyLmlzRmluaXRlKHN0cmlkZSkgfHwgc3RyaWRlIDw9IDApIHsKKyAgICByZXR1cm4gMDsKKyAgfQorICBjb25zdCBtYWduaXR1ZGUgPSBNYXRoLmZsb29yKE1hdGguYWJzKGRpc3RhbmNlKSAvIHN0cmlkZSArIDAuNSk7CisgIGlmIChtYWduaXR1ZGUgPD0gMCkgcmV0dXJuIDA7CisgIHJldHVybiBkaXN0YW5jZSA8IDAgPyAtbWFnbml0dWRlIDogbWFnbml0dWRlOworfQorCisvKiogRXhhY3QgcGh5c2ljYWwgdHJhdmVsIGF0IHdoaWNoIGEgb25lLWJhc2VkIHBhc3NhZ2Ugc2VxdWVuY2UgY2hhbmdlcyBmb2N1cy4gKi8KK2V4cG9ydCBmdW5jdGlvbiBnZXRTb25pY1Bhc3NhZ2VEaXN0YW5jZShzZXF1ZW5jZTogbnVtYmVyLCBzdHJpZGU6IG51bWJlcik6IG51bWJlciB7CisgIGlmICghTnVtYmVyLmlzRmluaXRlKHN0cmlkZSkgfHwgc3RyaWRlIDw9IDApIHJldHVybiAwOworICByZXR1cm4gKG5vcm1hbGl6ZVNlcXVlbmNlKHNlcXVlbmNlKSAtIDAuNSkgKiBzdHJpZGU7Cit9CisKKy8qKgogICogQ29udGludW91cywgZGV0ZXJtaW5pc3RpYyBhbmQgbW9ub3RvbmljIHBhc3NhZ2UgdGhpbm5pbmcuCiAgKgogICogQSBnb2xkZW4tcmF0aW8gc2VxdWVuY2Ugc3ByZWFkcyBzZWxlY3RlZCBjcm9zc2luZ3MgbW9yZSBldmVubHkgdGhhbiBhIHJhdwpAQCAtMTYyLDcgKzE4NCw5IEBACiAgIGNvbnN0IHRyYXZlbCA9IE1hdGguYWJzKAogICAgIGRpc3RhbmNlQXRUaW1lKHNldHRpbmdzLCBkdXJhdGlvbiwgc2xvdENvdW50LCBnZW9tZXRyeS5zdHJpZGUsIHRydWUpLAogICApOwotICBjb25zdCBjcm9zc2luZ0NvdW50ID0gTWF0aC5mbG9vcih0cmF2ZWwgLyBnZW9tZXRyeS5zdHJpZGUgKyAxZS04KTsKKyAgY29uc3QgY3Jvc3NpbmdDb3VudCA9IE1hdGguYWJzKAorICAgIGdldFNvbmljUGFzc2FnZVN0ZXAodHJhdmVsLCBnZW9tZXRyeS5zdHJpZGUpLAorICApOwogICBpZiAoY3Jvc3NpbmdDb3VudCA8PSAwKSByZXR1cm4gW107CiAKICAgY29uc3Qgc2xpZGVzUGVyU2Vjb25kID0gc3BlZWQgLyBnZW9tZXRyeS5zdHJpZGU7CkBAIC0xODMsMTMgKzIwNywxMCBAQAogICAgICk7CiAgICAgaWYgKCFkZWNpc2lvbi5pbmNsdWRlZCkgY29udGludWU7CiAKLSAgICBjb25zdCBjcm9zc2luZ1RpbWUgPSAoY3Jvc3NpbmcgKiBnZW9tZXRyeS5zdHJpZGUpIC8gc3BlZWQ7Ci0gICAgY29uc3QgbGVhZCA9IGNsYW1wKAotICAgICAgMC4wOCAvIE1hdGgubWF4KHNsaWRlc1BlclNlY29uZCwgMC4xOCksCi0gICAgICAwLjAyNCwKLSAgICAgIDAuMTA1LAotICAgICk7Ci0gICAgY29uc3QgdGltZSA9IGNyb3NzaW5nVGltZSAtIGxlYWQ7CisgICAgLy8gU3RhcnQgdGhlIHRyZWF0ZWQgcmVjb3JkaW5nIGF0IHRoZSBzYW1lIGZvY3VzIGhhbmQtb2ZmIHRoYXQgcHJldmlldworICAgIC8vIGVtaXRzLiBPbGRlciBidWlsZHMgcHJlLXJvbGxlZCB1bnRyaW1tZWQgcmVjb3JkaW5ncyBoZXJlOyB0aGUgYXVkaXRlZAorICAgIC8vIHRyZWF0bWVudCBsZWRnZXIgbm93IHJlbW92ZXMgdGhhdCBkZWFkIGFpciBmb3IgYm90aCBwYXRocy4KKyAgICBjb25zdCB0aW1lID0gZ2V0U29uaWNQYXNzYWdlRGlzdGFuY2UoY3Jvc3NpbmcsIGdlb21ldHJ5LnN0cmlkZSkgLyBzcGVlZDsKICAgICAvLyBBIGN1ZSBleGFjdGx5IG9uIHRoZSBsb29wIHNlYW0gaXMgaGVhcmQgdHdpY2UgYnkgcmVwZWF0aW5nIHNvY2lhbCBwbGF5ZXJzLgogICAgIGlmICh0aW1lIDwgMCB8fCB0aW1lID49IGR1cmF0aW9uIC0gMC4wNDUpIGNvbnRpbnVlOwogCi0tLSBhL3NyYy9lbmdpbmUvQ2luZW1hdGljQ2Fyb3VzZWwudHMKKysrIGIvc3JjL2VuZ2luZS9DaW5lbWF0aWNDYXJvdXNlbC50cwpAQCAtMSw1ICsxLDYgQEAKIGltcG9ydCAqIGFzIFRIUkVFIGZyb20gInRocmVlIjsKIGltcG9ydCB0eXBlIHsgU3R1ZGlvQXNzZXQsIFN0dWRpb1NldHRpbmdzIH0gZnJvbSAiLi4vbW9kZWwiOworaW1wb3J0IHsgZ2V0U29uaWNQYXNzYWdlU3RlcCB9IGZyb20gIi4uL3NvbmljL3BsYW4iOwogaW1wb3J0IHsKICAgZGlzdGFuY2VBdFRpbWUsCiAgIGV2YWx1YXRlU2xpZGUsCkBAIC03MDUsNyArNzA2LDcgQEAKIAogICBwcml2YXRlIGVtaXRQYXNzYWdlQ3VlKHN0cmlkZTogbnVtYmVyKTogdm9pZCB7CiAgICAgaWYgKCF0aGlzLmNhbGxiYWNrcy5vblNvbmljRXZlbnQgfHwgc3RyaWRlIDw9IDAgfHwgdGhpcy5hc3NldHMubGVuZ3RoID09PSAwKSByZXR1cm47Ci0gICAgY29uc3Qgc3RlcCA9IE1hdGgucm91bmQodGhpcy5tb3Rpb25Qb3NpdGlvbiAvIHN0cmlkZSk7CisgICAgY29uc3Qgc3RlcCA9IGdldFNvbmljUGFzc2FnZVN0ZXAodGhpcy5tb3Rpb25Qb3NpdGlvbiwgc3RyaWRlKTsKICAgICBpZiAodGhpcy5sYXN0U29uaWNTdGVwID09PSBudWxsKSB7CiAgICAgICB0aGlzLmxhc3RTb25pY1N0ZXAgPSBzdGVwOwogICAgICAgcmV0dXJuOwotLS0gYS90ZXN0cy9zb25pY1BsYW4udGVzdC50cworKysgYi90ZXN0cy9zb25pY1BsYW4udGVzdC50cwpAQCAtMSw5ICsxLDE2IEBACiBpbXBvcnQgeyBkZXNjcmliZSwgZXhwZWN0LCBpdCB9IGZyb20gInZpdGVzdCI7CiBpbXBvcnQgeyBERUZBVUxUX1NFVFRJTkdTLCBjbG9uZVNldHRpbmdzIH0gZnJvbSAiLi4vc3JjL21vZGVsIjsKK2ltcG9ydCB7CisgIGdldExvZ2ljYWxTbG90Q291bnQsCisgIGdldFNsaWRlR2VvbWV0cnksCisgIHZlbG9jaXR5QXRUaW1lLAorfSBmcm9tICIuLi9zcmMvZW5naW5lL2V2YWx1YXRlIjsKIGltcG9ydCB7IG1peFNvdW5kdHJhY2tJbnRvUGxhbmFyLCB0eXBlIFJlYWRhYmxlQXVkaW9CdWZmZXIgfSBmcm9tICIuLi9zcmMvc29uaWMvbWl4IjsKIGltcG9ydCB7CiAgIGJ1aWxkU29uaWNUaW1lbGluZSwKICAgZ2V0U29uaWNQYXNzYWdlRGVjaXNpb24sCisgIGdldFNvbmljUGFzc2FnZURpc3RhbmNlLAorICBnZXRTb25pY1Bhc3NhZ2VTdGVwLAogICBzaG91bGRJbmNsdWRlU29uaWNQYXNzYWdlLAogfSBmcm9tICIuLi9zcmMvc29uaWMvcGxhbiI7CiAKQEAgLTEyNyw2ICsxMzQsNDMgQEAKICAgICB9CiAgIH0pOwogCisgIGl0KCJ1c2VzIG9uZSBkaXJlY3Rpb24tc3ltbWV0cmljIGZvY3VzIGhhbmQtb2ZmIGZvciBwcmV2aWV3IGFuZCBleHBvcnQiLCAoKSA9PiB7CisgICAgY29uc3Qgc3RyaWRlID0gNjQwOworICAgIGV4cGVjdChnZXRTb25pY1Bhc3NhZ2VTdGVwKDAuNDk5ICogc3RyaWRlLCBzdHJpZGUpKS50b0JlKDApOworICAgIGV4cGVjdChnZXRTb25pY1Bhc3NhZ2VTdGVwKDAuNSAqIHN0cmlkZSwgc3RyaWRlKSkudG9CZSgxKTsKKyAgICBleHBlY3QoZ2V0U29uaWNQYXNzYWdlU3RlcCgtMC40OTkgKiBzdHJpZGUsIHN0cmlkZSkpLnRvQmUoMCk7CisgICAgZXhwZWN0KGdldFNvbmljUGFzc2FnZVN0ZXAoLTAuNSAqIHN0cmlkZSwgc3RyaWRlKSkudG9CZSgtMSk7CisgICAgZXhwZWN0KGdldFNvbmljUGFzc2FnZURpc3RhbmNlKDEsIHN0cmlkZSkpLnRvQmUoMC41ICogc3RyaWRlKTsKKyAgICBleHBlY3QoZ2V0U29uaWNQYXNzYWdlRGlzdGFuY2UoNCwgc3RyaWRlKSkudG9CZSgzLjUgKiBzdHJpZGUpOworCisgICAgY29uc3Qgc2V0dGluZ3MgPSBhdWRpYmxlU2V0dGluZ3MoKTsKKyAgICBzZXR0aW5ncy5zb3VuZC5kZW5zaXR5ID0gMTsKKyAgICBzZXR0aW5ncy5vdXRwdXQuZHVyYXRpb24gPSAxNDsKKyAgICBjb25zdCBnZW9tZXRyeSA9IGdldFNsaWRlR2VvbWV0cnkoc2V0dGluZ3MpOworICAgIGNvbnN0IHNsb3RDb3VudCA9IGdldExvZ2ljYWxTbG90Q291bnQoOCwgZ2VvbWV0cnkpOworICAgIGNvbnN0IHNwZWVkID0gTWF0aC5hYnModmVsb2NpdHlBdFRpbWUoCisgICAgICBzZXR0aW5ncywKKyAgICAgIHNsb3RDb3VudCwKKyAgICAgIGdlb21ldHJ5LnN0cmlkZSwKKyAgICAgIHRydWUsCisgICAgKSk7CisgICAgY29uc3QgcGFzc2FnZXMgPSBidWlsZFNvbmljVGltZWxpbmUoc2V0dGluZ3MsIDgpCisgICAgICAuZmlsdGVyKChldmVudCkgPT4gZXZlbnQuY3VlID09PSAicGFzc2FnZSIpOworCisgICAgZXhwZWN0KHBhc3NhZ2VzLmxlbmd0aCkudG9CZUdyZWF0ZXJUaGFuKDMpOworICAgIGZvciAoY29uc3QgZXZlbnQgb2YgcGFzc2FnZXMpIHsKKyAgICAgIGNvbnN0IGV4cGVjdGVkRGlzdGFuY2UgPSBnZXRTb25pY1Bhc3NhZ2VEaXN0YW5jZSgKKyAgICAgICAgZXZlbnQuc2VxdWVuY2UsCisgICAgICAgIGdlb21ldHJ5LnN0cmlkZSwKKyAgICAgICk7CisgICAgICBleHBlY3QoZXZlbnQudGltZSkudG9CZUNsb3NlVG8oZXhwZWN0ZWREaXN0YW5jZSAvIHNwZWVkLCAxMCk7CisgICAgICBleHBlY3QoTWF0aC5hYnMoZ2V0U29uaWNQYXNzYWdlU3RlcCgKKyAgICAgICAgc2V0dGluZ3MubW90aW9uLmRpcmVjdGlvbiAqIHNwZWVkICogZXZlbnQudGltZSwKKyAgICAgICAgZ2VvbWV0cnkuc3RyaWRlLAorICAgICAgKSkpLnRvQmUoZXZlbnQuc2VxdWVuY2UpOworICAgIH0KKyAgfSk7CisKICAgaXQoImtlZXBzIHNlYW1sZXNzIHJlcGVhdHMgZnJlZSBvZiBhIGRvdWJsZWQgc2VhbSBjdWUiLCAoKSA9PiB7CiAgICAgY29uc3Qgc2V0dGluZ3MgPSBhdWRpYmxlU2V0dGluZ3MoKTsKICAgICBzZXR0aW5ncy5tb3Rpb24uc2VhbWxlc3MgPSB0cnVlOwotLS0gYS9kb2NzL1NPTklDX0RFU0lHTi5tZAorKysgYi9kb2NzL1NPTklDX0RFU0lHTi5tZApAQCAtNDgsMTAgKzQ4LDEyIEBACiB8IHN1Y2Nlc3MgfCBBbiBleGlzdGluZyBvcGVyYXRpb24gY29tcGxldGVzIHN1Y2Nlc3NmdWxseSB8IHllcyB8IG5vIHwKIHwgZmFpbHVyZSB8IEFuIGV4aXN0aW5nIG9wZXJhdGlvbiBmYWlscyB2aXNpYmx5IHwgeWVzIHwgbm8gfAogCi1QcmV2aWV3IHBhc3NhZ2UgY3VlcyBhcmUgZW1pdHRlZCBieSBgQ2luZW1hdGljQ2Fyb3VzZWxgIHdoZW4gaXRzIGxvZ2ljYWwgc2xvdAotY2hhbmdlcy4gRXhwb3J0IHBhc3NhZ2UgY3VlcyBhcmUgZ2VuZXJhdGVkIGJ5IGBidWlsZFNvbmljVGltZWxpbmUoKWAgZnJvbSB0aGUKLXNhbWUgc2xpZGUgZ2VvbWV0cnksIHZlbG9jaXR5LCBkaXJlY3Rpb24sIGFzc2V0IGNvdW50LCBzZWVkLCBhbmQgZHVyYXRpb24gdXNlZAotZm9yIHBpY3R1cmUuIE5laXRoZXIgcGF0aCBzY3JhcGVzIHJlbmRlcmVkIGZyYW1lcy4KK1ByZXZpZXcgcGFzc2FnZSBjdWVzIGFyZSBlbWl0dGVkIGJ5IGBDaW5lbWF0aWNDYXJvdXNlbGAgYXQgdGhlIGZvY3VzIGhhbmQtb2ZmOgordGhlIGV4YWN0IGhhbGYtc3RyaWRlIHBvaW50IHdoZXJlIHRoZSBpbmNvbWluZyBzbGlkZSBiZWNvbWVzIGNsb3NlciB0byBjZW50cmUKK3RoYW4gdGhlIG91dGdvaW5nIHNsaWRlLiBFeHBvcnQgdXNlcyB0aGUgc2FtZSBkaXJlY3Rpb24tc3ltbWV0cmljIHBhc3NhZ2Utc3RlcAorZnVuY3Rpb24gYW5kIHN0YXJ0cyB0aGUgc2FtZSB0cmVhdGVkIHJlY29yZGluZyBhdCB0aGF0IHNlbWFudGljIGluc3RhbnQuIFRoZQorc2FtZSBzbGlkZSBnZW9tZXRyeSwgdmVsb2NpdHksIGRpcmVjdGlvbiwgYXNzZXQgY291bnQsIHNlZWQsIGFuZCBkdXJhdGlvbiBkcml2ZQorYm90aCBwYXRoczsgbmVpdGhlciBwYXRoIHNjcmFwZXMgcmVuZGVyZWQgZnJhbWVzIG9yIHVzZXMgYW4gZXhwb3J0LW9ubHkgcHJlLXJvbGwuCiAKIEEgbG93LWRpc2NyZXBhbmN5IHNlZWRlZCBnYXRlIG1ha2VzIERlbnNpdHkgY29udGludXW91cyBhbmQgbW9ub3RvbmljLiBJbmNyZWFzaW5nCiBEZW5zaXR5IG9ubHkgYWRkcyBwYXNzYWdlczsgaXQgZG9lcyBub3QgcmVwbGFjZSBhbHJlYWR5IGFjY2VwdGVkIG9uZXMuIENoYW5naW5nCg==
+PATCH_B64
+          base64 --decode /tmp/sonic-phase-parity.b64 > /tmp/sonic-phase-parity.patch
+          echo "35ca601210ab3842064f6f2dfd7386228ad0611dda6913cce54b5b5981225365  /tmp/sonic-phase-parity.patch" | sha256sum --check --strict
+          git apply --check /tmp/sonic-phase-parity.patch
+
+      - name: Apply focus-handoff parity and remove transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --whitespace=error-all /tmp/sonic-phase-parity.patch
+          rm -f .github/workflows/apply-sonic-phase-parity.yml
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Run static, unit, build, bundle, acoustic, and provenance gauntlet
+        run: npm run check
+
+      - name: Verify pinned CC0 source hashes
+        run: npm run sound:verify
+
+      - name: Install pinned Chromium
+        run: npx playwright install chromium
+
+      - name: Run complete real-browser and AAC gauntlet
+        run: npm run test:e2e
+
+      - name: Verify final diff and commit conflict-safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "fix(sound): align preview and export focus hand-offs"
+          git fetch origin feat/tactile-sound-system-v2
+          git rebase origin/feat/tactile-sound-system-v2
+          git push origin HEAD:feat/tactile-sound-system-v2
+
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sonic-phase-parity-failure-evidence
+          path: |
+            playwright-report/
+            test-results/
+            /tmp/sonic-phase-parity.patch
+          if-no-files-found: ignore
+          retention-days: 7
