@@ -6,7 +6,10 @@ import {
   SONIC_CUES,
   type SonicCue,
 } from "../src/sonic/catalog";
-import { buildSonicTimeline } from "../src/sonic/plan";
+import {
+  buildSonicTimeline,
+  getSonicPassageDecision,
+} from "../src/sonic/plan";
 import {
   buildSonicRecipe,
   getSonicRecipeCues,
@@ -58,6 +61,41 @@ describe("editorial micro-Foley language", () => {
           pan: recipeInput.pan,
         });
       }
+    }
+  });
+
+  it("cycles every Editorial body take before reusing one at full density", () => {
+    const takeCount = getSonicAssetVariantCount("editorial", "passage");
+    expect(takeCount).toBe(5);
+    const decisions = Array.from({ length: takeCount * 12 }, (_, index) => (
+      getSonicPassageDecision(
+        "editorial",
+        1,
+        1,
+        37,
+        index + 1,
+      ).variant
+    ));
+    expect(decisions).toEqual(
+      Array.from({ length: takeCount * 12 }, (_, index) => (
+        getSonicPassageDecision(
+          "editorial",
+          1,
+          1,
+          37,
+          index + 1,
+        ).variant
+      )),
+    );
+    for (let index = 1; index < decisions.length; index += 1) {
+      expect(decisions[index]).not.toBe(decisions[index - 1]);
+    }
+    for (let offset = 0; offset < decisions.length; offset += takeCount) {
+      const cycle = decisions.slice(offset, offset + takeCount);
+      expect(new Set(cycle).size).toBe(takeCount);
+      expect(cycle.every((variant) => (
+        variant >= 0 && variant < takeCount
+      ))).toBe(true);
     }
   });
 
