@@ -1,0 +1,97 @@
+name: codex-bound-packaged-webview-evidence-v2
+
+on:
+  push:
+    branches:
+      - feat/native-macos-studio
+    paths:
+      - .github/workflows/codex-bound-packaged-webview-evidence-v2.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: codex-bound-packaged-webview-evidence-v2
+  cancel-in-progress: true
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out standalone-app branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/native-macos-studio
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Apply bounded evidence budgets
+        id: apply
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m py_compile scripts/apply-packaged-webview-evidence-budget.py
+          python3 scripts/apply-packaged-webview-evidence-budget.py 2>&1 | tee "$RUNNER_TEMP/matrix-apply.log"
+
+      - name: Verify source and browser contracts
+        id: check
+        shell: bash
+        run: |
+          set -o pipefail
+          bash -n scripts/probe-macos-packaged-webview.sh
+          node scripts/check-macos-matrix-budget.mjs
+          npm run check 2>&1 | tee "$RUNNER_TEMP/matrix-check.log"
+
+      - name: Commit proven budget and remove transport
+        if: success()
+        shell: bash
+        run: |
+          rm -f docs/.packaged-webview-budget-failed
+          rm -f scripts/apply-packaged-webview-evidence-budget.py
+          rm -f .github/workflows/codex-bound-packaged-webview-evidence.yml
+          rm -f .github/workflows/codex-bound-packaged-webview-evidence-v2.yml
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "test(mac): bound packaged-WebView evidence collection"
+          git push origin HEAD:feat/native-macos-studio
+
+      - name: Publish exact failure receipt
+        if: failure()
+        shell: bash
+        env:
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          CHECK_OUTCOME: ${{ steps.check.outcome }}
+        run: |
+          set -euo pipefail
+          git reset --hard HEAD
+          {
+            echo "workflow=codex-bound-packaged-webview-evidence-v2"
+            echo "source=${GITHUB_SHA}"
+            echo "runner=${RUNNER_OS}-${RUNNER_ARCH}"
+            echo "apply=${APPLY_OUTCOME}"
+            echo "check=${CHECK_OUTCOME}"
+            echo "state=failed"
+            echo
+            echo "--- apply tail ---"
+            tail -n 100 "$RUNNER_TEMP/matrix-apply.log" 2>/dev/null || true
+            echo
+            echo "--- check tail ---"
+            tail -n 100 "$RUNNER_TEMP/matrix-check.log" 2>/dev/null || true
+          } > docs/.packaged-webview-budget-failed
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add docs/.packaged-webview-budget-failed
+          git diff --cached --check
+          git commit -m "test(mac): record WebKit evidence-budget failure"
+          git push origin HEAD:feat/native-macos-studio
