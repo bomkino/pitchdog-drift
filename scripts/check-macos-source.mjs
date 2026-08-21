@@ -30,6 +30,7 @@ const appSwift = [
   "macos/App/NativeAacEncoder.swift",
   "macos/App/NativeBridgeHost+Finder.swift",
   "macos/App/NativeBridgeHost.swift",
+  "macos/App/NativeDocumentSession.swift",
   "macos/App/NativeFileBroker.swift",
   "macos/App/NativeGauntlet.swift",
   "macos/App/NativeModels.swift",
@@ -244,6 +245,15 @@ requireMarkers("macos/App/NativeBridgeHost.swift", [
   "projectTotalMediaLimitBytes",
   "projectArchiveLimitBytes",
 ]);
+requireMarkers("macos/App/NativeDocumentSession.swift", [
+  "final class NativeDocumentSession",
+  "func claimBootstrap(rawNonce: String) throws -> NativeDocumentTicket",
+  "func beginPanel(",
+  "cancelActivePanel()",
+  "func invalidate()",
+  "static func runSelfTest() throws",
+  "A stale panel completion remained authoritative.",
+]);
 requireMarkers("macos/App/DriftAppDelegate.swift", [
   "private var trustedIndexURL: URL?",
   "navigationAction.targetFrame?.isMainFrame == true",
@@ -357,5 +367,5 @@ requireMarkers(".github/workflows/macos-release.yml", [
 forbidMarkers(".github/workflows/macos-release.yml", ["ref: ${{ inputs.source_ref }}"]);
 
 console.log(
-  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge and surface trust, export power activity, stable-incident recovery, portable-project media budget parity, command parity, sandbox and codec boundaries, explicit native probes, and a non-publishing release-evidence lane.`,
+  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge and document-session authority, export power activity, stable-incident recovery, portable-project media budget parity, command parity, sandbox and codec boundaries, explicit native probes, and a non-publishing release-evidence lane.`,
 );
