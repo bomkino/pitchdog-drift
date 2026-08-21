@@ -119,7 +119,7 @@ const bootstrapDiagnostics = String.raw`    <script>
           state.phase = "failed";
           state.errorName = bounded(name);
           state.errorMessage = bounded(message);
-          document.title = `Drift boot error · ${state.errorName}: ${state.errorMessage}`;
+          document.title = "Drift boot error · " + state.errorName + ": " + state.errorMessage;
         };
         window.addEventListener("error", (event) => {
           fail(event.error?.name ?? "Error", event.error?.message ?? event.message);
