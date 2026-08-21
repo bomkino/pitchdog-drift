@@ -7,16 +7,32 @@ struct NativeDocumentTicket: Equatable {
     var nonceString: String { nonce.uuidString.lowercased() }
 }
 
-private struct NativePanelTicket: Equatable {
+struct NativePanelTicket: Equatable {
     let identifier: UUID
     let document: NativeDocumentTicket
 }
 
 final class NativeDocumentSession {
     private var nextEpoch: UInt64 = 0
+    private var pendingBootstrap: NativeDocumentTicket?
     private var activeDocument: NativeDocumentTicket?
     private var activePanel: NativePanelTicket?
     private var activePanelCancellation: (() -> Void)?
+
+    func prepareBootstrap() throws -> NativeDocumentTicket {
+        precondition(Thread.isMainThread)
+        let incremented = nextEpoch.addingReportingOverflow(1)
+        guard !incremented.overflow else {
+            throw BridgeFailure("InvalidStateError", "Native document generation counter overflowed.")
+        }
+
+        let ticket = NativeDocumentTicket(nonce: UUID(), epoch: incremented.partialValue)
+        cancelActivePanel()
+        nextEpoch = incremented.partialValue
+        pendingBootstrap = ticket
+        activeDocument = nil
+        return ticket
+    }
 
     func claimBootstrap(rawNonce: String) throws -> NativeDocumentTicket {
         precondition(Thread.isMainThread)
@@ -27,16 +43,15 @@ final class NativeDocumentSession {
                 "A Drift document may bootstrap the native bridge only once."
             )
         }
-
-        cancelActivePanel()
-        let incremented = nextEpoch.addingReportingOverflow(1)
-        guard !incremented.overflow else {
-            throw BridgeFailure("InvalidStateError", "Native document generation counter overflowed.")
+        guard let pendingBootstrap, pendingBootstrap.nonce == nonce else {
+            throw BridgeFailure(
+                "SecurityError",
+                "That bootstrap token was not issued to the currently committed Drift document."
+            )
         }
-        nextEpoch = incremented.partialValue
-        let ticket = NativeDocumentTicket(nonce: nonce, epoch: nextEpoch)
-        activeDocument = ticket
-        return ticket
+        self.pendingBootstrap = nil
+        activeDocument = pendingBootstrap
+        return pendingBootstrap
     }
 
     func validateMessage(rawNonce: String) throws -> NativeDocumentTicket {
@@ -96,14 +111,25 @@ final class NativeDocumentSession {
         return activeDocument == document
     }
 
+    func isPreparedOrCurrent(_ document: NativeDocumentTicket) -> Bool {
+        precondition(Thread.isMainThread)
+        return pendingBootstrap == document || activeDocument == document
+    }
+
     func isCurrent(_ panel: NativePanelTicket) -> Bool {
         precondition(Thread.isMainThread)
         return activeDocument == panel.document && activePanel == panel
     }
 
+    var hasActiveDocument: Bool {
+        precondition(Thread.isMainThread)
+        return activeDocument != nil
+    }
+
     func invalidate() {
         precondition(Thread.isMainThread)
         cancelActivePanel()
+        pendingBootstrap = nil
         activeDocument = nil
     }
 
@@ -117,10 +143,10 @@ final class NativeDocumentSession {
     private func parseNonce(_ rawNonce: String) throws -> UUID {
         guard rawNonce.utf8.count == 36,
               let nonce = UUID(uuidString: rawNonce),
-              nonce.uuidString.caseInsensitiveCompare(rawNonce) == .orderedSame else {
+              nonce.uuidString.lowercased() == rawNonce else {
             throw BridgeFailure(
                 "SecurityError",
-                "Native messages require one canonical per-document UUID nonce."
+                "Native messages require the exact lower-case UUID issued to this document."
             )
         }
         return nonce
@@ -128,14 +154,23 @@ final class NativeDocumentSession {
 
     static func runSelfTest() throws {
         let session = NativeDocumentSession()
-        let firstNonce = UUID().uuidString.lowercased()
-        let first = try session.claimBootstrap(rawNonce: firstNonce)
-        guard try session.validateMessage(rawNonce: firstNonce) == first else {
-            throw BridgeFailure("DataError", "Document bootstrap did not establish authority.")
+        let firstExpected = try session.prepareBootstrap()
+
+        let unissued = UUID().uuidString.lowercased()
+        do {
+            _ = try session.claimBootstrap(rawNonce: unissued)
+            throw BridgeFailure("DataError", "An unissued document token unexpectedly bootstrapped.")
+        } catch let failure as BridgeFailure where failure.name == "SecurityError" {
+            // Expected. An invalid claim must not consume the prepared ticket.
+        }
+        let first = try session.claimBootstrap(rawNonce: firstExpected.nonceString)
+        guard first == firstExpected,
+              try session.validateMessage(rawNonce: first.nonceString) == first else {
+            throw BridgeFailure("DataError", "Native-issued bootstrap did not establish authority.")
         }
 
         do {
-            _ = try session.claimBootstrap(rawNonce: firstNonce)
+            _ = try session.claimBootstrap(rawNonce: first.nonceString)
             throw BridgeFailure("DataError", "Duplicate bootstrap unexpectedly remained authoritative.")
         } catch let failure as BridgeFailure where failure.name == "InvalidStateError" {
             // Expected.
@@ -150,8 +185,7 @@ final class NativeDocumentSession {
             // Expected.
         }
 
-        let secondNonce = UUID().uuidString.lowercased()
-        let second = try session.claimBootstrap(rawNonce: secondNonce)
+        let secondExpected = try session.prepareBootstrap()
         guard cancelledPanels == 1 else {
             throw BridgeFailure("DataError", "A replacement document did not cancel the previous panel.")
         }
@@ -159,7 +193,17 @@ final class NativeDocumentSession {
             throw BridgeFailure("DataError", "A stale panel completion remained authoritative.")
         }
         do {
-            _ = try session.validateMessage(rawNonce: firstNonce)
+            _ = try session.claimBootstrap(rawNonce: first.nonceString)
+            throw BridgeFailure("DataError", "A stale document reclaimed authority after replacement.")
+        } catch let failure as BridgeFailure where failure.name == "SecurityError" {
+            // Expected. The current native-issued ticket must remain claimable.
+        }
+        let second = try session.claimBootstrap(rawNonce: secondExpected.nonceString)
+        guard second == secondExpected else {
+            throw BridgeFailure("DataError", "The current native-issued ticket was not claimed.")
+        }
+        do {
+            _ = try session.validateMessage(rawNonce: first.nonceString)
             throw BridgeFailure("DataError", "A replaced document retained native authority.")
         } catch let failure as BridgeFailure where failure.name == "SecurityError" {
             // Expected.
@@ -173,6 +217,15 @@ final class NativeDocumentSession {
             throw BridgeFailure("DataError", "Current native panel failed to finish authoritatively.")
         }
 
+        let thirdExpected = try session.prepareBootstrap()
+        do {
+            _ = try session.claimBootstrap(rawNonce: "not-a-canonical-uuid")
+            throw BridgeFailure("DataError", "Malformed document nonce unexpectedly bootstrapped.")
+        } catch let failure as BridgeFailure where failure.name == "SecurityError" {
+            // Expected. Parse failure must not revoke the prepared ticket.
+        }
+        _ = try session.claimBootstrap(rawNonce: thirdExpected.nonceString)
+
         session.invalidate()
         do {
             _ = try session.currentTicket()
@@ -180,13 +233,7 @@ final class NativeDocumentSession {
         } catch let failure as BridgeFailure where failure.name == "InvalidStateError" {
             // Expected.
         }
-        do {
-            _ = try session.claimBootstrap(rawNonce: "not-a-canonical-uuid")
-            throw BridgeFailure("DataError", "Malformed document nonce unexpectedly bootstrapped.")
-        } catch let failure as BridgeFailure where failure.name == "SecurityError" {
-            // Expected.
-        }
 
-        print("Drift native document-session self-test passed: one bootstrap, one panel, stale completion rejection, panel cancellation, and invalidation hold.")
+        print("Drift native document-session self-test passed: native-issued bootstrap, stale reclaim rejection, panel cancellation, exact-token validation, and invalidation hold.")
     }
 }
