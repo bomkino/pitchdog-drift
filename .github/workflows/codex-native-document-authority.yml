@@ -1,0 +1,671 @@
+name: codex-native-document-authority
+
+on:
+  push:
+    branches:
+      - feat/native-macos-document-authority
+    paths:
+      - .github/workflows/codex-native-document-authority.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out stacked branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/native-macos-document-authority
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Bind native capabilities to one local document generation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          root = Path.cwd()
+
+          def read(path: str) -> str:
+              return (root / path).read_text(encoding="utf-8")
+
+          def write(path: str, text: str) -> None:
+              (root / path).write_text(text, encoding="utf-8")
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              text = read(path)
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement, found {count}: {old[:120]!r}")
+              write(path, text.replace(old, new, 1))
+
+          # JavaScript: create one cryptographically random UUID per document,
+          # bootstrap native authority immediately, and serialize every later
+          # message behind that bootstrap with the same nonce.
+          replace_once(
+              "macos/NativeBridge.js",
+              '''  const handler = window.webkit?.messageHandlers?.driftNative;
+          if (!handler || window.top !== window) return;
+
+          const TRANSFER_CHUNK_BYTES = 384 * 1024;
+          ''',
+              '''  const handler = window.webkit?.messageHandlers?.driftNative;
+          if (!handler || window.top !== window) return;
+
+          function createDocumentNonce() {
+            if (!globalThis.crypto?.getRandomValues) {
+              throw new Error("Drift requires Web Crypto to establish native document authority.");
+            }
+            const bytes = new Uint8Array(16);
+            globalThis.crypto.getRandomValues(bytes);
+            bytes[6] = (bytes[6] & 0x0f) | 0x40;
+            bytes[8] = (bytes[8] & 0x3f) | 0x80;
+            const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+            return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+          }
+
+          const DOCUMENT_NONCE = createDocumentNonce();
+          const TRANSFER_CHUNK_BYTES = 384 * 1024;
+          ''',
+          )
+          replace_once(
+              "macos/NativeBridge.js",
+              '''  let appBridge = null;
+          let appBridgeGeneration = 0;
+          const queuedImports = [];
+          ''',
+              '''  let appBridge = null;
+          let appBridgeGeneration = 0;
+          let runtimeBootstrap = null;
+          const queuedImports = [];
+          ''',
+          )
+          replace_once(
+              "macos/NativeBridge.js",
+              '''  async function callNative(command, payload = {}) {
+            let envelope;
+            try {
+              envelope = await handler.postMessage({ command, payload });
+          ''',
+              '''  async function callNative(command, payload = {}) {
+            if (command !== "runtime-info") {
+              if (!runtimeBootstrap) {
+                throw new DOMException("The native document has not established authority yet.", "InvalidStateError");
+              }
+              await runtimeBootstrap;
+            }
+            let envelope;
+            try {
+              envelope = await handler.postMessage({ command, payload, documentNonce: DOCUMENT_NONCE });
+          ''',
+          )
+          replace_once(
+              "macos/NativeBridge.js",
+              '''  installGlobals();
+
+          const boot = () => {
+            ensureNativeStyle();
+            void callNative("runtime-info").then((runtime) => {
+          ''',
+              '''  installGlobals();
+          runtimeBootstrap = callNative("runtime-info");
+          void runtimeBootstrap.catch(() => undefined);
+
+          const boot = () => {
+            ensureNativeStyle();
+            void runtimeBootstrap.then((runtime) => {
+          ''',
+          )
+
+          # Swift session model: validate before revoking the current document,
+          # expose panel tickets to the host, and prove malformed bootstraps do
+          # not become a denial-of-service against the active document.
+          replace_once(
+              "macos/App/NativeDocumentSession.swift",
+              "private struct NativePanelTicket: Equatable {",
+              "struct NativePanelTicket: Equatable {",
+          )
+          replace_once(
+              "macos/App/NativeDocumentSession.swift",
+              '''    func claimBootstrap(rawNonce: String) throws -> NativeDocumentTicket {
+                  precondition(Thread.isMainThread)
+                  cancelActivePanel()
+                  activeDocument = nil
+                  let nonce = try parseNonce(rawNonce)
+          ''',
+              '''    func claimBootstrap(rawNonce: String) throws -> NativeDocumentTicket {
+                  precondition(Thread.isMainThread)
+                  let nonce = try parseNonce(rawNonce)
+                  cancelActivePanel()
+                  activeDocument = nil
+          ''',
+          )
+          replace_once(
+              "macos/App/NativeDocumentSession.swift",
+              '''        do {
+                      _ = try session.claimBootstrap(rawNonce: firstNonce)
+                      throw BridgeFailure("DataError", "A document bootstrapped twice with the same nonce.")
+                  } catch let failure as BridgeFailure {
+                      guard failure.name == "InvalidStateError" else { throw failure }
+                  }
+
+                  let second = try session.claimBootstrap(rawNonce: secondNonce)
+          ''',
+              '''        do {
+                      _ = try session.claimBootstrap(rawNonce: firstNonce)
+                      throw BridgeFailure("DataError", "A document bootstrapped twice with the same nonce.")
+                  } catch let failure as BridgeFailure {
+                      guard failure.name == "InvalidStateError" else { throw failure }
+                  }
+
+                  do {
+                      _ = try session.claimBootstrap(rawNonce: "not-a-canonical-uuid")
+                      throw BridgeFailure("DataError", "A malformed bootstrap nonce was accepted.")
+                  } catch let failure as BridgeFailure {
+                      guard failure.name == "TypeError" else { throw failure }
+                  }
+                  _ = try session.validateMessage(rawNonce: firstNonce)
+
+                  let second = try session.claimBootstrap(rawNonce: secondNonce)
+          ''',
+          )
+
+          # Native host: authenticate every message, bind panel completion and
+          # Finder delivery to the originating document, and expose one explicit
+          # invalidation operation for all WebKit lifecycle failures.
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              '''    private let broker = NativeFileBroker()
+              private let aacBroker = NativeAacEncoderBroker()
+              private let brokerQueue = DispatchQueue(label: "dog.pitch.drift.file-broker", qos: .userInitiated)
+          ''',
+              '''    private let broker = NativeFileBroker()
+              private let aacBroker = NativeAacEncoderBroker()
+              private let documentSession = NativeDocumentSession()
+              private let brokerQueue = DispatchQueue(label: "dog.pitch.drift.file-broker", qos: .userInitiated)
+          ''',
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              '''        let payload = body["payload"] as? JSONDictionary ?? [:]
+
+                  switch command {
+          ''',
+              '''        let payload = body["payload"] as? JSONDictionary ?? [:]
+                  let document: NativeDocumentTicket
+                  do {
+                      let rawNonce = optionalString(body, "documentNonce") ?? ""
+                      document = command == "runtime-info"
+                          ? try documentSession.claimBootstrap(rawNonce: rawNonce)
+                          : try documentSession.validateMessage(rawNonce: rawNonce)
+                  } catch {
+                      replyHandler(failureEnvelope(error), nil)
+                      return
+                  }
+
+                  switch command {
+          ''',
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              '''        case "pick-save":
+                      presentSavePanel(payload, replyHandler: replyHandler)
+                  case "pick-directory":
+                      presentDirectoryPanel(replyHandler: replyHandler)
+                  case "pick-open-files":
+                      presentOpenPanel(payload, replyHandler: replyHandler)
+          ''',
+              '''        case "pick-save":
+                      presentSavePanel(payload, document: document, replyHandler: replyHandler)
+                  case "pick-directory":
+                      presentDirectoryPanel(document: document, replyHandler: replyHandler)
+                  case "pick-open-files":
+                      presentOpenPanel(payload, document: document, replyHandler: replyHandler)
+          ''',
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              '''    func importExternalFile(_ url: URL, kind: DriftImportKind) {
+                  if kind == .project {
+          ''',
+              '''    func importExternalFile(_ url: URL, kind: DriftImportKind) {
+                  let document: NativeDocumentTicket
+                  do {
+                      document = try documentSession.currentTicket()
+                  } catch {
+                      presentError(error, title: "The studio is not ready to open a project")
+                      return
+                  }
+
+                  if kind == .project {
+          ''',
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              '''                DispatchQueue.main.async {
+                              self.invokeJavaScript(
+                                  function: "window.__driftNativeImportGranted",
+          ''',
+              '''                DispatchQueue.main.async {
+                              guard self.documentSession.isCurrent(document) else {
+                                  self.releaseFileGrant(descriptorToken)
+                                  self.releaseExternalProjectReservationIfNeeded(kind)
+                                  return
+                              }
+                              self.invokeJavaScript(
+                                  function: "window.__driftNativeImportGranted",
+          ''',
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              '''    func abortAllWrites() {
+                  exportActivityGuard.end()
+                  brokerQueue.sync {
+                      broker.abortAll()
+                      aacBroker.closeAll()
+                  }
+              }
+
+              func revealLastExportInFinder() {
+          ''',
+              '''    func abortAllWrites() {
+                  exportActivityGuard.end()
+                  brokerQueue.sync {
+                      broker.abortAll()
+                      aacBroker.closeAll()
+                  }
+              }
+
+              func invalidateDocument() {
+                  precondition(Thread.isMainThread)
+                  documentSession.invalidate()
+                  abortAllWrites()
+                  inputIntent = nil
+                  clientState = ClientState()
+              }
+
+              func revealLastExportInFinder() {
+          ''',
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              '''    private func presentSavePanel(
+                  _ payload: JSONDictionary,
+                  replyHandler: @escaping (Any?, String?) -> Void
+              ) {
+          ''',
+              '''    private func presentSavePanel(
+                  _ payload: JSONDictionary,
+                  document: NativeDocumentTicket,
+                  replyHandler: @escaping (Any?, String?) -> Void
+              ) {
+          ''',
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              "        begin(panel: panel) { [weak self] result in\n",
+              "        begin(panel: panel, document: document, replyHandler: replyHandler) { [weak self] result in\n",
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              '''    private func presentDirectoryPanel(replyHandler: @escaping (Any?, String?) -> Void) {
+          ''',
+              '''    private func presentDirectoryPanel(
+                  document: NativeDocumentTicket,
+                  replyHandler: @escaping (Any?, String?) -> Void
+              ) {
+          ''',
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              "        begin(panel: panel) { [weak self] result in\n",
+              "        begin(panel: panel, document: document, replyHandler: replyHandler) { [weak self] result in\n",
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              '''    private func presentOpenPanel(
+                  _ payload: JSONDictionary,
+                  replyHandler: @escaping (Any?, String?) -> Void
+              ) {
+          ''',
+              '''    private func presentOpenPanel(
+                  _ payload: JSONDictionary,
+                  document: NativeDocumentTicket,
+                  replyHandler: @escaping (Any?, String?) -> Void
+              ) {
+          ''',
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              "        begin(panel: panel) { [weak self] result in\n",
+              "        begin(panel: panel, document: document, replyHandler: replyHandler) { [weak self] result in\n",
+          )
+          replace_once(
+              "macos/App/NativeBridgeHost.swift",
+              '''    private func begin(panel: NSSavePanel, completion: @escaping (NSApplication.ModalResponse) -> Void) {
+                  if let window = webView?.window {
+                      panel.beginSheetModal(for: window, completionHandler: completion)
+                  } else {
+                      completion(panel.runModal())
+                  }
+              }
+
+              private func begin(panel: NSOpenPanel, completion: @escaping (NSApplication.ModalResponse) -> Void) {
+                  if let window = webView?.window {
+                      panel.beginSheetModal(for: window, completionHandler: completion)
+                  } else {
+                      completion(panel.runModal())
+                  }
+              }
+          ''',
+              '''    private func begin(
+                  panel: NSSavePanel,
+                  document: NativeDocumentTicket,
+                  replyHandler: @escaping (Any?, String?) -> Void,
+                  completion: @escaping (NSApplication.ModalResponse) -> Void
+              ) {
+                  let ticket: NativePanelTicket
+                  do {
+                      ticket = try documentSession.beginPanel(for: document) { [weak panel] in
+                          panel?.cancel(nil)
+                      }
+                  } catch {
+                      replyHandler(failureEnvelope(error), nil)
+                      return
+                  }
+                  let finish: (NSApplication.ModalResponse) -> Void = { [weak self] result in
+                      guard let self else { return }
+                      guard self.documentSession.finishPanel(ticket) else {
+                          replyHandler(
+                              failureEnvelope(BridgeFailure(
+                                  "SecurityError",
+                                  "The local studio document changed before the save panel completed."
+                              )),
+                              nil
+                          )
+                          return
+                      }
+                      completion(result)
+                  }
+                  if let window = webView?.window {
+                      panel.beginSheetModal(for: window, completionHandler: finish)
+                  } else {
+                      finish(panel.runModal())
+                  }
+              }
+
+              private func begin(
+                  panel: NSOpenPanel,
+                  document: NativeDocumentTicket,
+                  replyHandler: @escaping (Any?, String?) -> Void,
+                  completion: @escaping (NSApplication.ModalResponse) -> Void
+              ) {
+                  let ticket: NativePanelTicket
+                  do {
+                      ticket = try documentSession.beginPanel(for: document) { [weak panel] in
+                          panel?.cancel(nil)
+                      }
+                  } catch {
+                      replyHandler(failureEnvelope(error), nil)
+                      return
+                  }
+                  let finish: (NSApplication.ModalResponse) -> Void = { [weak self] result in
+                      guard let self else { return }
+                      guard self.documentSession.finishPanel(ticket) else {
+                          replyHandler(
+                              failureEnvelope(BridgeFailure(
+                                  "SecurityError",
+                                  "The local studio document changed before the open panel completed."
+                              )),
+                              nil
+                          )
+                          return
+                      }
+                      completion(result)
+                  }
+                  if let window = webView?.window {
+                      panel.beginSheetModal(for: window, completionHandler: finish)
+                  } else {
+                      finish(panel.runModal())
+                  }
+              }
+
+              func beginWebKitOpenPanel(
+                  _ panel: NSOpenPanel,
+                  completion: @escaping (NSApplication.ModalResponse) -> Void
+              ) throws {
+                  let document = try documentSession.currentTicket()
+                  let ticket = try documentSession.beginPanel(for: document) { [weak panel] in
+                      panel?.cancel(nil)
+                  }
+                  let finish: (NSApplication.ModalResponse) -> Void = { [weak self] result in
+                      guard let self, self.documentSession.finishPanel(ticket) else {
+                          completion(.cancel)
+                          return
+                      }
+                      completion(result)
+                  }
+                  if let window = webView?.window {
+                      panel.beginSheetModal(for: window, completionHandler: finish)
+                  } else {
+                      finish(panel.runModal())
+                  }
+              }
+          ''',
+          )
+
+          # Every lifecycle boundary that destroys or replaces WebKit content
+          # now revokes the document nonce as well as staged file/AAC state.
+          delegate = read("macos/App/DriftAppDelegate.swift")
+          delegate = delegate.replace("nativeBridge?.abortAllWrites()", "nativeBridge?.invalidateDocument()")
+          delegate = delegate.replace("bridge.abortAllWrites()", "bridge.invalidateDocument()")
+          old_panel_start = '''        if let window {
+                      panel.beginSheetModal(for: window, completionHandler: finish)
+                  } else {
+                      finish(panel.runModal())
+                  }
+              }
+
+              func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+          '''
+          new_panel_start = '''        do {
+                      try bridge.beginWebKitOpenPanel(panel, completion: finish)
+                  } catch {
+                      presentWarning(
+                          title: "The native file chooser is unavailable",
+                          message: (error as? BridgeFailure)?.message ?? error.localizedDescription
+                      )
+                      completionHandler(nil)
+                  }
+              }
+
+              func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+          '''
+          if delegate.count(old_panel_start) != 1:
+              raise SystemExit("DriftAppDelegate.swift: WebKit open-panel block changed")
+          delegate = delegate.replace(old_panel_start, new_panel_start, 1)
+          write("macos/App/DriftAppDelegate.swift", delegate)
+
+          replace_once(
+              "macos/Probes/NativeGauntletMain.swift",
+              '''            activePhase = "export power-activity lifecycle"
+                      try ExportActivityGuard.runSelfTest()
+          ''',
+              '''            activePhase = "native document authority"
+                      try NativeDocumentSession.runSelfTest()
+
+                      activePhase = "export power-activity lifecycle"
+                      try ExportActivityGuard.runSelfTest()
+          ''',
+          )
+          replace_once(
+              "macos/Probes/NativeGauntletMain.swift",
+              'print("Drift trusted-WebKit, export-activity, project-admission, native file, rollback, grant, and AAC gauntlets passed.")',
+              'print("Drift trusted-WebKit, document-authority, export-activity, project-admission, native file, rollback, grant, and AAC gauntlets passed.")',
+          )
+
+          # Existing hardening assertions must follow the stronger lifecycle.
+          hardening = read("scripts/check-macos-hardening.mjs")
+          hardening = hardening.replace("nativeBridge?.abortAllWrites()", "nativeBridge?.invalidateDocument()")
+          hardening = hardening.replace("bridge.abortAllWrites()", "bridge.invalidateDocument()")
+          hardening = hardening.replace("must revoke native capabilities", "must invalidate native document authority")
+          hardening = hardening.replace("manual reload lost its native cleanup", "manual reload lost its native document invalidation")
+          write("scripts/check-macos-hardening.mjs", hardening)
+
+          authority_checker = r'''import { existsSync, readFileSync } from "node:fs";
+          import { dirname, join } from "node:path";
+          import { fileURLToPath } from "node:url";
+
+          const root = dirname(dirname(fileURLToPath(import.meta.url)));
+          const at = (path) => join(root, path);
+          const fail = (message) => { throw new Error(`native document authority failed: ${message}`); };
+          const read = (path) => {
+            if (!existsSync(at(path))) fail(`missing ${path}`);
+            return readFileSync(at(path), "utf8");
+          };
+          const requireMarkers = (path, markers) => {
+            const source = read(path);
+            for (const marker of markers) {
+              if (!source.includes(marker)) fail(`${path} is missing ${JSON.stringify(marker)}`);
+            }
+            return source;
+          };
+          const forbidMarkers = (path, markers) => {
+            const source = read(path);
+            for (const marker of markers) {
+              if (source.includes(marker)) fail(`${path} contains stale ${JSON.stringify(marker)}`);
+            }
+          };
+
+          const bridge = requireMarkers("macos/NativeBridge.js", [
+            "function createDocumentNonce()",
+            "globalThis.crypto.getRandomValues(bytes)",
+            "const DOCUMENT_NONCE = createDocumentNonce()",
+            "let runtimeBootstrap = null",
+            'if (command !== "runtime-info")',
+            "await runtimeBootstrap",
+            "documentNonce: DOCUMENT_NONCE",
+            'runtimeBootstrap = callNative("runtime-info")',
+          ]);
+          if ((bridge.match(/callNative\("runtime-info"\)/g) ?? []).length !== 1) {
+            fail("the local document must claim native authority exactly once");
+          }
+
+          const session = requireMarkers("macos/App/NativeDocumentSession.swift", [
+            "struct NativeDocumentTicket: Equatable",
+            "struct NativePanelTicket: Equatable",
+            "func claimBootstrap(rawNonce: String)",
+            "func validateMessage(rawNonce: String)",
+            "func beginPanel(",
+            "func finishPanel(",
+            "func invalidate()",
+            "A malformed bootstrap nonce was accepted.",
+            "A stale panel completion remained authoritative.",
+          ]);
+          const parse = session.indexOf("let nonce = try parseNonce(rawNonce)");
+          const cancel = session.indexOf("cancelActivePanel()", parse);
+          if (parse < 0 || cancel < 0 || parse > cancel) {
+            fail("bootstrap must validate a nonce before canceling the active document or panel");
+          }
+
+          requireMarkers("macos/App/NativeBridgeHost.swift", [
+            "private let documentSession = NativeDocumentSession()",
+            'optionalString(body, "documentNonce")',
+            "documentSession.claimBootstrap",
+            "documentSession.validateMessage",
+            "presentSavePanel(payload, document: document",
+            "presentDirectoryPanel(document: document",
+            "presentOpenPanel(payload, document: document",
+            "documentSession.isCurrent(document)",
+            "documentSession.beginPanel(for: document)",
+            "documentSession.finishPanel(ticket)",
+            "func beginWebKitOpenPanel(",
+            "func invalidateDocument()",
+          ]);
+          requireMarkers("macos/App/DriftAppDelegate.swift", [
+            "nativeBridge?.invalidateDocument()",
+            "bridge.invalidateDocument()",
+            "try bridge.beginWebKitOpenPanel(panel, completion: finish)",
+          ]);
+          forbidMarkers("macos/App/DriftAppDelegate.swift", [
+            "nativeBridge?.abortAllWrites()",
+            "bridge.abortAllWrites()",
+          ]);
+          requireMarkers("macos/Probes/NativeGauntletMain.swift", [
+            'activePhase = "native document authority"',
+            "NativeDocumentSession.runSelfTest()",
+            "document-authority",
+          ]);
+
+          console.log("Native document authority passed: each signed local document owns one nonce, every command and panel completion is generation-bound, and all replacement/lifecycle edges revoke stale capabilities.");
+          '''
+          write("scripts/check-native-document-authority.mjs", authority_checker)
+
+          package_path = root / "package.json"
+          package = json.loads(package_path.read_text(encoding="utf-8"))
+          old = package["scripts"]["check:mac-source"]
+          anchor = "node scripts/check-native-import-contract.mjs && "
+          if anchor not in old:
+              raise SystemExit("package.json: native import checker anchor changed")
+          package["scripts"]["check:mac-source"] = old.replace(
+              anchor,
+              anchor + "node scripts/check-native-document-authority.mjs && ",
+              1,
+          )
+          package_path.write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+
+          threat_path = root / "docs/MACOS_THREAT_MODEL.md"
+          threat = threat_path.read_text(encoding="utf-8").rstrip()
+          threat += '''
+
+          ## Per-document native authority
+
+          Main-frame and trusted-`file:` validation are necessary but not sufficient across reloads because the old and replacement documents have the same URL. Each injected bridge document therefore creates one cryptographically random canonical UUID nonce. Its first `runtime-info` message claims native authority; every later message must present the same nonce.
+
+          A replacement document cancels any native panel owned by the previous generation and revokes file, directory, write-session, and AAC capabilities before the new document is acknowledged. Save/open panel results and Finder project delivery are accepted only while their originating document ticket remains current. Reload, failed navigation, WebContent termination, window close, and quit explicitly invalidate authority before WebKit moves on.
+
+          Malformed bootstrap nonces are validated before the current generation is revoked, preventing an invalid bootstrap from becoming a denial-of-service against the active document.
+          '''
+          threat_path.write_text(threat.strip() + "\n", encoding="utf-8")
+
+          plan = root / "docs/NATIVE_DOCUMENT_AUTHORITY_PLAN.md"
+          if plan.exists():
+              plan.unlink()
+          PY
+
+      - name: Run source, unit, and production-build gauntlet
+        run: npm run check
+
+      - name: Build and verify the signed local app on macOS
+        env:
+          DRIFT_MACOS_ARCHS: arm64
+          DRIFT_SKIP_WEB_CHECKS: "1"
+        run: npm run build:mac
+
+      - name: Remove transport workflow
+        run: rm .github/workflows/codex-native-document-authority.yml
+
+      - name: Commit proven authority model
+        shell: bash
+        run: |
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "security(mac): bind native capabilities to one document generation"
+          git push origin HEAD:feat/native-macos-document-authority
