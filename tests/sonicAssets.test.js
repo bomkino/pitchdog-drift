@@ -8,6 +8,10 @@ function gitBlobSha1(data) {
   return createHash("sha1").update(header).update(data).digest("hex");
 }
 
+function sha256(data) {
+  return createHash("sha256").update(data).digest("hex");
+}
+
 describe("authentic tactile asset ledger", () => {
   const manifestPath = resolve(
     process.cwd(),
@@ -15,13 +19,16 @@ describe("authentic tactile asset ledger", () => {
   );
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
-  it("pins a local CC0 corpus with no runtime request path", () => {
+  it("pins one exact local CC0 corpus with no third-party runtime path", () => {
     expect(manifest.upstreamRevision).toBe(
       "a7a3ee178d2ec48f4354782f244ab777a0e238df",
     );
     expect(manifest.runtimeNetworkRequests).toBe(false);
-    expect(manifest.recordings.length).toBeGreaterThanOrEqual(20);
+    expect(manifest.recordings).toHaveLength(23);
     expect(manifest.licenseFiles).toHaveLength(3);
+    expect(new Set(manifest.recordings.map((entry) => entry.localPath)).size).toBe(23);
+    expect(new Set(manifest.recordings.map((entry) => entry.upstreamPath)).size).toBe(23);
+    expect(new Set(manifest.licenseFiles.map((entry) => entry.localPath)).size).toBe(3);
   });
 
   it("verifies every WAV header, byte length and cryptographic digest", () => {
@@ -31,9 +38,7 @@ describe("authentic tactile asset ledger", () => {
       expect(data.subarray(8, 12).toString("ascii")).toBe("WAVE");
       expect(data.length).toBe(entry.bytes);
       expect(gitBlobSha1(data)).toBe(entry.gitBlobSha1);
-      expect(createHash("sha256").update(data).digest("hex")).toBe(
-        entry.sha256,
-      );
+      expect(sha256(data)).toBe(entry.sha256);
       expect(entry.upstreamRevision).toBe(manifest.upstreamRevision);
       expect(entry.license).toBe("CC0-1.0");
       expect(entry.canonicalSource).toMatch(
@@ -42,14 +47,24 @@ describe("authentic tactile asset ledger", () => {
     }
   });
 
-  it("preserves the original CC0 notice for each source pack", () => {
+  it("preserves and hashes the original CC0 notice for each source pack", () => {
+    const packs = new Set();
     for (const entry of manifest.licenseFiles) {
-      const text = readFileSync(
-        resolve(process.cwd(), entry.localPath),
-        "utf8",
-      );
+      const data = readFileSync(resolve(process.cwd(), entry.localPath));
+      const text = data.toString("utf8");
       expect(entry.license).toBe("CC0-1.0");
+      expect(entry.bytes).toBe(data.length);
+      expect(entry.sha256).toBe(sha256(data));
+      expect(entry.canonicalSource).toMatch(
+        /^https:\/\/kenney\.nl\/assets\//,
+      );
       expect(text.toUpperCase()).toContain("CC0");
+      packs.add(entry.pack);
     }
+    expect(packs).toEqual(new Set([
+      "casino-audio",
+      "rpg-audio",
+      "impact-sounds",
+    ]));
   });
 });
