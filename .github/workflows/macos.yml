@@ -125,7 +125,13 @@ jobs:
         continue-on-error: true
         env:
           DRIFT_WEBVIEW_MATRIX_TIMEOUT: "100"
+          DRIFT_WEBVIEW_MATRIX_BUDGET: "600"
           DRIFT_WEBVIEW_LOG_TIMEOUT: "20"
+          DRIFT_WEBVIEW_SPCTL_TIMEOUT: "15"
+          DRIFT_WEBVIEW_SECURITY_TIMEOUT: "20"
+          DRIFT_WEBVIEW_CODESIGN_TIMEOUT: "30"
+          DRIFT_WEBVIEW_DITTO_TIMEOUT: "45"
+          DRIFT_WEBVIEW_OPENSSL_TIMEOUT: "30"
         run: bash macos/CI/probe-macos-packaged-webview.sh-ci build/macos/Drift.app
 
       - name: Preserve packaged WebKit evidence

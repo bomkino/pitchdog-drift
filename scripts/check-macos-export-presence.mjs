@@ -128,15 +128,36 @@ requireBefore(
 );
 
 requireMarkers("macos/CI/probe-macos-packaged-webview.sh-ci", [
+  "DRIFT_WEBVIEW_MATRIX_BUDGET",
   "DRIFT_WEBVIEW_LOG_TIMEOUT",
-  "subprocess.run([real_log, *arguments]",
-  "timeout=timeout",
-  "the bounded application receipt remains authoritative",
-  "bash \"$ROOT/scripts/probe-macos-packaged-webview.sh\"",
+  "DRIFT_WEBVIEW_SPCTL_TIMEOUT",
+  "DRIFT_WEBVIEW_SECURITY_TIMEOUT",
+  "DRIFT_WEBVIEW_CODESIGN_TIMEOUT",
+  "DRIFT_WEBVIEW_DITTO_TIMEOUT",
+  "DRIFT_WEBVIEW_OPENSSL_TIMEOUT",
+  "bounded-exec.py",
+  "start_new_session=True",
+  "os.killpg(process.pid, signal.SIGTERM)",
+  "os.killpg(process.pid, signal.SIGKILL)",
+  'write_wrapper "log"',
+  'write_wrapper "spctl"',
+  'write_wrapper "security"',
+  'write_wrapper "codesign"',
+  'write_wrapper "ditto"',
+  'write_wrapper "openssl"',
+  "complete packaged-WebKit matrix",
+  "terminating that bounded evidence command",
+  '"$ROOT/scripts/probe-macos-packaged-webview.sh"',
 ]);
 requireMarkers(".github/workflows/macos.yml", [
   'DRIFT_WEBVIEW_MATRIX_TIMEOUT: "100"',
+  'DRIFT_WEBVIEW_MATRIX_BUDGET: "600"',
   'DRIFT_WEBVIEW_LOG_TIMEOUT: "20"',
+  'DRIFT_WEBVIEW_SPCTL_TIMEOUT: "15"',
+  'DRIFT_WEBVIEW_SECURITY_TIMEOUT: "20"',
+  'DRIFT_WEBVIEW_CODESIGN_TIMEOUT: "30"',
+  'DRIFT_WEBVIEW_DITTO_TIMEOUT: "45"',
+  'DRIFT_WEBVIEW_OPENSSL_TIMEOUT: "30"',
   "bash macos/CI/probe-macos-packaged-webview.sh-ci",
 ]);
 
@@ -157,5 +178,5 @@ requireMarkers("docs/MACOS_EXPORT_PRESENCE.md", [
 ]);
 
 console.log(
-  "macOS export-presence contract passed: one privacy-safe EXPORT badge follows authoritative native export protection, deduplicates updates, clears through every shared terminal path, its MP4, still, and sequence timing claims are checked against App.tsx, and optional unified-log collection cannot consume the app-evidence budget.",
+  "macOS export-presence contract passed: one privacy-safe EXPORT badge follows authoritative native export protection, export timing claims are checked against App.tsx, every optional packaged-runtime command is bounded, and the complete matrix cannot consume the job indefinitely.",
 );
