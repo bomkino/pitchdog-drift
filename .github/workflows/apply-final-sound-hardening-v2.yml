@@ -31,7 +31,9 @@ jobs:
           cache: npm
 
       - name: Apply audited large-file patches
-        run: python3 scripts/apply-final-sonic-hardening.py
+        run: |
+          python3 scripts/apply-final-sonic-hardening.py
+          python3 scripts/apply-final-sonic-followups.py
 
       - name: Refresh and verify the exact pinned corpus
         run: python3 scripts/vendor-sonic-assets.py
@@ -42,7 +44,8 @@ jobs:
           rm -f \
             .github/workflows/apply-final-sound-hardening.yml \
             .github/workflows/apply-final-sound-hardening-v2.yml \
-            scripts/apply-final-sonic-hardening.py
+            scripts/apply-final-sonic-hardening.py \
+            scripts/apply-final-sonic-followups.py
           git diff --check
 
       - name: Install exact dependency lock
