@@ -2,7 +2,7 @@ import type { DriftProjectV3 } from "../project/schema";
 import { planSemanticEvents } from "./eventPlanner";
 import type { EvaluatedFrameSlide, FrameEvaluation } from "./FrameEvaluation";
 import { poseCadenceFps } from "./master";
-import { positiveModulo, TAU, TIMELINE_EPSILON } from "./math";
+import { canonicalZero, positiveModulo, TAU, TIMELINE_EPSILON } from "./math";
 import { evaluateTrack, type TrackEvaluation } from "./track";
 
 export interface SpatialEvaluationContext {
@@ -41,7 +41,7 @@ function resolvedTrackMotion(
   if (Math.abs(previous.poseTime - current.poseTime) <= TIMELINE_EPSILON) return { velocity: 0, acceleration: 0 };
   const elapsed = Math.max(1 / 240, current.requestedTime - Math.max(0, previousTime));
   return {
-    velocity: (current.visibleSlides - previous.visibleSlides) / elapsed,
+    velocity: canonicalZero((current.visibleSlides - previous.visibleSlides) / elapsed),
     acceleration: 0,
   };
 }
@@ -82,10 +82,10 @@ export function evaluateFrame(
       reducedMotion: project.master.reducedMotion,
     },
     track: {
-      rawDistance: project.motion.transport.direction * track.rawSlides,
+      rawDistance: canonicalZero(project.motion.transport.direction * track.rawSlides),
       visibleDistance: track.visibleSlides,
-      velocity: motion.velocity,
-      acceleration: motion.acceleration,
+      velocity: canonicalZero(motion.velocity),
+      acceleration: canonicalZero(motion.acceleration),
       direction: project.motion.transport.direction,
       resting: Math.abs(motion.velocity) <= TIMELINE_EPSILON && Math.abs(motion.acceleration) <= TIMELINE_EPSILON,
     },
