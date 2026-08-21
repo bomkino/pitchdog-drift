@@ -64,7 +64,7 @@ if grep -Eq '(src|href)="/assets/' dist/index.html; then
   echo "The Mac bundle contains root-absolute assets and cannot run inside Drift.app." >&2
   exit 1
 fi
-if grep -Eq 'type=["'"']module["'"']' dist/index.html; then
+if grep -q 'type="module"' dist/index.html; then
   echo "The Mac application bootstrap unexpectedly uses an ES-module script." >&2
   exit 1
 fi
