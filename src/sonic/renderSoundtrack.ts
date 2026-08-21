@@ -7,6 +7,7 @@ import {
   type SonicCue,
 } from "./catalog";
 import { buildSonicTimeline } from "./plan";
+import { buildSonicRecipe } from "./recipe";
 
 export const SONIC_SAMPLE_RATE = 48_000;
 export const SONIC_CHANNELS = 2;
@@ -100,9 +101,9 @@ function playbackWindow(asset: DecodedSonicAsset): Readonly<{
 
 /**
  * Renders the authored cue plan into an exact-length 48 kHz stereo buffer.
- * Source selection, timing, pitch, gain, pan and non-destructive recording
- * treatments are deterministic. Export later mixes this effects bed beneath
- * presenter speech into one verified AAC track.
+ * Source selection, timing, pitch, gain, pan, layered editorial recipes and
+ * non-destructive recording treatments are deterministic. Export later mixes
+ * this effects bed beneath presenter speech into one verified AAC track.
  */
 export async function renderSonicSoundtrack(
   settings: StudioSettings,
@@ -117,13 +118,29 @@ export async function renderSonicSoundtrack(
     throw new Error("This browser cannot render the tactile sound track offline.");
   }
 
+  const recipes = events.map((event) => ({
+    event,
+    layers: buildSonicRecipe({
+      palette: settings.sound.palette,
+      cue: event.cue,
+      seed: settings.background.seed,
+      sequence: event.sequence,
+      variant: event.variant,
+      gain: event.gain,
+      playbackRate: event.playbackRate,
+      pan: event.pan,
+    }),
+  }));
+  const requiredCues = [
+    ...new Set(recipes.flatMap(({ layers }) => layers.map((layer) => layer.cue))),
+  ];
+
   const frameCount = Math.max(1, Math.round(duration * SONIC_SAMPLE_RATE));
   const context = new OfflineAudioContext(
     SONIC_CHANNELS,
     frameCount,
     SONIC_SAMPLE_RATE,
   );
-  const requiredCues = [...new Set(events.map((event) => event.cue))];
   const decoded = new Map<SonicCue, readonly DecodedSonicAsset[]>();
   await Promise.all(requiredCues.map(async (cue) => {
     decoded.set(
@@ -155,54 +172,56 @@ export async function renderSonicSoundtrack(
   master.connect(compressor);
   compressor.connect(context.destination);
 
-  for (const event of events) {
-    const variants = decoded.get(event.cue);
-    const asset = variants
-      ? selectVariant(variants, event.variant)
-      : undefined;
-    if (!asset) continue;
+  for (const { event, layers } of recipes) {
+    for (const layer of layers) {
+      const variants = decoded.get(layer.cue);
+      const asset = variants
+        ? selectVariant(variants, layer.variant)
+        : undefined;
+      if (!asset) continue;
 
-    const window = playbackWindow(asset);
-    if (window.duration <= 0) continue;
+      const window = playbackWindow(asset);
+      if (window.duration <= 0) continue;
 
-    const source = context.createBufferSource();
-    const gain = context.createGain();
-    const panner = context.createStereoPanner();
-    source.buffer = asset.buffer;
-    source.playbackRate.value = event.playbackRate;
-    panner.pan.value = event.pan;
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      const panner = context.createStereoPanner();
+      source.buffer = asset.buffer;
+      source.playbackRate.value = layer.playbackRate;
+      panner.pan.value = layer.pan;
 
-    const start = Math.max(0, event.time);
-    const audibleDuration = window.duration / Math.max(
-      0.01,
-      event.playbackRate,
-    );
-    const end = Math.min(duration, start + audibleDuration);
-    if (end <= start) continue;
-    const attackEnd = Math.min(
-      end,
-      start + Math.min(0.012, audibleDuration * 0.2),
-    );
-    const releaseStart = Math.max(
-      attackEnd,
-      end - Math.min(0.032, audibleDuration * 0.28),
-    );
-    const treatedGain = event.gain * asset.spec.gain;
-    gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(treatedGain, attackEnd);
-    gain.gain.setValueAtTime(treatedGain, releaseStart);
-    gain.gain.linearRampToValueAtTime(0, end);
+      const start = Math.max(0, event.time + layer.delay);
+      const audibleDuration = window.duration / Math.max(
+        0.01,
+        layer.playbackRate,
+      );
+      const end = Math.min(duration, start + audibleDuration);
+      if (end <= start) continue;
+      const attackEnd = Math.min(
+        end,
+        start + Math.min(0.012, audibleDuration * 0.2),
+      );
+      const releaseStart = Math.max(
+        attackEnd,
+        end - Math.min(0.032, audibleDuration * 0.28),
+      );
+      const treatedGain = layer.gain * asset.spec.gain;
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(treatedGain, attackEnd);
+      gain.gain.setValueAtTime(treatedGain, releaseStart);
+      gain.gain.linearRampToValueAtTime(0, end);
 
-    source.connect(gain);
-    gain.connect(panner);
-    panner.connect(master);
-    const renderedDuration = Math.max(0, end - start);
-    const sourceDuration = Math.min(
-      window.duration,
-      renderedDuration * source.playbackRate.value,
-    );
-    source.start(start, window.offset, sourceDuration);
-    source.stop(end);
+      source.connect(gain);
+      gain.connect(panner);
+      panner.connect(master);
+      const renderedDuration = Math.max(0, end - start);
+      const sourceDuration = Math.min(
+        window.duration,
+        renderedDuration * source.playbackRate.value,
+      );
+      source.start(start, window.offset, sourceDuration);
+      source.stop(end);
+    }
   }
 
   const rendered = await renderInterruptibly(context, signal);
