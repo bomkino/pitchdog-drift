@@ -157,14 +157,21 @@ requireMarkers("macos/NativeBridge.js", [
   "document.addEventListener(\"DOMContentLoaded\", boot, { once: true })",
 ]);
 
+requireMarkers("src/lib/nativeMac.ts", [
+  "let installedAppBridge: NativeMacAppBridge | null = null",
+  "export async function dispatchNativeMacFiles(",
+  "for (const file of selected) await bridge.importFile(kind, file)",
+  "installedAppBridge === bridge",
+]);
 requireMarkers("src/components/NativeFileInputBridge.tsx", [
   "nativeImportKindForInput",
-  "assignFilesAndDispatchChange",
+  "dispatchNativeMacFiles",
   "document.documentElement.dataset.driftNativeFileInputBridge = \"ready\"",
   "document.addEventListener(\"click\", onClick, true)",
   "event.preventDefault()",
   "event.stopImmediatePropagation()",
   "pickNativeMacFiles(kind, input.multiple)",
+  "await dispatchNativeMacFiles(kind, files)",
   "Finish or cancel the open file chooser",
   "role=\"alert\"",
   "aria-live=\"assertive\"",
@@ -198,13 +205,19 @@ requireMarkers("macos/App/WebViewSelfTest.swift", [
   "private var webKitFileInputVerified = false",
   "hasNativeFileInputBridge: document.documentElement.dataset.driftNativeFileInputBridge === 'ready'",
   "testWebKitFileInputRoundTrip(in: webView)",
-  "new File([bytes], 'wkwebview-input-probe.png'",
+  "window.showOpenFilePicker = async () => [handle]",
+  "window.__driftSelfTestNativeReleaseCount += 1",
   "pollWebKitFileInputResult(",
-  "WKWebView DataTransfer reached the hidden input but never produced one settled React asset",
-  "WebKit DataTransfer file ingestion",
+  "never produced one settled asset and released grant",
+  "typed native file ingestion",
   "\"webKitFileInputVerified\": webKitFileInputVerified",
+]);
+forbidMarkers("macos/App/WebViewSelfTest.swift", [
+  "new DataTransfer()",
+  "transfer.items.add",
+  "transferCount",
 ]);
 
 console.log(
-  "macOS hardening contract passed: sequence commits are exclusive; rollback is full-metadata-owned and preserves collisions, replacements, or in-place mutation; frame readback grants self-revoke; document boots, reloads, and failed navigations revoke capabilities; Finder projects cannot queue surprise replacement; native import grants are transactional; File-menu imports have static, unit, real-browser, and packaged-WKWebView evidence.",
+  "macOS hardening contract passed: sequence commits are exclusive; rollback is full-metadata-owned and preserves collisions, replacements, or in-place mutation; frame readback grants self-revoke; document boots, reloads, and failed navigations revoke capabilities; Finder projects cannot queue surprise replacement; native import grants are transactional; File-menu imports have static, unit, real-browser, and packaged-WKWebView evidence without synthetic FileList dependence.",
 );
