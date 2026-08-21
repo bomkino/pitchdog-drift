@@ -6,7 +6,10 @@ on:
     paths:
       - "macos/**"
       - "scripts/build-macos-app.sh"
+      - "scripts/check-macos-hardening.mjs"
+      - "scripts/check-macos-matrix-budget.mjs"
       - "scripts/check-macos-source.mjs"
+      - "scripts/check-native-import-contract.mjs"
       - "scripts/generate-macos-icon.py"
       - "scripts/package-macos-dmg.sh"
       - "scripts/probe-macos-packaged-webview.sh"
@@ -25,7 +28,10 @@ on:
     paths:
       - "macos/**"
       - "scripts/build-macos-app.sh"
+      - "scripts/check-macos-hardening.mjs"
+      - "scripts/check-macos-matrix-budget.mjs"
       - "scripts/check-macos-source.mjs"
+      - "scripts/check-native-import-contract.mjs"
       - "scripts/generate-macos-icon.py"
       - "scripts/package-macos-dmg.sh"
       - "scripts/probe-macos-packaged-webview.sh"
@@ -85,6 +91,7 @@ jobs:
             -framework Foundation \
             -framework UniformTypeIdentifiers \
             macos/App/NativeModels.swift \
+            macos/App/NativeDocumentSession.swift \
             macos/App/NativeFileBroker.swift \
             macos/App/NativeAacEncoder.swift \
             macos/App/NativeGauntlet.swift \
@@ -119,12 +126,38 @@ jobs:
           DRIFT_SOURCE_REVISION: ${{ github.sha }}
         run: npm run build:mac
 
+      - name: Record incomplete-build evidence
+        if: steps.app_build.outcome != 'success'
+        shell: bash
+        env:
+          BUILD_OUTCOME: ${{ steps.app_build.outcome }}
+        run: |
+          mkdir -p build/macos/packaged-webview
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          output = Path("build/macos/packaged-webview/matrix-summary.json")
+          output.write_text(json.dumps({
+              "schemaVersion": 1,
+              "productionVariantPassed": False,
+              "matrixAttempted": False,
+              "failureStage": "app-build",
+              "buildOutcome": os.environ["BUILD_OUTCOME"],
+              "diagnosis": "The app build or signed-bundle verification failed. Packaged WebKit was not launched against a partial bundle.",
+              "variants": [],
+          }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
       - name: Falsify packaged WebKit across signing and sandbox boundaries
         id: webview_matrix
-        if: always()
+        if: steps.app_build.outcome == 'success'
         continue-on-error: true
         env:
-          DRIFT_WEBVIEW_MATRIX_TIMEOUT: "100"
+          DRIFT_WEBVIEW_MATRIX_TIMEOUT: "75"
+          DRIFT_WEBVIEW_LOG_TIMEOUT: "18"
+          DRIFT_WEBVIEW_COMMAND_TIMEOUT: "20"
         run: scripts/probe-macos-packaged-webview.sh build/macos/Drift.app
 
       - name: Preserve packaged WebKit evidence
@@ -136,20 +169,25 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Require the production sandboxed lifecycle
+      - name: Require a complete build and production sandboxed lifecycle
         if: always()
         env:
           BUILD_OUTCOME: ${{ steps.app_build.outcome }}
           MATRIX_OUTCOME: ${{ steps.webview_matrix.outcome }}
         run: |
           set -euo pipefail
+          if [[ "$BUILD_OUTCOME" != "success" ]]; then
+            echo "The universal app failed before packaged-WebKit falsification; build outcome: $BUILD_OUTCOME" >&2
+            cat build/macos/packaged-webview/matrix-summary.json >&2 || true
+            exit 1
+          fi
           test -d build/macos/Drift.app || {
-            echo "The universal app was never produced; build outcome: $BUILD_OUTCOME" >&2
+            echo "The universal app build reported success but produced no final bundle." >&2
             exit 1
           }
           if [[ "$MATRIX_OUTCOME" != "success" ]]; then
             echo "The production sandboxed/ad-hoc app did not survive its packaged WebKit lifecycle." >&2
-            echo "The uploaded matrix distinguishes signature, sandbox, and general package failures." >&2
+            echo "The uploaded matrix distinguishes signature, sandbox, launchability, and general package failures." >&2
             cat build/macos/packaged-webview/matrix-summary.json >&2 || true
             exit 1
           fi
