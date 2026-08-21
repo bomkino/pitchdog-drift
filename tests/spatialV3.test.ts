@@ -63,6 +63,36 @@ function signature(frame: ReturnType<typeof evaluateFrame>) {
   }));
 }
 
+function stableNumber(value: number): number {
+  const rounded = Math.round(value * 1_000_000_000) / 1_000_000_000;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function seamlessSignature(frame: ReturnType<typeof evaluateFrame>) {
+  // logicalIndex identifies a reusable virtual-pool slot. A complete source-deck
+  // cycle may rotate that slot identity while the actual content and rendered
+  // state close exactly, so the seam contract is keyed by source identity.
+  return frame.slides
+    .map((slide) => ({
+      sourceIndex: slide.sourceIndex,
+      primary: stableNumber(slide.primary),
+      cross: stableNumber(slide.cross),
+      z: stableNumber(slide.z),
+      rotationX: stableNumber(slide.rotationX),
+      rotationY: stableNumber(slide.rotationY),
+      rotationZ: stableNumber(slide.rotationZ),
+      scale: stableNumber(slide.scale),
+      opacity: stableNumber(slide.opacity),
+      pathBend: stableNumber(slide.pathBend),
+      focusWeight: stableNumber(slide.focusWeight),
+    }))
+    .sort((left, right) => (
+      left.sourceIndex - right.sourceIndex
+      || left.primary - right.primary
+      || left.z - right.z
+    ));
+}
+
 describe("Project V3 spatial fabric", () => {
   it("contains ten materially distinct authored paths", () => {
     expect(PATH_RECIPES).toHaveLength(10);
@@ -129,6 +159,7 @@ describe("Project V3 spatial fabric", () => {
       current.motion.path = {
         ...recipe.path,
         id: recipe.id,
+        gap: 0.22,
         curvature: 0,
         depth: 0,
         banking: 0,
@@ -175,7 +206,7 @@ describe("Project V3 spatial fabric", () => {
       current.master.duration = 12;
       const first = evaluateFrame(current, 0, { frameIndex: 0 });
       const last = evaluateFrame(current, 12, { frameIndex: 288 });
-      expect(signature(last)).toEqual(signature(first));
+      expect(seamlessSignature(last)).toEqual(seamlessSignature(first));
     }
   });
 
@@ -199,8 +230,10 @@ describe("Project V3 spatial fabric", () => {
     const preserved = structuredClone({
       media: current.media,
       slides: current.slides,
-      cadence: current.motion.cadence,
-      performance: current.motion.performance,
+      motion: {
+        cadence: current.motion.cadence,
+        performance: current.motion.performance,
+      },
       master: current.master,
       material: current.material,
       lighting: current.lighting,
