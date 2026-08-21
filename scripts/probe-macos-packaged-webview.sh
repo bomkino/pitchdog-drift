@@ -133,7 +133,17 @@ if receipt is not None:
     expect(receipt.get("committedNavigation") is True, "WKWebView never committed navigation")
     expect(receipt.get("finishedNavigation") is True, "WKWebView never finished navigation")
     expect(int(receipt.get("contentProcessTerminationCount", 99)) <= 1, "WebKit content process terminated more than once")
-    expect(receipt.get("saveState") == "saved", "React project state never settled to saved")
+    expect(receipt.get("webKitFileInputVerified") is True, "typed native file ingestion was not verified")
+    # WebViewSelfTest first waits for the real React project store to report a
+    # settled authoritative `saved` state. It then imports one temporary slide
+    # through a deliberately non-persistent WKWebsiteDataStore. The import may
+    # have started the normal autosave timer when the successful receipt is
+    # written; treating that test-only `saving` state as a product failure would
+    # require pretending a non-persistent store can prove durable Blob storage.
+    expect(
+        receipt.get("saveState") in {"saved", "saving"},
+        "React project entered an invalid state during packaged verification",
+    )
     expect(receipt.get("projectBusy") is False, "React project operation remained busy")
     expect(receipt.get("exportInProgress") is False, "React export remained in progress")
 if receipt_error:
