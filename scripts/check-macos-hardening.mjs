@@ -179,13 +179,20 @@ requireMarkers("tests/nativeFileInputBridge.test.ts", [
   "routes image and unknown file contracts",
 ]);
 requireMarkers("e2e/native-menu-import.e2e.ts", [
-  "File-menu Add Slides uses one explicit native picker and releases its grant",
+  "A real 4 × 4 RGBA PNG",
+  "replaces the demo slate through one native picker",
+  "first real deck must replace those eight demos",
   "data-drift-native-file-input-bridge",
   "await state.appBridge.command(\"add-slides\")",
+  "toHaveCount(1)",
   "callCount: 1",
   "releaseCount: 1",
   "File-menu picker failure remains visible and operable",
   "Dismiss native file error",
+]);
+forbidMarkers("e2e/native-menu-import.e2e.ts", [
+  "const decodablePng",
+  "initialCount + 1",
 ]);
 requireMarkers("macos/App/WebViewSelfTest.swift", [
   "private var webKitFileInputVerified = false",
