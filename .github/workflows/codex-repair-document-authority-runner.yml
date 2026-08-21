@@ -65,7 +65,7 @@ jobs:
           )
           source = remove_replace_block(
               source,
-              "'''        do:\n                      _ = try session.claimBootstrap(rawNonce: firstNonce)",
+              "'''        do {\n                      _ = try session.claimBootstrap(rawNonce: firstNonce)",
           )
 
           old_marker = '            "A malformed bootstrap nonce was accepted.",\n'
