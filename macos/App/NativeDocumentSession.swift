@@ -7,7 +7,7 @@ struct NativeDocumentTicket: Equatable {
     var nonceString: String { nonce.uuidString.lowercased() }
 }
 
-private struct NativePanelTicket: Equatable {
+struct NativePanelTicket: Equatable {
     let identifier: UUID
     let document: NativeDocumentTicket
 }
