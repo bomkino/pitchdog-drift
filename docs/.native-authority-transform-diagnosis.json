@@ -1,0 +1,126 @@
+{
+  "checks": [
+    {
+      "count": 1,
+      "label": "bridge-state-anchor",
+      "markerPreview": "  let statusHost = null;",
+      "path": "macos/NativeBridge.js"
+    },
+    {
+      "count": 1,
+      "label": "call-native-anchor",
+      "markerPreview": "  async function callNative(command, payload = {}) {",
+      "path": "macos/NativeBridge.js"
+    },
+    {
+      "count": 1,
+      "label": "global-authorizer-anchor",
+      "markerPreview": "      __driftNativeReportClientState: { configurable: false, writable: false, value: reportClientState },",
+      "path": "macos/NativeBridge.js"
+    },
+    {
+      "count": 1,
+      "label": "runtime-marker-anchor",
+      "markerPreview": "          systemCodecsOnly: true,",
+      "path": "macos/NativeBridge.js"
+    },
+    {
+      "count": 1,
+      "label": "runtime-boot-anchor",
+      "markerPreview": "    void callNative(\"runtime-info\").then((runtime) => {",
+      "path": "macos/NativeBridge.js"
+    },
+    {
+      "count": 1,
+      "label": "host-brokers-anchor",
+      "markerPreview": "    private let broker = NativeFileBroker()",
+      "path": "macos/App/NativeBridgeHost.swift"
+    },
+    {
+      "count": 1,
+      "label": "host-message-anchor",
+      "markerPreview": "        let payload = body[\"payload\"] as? JSONDictionary ?? [:]",
+      "path": "macos/App/NativeBridgeHost.swift"
+    },
+    {
+      "count": 1,
+      "label": "host-lifecycle-anchor",
+      "markerPreview": "    func abortAllWrites() {",
+      "path": "macos/App/NativeBridgeHost.swift"
+    },
+    {
+      "count": 1,
+      "label": "host-runtime-anchor",
+      "markerPreview": "            \"nativeAac\": true,",
+      "path": "macos/App/NativeBridgeHost.swift"
+    },
+    {
+      "count": 1,
+      "label": "delegate-state-anchor",
+      "markerPreview": "    private var webRuntimeReady = false",
+      "path": "macos/App/DriftAppDelegate.swift"
+    },
+    {
+      "count": 1,
+      "label": "delegate-pending-project-anchor",
+      "markerPreview": "        guard webRuntimeReady,",
+      "path": "macos/App/DriftAppDelegate.swift"
+    },
+    {
+      "count": 1,
+      "label": "delegate-navigation-anchor",
+      "markerPreview": "    // MARK: - WebKit navigation and recovery",
+      "path": "macos/App/DriftAppDelegate.swift"
+    },
+    {
+      "count": 1,
+      "label": "delegate-menu-anchor",
+      "markerPreview": "            return webRuntimeReady && !protected",
+      "path": "macos/App/DriftAppDelegate.swift"
+    },
+    {
+      "count": 1,
+      "label": "delegate-command-anchor",
+      "markerPreview": "    private func dispatchNativeCommand(_ command: String) {",
+      "path": "macos/App/DriftAppDelegate.swift"
+    },
+    {
+      "count": 1,
+      "label": "delegate-diagnostics-anchor",
+      "markerPreview": "        Native bridge: \\(driftBridgeVersion)",
+      "path": "macos/App/DriftAppDelegate.swift"
+    },
+    {
+      "count": 1,
+      "label": "self-test-state-anchor",
+      "markerPreview": "    private var contentProcessTerminationCount = 0",
+      "path": "macos/App/WebViewSelfTest.swift"
+    },
+    {
+      "count": 1,
+      "label": "self-test-commit-anchor",
+      "markerPreview": "    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {",
+      "path": "macos/App/WebViewSelfTest.swift"
+    },
+    {
+      "count": 1,
+      "label": "main-self-test-anchor",
+      "markerPreview": "            do {",
+      "path": "macos/App/DriftMain.swift"
+    },
+    {
+      "count": 1,
+      "label": "probe-authority-anchor",
+      "markerPreview": "            activePhase = \"export power-activity lifecycle\"",
+      "path": "macos/Probes/NativeGauntletMain.swift"
+    },
+    {
+      "count": 1,
+      "label": "workflow-probe-source-anchor",
+      "markerPreview": "            macos/App/NativeModels.swift \\",
+      "path": ".github/workflows/macos.yml"
+    }
+  ],
+  "firstMismatch": null,
+  "schemaVersion": 1
+}
