@@ -9,6 +9,12 @@ import {
 import { ControlPanel } from "./components/ControlPanel";
 import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
+import { createDefaultDriftProject } from "./core/project/defaults";
+import {
+  reconcileStudioProject,
+  studioSettingsFromDriftProject,
+} from "./core/project/studioProjection";
+import type { AssetDescriptor, DriftProjectV3 } from "./core/project/schema";
 import { CinematicCarousel } from "./engine/CinematicCarousel";
 import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
 import { createDemoSlides } from "./lib/demoSlides";
@@ -36,7 +42,12 @@ import {
   saveProject,
   type ProjectSnapshot,
 } from "./lib/projectStore";
-import { validateStudioSettings } from "./lib/settingsValidation";
+import {
+  createDriftProjectPayload,
+  parseStudioProjectPayload,
+  type DriftProjectPayloadV3,
+  type LegacyStudioProjectPayload,
+} from "./lib/studioProjectPayload";
 import {
   DEFAULT_SETTINGS,
   ENGINE_VERSION,
@@ -44,7 +55,6 @@ import {
   clearPinnedAssetIfRemoved,
   cloneSettings,
   type ExportProgress,
-  type StoredAssetDescriptor,
   type StudioAsset,
   type StudioSettings,
   type ThemeId,
@@ -54,12 +64,7 @@ import { applyTheme, getTheme } from "./themes";
 const MAX_SLIDES = 200;
 const AUTOSAVE_DELAY_MS = 1_200;
 
-interface StudioProjectPayload {
-  settings: StudioSettings;
-  slideAssetIds: string[];
-  presenterAssetId: string | null;
-  descriptors: StoredAssetDescriptor[];
-}
+type StudioProjectPayload = LegacyStudioProjectPayload | DriftProjectPayloadV3;
 
 interface ProjectIdentity {
   projectId: string;
@@ -75,98 +80,31 @@ interface PickerWindow extends Window {
   }) => Promise<FileSystemFileHandle>;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isSafeAssetId(value: unknown): value is string {
-  return typeof value === "string"
-    && value.length > 0
-    && value.length <= 512
-    && !/[\u0000-\u001f\u007f]/.test(value);
-}
-
-function isPositiveDimension(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= 131_072;
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-function parsePayload(value: unknown): StudioProjectPayload {
-  if (!isRecord(value) || !isRecord(value.settings)) throw new Error("Project has no readable studio settings.");
-  if (
-    !Array.isArray(value.slideAssetIds)
-    || value.slideAssetIds.length > MAX_SLIDES
-    || !value.slideAssetIds.every(isSafeAssetId)
-    || new Set(value.slideAssetIds).size !== value.slideAssetIds.length
-  ) {
-    throw new Error("Project slide order is invalid.");
-  }
-  if (value.presenterAssetId !== null && !isSafeAssetId(value.presenterAssetId)) {
-    throw new Error("Project presenter reference is invalid.");
-  }
-  if (!Array.isArray(value.descriptors) || value.descriptors.length > MAX_SLIDES + 1) {
-    throw new Error("Project media descriptors are missing or exceed this version's limit.");
-  }
-  const descriptors = value.descriptors.filter((entry): entry is StoredAssetDescriptor => (
-    isRecord(entry)
-    && isSafeAssetId(entry.id)
-    && typeof entry.name === "string"
-    && entry.name.length > 0
-    && entry.name.length <= 512
-    && (entry.kind === "image" || entry.kind === "video")
-    && typeof entry.mimeType === "string"
-    && entry.mimeType.length > 0
-    && entry.mimeType.length <= 256
-    && entry.mimeType.startsWith(`${entry.kind}/`)
-    && isPositiveDimension(entry.width)
-    && isPositiveDimension(entry.height)
-    && (entry.duration === undefined || (typeof entry.duration === "number" && Number.isFinite(entry.duration) && entry.duration > 0 && entry.duration <= 86_400))
-    && typeof entry.hash === "string"
-    && /^[a-f0-9]{64}$/.test(entry.hash)
-    && (entry.demo === undefined || typeof entry.demo === "boolean")
-  ));
-  if (
-    descriptors.length !== value.descriptors.length
-    || new Set(descriptors.map((descriptor) => descriptor.id)).size !== descriptors.length
-  ) throw new Error("Project contains an invalid or duplicate media descriptor.");
-  return {
-    settings: validateStudioSettings(value.settings),
-    slideAssetIds: [...value.slideAssetIds],
-    presenterAssetId: value.presenterAssetId,
-    descriptors,
-  };
+function makeLocalProjectId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
+  return `project-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function describeAsset(asset: StudioAsset): StoredAssetDescriptor {
-  const descriptor: StoredAssetDescriptor = {
+function describeProjectAsset(asset: StudioAsset): AssetDescriptor {
+  if (!asset.hash || !/^[a-f0-9]{64}$/u.test(asset.hash)) {
+    throw new Error(`${asset.name} has no verified SHA-256 identity.`);
+  }
+  const descriptor: AssetDescriptor = {
     id: asset.id,
     name: asset.name,
     kind: asset.kind,
     mimeType: asset.mimeType,
+    hash: asset.hash,
+    byteLength: asset.blob.size,
     width: asset.width,
     height: asset.height,
-    hash: asset.hash ?? "",
   };
   if (asset.duration !== undefined) descriptor.duration = asset.duration;
-  if (asset.demo) descriptor.demo = true;
   return descriptor;
-}
-
-function makePayload(
-  settings: StudioSettings,
-  assets: StudioAsset[],
-  presenter: StudioAsset | null,
-): StudioProjectPayload {
-  const allAssets = presenter ? [...assets, presenter] : assets;
-  return {
-    settings: cloneSettings(settings),
-    slideAssetIds: assets.map((asset) => asset.id),
-    presenterAssetId: presenter?.id ?? null,
-    descriptors: allAssets.map(describeAsset),
-  };
 }
 
 async function downloadBlob(blob: Blob, filename: string): Promise<void> {
@@ -219,13 +157,13 @@ function encoderProgress(progress: EncoderProgress): ExportProgress {
 
 async function assetFromSnapshot(
   entry: ProjectSnapshot<StudioProjectPayload>["assets"][number],
-  descriptor: StoredAssetDescriptor,
+  descriptor: AssetDescriptor,
 ): Promise<StudioAsset> {
   const file = new File([entry.blob], descriptor.name, { type: descriptor.mimeType || entry.type });
   const asset = descriptor.kind === "video"
     ? await videoFileToAsset(file, descriptor.id)
     : await imageFileToAsset(file, descriptor.id);
-  return { ...asset, hash: entry.sha256, demo: descriptor.demo === true };
+  return { ...asset, hash: entry.sha256 };
 }
 
 export function App() {
@@ -237,6 +175,11 @@ export function App() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
+  const projectRef = useRef<DriftProjectV3 | null>(null);
+  if (projectRef.current === null) {
+    const now = new Date().toISOString();
+    projectRef.current = createDefaultDriftProject(makeLocalProjectId(), now);
+  }
   const identityRef = useRef<ProjectIdentity | null>(null);
   const recoverySnapshotRef = useRef<ProjectSnapshot<StudioProjectPayload> | null>(null);
   const hydratedRef = useRef(false);
@@ -309,28 +252,30 @@ export function App() {
   }, [announce]);
 
   const replaceProjectState = useCallback(async (snapshot: ProjectSnapshot<StudioProjectPayload>) => {
-    if (snapshot.manifest.engineVersion !== ENGINE_VERSION) {
-      throw new Error(`Project engine ${snapshot.manifest.engineVersion} is not supported by ${ENGINE_VERSION}.`);
+    const parsed = parseStudioProjectPayload(snapshot.payload, {
+      projectId: snapshot.manifest.projectId,
+      createdAt: snapshot.manifest.createdAt,
+      updatedAt: snapshot.manifest.updatedAt,
+      assets: snapshot.assets.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        type: entry.type,
+        size: entry.size,
+        sha256: entry.sha256,
+      })),
+    });
+    if (parsed.sourceFormat === "legacy-studio-v1") {
+      if (snapshot.manifest.engineVersion !== ENGINE_VERSION) {
+        throw new Error(`Legacy project engine ${snapshot.manifest.engineVersion} is not supported by ${ENGINE_VERSION}.`);
+      }
+      if (snapshot.manifest.themeVersion !== THEME_VERSION) {
+        throw new Error(`Legacy project theme library ${snapshot.manifest.themeVersion} is not supported by ${THEME_VERSION}.`);
+      }
     }
-    if (snapshot.manifest.themeVersion !== THEME_VERSION) {
-      throw new Error(`Project theme library ${snapshot.manifest.themeVersion} is not supported by ${THEME_VERSION}.`);
-    }
-    const payload = parsePayload(snapshot.payload);
-    const descriptorById = new Map(payload.descriptors.map((descriptor) => [descriptor.id, descriptor]));
-    const entryById = new Map(snapshot.assets.map((entry) => [entry.id, entry]));
-    if (
-      descriptorById.size !== snapshot.assets.length
-      || entryById.size !== snapshot.assets.length
-      || payload.descriptors.some((descriptor) => {
-        const entry = entryById.get(descriptor.id);
-        return !entry
-          || entry.name !== descriptor.name
-          || entry.type !== descriptor.mimeType
-          || entry.sha256 !== descriptor.hash;
-      })
-    ) {
-      throw new Error("Project media metadata does not match its verified asset manifest.");
-    }
+
+    const project = parsed.project;
+    const projectedSettings = studioSettingsFromDriftProject(project);
+    const descriptorById = new Map(Object.entries(project.media.assets));
     const restored: StudioAsset[] = [];
     try {
       for (const entry of snapshot.assets) {
@@ -342,10 +287,11 @@ export function App() {
       restored.forEach(disposeAsset);
       throw error;
     }
+
     const restoredById = new Map(restored.map((asset) => [asset.id, asset]));
-    const slides = payload.slideAssetIds.map((id) => restoredById.get(id)).filter((asset): asset is StudioAsset => Boolean(asset));
+    const slides = project.media.order.map((id) => restoredById.get(id)).filter((asset): asset is StudioAsset => Boolean(asset));
     if (
-      slides.length !== payload.slideAssetIds.length
+      slides.length !== project.media.order.length
       || slides.some((asset) => {
         const descriptor = descriptorById.get(asset.id);
         return asset.kind !== "image"
@@ -357,7 +303,8 @@ export function App() {
       restored.forEach(disposeAsset);
       throw new Error("Project slide order references missing or non-image media.");
     }
-    const nextPresenter = payload.presenterAssetId ? restoredById.get(payload.presenterAssetId) ?? null : null;
+    const presenterId = project.media.presenterAssetId;
+    const nextPresenter = presenterId ? restoredById.get(presenterId) ?? null : null;
     if (nextPresenter) {
       const descriptor = descriptorById.get(nextPresenter.id);
       if (
@@ -370,28 +317,21 @@ export function App() {
         throw new Error("Project presenter slot references invalid video media.");
       }
     }
-    const consumedIds = new Set([...payload.slideAssetIds, ...(payload.presenterAssetId ? [payload.presenterAssetId] : [])]);
-    if (consumedIds.size !== restored.length) {
-      restored.forEach(disposeAsset);
-      throw new Error("Project contains unreferenced or conflicting media.");
-    }
-    if (payload.settings.presenter.assetId && !restoredById.has(payload.settings.presenter.assetId)) {
-      restored.forEach(disposeAsset);
-      throw new Error("Project pinned-frame settings reference missing media.");
-    }
+
     const previousAssets = assetsRef.current;
     const previousPresenter = presenterRef.current;
     previousAssets.forEach(disposeAsset);
     if (previousPresenter) disposeAsset(previousPresenter);
-    settingsRef.current = payload.settings;
+    projectRef.current = project;
+    settingsRef.current = projectedSettings;
     assetsRef.current = slides;
     presenterRef.current = nextPresenter;
-    setSettings(payload.settings);
+    setSettings(projectedSettings);
     setAssets(slides);
     setPresenter(nextPresenter);
     identityRef.current = {
-      projectId: snapshot.manifest.projectId,
-      createdAt: snapshot.manifest.createdAt,
+      projectId: project.projectId,
+      createdAt: project.createdAt,
     };
   }, []);
 
@@ -403,26 +343,34 @@ export function App() {
   ) => {
     const revision = reservedRevision ?? ++saveRevisionRef.current;
     setSaveState("saving");
-    const payload = makePayload(nextSettings, nextAssets, nextPresenter);
-    const projectAssets = [...nextAssets, ...(nextPresenter ? [nextPresenter] : [])].map((asset) => ({
-        id: asset.id,
-        name: asset.name,
-        blob: asset.blob,
-      }));
     const updatedAt = new Date().toISOString();
+    const baseProject = projectRef.current ?? createDefaultDriftProject(makeLocalProjectId(), updatedAt);
+    const nextProject = reconcileStudioProject({
+      project: baseProject,
+      settings: nextSettings,
+      slideAssets: nextAssets.map(describeProjectAsset),
+      presenterAsset: nextPresenter ? describeProjectAsset(nextPresenter) : null,
+      updatedAt,
+    });
+    projectRef.current = nextProject;
+    const payload = createDriftProjectPayload(nextProject);
+    const projectAssets = [...nextAssets, ...(nextPresenter ? [nextPresenter] : [])].map((asset) => ({
+      id: asset.id,
+      name: asset.name,
+      blob: asset.blob,
+    }));
 
     const task = saveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        const identity = identityRef.current;
         const snapshot = await saveProject({
           payload,
           assets: projectAssets,
           engineVersion: ENGINE_VERSION,
           themeVersion: THEME_VERSION,
-          projectId: identity?.projectId,
-          createdAt: identity?.createdAt,
-          updatedAt,
+          projectId: nextProject.projectId,
+          createdAt: nextProject.createdAt,
+          updatedAt: nextProject.updatedAt,
         });
         identityRef.current = {
           projectId: snapshot.manifest.projectId,
@@ -452,7 +400,7 @@ export function App() {
         if (cancelled) return;
         if (saved) {
           await replaceProjectState(saved);
-          if (!cancelled) announce("Local project reopened with verified media.", "good");
+          if (!cancelled) announce("Local project reopened with verified Project V3 media.", "good");
         } else {
           const demo = await createDemoSlides();
           if (cancelled) {
@@ -551,11 +499,11 @@ export function App() {
   useEffect(() => {
     let live = true;
     void import("./lib/exportStudio").then(({ probeExportCapabilities }) => probeExportCapabilities({
-        width: settings.output.width,
-        height: settings.output.height,
-        fps: settings.output.fps,
-        duration: settings.output.duration,
-      }))
+      width: settings.output.width,
+      height: settings.output.height,
+      fps: settings.output.fps,
+      duration: settings.output.duration,
+    }))
       .then((report) => live && setMp4Supported(report.mp4.supported))
       .catch(() => live && setMp4Supported(false));
     return () => { live = false; };
@@ -911,7 +859,7 @@ export function App() {
       const snapshot = await persist();
       const blob = await exportProject(snapshot);
       await downloadBlob(blob, `drift-project-${timestampSlug()}.pitched`);
-      announce("Portable project saved with original media and SHA-256 manifest.", "good");
+      announce("Portable Project V3 saved with original media and SHA-256 manifest.", "good");
     } catch (error) {
       announce(isAbortError(error) ? "Portable project save canceled." : error instanceof Error ? error.message : "Portable project could not be saved.", isAbortError(error) ? "quiet" : "error");
     }
@@ -924,25 +872,39 @@ export function App() {
   const openPortableProjectFile = useCallback(async (file: File) => {
     try {
       const verified = await importProject<StudioProjectPayload>(file);
-      const payload = parsePayload(verified.payload);
       const wasHydrated = hydratedRef.current;
       const previous = wasHydrated
         ? await persist()
-        : await createProjectBundle({
-            payload: makePayload(settingsRef.current, assetsRef.current, presenterRef.current),
-            assets: [...assetsRef.current, ...(presenterRef.current ? [presenterRef.current] : [])].map((asset) => ({
-              id: asset.id,
-              name: asset.name,
-              blob: asset.blob,
-            })),
-            engineVersion: ENGINE_VERSION,
-            themeVersion: THEME_VERSION,
-          });
+        : await (() => {
+            const updatedAt = new Date().toISOString();
+            const baseProject = projectRef.current ?? createDefaultDriftProject(makeLocalProjectId(), updatedAt);
+            const project = reconcileStudioProject({
+              project: baseProject,
+              settings: settingsRef.current,
+              slideAssets: assetsRef.current.map(describeProjectAsset),
+              presenterAsset: presenterRef.current ? describeProjectAsset(presenterRef.current) : null,
+              updatedAt,
+            });
+            projectRef.current = project;
+            return createProjectBundle({
+              payload: createDriftProjectPayload(project),
+              assets: [...assetsRef.current, ...(presenterRef.current ? [presenterRef.current] : [])].map((asset) => ({
+                id: asset.id,
+                name: asset.name,
+                blob: asset.blob,
+              })),
+              engineVersion: ENGINE_VERSION,
+              themeVersion: THEME_VERSION,
+              projectId: project.projectId,
+              createdAt: project.createdAt,
+              updatedAt: project.updatedAt,
+            });
+          })();
       let replaced = false;
       try {
-        await replaceProjectState({ ...verified, payload, manifest: { ...verified.manifest, payload } });
+        await replaceProjectState(verified);
         replaced = true;
-        const saved = await persist(payload.settings, assetsRef.current, presenterRef.current);
+        const saved = await persist();
         identityRef.current = { projectId: saved.manifest.projectId, createdAt: saved.manifest.createdAt };
         hydratedRef.current = true;
         recoverySnapshotRef.current = null;
@@ -960,7 +922,7 @@ export function App() {
         }
         throw error;
       }
-      announce("Portable project verified, opened, and copied into local storage.", "good");
+      announce("Portable project verified, migrated when necessary, and copied into local Project V3 storage.", "good");
     } catch (error) {
       announce(error instanceof Error ? `Project rejected: ${error.message}` : "Project was rejected.", "error");
     }
