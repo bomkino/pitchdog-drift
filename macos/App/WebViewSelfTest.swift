@@ -7,14 +7,17 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     private var window: NSWindow?
     private var webView: WKWebView?
     private var bridge: NativeBridgeHost?
+    private var activeDocumentTicket: NativeDocumentTicket?
     private var finished = false
     private var failure: String?
     private var startedNavigation = false
     private var committedNavigation = false
     private var finishedNavigation = false
+    private var documentAuthorityDelivered = false
     private var contentProcessTerminationCount = 0
     private var webKitFileInputVerified = false
     private var lastProbe = "no probe completed"
+    private var bootDiagnostics = "none"
 
     private init(receiptName: String?) {
         self.receiptName = receiptName
@@ -23,14 +26,9 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
 
     static func run(receiptName: String? = nil) -> Int32 {
         let application = NSApplication.shared
-        // A WKWebView media/GPU process is not faithfully exercised under the
-        // prohibited activation policy used by command-line-only tools. The
-        // real app is regular; accessory gives the self-test a real WindowServer
-        // lifecycle without adding a second Dock application.
         application.setActivationPolicy(.accessory)
         application.finishLaunching()
-        let harness = WebViewSelfTest(receiptName: receiptName)
-        return harness.execute()
+        return WebViewSelfTest(receiptName: receiptName).execute()
     }
 
     private func execute() -> Int32 {
@@ -46,6 +44,15 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.suppressesIncrementalRendering = false
+
+        // Capture boot failures before the signed application script runs. The
+        // receipt is deliberately bounded and contains no project or file data.
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.bootDiagnosticSource,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true,
+            in: .page
+        ))
         configuration.userContentController.addUserScript(WKUserScript(
             source: bridgeSource,
             injectionTime: .atDocumentStart,
@@ -70,11 +77,6 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         bridge.webView = webView
         self.webView = webView
 
-        // Keep the compositor honest. The previous test placed a 1%-opaque
-        // borderless window 12,000 points off-screen. Hosted WebKit terminated
-        // that content process even though the same bundle, signature, native
-        // bridge, and file broker had already passed. CI has no human viewer;
-        // use a normal visible window and test the lifecycle users actually get.
         let window = NSWindow(
             contentRect: NSRect(x: 80, y: 80, width: 1200, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -92,7 +94,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
 
         let deadline = Date().addingTimeInterval(70)
         while !finished && Date() < deadline {
-            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
         }
 
         let state = bridge.clientState
@@ -109,7 +111,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             return failReceipt("the packaged WebKit input round-trip never completed; \(diagnostic)", state: state)
         }
 
-        let message = "relative bundle assets, React studio, installed typed app contract, authoritative state, native-menu command dispatch, WebKit DataTransfer file ingestion, direct native save, and file-system polyfills loaded"
+        let message = "relative classic-IIFE bundle, native-issued document authority, React studio, installed typed app contract, authoritative state, native-menu command dispatch, WebKit DataTransfer file ingestion, direct native save, and file-system polyfills loaded"
         writeReceipt(ok: true, message: message, state: state)
         print("Drift WebView self-test passed: \(message).")
         return 0
@@ -121,6 +123,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         window: NSWindow,
         bridge: NativeBridgeHost
     ) {
+        bridge.invalidateDocument()
         webView.stopLoading()
         webView.navigationDelegate = nil
         window.orderOut(nil)
@@ -129,11 +132,10 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             forName: driftBridgeName,
             contentWorld: .page
         )
-        bridge.abortAllWrites()
     }
 
     private func diagnosticMessage(webView: WKWebView, state: ClientState) -> String {
-        "started=\(startedNavigation), committed=\(committedNavigation), finishedNavigation=\(finishedNavigation), contentProcessTerminations=\(contentProcessTerminationCount), webKitFileInputVerified=\(webKitFileInputVerified), isLoading=\(webView.isLoading), url=\(webView.url?.absoluteString ?? "nil"), saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), lastProbe=\(lastProbe)"
+        "started=\(startedNavigation), committed=\(committedNavigation), finishedNavigation=\(finishedNavigation), documentAuthorityDelivered=\(documentAuthorityDelivered), nativeDocumentActive=\(bridge?.hasActiveDocument == true), contentProcessTerminations=\(contentProcessTerminationCount), webKitFileInputVerified=\(webKitFileInputVerified), isLoading=\(webView.isLoading), url=\(webView.url?.absoluteString ?? "nil"), saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), bootDiagnostics=\(bootDiagnostics), lastProbe=\(lastProbe)"
     }
 
     private func failReceipt(_ message: String, state: ClientState = ClientState()) -> Int32 {
@@ -160,7 +162,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent(receiptName, isDirectory: false)
             let receipt: [String: Any] = [
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "ok": ok,
                 "message": message,
                 "bundleIdentifier": Bundle.main.bundleIdentifier ?? NSNull(),
@@ -169,12 +171,15 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 "startedNavigation": startedNavigation,
                 "committedNavigation": committedNavigation,
                 "finishedNavigation": finishedNavigation,
+                "documentAuthorityDelivered": documentAuthorityDelivered,
+                "nativeDocumentActive": bridge?.hasActiveDocument == true,
                 "contentProcessTerminationCount": contentProcessTerminationCount,
                 "webKitFileInputVerified": webKitFileInputVerified,
                 "saveState": state.saveState,
                 "projectBusy": state.projectBusy,
                 "exportInProgress": state.exportInProgress,
                 "lastNotice": state.lastNotice ?? NSNull(),
+                "bootDiagnostics": bootDiagnostics,
                 "lastProbe": lastProbe,
             ]
             let data = try JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted, .sortedKeys])
@@ -185,56 +190,113 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        bridge?.invalidateDocument()
+        activeDocumentTicket = nil
+        documentAuthorityDelivered = false
         startedNavigation = true
+        committedNavigation = false
+        finishedNavigation = false
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         committedNavigation = true
+        guard let bridge else {
+            failure = "native bridge disappeared before document commit"
+            finished = true
+            return
+        }
+
+        let ticket: NativeDocumentTicket
+        do {
+            ticket = try bridge.prepareDocumentBootstrap()
+        } catch {
+            failure = "native document bootstrap preparation failed: \(error.localizedDescription)"
+            finished = true
+            return
+        }
+        activeDocumentTicket = ticket
+
+        webView.callAsyncJavaScript(
+            "return window.__driftNativeAuthorizeDocument(documentNonce);",
+            arguments: ["documentNonce": ticket.nonceString],
+            in: nil,
+            contentWorld: .page
+        ) { [weak self, weak bridge] result in
+            DispatchQueue.main.async {
+                guard let self, !self.finished, let bridge,
+                      self.activeDocumentTicket == ticket,
+                      bridge.isPreparedOrCurrentDocument(ticket) else { return }
+                switch result {
+                case .success(let value):
+                    let accepted = (value as? Bool) ?? (value as? NSNumber)?.boolValue
+                    guard accepted == true else {
+                        self.failure = "the signed document rejected its native-issued generation token"
+                        self.finished = true
+                        return
+                    }
+                    self.documentAuthorityDelivered = true
+                    if self.finishedNavigation {
+                        self.pollRuntime(in: webView, attemptsRemaining: 300)
+                    }
+                case .failure(let error):
+                    self.failure = "native document authorization failed: \(error.localizedDescription)"
+                    self.finished = true
+                }
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         finishedNavigation = true
-        pollRuntime(in: webView, attemptsRemaining: 300)
+        if documentAuthorityDelivered {
+            pollRuntime(in: webView, attemptsRemaining: 300)
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        bridge?.invalidateDocument()
         failure = "navigation failed: \(error.localizedDescription)"
         finished = true
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        bridge?.invalidateDocument()
         failure = "provisional navigation failed: \(error.localizedDescription)"
         finished = true
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         contentProcessTerminationCount += 1
+        bridge?.invalidateDocument()
+        activeDocumentTicket = nil
+        documentAuthorityDelivered = false
         guard contentProcessTerminationCount == 1 else {
             failure = "the WebKit content process terminated twice during the packaged-runtime test"
             finished = true
             return
         }
 
-        // The production app exposes an explicit reload recovery after a WebKit
-        // process loss. Exercise that promise once. A second termination is a
-        // hard failure rather than an infinite green-by-retry loop.
         startedNavigation = false
         committedNavigation = false
         finishedNavigation = false
         webKitFileInputVerified = false
         lastProbe = "content process terminated once; testing reload recovery"
-        bridge?.abortAllWrites()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             webView.reload()
         }
     }
 
     private func pollRuntime(in webView: WKWebView, attemptsRemaining: Int) {
+        guard documentAuthorityDelivered,
+              let ticket = activeDocumentTicket,
+              bridge?.isPreparedOrCurrentDocument(ticket) == true else { return }
         let probe = """
         (() => ({
           hasApp: Boolean(document.querySelector('main.app')),
           hasCanvas: Boolean(document.querySelector('canvas')),
           hasNativeMarker: window.__DRIFT_NATIVE_MAC__?.bridgeVersion === 2,
+          hasNativeDocumentAuthority: window.__DRIFT_NATIVE_MAC__?.documentAuthority === 'native-issued',
+          hasAuthorizeFunction: typeof window.__driftNativeAuthorizeDocument === 'function',
           hasSavePicker: typeof window.showSaveFilePicker === 'function',
           hasDirectoryPicker: typeof window.showDirectoryPicker === 'function',
           hasOpenPicker: typeof window.showOpenFilePicker === 'function',
@@ -246,6 +308,12 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
           hasNativeFileInputBridge: document.documentElement.dataset.driftNativeFileInputBridge === 'ready',
           focusState: document.querySelector('main.app')?.dataset.focus ?? null,
           isFileRuntime: location.protocol === 'file:',
+          bootstrap: document.documentElement.dataset.driftBootstrap ?? null,
+          scripts: Array.from(document.scripts).map((script) => ({
+            src: script.src ? script.src.split('/').pop() : 'inline',
+            type: script.type || 'classic'
+          })).slice(0, 8),
+          bootDiagnostics: window.__driftBootDiagnostics ?? null,
           title: document.title,
           readyState: document.readyState
         }))()
@@ -259,12 +327,17 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             }
 
             let values = result as? [String: Any] ?? [:]
-            self.lastProbe = String(describing: values)
+            if let diagnostics = values["bootDiagnostics"] {
+                self.bootDiagnostics = Self.boundedDescription(diagnostics, maximum: 4_096)
+            }
+            self.lastProbe = Self.boundedDescription(values, maximum: 8_192)
             let state = self.bridge?.clientState ?? ClientState()
             let structureReady =
                 values["hasApp"] as? Bool == true
                 && values["hasCanvas"] as? Bool == true
                 && values["hasNativeMarker"] as? Bool == true
+                && values["hasNativeDocumentAuthority"] as? Bool == true
+                && values["hasAuthorizeFunction"] as? Bool == true
                 && values["hasSavePicker"] as? Bool == true
                 && values["hasDirectoryPicker"] as? Bool == true
                 && values["hasOpenPicker"] as? Bool == true
@@ -275,12 +348,19 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 && values["hasInstalledAppBridge"] as? Bool == true
                 && values["hasNativeFileInputBridge"] as? Bool == true
                 && values["isFileRuntime"] as? Bool == true
+                && self.bridge?.isCurrentDocument(ticket) == true
             let stateReady = state.saveState == "saved"
                 && !state.projectBusy
                 && !state.exportInProgress
 
             if structureReady && stateReady {
-                self.testNativeCommandRoundTrip(in: webView, attemptsRemaining: 80)
+                self.testNativeCommandRoundTrip(in: webView, document: ticket, attemptsRemaining: 80)
+                return
+            }
+
+            if Self.hasBootFailure(values["bootDiagnostics"]) {
+                self.failure = "the signed application script failed before React became authoritative; diagnostics=\(self.bootDiagnostics)"
+                self.finished = true
                 return
             }
 
@@ -295,9 +375,23 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         }
     }
 
-    private func testNativeCommandRoundTrip(in webView: WKWebView, attemptsRemaining: Int) {
+    private func testNativeCommandRoundTrip(
+        in webView: WKWebView,
+        document: NativeDocumentTicket,
+        attemptsRemaining: Int
+    ) {
+        guard bridge?.isCurrentDocument(document) == true else {
+            failure = "document authority expired before native command verification"
+            finished = true
+            return
+        }
         webView.evaluateJavaScript("window.__driftNativeCommand?.('toggle-focus')") { [weak self, weak webView] _, error in
             guard let self, !self.finished else { return }
+            guard self.bridge?.isCurrentDocument(document) == true else {
+                self.failure = "document authority expired during native command verification"
+                self.finished = true
+                return
+            }
             if let error {
                 self.failure = "native command dispatch failed: \(error.localizedDescription)"
                 self.finished = true
@@ -308,11 +402,20 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 self.finished = true
                 return
             }
-            self.pollFocusState(in: webView, attemptsRemaining: attemptsRemaining)
+            self.pollFocusState(in: webView, document: document, attemptsRemaining: attemptsRemaining)
         }
     }
 
-    private func pollFocusState(in webView: WKWebView, attemptsRemaining: Int) {
+    private func pollFocusState(
+        in webView: WKWebView,
+        document: NativeDocumentTicket,
+        attemptsRemaining: Int
+    ) {
+        guard bridge?.isCurrentDocument(document) == true else {
+            failure = "document authority expired during focus-state verification"
+            finished = true
+            return
+        }
         webView.evaluateJavaScript("document.querySelector('main.app')?.dataset.focus === 'true'") { [weak self] result, error in
             guard let self, !self.finished else { return }
             if let error {
@@ -321,16 +424,19 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 return
             }
             if result as? Bool == true {
-                // Restore the default editor state before testing the exact
-                // DataTransfer path used by native File-menu imports.
                 webView.evaluateJavaScript("window.__driftNativeCommand?.('toggle-focus')") { [weak self, weak webView] _, restoreError in
                     guard let self, let webView else { return }
+                    guard self.bridge?.isCurrentDocument(document) == true else {
+                        self.failure = "document authority expired while restoring focus state"
+                        self.finished = true
+                        return
+                    }
                     if let restoreError {
                         self.failure = "native command restore failed: \(restoreError.localizedDescription)"
                         self.finished = true
                         return
                     }
-                    self.testWebKitFileInputRoundTrip(in: webView)
+                    self.testWebKitFileInputRoundTrip(in: webView, document: document)
                 }
                 return
             }
@@ -340,19 +446,22 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                self.pollFocusState(in: webView, attemptsRemaining: attemptsRemaining - 1)
+                self.pollFocusState(in: webView, document: document, attemptsRemaining: attemptsRemaining - 1)
             }
         }
     }
 
-    private func testWebKitFileInputRoundTrip(in webView: WKWebView) {
+    private func testWebKitFileInputRoundTrip(in webView: WKWebView, document: NativeDocumentTicket) {
+        guard bridge?.isCurrentDocument(document) == true else {
+            failure = "document authority expired before file-input verification"
+            finished = true
+            return
+        }
         let script = """
         (() => {
           const input = Array.from(document.querySelectorAll('input[type="file"]'))
             .find((candidate) => candidate.multiple && candidate.accept.toLowerCase().includes('image/'));
-          if (!(input instanceof HTMLInputElement)) {
-            return { ok: false, reason: 'slide input missing' };
-          }
+          if (!(input instanceof HTMLInputElement)) return { ok: false, reason: 'slide input missing' };
           if (typeof DataTransfer !== 'function' || typeof File !== 'function') {
             return { ok: false, reason: 'DataTransfer or File unavailable' };
           }
@@ -372,6 +481,11 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         """
         webView.evaluateJavaScript(script) { [weak self, weak webView] result, error in
             guard let self, !self.finished else { return }
+            guard self.bridge?.isCurrentDocument(document) == true else {
+                self.failure = "document authority expired during file-input verification"
+                self.finished = true
+                return
+            }
             if let error {
                 self.failure = "WKWebView file-input injection failed: \(error.localizedDescription)"
                 self.finished = true
@@ -387,15 +501,26 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 return
             }
             self.lastProbe = "WKWebView DataTransfer dispatched from asset count \(before): \(String(describing: values))"
-            self.pollWebKitFileInputResult(in: webView, expectedCount: before + 1, attemptsRemaining: 200)
+            self.pollWebKitFileInputResult(
+                in: webView,
+                document: document,
+                expectedCount: before + 1,
+                attemptsRemaining: 200
+            )
         }
     }
 
     private func pollWebKitFileInputResult(
         in webView: WKWebView,
+        document: NativeDocumentTicket,
         expectedCount: Int,
         attemptsRemaining: Int
     ) {
+        guard bridge?.isCurrentDocument(document) == true else {
+            failure = "document authority expired during file-input result verification"
+            finished = true
+            return
+        }
         let probe = """
         (() => ({
           count: document.querySelectorAll('.asset-list li').length,
@@ -435,10 +560,62 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.pollWebKitFileInputResult(
                     in: webView,
+                    document: document,
                     expectedCount: expectedCount,
                     attemptsRemaining: attemptsRemaining - 1
                 )
             }
         }
+    }
+
+    private static let bootDiagnosticSource = """
+    (() => {
+      const clamp = (value, maximum = 600) => String(value ?? '').slice(0, maximum);
+      const diagnostics = {
+        errors: [],
+        rejections: [],
+        consoleErrors: [],
+        startedAt: Date.now()
+      };
+      Object.defineProperty(window, '__driftBootDiagnostics', {
+        configurable: false,
+        writable: false,
+        value: diagnostics
+      });
+      addEventListener('error', (event) => {
+        if (diagnostics.errors.length >= 8) return;
+        diagnostics.errors.push({
+          message: clamp(event.message),
+          source: clamp(event.filename?.split('/').pop() ?? ''),
+          line: Number(event.lineno || 0),
+          column: Number(event.colno || 0),
+          error: clamp(event.error?.stack || event.error?.message || '')
+        });
+      }, true);
+      addEventListener('unhandledrejection', (event) => {
+        if (diagnostics.rejections.length >= 8) return;
+        diagnostics.rejections.push(clamp(event.reason?.stack || event.reason?.message || event.reason));
+      });
+      const originalError = console.error.bind(console);
+      console.error = (...values) => {
+        if (diagnostics.consoleErrors.length < 8) {
+          diagnostics.consoleErrors.push(clamp(values.map((value) => value?.stack || value?.message || value).join(' ')));
+        }
+        originalError(...values);
+      };
+    })();
+    """
+
+    private static func boundedDescription(_ value: Any, maximum: Int) -> String {
+        let description = String(describing: value)
+        return String(description.prefix(maximum))
+    }
+
+    private static func hasBootFailure(_ value: Any?) -> Bool {
+        guard let diagnostics = value as? [String: Any] else { return false }
+        let errors = diagnostics["errors"] as? [Any] ?? []
+        let rejections = diagnostics["rejections"] as? [Any] ?? []
+        let consoleErrors = diagnostics["consoleErrors"] as? [Any] ?? []
+        return !errors.isEmpty || !rejections.isEmpty || !consoleErrors.isEmpty
     }
 }

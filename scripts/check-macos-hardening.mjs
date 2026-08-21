@@ -69,32 +69,61 @@ forbidMarkers("macos/App/NativeFileBroker.swift", [
   "try fileManager.removeItem(at: fileURL)\n        fileGrants = fileGrants.filter",
 ]);
 
+const session = requireMarkers("macos/App/NativeDocumentSession.swift", [
+  "private var pendingBootstrap: NativeDocumentTicket?",
+  "func prepareBootstrap() throws -> NativeDocumentTicket",
+  "func claimBootstrap(rawNonce: String) throws -> NativeDocumentTicket",
+  "That bootstrap token was not issued to the currently committed Drift document.",
+  "func validateMessage(rawNonce: String) throws -> NativeDocumentTicket",
+  "func beginPanel(",
+  "cancelActivePanel()",
+  "func isPreparedOrCurrent(",
+  "func invalidate()",
+  "An unissued document token unexpectedly bootstrapped.",
+  "A stale document reclaimed authority after replacement.",
+]);
+if ((session.match(/UUID\(\)/g) ?? []).length < 4) {
+  fail("document authority self-test and runtime must both exercise fresh native UUID generations");
+}
+forbidMarkers("macos/App/NativeDocumentSession.swift", [
+  "func claimBootstrap(rawNonce: String) throws -> NativeDocumentTicket {\n        precondition(Thread.isMainThread)\n        let nonce = try parseNonce(rawNonce)\n        cancelActivePanel()",
+]);
+
 const host = requireMarkers("macos/App/NativeBridgeHost.swift", [
-  "case \"runtime-info\":\n            resetCapabilitiesForDocumentBoot()",
-  "private func resetCapabilitiesForDocumentBoot()",
+  "private let documentSession = NativeDocumentSession()",
+  "let nonce = body[\"nonce\"] as? String",
+  "command == \"runtime-info\"",
+  "try documentSession.claimBootstrap(rawNonce: nonce)",
+  "try documentSession.validateMessage(rawNonce: nonce)",
+  "func prepareDocumentBootstrap() throws -> NativeDocumentTicket",
+  "resetCapabilitiesForDocumentBoot()",
+  "documentSession.prepareBootstrap()",
+  "func invalidateDocument()",
+  "documentSession.invalidate()",
   "broker.abortAll()",
   "aacBroker.closeAll()",
   "inputIntent = nil",
   "clientState = ClientState()",
-  "only React may unlock the",
-  "This covers manual reload",
+  "documentAuthority\": \"native-issued",
+  "beginAuthorizedPanel(",
+  "documentSession.beginPanel(for: document)",
+  "documentSession.finishPanel(ticket)",
+  "guard self.documentSession.isCurrent(document) else",
+  "self.releaseFileDescriptors(descriptors)",
+  "self.releaseDirectoryGrant(token)",
   "clientState.reserveExternalProjectImport()",
   "releaseExternalProjectReservationIfNeeded",
   "Project is still busy",
   "Project could not be delivered",
-  "completion: ((Error?) -> Void)? = nil",
-  "let descriptorToken = descriptor[\"token\"] as? String",
-  "releaseFileGrant(descriptorToken)",
-  "private func releaseFileGrant(_ token: String?)",
-  "var descriptors: [JSONDictionary] = []",
-  "for descriptor in descriptors",
-  "self.broker.releaseFile([\"token\": token])",
+  "document: NativeDocumentTicket",
+  "The native callback completed after its Drift document was replaced.",
 ]);
 forbidMarkers("macos/App/NativeBridgeHost.swift", [
+  "case \"runtime-info\":\n            resetCapabilitiesForDocumentBoot()",
   "let descriptors = try urls.map { try self.broker.registerFile($0, mode: .readOnly) }",
 ]);
 const resetStart = host.indexOf("private func resetCapabilitiesForDocumentBoot()");
-const resetEnd = host.indexOf("private func runtimeInfo()", resetStart);
+const resetEnd = host.indexOf("private func runtimeInfo", resetStart);
 const resetBody = host.slice(resetStart, resetEnd);
 for (const marker of ["exportActivityGuard.end()", "broker.abortAll()", "aacBroker.closeAll()", "inputIntent = nil", "clientState = ClientState()"]) {
   if (!resetBody.includes(marker)) fail(`document-boot reset lost ${JSON.stringify(marker)}`);
@@ -102,6 +131,83 @@ for (const marker of ["exportActivityGuard.end()", "broker.abortAll()", "aacBrok
 if (resetBody.includes("clientStateDidChange")) {
   fail("document-boot reset must not impersonate an authoritative React state report");
 }
+
+const delegate = requireMarkers("macos/App/DriftAppDelegate.swift", [
+  "private var activeDocumentTicket: NativeDocumentTicket?",
+  "private var activeWebKitPanelDocument: NativeDocumentTicket?",
+  "private var documentAuthorityDelivered = false",
+  "func webView(_ webView: WKWebView, didStartProvisionalNavigation",
+  "invalidateDocumentAuthority()",
+  "func webView(_ webView: WKWebView, didCommit navigation:",
+  "try bridge.prepareDocumentBootstrap()",
+  "window.__driftNativeAuthorizeDocument(documentNonce)",
+  "arguments: [\"documentNonce\": ticket.nonceString]",
+  "bridge.isPreparedOrCurrentDocument(ticket)",
+  "documentAuthorityDelivered = true",
+  "receivedAuthoritativeClientState",
+  "ticketCurrent",
+  "webRuntimeReady = webNavigationFinished",
+  "activeWebKitPanelDocument == document",
+  "bridge.isCurrentDocument(document)",
+  "Drift did not queue this project to replace your work later.",
+  "guard pendingProjectURLs.isEmpty else",
+  "pendingProjectURLs = [project]",
+  "pendingProjectURLs.removeAll()",
+  "let pending = pendingProjectURLs.first",
+  "webContentRecoveryPolicy.consumeAttempt()",
+  "The visual engine stopped twice",
+]);
+for (const method of [
+  "func webView(_ webView: WKWebView, didFail navigation:",
+  "func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation:",
+  "func webViewWebContentProcessDidTerminate",
+  "@objc private func reload(_ sender: Any?)",
+]) {
+  const start = delegate.indexOf(method);
+  if (start < 0) fail(`missing lifecycle method ${method}`);
+  const end = delegate.indexOf("\n    }", start);
+  const body = delegate.slice(start, end);
+  if (!body.includes("invalidateDocumentAuthority()")) {
+    fail(`${method} must invalidate native document authority before recovery or navigation`);
+  }
+}
+forbidMarkers("macos/App/DriftAppDelegate.swift", [
+  "crypto.randomUUID",
+  "activeDocumentTicket = NativeDocumentTicket(",
+]);
+
+const bridge = read("macos/NativeBridge.js");
+const runtimeBootCalls = bridge.match(/callNative\("runtime-info"\)/g) ?? [];
+if (runtimeBootCalls.length !== 1) {
+  fail(`NativeBridge.js must make exactly one runtime-info call per document; found ${runtimeBootCalls.length}`);
+}
+requireMarkers("macos/NativeBridge.js", [
+  "let documentNonce = null",
+  "const documentAuthorization = new Promise",
+  "function authorizeDocument(rawNonce)",
+  "documentNonce = rawNonce",
+  "await documentAuthorization",
+  "handler.postMessage({ command, payload, nonce: documentNonce })",
+  "__driftNativeAuthorizeDocument",
+  "documentAuthority: \"native-issued\"",
+  "const boot = () => {",
+  "runtime?.documentAuthority !== \"native-issued\"",
+  "document.addEventListener(\"DOMContentLoaded\", boot, { once: true })",
+]);
+forbidMarkers("macos/NativeBridge.js", [
+  "crypto.randomUUID",
+  "documentNonce = crypto",
+  "nonce: crypto",
+]);
+
+requireMarkers("src/lib/nativeMac.ts", [
+  "documentAuthority: \"native-issued\"",
+  "window.__DRIFT_NATIVE_MAC__.documentAuthority === \"native-issued\"",
+]);
+requireMarkers("tests/nativeMac.test.ts", [
+  "rejects a macOS marker without native-issued document authority",
+  "documentAuthority: \"native-issued\"",
+]);
 
 requireMarkers("macos/App/NativeModels.swift", [
   "mutating func reserveExternalProjectImport() -> Bool",
@@ -114,47 +220,6 @@ requireMarkers("macos/App/NativeModels.swift", [
 requireMarkers("macos/Probes/NativeGauntletMain.swift", [
   "external Finder project admission",
   "ClientState.runExternalProjectImportAdmissionSelfTest()",
-]);
-
-const appDelegate = requireMarkers("macos/App/DriftAppDelegate.swift", [
-  "Drift did not queue this project to replace your work later.",
-  "guard pendingProjectURLs.isEmpty else",
-  "pendingProjectURLs = [project]",
-  "pendingProjectURLs.removeAll()",
-  "let pending = pendingProjectURLs.first",
-  "nativeBridge?.abortAllWrites()\n        invalidateRecoveryStabilityWindow()",
-  "func webView(_ webView: WKWebView, didFail navigation:",
-  "func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation:",
-]);
-for (const method of [
-  "func webView(_ webView: WKWebView, didFail navigation:",
-  "func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation:",
-]) {
-  const start = appDelegate.indexOf(method);
-  const end = appDelegate.indexOf("\n    }", start);
-  const body = appDelegate.slice(start, end);
-  if (!body.includes("nativeBridge?.abortAllWrites()")) {
-    fail(`${method} must revoke native capabilities before reporting a failed navigation`);
-  }
-}
-const reloadStart = appDelegate.indexOf("@objc private func reload(_ sender: Any?)");
-const reloadEnd = appDelegate.indexOf("@objc private func openUserGuide", reloadStart);
-const reloadBody = appDelegate.slice(reloadStart, reloadEnd);
-if (!reloadBody.includes("nativeBridge?.abortAllWrites()") || !reloadBody.includes("webView?.reload()")) {
-  fail("manual reload lost its native cleanup or WebKit navigation");
-}
-if (reloadBody.indexOf("nativeBridge?.abortAllWrites()") > reloadBody.indexOf("webView?.reload()")) {
-  fail("manual reload must revoke native capabilities before WebKit navigates");
-}
-
-const bridge = read("macos/NativeBridge.js");
-const runtimeBootCalls = bridge.match(/callNative\("runtime-info"\)/g) ?? [];
-if (runtimeBootCalls.length !== 1) {
-  fail(`NativeBridge.js must make exactly one runtime-info call per document; found ${runtimeBootCalls.length}`);
-}
-requireMarkers("macos/NativeBridge.js", [
-  "const boot = () => {",
-  "document.addEventListener(\"DOMContentLoaded\", boot, { once: true })",
 ]);
 
 requireMarkers("src/components/NativeFileInputBridge.tsx", [
@@ -194,17 +259,32 @@ forbidMarkers("e2e/native-menu-import.e2e.ts", [
   "const decodablePng",
   "initialCount + 1",
 ]);
+
 requireMarkers("macos/App/WebViewSelfTest.swift", [
-  "private var webKitFileInputVerified = false",
+  "private var activeDocumentTicket: NativeDocumentTicket?",
+  "private var documentAuthorityDelivered = false",
+  "bridge?.invalidateDocument()",
+  "try bridge.prepareDocumentBootstrap()",
+  "window.__driftNativeAuthorizeDocument(documentNonce)",
+  "hasNativeDocumentAuthority",
+  "window.__DRIFT_NATIVE_MAC__?.documentAuthority === 'native-issued'",
+  "private static let bootDiagnosticSource",
+  "window.__driftBootDiagnostics",
+  "the signed application script failed before React became authoritative",
   "hasNativeFileInputBridge: document.documentElement.dataset.driftNativeFileInputBridge === 'ready'",
-  "testWebKitFileInputRoundTrip(in: webView)",
+  "testWebKitFileInputRoundTrip(in: webView, document: document)",
   "new File([bytes], 'wkwebview-input-probe.png'",
   "pollWebKitFileInputResult(",
   "WKWebView DataTransfer reached the hidden input but never produced one settled React asset",
-  "WebKit DataTransfer file ingestion",
-  "\"webKitFileInputVerified\": webKitFileInputVerified",
+  "native-issued document authority",
+  "\"documentAuthorityDelivered\": documentAuthorityDelivered",
+  "\"bootDiagnostics\": bootDiagnostics",
+]);
+forbidMarkers("macos/App/WebViewSelfTest.swift", [
+  "UUID().uuidString.lowercased()",
+  "window.crypto.randomUUID",
 ]);
 
 console.log(
-  "macOS hardening contract passed: sequence commits are exclusive; rollback is full-metadata-owned and preserves collisions, replacements, or in-place mutation; frame readback grants self-revoke; document boots, reloads, and failed navigations revoke capabilities; Finder projects cannot queue surprise replacement; native import grants are transactional; File-menu imports have static, unit, real-browser, and packaged-WKWebView evidence.",
+  "macOS hardening contract passed: sequence commits remain exclusive and rollback-owned; native-issued document generations bind messages, panels, broker replies, AAC, Finder imports, menu commands and packaged-runtime evidence; reload, failure and process termination revoke every capability before recovery.",
 );

@@ -29,7 +29,12 @@
   let statusHost = null;
   let appBridge = null;
   let appBridgeGeneration = 0;
+  let documentNonce = null;
+  let resolveDocumentAuthorization;
   const queuedImports = [];
+  const documentAuthorization = new Promise((resolve) => {
+    resolveDocumentAuthorization = resolve;
+  });
 
   function nativeError(raw) {
     const name = typeof raw?.name === "string" ? raw.name : "InvalidStateError";
@@ -39,10 +44,26 @@
     return new DOMException(message, name);
   }
 
+  function authorizeDocument(rawNonce) {
+    if (documentNonce !== null) {
+      throw new DOMException("This Drift document already claimed native authority.", "InvalidStateError");
+    }
+    if (
+      typeof rawNonce !== "string"
+      || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(rawNonce)
+    ) {
+      throw new DOMException("AppKit supplied an invalid document-generation token.", "SecurityError");
+    }
+    documentNonce = rawNonce;
+    resolveDocumentAuthorization();
+    return true;
+  }
+
   async function callNative(command, payload = {}) {
+    await documentAuthorization;
     let envelope;
     try {
-      envelope = await handler.postMessage({ command, payload });
+      envelope = await handler.postMessage({ command, payload, nonce: documentNonce });
     } catch (error) {
       throw error instanceof Error ? error : new DOMException(String(error), "InvalidStateError");
     }
@@ -632,6 +653,7 @@
       showSaveFilePicker: { configurable: true, writable: true, value: showSaveFilePicker },
       showDirectoryPicker: { configurable: true, writable: true, value: showDirectoryPicker },
       showOpenFilePicker: { configurable: true, writable: true, value: showOpenFilePicker },
+      __driftNativeAuthorizeDocument: { configurable: false, writable: false, value: authorizeDocument },
       __driftNativeSaveBlob: { configurable: false, writable: false, value: saveBlob },
       __driftNativeImportGranted: { configurable: false, writable: false, value: importGranted },
       __driftNativeCommand: { configurable: false, writable: false, value: nativeCommand },
@@ -644,6 +666,7 @@
           bridgeVersion: DRIFT_NATIVE_BRIDGE_VERSION,
           platform: "macOS",
           systemCodecsOnly: true,
+          documentAuthority: "native-issued",
         }),
       },
     });
@@ -662,6 +685,9 @@
   const boot = () => {
     ensureNativeStyle();
     void callNative("runtime-info").then((runtime) => {
+      if (runtime?.documentAuthority !== "native-issued") {
+        throw new DOMException("The native host did not confirm document authority.", "SecurityError");
+      }
       window.dispatchEvent(new CustomEvent("drift-native-ready", { detail: runtime }));
     }).catch((error) => {
       console.error("Drift native bridge failed to initialize", error);

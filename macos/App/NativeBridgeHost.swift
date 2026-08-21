@@ -17,6 +17,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
 
     private let broker = NativeFileBroker()
     private let aacBroker = NativeAacEncoderBroker()
+    private let documentSession = NativeDocumentSession()
     private let brokerQueue = DispatchQueue(label: "dog.pitch.drift.file-broker", qos: .userInitiated)
     private let trustedIndexURL = TrustedWebRuntime.bundledIndexURL()
     private let exportActivityGuard = ExportActivityGuard()
@@ -63,16 +64,26 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         guard let body = message.body as? JSONDictionary,
-              let command = body["command"] as? String else {
-            replyHandler(failureEnvelope(BridgeFailure("TypeError", "Native message is malformed.")), nil)
+              let command = body["command"] as? String,
+              let nonce = body["nonce"] as? String else {
+            replyHandler(failureEnvelope(BridgeFailure("TypeError", "Native message is malformed or has no document authority.")), nil)
             return
         }
         let payload = body["payload"] as? JSONDictionary ?? [:]
 
+        let document: NativeDocumentTicket
+        do {
+            document = command == "runtime-info"
+                ? try documentSession.claimBootstrap(rawNonce: nonce)
+                : try documentSession.validateMessage(rawNonce: nonce)
+        } catch {
+            replyHandler(failureEnvelope(error), nil)
+            return
+        }
+
         switch command {
         case "runtime-info":
-            resetCapabilitiesForDocumentBoot()
-            replyHandler(successEnvelope(runtimeInfo()), nil)
+            replyHandler(successEnvelope(runtimeInfo(document: document)), nil)
         case "client-state":
             clientState.update(from: payload)
             exportActivityGuard.update(isExporting: clientState.exportInProgress)
@@ -82,27 +93,53 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             recordInputIntent(payload)
             replyHandler(successEnvelope(["accepted": true]), nil)
         case "pick-save":
-            presentSavePanel(payload, replyHandler: replyHandler)
+            presentSavePanel(payload, document: document, replyHandler: replyHandler)
         case "pick-directory":
-            presentDirectoryPanel(replyHandler: replyHandler)
+            presentDirectoryPanel(document: document, replyHandler: replyHandler)
         case "pick-open-files":
-            presentOpenPanel(payload, replyHandler: replyHandler)
+            presentOpenPanel(payload, document: document, replyHandler: replyHandler)
         case "reveal-last-export":
             revealLastExport(replyHandler: replyHandler)
         case "write-open", "write-chunk", "write-truncate", "write-close", "write-abort",
              "file-info", "file-read", "file-release", "directory-get-file",
              "directory-remove-entry", "directory-release":
-            performBrokerCommand(command, payload: payload, replyHandler: replyHandler)
+            performBrokerCommand(command, payload: payload, document: document, replyHandler: replyHandler)
         case "aac-create", "aac-append", "aac-finish", "aac-close":
-            performAacCommand(command, payload: payload, replyHandler: replyHandler)
+            performAacCommand(command, payload: payload, document: document, replyHandler: replyHandler)
         default:
             replyHandler(failureEnvelope(BridgeFailure("NotSupportedError", "Unknown native command: \(command)")), nil)
         }
     }
 
+    func prepareDocumentBootstrap() throws -> NativeDocumentTicket {
+        precondition(Thread.isMainThread)
+        resetCapabilitiesForDocumentBoot()
+        return try documentSession.prepareBootstrap()
+    }
+
+    func isPreparedOrCurrentDocument(_ document: NativeDocumentTicket) -> Bool {
+        documentSession.isPreparedOrCurrent(document)
+    }
+
+    func isCurrentDocument(_ document: NativeDocumentTicket) -> Bool {
+        documentSession.isCurrent(document)
+    }
+
+    var hasActiveDocument: Bool {
+        documentSession.hasActiveDocument
+    }
+
+    func invalidateDocument() {
+        precondition(Thread.isMainThread)
+        documentSession.invalidate()
+        resetCapabilitiesForDocumentBoot()
+    }
+
     func currentInputIntent(defaultMultiple: Bool) -> (kind: DriftImportKind, accepts: [String], multiple: Bool) {
         defer { inputIntent = nil }
-        guard let intent = inputIntent, Date().timeIntervalSince(intent.recordedAt) <= 8 else {
+        guard documentSession.hasActiveDocument,
+              let intent = inputIntent,
+              Date().timeIntervalSince(intent.recordedAt) <= 8 else {
             return (defaultMultiple ? .slides : .project, [], defaultMultiple)
         }
         return (intent.kind, intent.accepts, intent.multiple)
@@ -159,6 +196,14 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     func importExternalFile(_ url: URL, kind: DriftImportKind) {
+        let document: NativeDocumentTicket
+        do {
+            document = try documentSession.currentTicket()
+        } catch {
+            presentError(error, title: "Studio is not ready")
+            return
+        }
+
         if kind == .project {
             guard clientState.reserveExternalProjectImport() else {
                 presentError(
@@ -184,9 +229,15 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                 let descriptor = try self.broker.registerFile(selected, mode: .readOnly)
                 let descriptorToken = descriptor["token"] as? String
                 DispatchQueue.main.async {
+                    guard self.documentSession.isCurrent(document) else {
+                        self.releaseFileGrant(descriptorToken)
+                        self.releaseExternalProjectReservationIfNeeded(kind)
+                        return
+                    }
                     self.invokeJavaScript(
                         function: "window.__driftNativeImportGranted",
-                        arguments: [descriptor, kind.rawValue]
+                        arguments: [descriptor, kind.rawValue],
+                        document: document
                     ) { [weak self] error in
                         guard let self, let error else { return }
                         self.releaseFileGrant(descriptorToken)
@@ -197,6 +248,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             } catch {
                 DispatchQueue.main.async {
                     self.releaseExternalProjectReservationIfNeeded(kind)
+                    guard self.documentSession.isCurrent(document) else { return }
                     self.presentError(error, title: "Project could not be opened")
                 }
             }
@@ -226,6 +278,19 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
+    private func releaseFileDescriptors(_ descriptors: [JSONDictionary]) {
+        for descriptor in descriptors {
+            releaseFileGrant(descriptor["token"] as? String)
+        }
+    }
+
+    private func releaseDirectoryGrant(_ token: String?) {
+        guard let token else { return }
+        brokerQueue.async { [weak self] in
+            _ = try? self?.broker.releaseDirectory(["token": token])
+        }
+    }
+
     private func releaseExternalProjectReservationIfNeeded(_ kind: DriftImportKind) {
         guard kind == .project else { return }
         clientState.releaseExternalProjectImportReservation()
@@ -233,12 +298,6 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     private func resetCapabilitiesForDocumentBoot() {
-        // NativeBridge.js calls runtime-info once for each new local document.
-        // Tear down capabilities from the previous WebContent process before
-        // acknowledging the replacement document. This covers manual reload,
-        // not only quit and process-termination callbacks. Do not emit the
-        // authoritative client-state callback here; only React may unlock the
-        // recovery budget and menus after its project store has settled.
         exportActivityGuard.end()
         brokerQueue.sync {
             broker.abortAll()
@@ -248,7 +307,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         clientState = ClientState()
     }
 
-    private func runtimeInfo() -> JSONDictionary {
+    private func runtimeInfo(document: NativeDocumentTicket) -> JSONDictionary {
         [
             "bridgeVersion": driftBridgeVersion,
             "platform": "macOS",
@@ -260,6 +319,8 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             "nativeAac": true,
             "nativeAacProvider": "AudioToolbox",
             "networkEntitlements": false,
+            "documentAuthority": "native-issued",
+            "documentEpoch": Int(document.epoch),
             "exportPowerAssertionActive": exportActivityGuard.isActive,
             "projectAssetLimitBytes": driftMaximumProjectAssetBytes,
             "projectTotalMediaLimitBytes": driftMaximumProjectTotalAssetBytes,
@@ -280,6 +341,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
 
     private func presentSavePanel(
         _ payload: JSONDictionary,
+        document: NativeDocumentTicket,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
         let panel = NSSavePanel()
@@ -298,7 +360,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         if !types.isEmpty { panel.allowedContentTypes = types }
         restorePanelDirectory(panel, key: "lastSaveDirectory")
 
-        begin(panel: panel) { [weak self] result in
+        beginAuthorizedPanel(panel, document: document, replyHandler: replyHandler) { [weak self] result in
             guard let self else { return }
             guard result == .OK, let url = panel.url else {
                 replyHandler(successEnvelope(["cancelled": true]), nil)
@@ -309,17 +371,34 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                 do {
                     let suppliedMime = stringArray(payload, "mimeTypes", maximum: 24).first
                     let descriptor = try self.broker.registerFile(url, mode: .readWrite, suppliedMimeType: suppliedMime)
+                    let token = descriptor["token"] as? String
                     var value = descriptor
                     value["cancelled"] = false
-                    DispatchQueue.main.async { replyHandler(successEnvelope(value), nil) }
+                    DispatchQueue.main.async {
+                        guard self.documentSession.isCurrent(document) else {
+                            self.releaseFileGrant(token)
+                            replyHandler(self.staleDocumentEnvelope(), nil)
+                            return
+                        }
+                        replyHandler(successEnvelope(value), nil)
+                    }
                 } catch {
-                    DispatchQueue.main.async { replyHandler(failureEnvelope(error), nil) }
+                    DispatchQueue.main.async {
+                        guard self.documentSession.isCurrent(document) else {
+                            replyHandler(self.staleDocumentEnvelope(), nil)
+                            return
+                        }
+                        replyHandler(failureEnvelope(error), nil)
+                    }
                 }
             }
         }
     }
 
-    private func presentDirectoryPanel(replyHandler: @escaping (Any?, String?) -> Void) {
+    private func presentDirectoryPanel(
+        document: NativeDocumentTicket,
+        replyHandler: @escaping (Any?, String?) -> Void
+    ) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -329,7 +408,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         panel.message = "Choose an empty folder for numbered PNG frames. Existing files are never overwritten."
         restorePanelDirectory(panel, key: "lastDirectoryExport")
 
-        begin(panel: panel) { [weak self] result in
+        beginAuthorizedPanel(panel, document: document, replyHandler: replyHandler) { [weak self] result in
             guard let self else { return }
             guard result == .OK, let url = panel.url else {
                 replyHandler(successEnvelope(["cancelled": true]), nil)
@@ -339,10 +418,24 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             self.brokerQueue.async {
                 do {
                     var value = try self.broker.registerDirectory(url)
+                    let token = value["token"] as? String
                     value["cancelled"] = false
-                    DispatchQueue.main.async { replyHandler(successEnvelope(value), nil) }
+                    DispatchQueue.main.async {
+                        guard self.documentSession.isCurrent(document) else {
+                            self.releaseDirectoryGrant(token)
+                            replyHandler(self.staleDocumentEnvelope(), nil)
+                            return
+                        }
+                        replyHandler(successEnvelope(value), nil)
+                    }
                 } catch {
-                    DispatchQueue.main.async { replyHandler(failureEnvelope(error), nil) }
+                    DispatchQueue.main.async {
+                        guard self.documentSession.isCurrent(document) else {
+                            replyHandler(self.staleDocumentEnvelope(), nil)
+                            return
+                        }
+                        replyHandler(failureEnvelope(error), nil)
+                    }
                 }
             }
         }
@@ -350,11 +443,12 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
 
     private func presentOpenPanel(
         _ payload: JSONDictionary,
+        document: NativeDocumentTicket,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
         let kind = DriftImportKind(rawValue: optionalString(payload, "kind") ?? "project") ?? .project
         let panel = configuredOpenPanel(kind: kind, multiple: (payload["multiple"] as? Bool) == true)
-        begin(panel: panel) { [weak self] result in
+        beginAuthorizedPanel(panel, document: document, replyHandler: replyHandler) { [weak self] result in
             guard let self else { return }
             guard result == .OK else {
                 replyHandler(successEnvelope(["cancelled": true, "files": []]), nil)
@@ -368,15 +462,22 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                         descriptors.append(try self.broker.registerFile(url, mode: .readOnly))
                     }
                     DispatchQueue.main.async {
+                        guard self.documentSession.isCurrent(document) else {
+                            self.releaseFileDescriptors(descriptors)
+                            replyHandler(self.staleDocumentEnvelope(), nil)
+                            return
+                        }
                         replyHandler(successEnvelope(["cancelled": false, "files": descriptors]), nil)
                     }
                 } catch {
-                    for descriptor in descriptors {
-                        if let token = descriptor["token"] as? String {
-                            _ = try? self.broker.releaseFile(["token": token])
+                    self.releaseFileDescriptorsSynchronously(descriptors)
+                    DispatchQueue.main.async {
+                        guard self.documentSession.isCurrent(document) else {
+                            replyHandler(self.staleDocumentEnvelope(), nil)
+                            return
                         }
+                        replyHandler(failureEnvelope(error), nil)
                     }
-                    DispatchQueue.main.async { replyHandler(failureEnvelope(error), nil) }
                 }
             }
         }
@@ -413,6 +514,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     private func performBrokerCommand(
         _ command: String,
         payload: JSONDictionary,
+        document: NativeDocumentTicket,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
         brokerQueue.async { [weak self] in
@@ -433,9 +535,21 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                 case "directory-release": value = try self.broker.releaseDirectory(payload)
                 default: throw BridgeFailure("NotSupportedError", "Unknown file-broker command.")
                 }
-                DispatchQueue.main.async { replyHandler(successEnvelope(value), nil) }
+                DispatchQueue.main.async {
+                    guard self.documentSession.isCurrent(document) else {
+                        replyHandler(self.staleDocumentEnvelope(), nil)
+                        return
+                    }
+                    replyHandler(successEnvelope(value), nil)
+                }
             } catch {
-                DispatchQueue.main.async { replyHandler(failureEnvelope(error), nil) }
+                DispatchQueue.main.async {
+                    guard self.documentSession.isCurrent(document) else {
+                        replyHandler(self.staleDocumentEnvelope(), nil)
+                        return
+                    }
+                    replyHandler(failureEnvelope(error), nil)
+                }
             }
         }
     }
@@ -443,6 +557,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     private func performAacCommand(
         _ command: String,
         payload: JSONDictionary,
+        document: NativeDocumentTicket,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
         brokerQueue.async { [weak self] in
@@ -456,9 +571,21 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                 case "aac-close": value = try self.aacBroker.close(payload)
                 default: throw BridgeFailure("NotSupportedError", "Unknown native AAC command.")
                 }
-                DispatchQueue.main.async { replyHandler(successEnvelope(value), nil) }
+                DispatchQueue.main.async {
+                    guard self.documentSession.isCurrent(document) else {
+                        replyHandler(self.staleDocumentEnvelope(), nil)
+                        return
+                    }
+                    replyHandler(successEnvelope(value), nil)
+                }
             } catch {
-                DispatchQueue.main.async { replyHandler(failureEnvelope(error), nil) }
+                DispatchQueue.main.async {
+                    guard self.documentSession.isCurrent(document) else {
+                        replyHandler(self.staleDocumentEnvelope(), nil)
+                        return
+                    }
+                    replyHandler(failureEnvelope(error), nil)
+                }
             }
         }
     }
@@ -483,6 +610,39 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
+    private func staleDocumentEnvelope() -> JSONDictionary {
+        failureEnvelope(BridgeFailure(
+            "SecurityError",
+            "That native operation belongs to a Drift document that has been replaced or reloaded."
+        ))
+    }
+
+    private func beginAuthorizedPanel(
+        _ panel: NSSavePanel,
+        document: NativeDocumentTicket,
+        replyHandler: @escaping (Any?, String?) -> Void,
+        completion: @escaping (NSApplication.ModalResponse) -> Void
+    ) {
+        let ticket: NativePanelTicket
+        do {
+            ticket = try documentSession.beginPanel(for: document) {
+                panel.cancel(nil)
+            }
+        } catch {
+            replyHandler(failureEnvelope(error), nil)
+            return
+        }
+
+        begin(panel: panel) { [weak self] response in
+            guard let self else { return }
+            guard self.documentSession.finishPanel(ticket) else {
+                replyHandler(self.staleDocumentEnvelope(), nil)
+                return
+            }
+            completion(response)
+        }
+    }
+
     private func begin(panel: NSSavePanel, completion: @escaping (NSApplication.ModalResponse) -> Void) {
         if let window = webView?.window {
             panel.beginSheetModal(for: window, completionHandler: completion)
@@ -491,11 +651,11 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
-    private func begin(panel: NSOpenPanel, completion: @escaping (NSApplication.ModalResponse) -> Void) {
-        if let window = webView?.window {
-            panel.beginSheetModal(for: window, completionHandler: completion)
-        } else {
-            completion(panel.runModal())
+    private func releaseFileDescriptorsSynchronously(_ descriptors: [JSONDictionary]) {
+        for descriptor in descriptors {
+            if let token = descriptor["token"] as? String {
+                _ = try? broker.releaseFile(["token": token])
+            }
         }
     }
 
@@ -511,10 +671,11 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     private func invokeJavaScript(
         function: String,
         arguments: [Any],
+        document: NativeDocumentTicket,
         completion: ((Error?) -> Void)? = nil
     ) {
-        guard let webView else {
-            completion?(BridgeFailure("InvalidStateError", "The local studio document is not available."))
+        guard documentSession.isCurrent(document), let webView else {
+            completion?(BridgeFailure("SecurityError", "The native callback belongs to a stale Drift document."))
             return
         }
         do {
@@ -522,9 +683,13 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             guard let json = String(data: data, encoding: .utf8) else {
                 throw BridgeFailure("DataError", "The native import callback could not be serialized.")
             }
-            webView.evaluateJavaScript("\(function).apply(window, \(json));") { _, error in
-                if let error { NSLog("Drift native JavaScript callback failed: %@", error.localizedDescription) }
-                completion?(error)
+            webView.evaluateJavaScript("\(function).apply(window, \(json));") { [weak self] _, error in
+                guard let self else { return }
+                let completionError: Error? = self.documentSession.isCurrent(document)
+                    ? error
+                    : BridgeFailure("SecurityError", "The native callback completed after its Drift document was replaced.")
+                if let completionError { NSLog("Drift native JavaScript callback failed: %@", completionError.localizedDescription) }
+                completion?(completionError)
             }
         } catch {
             NSLog("Drift could not serialize a native JavaScript callback: %@", error.localizedDescription)

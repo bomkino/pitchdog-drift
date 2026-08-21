@@ -33,6 +33,7 @@ interface NativeMacRuntimeMarker {
   bridgeVersion: number;
   platform: "macOS";
   systemCodecsOnly: true;
+  documentAuthority: "native-issued";
 }
 
 interface NativeMacFileHandle extends FileSystemFileHandle {
@@ -91,7 +92,9 @@ const NATIVE_PICKER_TYPES: Readonly<Record<NativeMacImportKind, ReadonlyArray<{
 export function isNativeMacRuntime(): boolean {
   return typeof window !== "undefined"
     && window.__DRIFT_NATIVE_MAC__?.platform === "macOS"
-    && window.__DRIFT_NATIVE_MAC__.bridgeVersion === 2;
+    && window.__DRIFT_NATIVE_MAC__.bridgeVersion === 2
+    && window.__DRIFT_NATIVE_MAC__.systemCodecsOnly === true
+    && window.__DRIFT_NATIVE_MAC__.documentAuthority === "native-issued";
 }
 
 export function installNativeMacAppBridge(bridge: NativeMacAppBridge): () => void {

@@ -23,6 +23,7 @@ function nativeMarker(): Record<string, unknown> {
     bridgeVersion: 2,
     platform: "macOS",
     systemCodecsOnly: true,
+    documentAuthority: "native-issued",
   };
 }
 
@@ -49,6 +50,17 @@ describe("native macOS app contract", () => {
     })).not.toThrow();
     await expect(pickNativeMacFiles("slides")).resolves.toBeNull();
     await expect(saveNativeMacBlob(new Blob(["browser"]), "browser.txt")).resolves.toBe(false);
+  });
+
+  it("rejects a macOS marker without native-issued document authority", () => {
+    setWindow({
+      __DRIFT_NATIVE_MAC__: {
+        bridgeVersion: 2,
+        platform: "macOS",
+        systemCodecsOnly: true,
+      },
+    });
+    expect(isNativeMacRuntime()).toBe(false);
   });
 
   it("installs the typed React bridge and returns the native cleanup", () => {
