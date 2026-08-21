@@ -17,7 +17,12 @@ interface RangeRowProps {
   onChange: (value: number) => void;
 }
 
-const PALETTES: readonly SonicPalette[] = ["studio", "cinematic", "paper"];
+const PALETTES: readonly SonicPalette[] = [
+  "studio",
+  "cinematic",
+  "paper",
+  "editorial",
+];
 
 function RangeRow({
   label,
@@ -106,8 +111,8 @@ export function SonicDock({
             <span>AUTHENTIC TACTILE FOLEY</span>
             <strong>Motion with physical consequence.</strong>
             <p>
-              Recorded cards, paper, cloth, leather, wood and metal. No music,
-              generated bleeps, hover chatter or third-party sound requests.
+              Recorded cards, paper, cloth, leather, wood and metal. Editorial
+              gestures stay literal, sparse and locally served—never synthetic.
             </p>
           </header>
 
