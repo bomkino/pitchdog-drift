@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   apply-final-sound-hardening:
-    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[apply-final-sound-hardening-v4]') }}
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[apply-final-sound-hardening-v5]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -37,31 +37,34 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          import re
           from pathlib import Path
 
           path = Path("scripts/apply-final-sonic-hardening.py")
           source = path.read_text(encoding="utf-8")
-          blocks = [
-              '''replace_once(
-              ".github/workflows/ci.yml",
+          patterns = [
+              r'''replace_once\(
+              "\.github/workflows/ci\.yml",
               "timeout-minutes: 25",
               "timeout-minutes: 35",
-          )
+          \)
           ''',
-              '''replace_once(
-              ".github/workflows/ci.yml",
+              r'''replace_once\(
+              "\.github/workflows/ci\.yml",
               """            playwright-report/
               test-results/""",
               """            playwright-report/
               playwright-production-report/
               test-results/""",
-          )
+          \)
           ''',
           ]
-          for block in blocks:
-              if source.count(block) != 1:
-                  raise RuntimeError("Could not isolate the temporary CI patch block.")
-              source = source.replace(block, "", 1)
+          for pattern in patterns:
+              source, count = re.subn(pattern, "", source)
+              if count != 1:
+                  raise RuntimeError(
+                      f"Could not isolate temporary CI patch block: {pattern[:80]!r}; found {count}."
+                  )
           path.write_text(source, encoding="utf-8")
           PY
 
@@ -92,11 +95,8 @@ jobs:
           if source.count("timeout-minutes: 25") != 1:
               raise RuntimeError("Ordinary CI timeout target changed.")
           source = source.replace("timeout-minutes: 25", "timeout-minutes: 35", 1)
-          before = """            playwright-report/
-              test-results/"""
-          after = """            playwright-report/
-              playwright-production-report/
-              test-results/"""
+          before = "            playwright-report/\n            test-results/"
+          after = "            playwright-report/\n            playwright-production-report/\n            test-results/"
           if source.count(before) != 1:
               raise RuntimeError("Ordinary CI artifact target changed.")
           path.write_text(source.replace(before, after, 1), encoding="utf-8")
@@ -134,7 +134,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: final-tactile-sound-v4-failure-evidence
+          name: final-tactile-sound-v5-failure-evidence
           path: |
             playwright-report/
             playwright-production-report/
@@ -143,7 +143,7 @@ jobs:
           retention-days: 7
 
   verify:
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[apply-final-sound-hardening-v4]') }}
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[apply-final-sound-hardening-v5]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
