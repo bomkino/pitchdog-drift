@@ -154,7 +154,9 @@ Use a directory for full-resolution sequences. The in-memory ZIP fallback has a 
 
 ### Reveal output
 
-After a successful native commit, use **File → Reveal Last Export in Finder**. The command refers only to the last committed destination, never to a staged or cancelled one.
+After a successful native commit, use **File → Reveal Last Saved File in Finder**. MP4 masters, PNG stills, and portable `.pitched` projects become revealable after their atomic file commit.
+
+A PNG sequence remains provisional while Drift may still roll back its numbered frames. Only releasing a sequence directory with surviving Drift-created output promotes its last valid frame. A full rollback promotes nothing, so Reveal continues to point at the previous completed save rather than a deleted frame.
 
 ## Presenter audio truth
 

@@ -30,6 +30,7 @@ private final class FileGrant {
     let mimeType: String
     let mode: GrantMode
     let writeDisposition: WriteDisposition
+    let parentDirectoryToken: String?
     let scope: SecurityScope
     let createdAt = Date()
 
@@ -38,13 +39,15 @@ private final class FileGrant {
         url: URL,
         mimeType: String,
         mode: GrantMode,
-        writeDisposition: WriteDisposition
+        writeDisposition: WriteDisposition,
+        parentDirectoryToken: String?
     ) {
         self.token = token
         self.url = url
         self.mimeType = mimeType
         self.mode = mode
         self.writeDisposition = writeDisposition
+        self.parentDirectoryToken = parentDirectoryToken
         self.scope = SecurityScope(url: url)
     }
 }
@@ -54,6 +57,7 @@ private final class DirectoryGrant {
     let url: URL
     let scope: SecurityScope
     let createdAt = Date()
+    var committedChildren: [String] = []
 
     init(token: String, url: URL) {
         self.token = token
@@ -69,6 +73,7 @@ private final class WriteSession {
     let destinationURL: URL
     let replacementDirectory: URL
     let writeDisposition: WriteDisposition
+    let parentDirectoryToken: String?
     var handle: FileHandle?
 
     init(
@@ -78,6 +83,7 @@ private final class WriteSession {
         destinationURL: URL,
         replacementDirectory: URL,
         writeDisposition: WriteDisposition,
+        parentDirectoryToken: String?,
         handle: FileHandle
     ) {
         self.token = token
@@ -86,6 +92,7 @@ private final class WriteSession {
         self.destinationURL = destinationURL
         self.replacementDirectory = replacementDirectory
         self.writeDisposition = writeDisposition
+        self.parentDirectoryToken = parentDirectoryToken
         self.handle = handle
     }
 }
@@ -115,7 +122,8 @@ final class NativeFileBroker {
             rawURL,
             mode: mode,
             suppliedMimeType: suppliedMimeType,
-            writeDisposition: .replaceOrCreate
+            writeDisposition: .replaceOrCreate,
+            parentDirectoryToken: nil
         )
     }
 
@@ -123,7 +131,8 @@ final class NativeFileBroker {
         _ rawURL: URL,
         mode: GrantMode,
         suppliedMimeType: String? = nil,
-        writeDisposition: WriteDisposition
+        writeDisposition: WriteDisposition,
+        parentDirectoryToken: String? = nil
     ) throws -> JSONDictionary {
         let url = try ensureLocalFileURL(rawURL)
         let exists = fileManager.fileExists(atPath: url.path)
@@ -143,7 +152,8 @@ final class NativeFileBroker {
             url: url,
             mimeType: suppliedMimeType ?? mimeType(for: url),
             mode: mode,
-            writeDisposition: writeDisposition
+            writeDisposition: writeDisposition,
+            parentDirectoryToken: parentDirectoryToken
         )
         fileGrants[token] = grant
         return try descriptor(for: grant)
@@ -177,7 +187,24 @@ final class NativeFileBroker {
 
     func releaseDirectory(_ payload: JSONDictionary) throws -> JSONDictionary {
         let token = try requiredString(payload, "token")
-        directoryGrants.removeValue(forKey: token)
+        guard !writeSessions.values.contains(where: { $0.parentDirectoryToken == token }) else {
+            throw BridgeFailure("InvalidStateError", "That sequence folder still has an open frame write.")
+        }
+        guard let directory = directoryGrants.removeValue(forKey: token) else {
+            return ["released": true]
+        }
+
+        // A PNG sequence is provisional until its directory handle is released.
+        // Individual frame commits can still be rolled back. Promote only a
+        // surviving Drift-created frame after the renderer has completed its
+        // rollback-or-success lifecycle; otherwise keep the previous completed
+        // save as Finder's truthful reveal target.
+        let revealURL = directory.committedChildren.reversed().lazy
+            .map { directory.url.appendingPathComponent($0, isDirectory: false).standardizedFileURL }
+            .first(where: { url in
+                fileManager.fileExists(atPath: url.path) && !isSymbolicLink(url)
+            })
+        if let revealURL { didCommitFile?(revealURL) }
         return ["released": true]
     }
 
@@ -247,6 +274,7 @@ final class NativeFileBroker {
                 destinationURL: destinationURL,
                 replacementDirectory: replacementDirectory,
                 writeDisposition: grant.writeDisposition,
+                parentDirectoryToken: grant.parentDirectoryToken,
                 handle: handle
             )
             return [
@@ -357,7 +385,15 @@ final class NativeFileBroker {
 
             writeSessions.removeValue(forKey: sessionToken)
             try? fileManager.removeItem(at: session.replacementDirectory)
-            didCommitFile?(session.destinationURL)
+            if let directoryToken = session.parentDirectoryToken,
+               let directory = directoryGrants[directoryToken] {
+                let name = session.destinationURL.lastPathComponent
+                if !directory.committedChildren.contains(name) {
+                    directory.committedChildren.append(name)
+                }
+            } else {
+                didCommitFile?(session.destinationURL)
+            }
             return [
                 "name": session.destinationURL.lastPathComponent,
                 "size": Int(try fileSize(at: session.destinationURL, fileManager: fileManager)),
@@ -449,7 +485,8 @@ final class NativeFileBroker {
             return try registerFile(
                 fileURL,
                 mode: .readWrite,
-                writeDisposition: .createOnly
+                writeDisposition: .createOnly,
+                parentDirectoryToken: directoryToken
             )
         }
 
@@ -482,6 +519,7 @@ final class NativeFileBroker {
         try rejectDirectory(fileURL, allowMissing: false)
         try fileManager.removeItem(at: fileURL)
         fileGrants = fileGrants.filter { $0.value.url != fileURL }
+        directory.committedChildren.removeAll(where: { $0 == name })
         return ["removed": true]
     }
 
@@ -574,12 +612,16 @@ final class NativeFileBroker {
         while fileGrants.count + directoryGrants.count >= driftMaximumGrantCount {
             // Prefer evicting an old inactive file. A selected PNG-sequence
             // directory should not disappear merely because hundreds of child
-            // frame handles were created beneath it.
+            // frame handles were created beneath it. A directory with committed
+            // provisional frames must survive until release decides whether the
+            // sequence is a completed Finder target or a full rollback.
             if let oldestFile = fileGrants.values
                 .filter({ !protectedTokens.contains($0.token) })
                 .min(by: { $0.createdAt < $1.createdAt }) {
                 fileGrants.removeValue(forKey: oldestFile.token)
-            } else if let oldestDirectory = directoryGrants.values.min(by: { $0.createdAt < $1.createdAt }) {
+            } else if let oldestDirectory = directoryGrants.values
+                .filter({ $0.committedChildren.isEmpty })
+                .min(by: { $0.createdAt < $1.createdAt }) {
                 directoryGrants.removeValue(forKey: oldestDirectory.token)
             } else {
                 return
@@ -597,6 +639,9 @@ final class NativeFileBroker {
         defer { try? manager.removeItem(at: root) }
 
         let broker = NativeFileBroker(fileManager: manager)
+        var committedURLs: [URL] = []
+        broker.didCommitFile = { committedURLs.append($0.standardizedFileURL) }
+
         let destination = root.appendingPathComponent("master.bin")
         try Data("old-master".utf8).write(to: destination)
         let descriptor = try broker.registerFile(destination, mode: .readWrite)
@@ -613,6 +658,9 @@ final class NativeFileBroker {
         guard try String(contentsOf: destination, encoding: .utf8) == "new-master" else {
             throw BridgeFailure("DataError", "Atomic replacement self-test produced the wrong bytes.")
         }
+        guard committedURLs == [destination.standardizedFileURL] else {
+            throw BridgeFailure("DataError", "Completed file replacement did not become Finder's reveal target exactly once.")
+        }
 
         let freshDestination = root.appendingPathComponent("first-master.bin")
         let freshDescriptor = try broker.registerFile(freshDestination, mode: .readWrite)
@@ -627,6 +675,9 @@ final class NativeFileBroker {
         _ = try broker.closeWriteSession(["session": freshSession])
         guard try String(contentsOf: freshDestination, encoding: .utf8) == "first-master" else {
             throw BridgeFailure("DataError", "First-write self-test did not commit the selected new destination.")
+        }
+        guard committedURLs.last == freshDestination.standardizedFileURL else {
+            throw BridgeFailure("DataError", "Completed first save did not replace Finder's reveal target.")
         }
 
         let abortOpen = try broker.openWriteSession(["token": token, "keepExistingData": false])
@@ -675,6 +726,9 @@ final class NativeFileBroker {
             "data": frameBytes.base64EncodedString(),
         ])
         _ = try broker.closeWriteSession(["session": frameSession])
+        guard committedURLs.count == 2 else {
+            throw BridgeFailure("DataError", "A provisional sequence frame replaced Finder's previous completed save.")
+        }
         let info = try broker.fileInfo(["token": frameToken])
         guard info["size"] as? Int == frameBytes.count else {
             throw BridgeFailure("DataError", "Directory frame self-test changed the output size.")
@@ -758,6 +812,44 @@ final class NativeFileBroker {
         }
 
         _ = try broker.removeDirectoryEntry(["token": directoryToken, "name": frameURL.lastPathComponent])
+        _ = try broker.releaseDirectory(["token": directoryToken])
+        guard committedURLs.count == 2, committedURLs.last == freshDestination.standardizedFileURL else {
+            throw BridgeFailure("DataError", "A fully rolled-back sequence replaced Finder's previous completed save.")
+        }
+
+        let successfulDirectory = root.appendingPathComponent("successful-sequence", isDirectory: true)
+        try manager.createDirectory(at: successfulDirectory, withIntermediateDirectories: false)
+        let successfulDirectoryDescriptor = try broker.registerDirectory(successfulDirectory)
+        let successfulDirectoryToken = successfulDirectoryDescriptor["token"] as! String
+        let successfulFrameURL = successfulDirectory.appendingPathComponent("drift_000001.png")
+        let successfulFrameDescriptor = try broker.directoryFile([
+            "token": successfulDirectoryToken,
+            "name": successfulFrameURL.lastPathComponent,
+            "create": true,
+        ])
+        let successfulFrameToken = successfulFrameDescriptor["token"] as! String
+        let successfulFrameOpen = try broker.openWriteSession([
+            "token": successfulFrameToken,
+            "keepExistingData": false,
+        ])
+        let successfulFrameSession = successfulFrameOpen["session"] as! String
+        _ = try broker.writeChunk([
+            "session": successfulFrameSession,
+            "position": 0,
+            "data": frameBytes.base64EncodedString(),
+        ])
+        _ = try broker.closeWriteSession(["session": successfulFrameSession])
+        guard committedURLs.count == 2 else {
+            throw BridgeFailure("DataError", "A successful sequence became revealable before directory release.")
+        }
+        _ = try broker.releaseDirectory(["token": successfulDirectoryToken])
+        guard committedURLs == [
+            destination.standardizedFileURL,
+            freshDestination.standardizedFileURL,
+            successfulFrameURL.standardizedFileURL,
+        ] else {
+            throw BridgeFailure("DataError", "A successful sequence did not promote its surviving final frame exactly once.")
+        }
 
         do {
             _ = try broker.readFile(["token": token, "offset": 999, "length": 1])
@@ -766,8 +858,10 @@ final class NativeFileBroker {
             // Expected.
         }
 
+        let traversalDirectory = try broker.registerDirectory(root)
+        let traversalDirectoryToken = traversalDirectory["token"] as! String
         do {
-            _ = try broker.directoryFile(["token": directoryToken, "name": "../escape.png", "create": true])
+            _ = try broker.directoryFile(["token": traversalDirectoryToken, "name": "../escape.png", "create": true])
             throw BridgeFailure("SecurityError", "Traversal self-test unexpectedly succeeded.")
         } catch let failure as BridgeFailure where failure.name == "TypeError" {
             // Expected.
@@ -806,6 +900,6 @@ final class NativeFileBroker {
             // Expected.
         }
 
-        print("Drift native file broker self-test passed: staged replacement, exclusive sequence commits, collision preservation, abort cleanup, capability revocation, traversal rejection, and readback hold.")
+        print("Drift native file broker self-test passed: staged replacement, exclusive sequence commits, rollback-aware Finder promotion, collision preservation, abort cleanup, capability revocation, traversal rejection, and readback hold.")
     }
 }
