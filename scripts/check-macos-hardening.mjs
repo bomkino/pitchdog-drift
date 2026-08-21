@@ -208,7 +208,9 @@ requireMarkers("macos/App/WebViewSelfTest.swift", [
   "window.showOpenFilePicker = async () => [handle]",
   "window.__driftSelfTestNativeReleaseCount += 1",
   "pollWebKitFileInputResult(",
-  "never produced one settled asset and released grant",
+  "first real deck",
+  "expectedCount: 1",
+  "never produced the replacement asset and released grant",
   "typed native file ingestion",
   "\"webKitFileInputVerified\": webKitFileInputVerified",
 ]);
