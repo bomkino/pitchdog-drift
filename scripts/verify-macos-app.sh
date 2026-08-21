@@ -88,23 +88,33 @@ with path.open("rb") as stream:
 required = {
     "com.apple.security.app-sandbox": True,
     "com.apple.security.files.user-selected.read-write": True,
+    # WKWebView launches a system networking helper even for a bundled local
+    # file document. Drift's own traffic remains blocked by its signed WebKit
+    # content rules, navigation policy, and absence of native network commands.
+    "com.apple.security.network.client": True,
 }
 for key, expected in required.items():
     if entitlements.get(key) is not expected:
         raise SystemExit(f"Drift.app verification failed: signed entitlement {key!r} is missing or not true.")
 
+allowed_network_entitlements = {"com.apple.security.network.client"}
 for key in entitlements:
-    if key.startswith("com.apple.security.network."):
-        raise SystemExit(f"Drift.app verification failed: network entitlement {key!r} is forbidden.")
+    if key.startswith("com.apple.security.network.") and key not in allowed_network_entitlements:
+        raise SystemExit(f"Drift.app verification failed: unexpected network entitlement {key!r} is present.")
 
 for key in (
+    "com.apple.security.files.downloads.read-only",
+    "com.apple.security.files.downloads.read-write",
+    "com.apple.security.files.documents.read-only",
+    "com.apple.security.files.documents.read-write",
+    "com.apple.security.files.user-selected.read-only",
     "com.apple.security.cs.disable-library-validation",
     "com.apple.security.cs.allow-unsigned-executable-memory",
     "com.apple.security.cs.allow-jit",
     "com.apple.security.cs.allow-dyld-environment-variables",
 ):
     if entitlements.get(key):
-        raise SystemExit(f"Drift.app verification failed: dangerous hardened-runtime exception {key!r} is enabled.")
+        raise SystemExit(f"Drift.app verification failed: forbidden entitlement {key!r} is enabled.")
 PY
 
 actual_archs="$(lipo -archs "${EXECUTABLE}" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ' | sed 's/ $//')"
@@ -184,7 +194,8 @@ grep -Fx "minimum_macos=13.3" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail
 grep -Fx "codec_policy=system-frameworks-only" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong codec policy."
 grep -Fx "video_codec=WKWebView-H264-capability-gated" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt misstates the video path."
 grep -Fx "audio_codec=AudioToolbox-Apple-software-AAC-LC" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt misstates the presenter-audio path."
-grep -Fx "network_entitlement=none" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong network policy."
+grep -Fx "network_entitlement=webkit-client-only" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong WebKit entitlement policy."
+grep -Fx "application_network_policy=blocked" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong application network policy."
 
 if [[ -n "$(find "${APP_BUNDLE}" -type f -perm -0002 -print -quit)" ]]; then
   fail "the app bundle contains a world-writable file."
@@ -312,6 +323,7 @@ fi
 printf 'Verified %s\n' "${APP_BUNDLE}"
 printf 'Bundle size: %s\n' "$(du -sh "${APP_BUNDLE}" | awk '{print $1}')"
 printf 'Architectures: %s\n' "${actual_archs}"
-printf 'Sandbox: enabled; user-selected read/write only; no network entitlement\n'
+printf 'Sandbox: enabled; user-selected read/write; WebKit client entitlement only\n'
+printf 'WebKit client entitlement present; application traffic blocked\n'
 printf 'Video: WKWebView H.264, capability-gated and output-verified\n'
 printf 'Audio: Apple software AAC-LC through AudioToolbox; no FFmpeg WASM\n'
