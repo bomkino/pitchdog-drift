@@ -1,37 +1,23 @@
-name: Finalize and verify Director's Cut
+name: Director's Cut CI
 
 on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: directors-cut-finalize-${{ github.event.pull_request.number }}
+  group: directors-cut-ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  finalize:
+  verify:
     if: github.event.pull_request.head.ref == 'gauntlet/directors-cut-clean-final'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 40
     steps:
-      - name: Check out the clean Director's Cut base
+      - name: Check out exact pull-request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: gauntlet/directors-cut-clean-final
-          fetch-depth: 0
-
-      - name: Restore the verified final source delta
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat .github/final-delta-payload/part-* > /tmp/drift-delta.patch.gz
-          echo "76f53d4e34029e0128d1bca980108cd626c0938f664382d955b2d077b4702845  /tmp/drift-delta.patch.gz" | sha256sum --check -
-          gzip -dc /tmp/drift-delta.patch.gz | git apply --binary --unsafe-paths -
-          git show 2f9724bfb842b471c87c79c324d3aa61cc2556ef:.github/workflows/ci.yml > .github/workflows/ci.yml
-          rm -rf .github/final-delta-payload
-          git diff --check
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -42,45 +28,47 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Typecheck, run all contracts, and build
+      - name: Typecheck, run contracts, and build
         run: npm run check
 
-      - name: Install the verified Chromium runtime
+      - name: Install Chromium runtime
         run: npx playwright install --with-deps chromium
 
-      - name: Run all real-browser creator and WebGL scenarios
+      - name: Run browser, WebGL, responsive, and export gauntlet
         run: npm run test:e2e
 
-      - name: Preserve visual evidence
+      - name: Package exact source for isolated audit
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=node_modules \
+            --exclude=dist \
+            --exclude=playwright-report \
+            --exclude=test-results \
+            -czf /tmp/directors-cut-source.tgz .
+          sha256sum /tmp/directors-cut-source.tgz > /tmp/directors-cut-source.sha256
+
+      - name: Preserve exact source snapshot
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: directors-cut-visual-evidence
-          path: test-results/visual-evidence/
-          if-no-files-found: ignore
-          retention-days: 7
+          name: directors-cut-source-audit
+          path: |
+            /tmp/directors-cut-source.tgz
+            /tmp/directors-cut-source.sha256
+          if-no-files-found: error
+          retention-days: 1
 
-      - name: Preserve failure evidence
-        if: failure()
+      - name: Preserve visual and failure evidence
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-failure-evidence
+          name: directors-cut-browser-evidence
           path: |
             playwright-report/
             test-results/
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: Collapse delivery history to one reviewed commit
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "pitch.dog"
-          git config user.email "111725271+bomkino@users.noreply.github.com"
-          git fetch origin main
-          git add -A
-          git reset --soft origin/main
-          git add -A
-          git commit -m "feat: deliver Director's Cut cinematic studio"
-          git push --force-with-lease origin HEAD:gauntlet/directors-cut-clean-final
