@@ -70,11 +70,8 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         bridge.webView = webView
         self.webView = webView
 
-        // Keep the compositor honest. The previous test placed a 1%-opaque
-        // borderless window 12,000 points off-screen. Hosted WebKit terminated
-        // that content process even though the same bundle, signature, native
-        // bridge, and file broker had already passed. CI has no human viewer;
-        // use a normal visible window and test the lifecycle users actually get.
+        // Keep the compositor honest. Hosted WebKit needs a normal visible
+        // WindowServer lifecycle to exercise the same topology as Drift.app.
         let window = NSWindow(
             contentRect: NSRect(x: 80, y: 80, width: 1200, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -106,10 +103,10 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             return failReceipt("timed out after 70 seconds; \(diagnostic)", state: state)
         }
         guard webKitFileInputVerified else {
-            return failReceipt("the packaged WebKit input round-trip never completed; \(diagnostic)", state: state)
+            return failReceipt("the packaged WebKit native-file round-trip never completed; \(diagnostic)", state: state)
         }
 
-        let message = "relative bundle assets, React studio, installed typed app contract, authoritative state, native-menu command dispatch, WebKit DataTransfer file ingestion, direct native save, and file-system polyfills loaded"
+        let message = "relative bundle assets, React studio, installed typed app contract, authoritative state, native-menu command dispatch, typed native file ingestion, direct native save, and file-system polyfills loaded"
         writeReceipt(ok: true, message: message, state: state)
         print("Drift WebView self-test passed: \(message).")
         return 0
@@ -215,9 +212,8 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             return
         }
 
-        // The production app exposes an explicit reload recovery after a WebKit
-        // process loss. Exercise that promise once. A second termination is a
-        // hard failure rather than an infinite green-by-retry loop.
+        // Exercise the production recovery promise once. A second termination
+        // is a hard failure rather than an infinite green-by-retry loop.
         startedNavigation = false
         committedNavigation = false
         finishedNavigation = false
@@ -321,8 +317,6 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 return
             }
             if result as? Bool == true {
-                // Restore the default editor state before testing the exact
-                // DataTransfer path used by native File-menu imports.
                 webView.evaluateJavaScript("window.__driftNativeCommand?.('toggle-focus')") { [weak self, weak webView] _, restoreError in
                     guard let self, let webView else { return }
                     if let restoreError {
@@ -353,27 +347,43 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
           if (!(input instanceof HTMLInputElement)) {
             return { ok: false, reason: 'slide input missing' };
           }
-          if (typeof DataTransfer !== 'function' || typeof File !== 'function') {
-            return { ok: false, reason: 'DataTransfer or File unavailable' };
+          if (typeof File !== 'function' || typeof window.showOpenFilePicker !== 'function') {
+            return { ok: false, reason: 'File or native picker polyfill unavailable' };
           }
+
           const before = document.querySelectorAll('.asset-list li').length;
           const binary = atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X1R1WQAAAABJRU5ErkJggg==');
           const bytes = new Uint8Array(binary.length);
           for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-          const transfer = new DataTransfer();
-          transfer.items.add(new File([bytes], 'wkwebview-input-probe.png', {
+          const file = new File([bytes], 'wkwebview-input-probe.png', {
             type: 'image/png',
             lastModified: 1700000000000
-          }));
-          input.files = transfer.files;
-          const dispatched = input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-          return { ok: true, before, dispatched, transferCount: transfer.files.length };
+          });
+          const originalPicker = window.showOpenFilePicker;
+          window.__driftSelfTestNativeReleaseCount = 0;
+          const handle = {
+            kind: 'file',
+            name: file.name,
+            getFile: async () => file,
+            _release: async () => {
+              window.__driftSelfTestNativeReleaseCount += 1;
+            }
+          };
+          window.showOpenFilePicker = async () => [handle];
+          try {
+            input.click();
+          } finally {
+            queueMicrotask(() => {
+              window.showOpenFilePicker = originalPicker;
+            });
+          }
+          return { ok: true, before, clicked: true };
         })()
         """
         webView.evaluateJavaScript(script) { [weak self, weak webView] result, error in
             guard let self, !self.finished else { return }
             if let error {
-                self.failure = "WKWebView file-input injection failed: \(error.localizedDescription)"
+                self.failure = "WKWebView typed native-file injection failed: \(error.localizedDescription)"
                 self.finished = true
                 return
             }
@@ -381,12 +391,12 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                   let values = result as? [String: Any],
                   values["ok"] as? Bool == true,
                   let before = values["before"] as? Int,
-                  values["transferCount"] as? Int == 1 else {
-                self.failure = "WKWebView rejected the native File-menu input contract: \(String(describing: result))"
+                  values["clicked"] as? Bool == true else {
+                self.failure = "WKWebView rejected the typed native File-menu contract: \(String(describing: result))"
                 self.finished = true
                 return
             }
-            self.lastProbe = "WKWebView DataTransfer dispatched from asset count \(before): \(String(describing: values))"
+            self.lastProbe = "WKWebView native picker dispatched from asset count \(before): \(String(describing: values))"
             self.pollWebKitFileInputResult(in: webView, expectedCount: before + 1, attemptsRemaining: 200)
         }
     }
@@ -401,34 +411,36 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
           count: document.querySelectorAll('.asset-list li').length,
           found: Array.from(document.querySelectorAll('.asset-list li'))
             .some((entry) => entry.textContent?.includes('wkwebview-input-probe.png')),
+          released: window.__driftSelfTestNativeReleaseCount ?? 0,
           error: document.querySelector('.notice[data-kind="error"]')?.textContent?.trim() ?? null
         }))()
         """
         webView.evaluateJavaScript(probe) { [weak self] result, error in
             guard let self, !self.finished else { return }
             if let error {
-                self.failure = "WKWebView file-input result probe failed: \(error.localizedDescription)"
+                self.failure = "WKWebView native-file result probe failed: \(error.localizedDescription)"
                 self.finished = true
                 return
             }
             let values = result as? [String: Any] ?? [:]
             let state = self.bridge?.clientState ?? ClientState()
-            self.lastProbe = "WKWebView file input: \(String(describing: values)); saveState=\(state.saveState); projectBusy=\(state.projectBusy)"
+            self.lastProbe = "WKWebView typed native file: \(String(describing: values)); saveState=\(state.saveState); projectBusy=\(state.projectBusy)"
             let count = values["count"] as? Int ?? -1
             let found = values["found"] as? Bool == true
+            let released = values["released"] as? Int == 1
             let settled = state.saveState == "saved" && !state.projectBusy && !state.exportInProgress
-            if count == expectedCount && found && settled {
+            if count == expectedCount && found && released && settled {
                 self.webKitFileInputVerified = true
                 self.finished = true
                 return
             }
             if let userError = values["error"] as? String, !userError.isEmpty {
-                self.failure = "WKWebView surfaced an error during native File-menu input verification: \(userError)"
+                self.failure = "WKWebView surfaced an error during typed native-file verification: \(userError)"
                 self.finished = true
                 return
             }
             guard attemptsRemaining > 0 else {
-                self.failure = "WKWebView DataTransfer reached the hidden input but never produced one settled React asset; expectedCount=\(expectedCount), lastProbe=\(self.lastProbe)"
+                self.failure = "WKWebView native picker reached the typed React bridge but never produced one settled asset and released grant; expectedCount=\(expectedCount), lastProbe=\(self.lastProbe)"
                 self.finished = true
                 return
             }
