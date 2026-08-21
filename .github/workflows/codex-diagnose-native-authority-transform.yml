@@ -1,0 +1,41 @@
+name: codex-diagnose-native-authority-transform
+
+on:
+  push:
+    branches:
+      - feat/native-macos-document-authority
+    paths:
+      - .github/workflows/codex-diagnose-native-authority-transform.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: codex-native-document-authority
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out authority branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/native-macos-document-authority
+          fetch-depth: 0
+
+      - name: Record exact transform anchors
+        run: python3 scripts/diagnose-native-authority-transform.py
+
+      - name: Commit diagnosis and remove transport
+        shell: bash
+        run: |
+          rm scripts/diagnose-native-authority-transform.py
+          rm .github/workflows/codex-diagnose-native-authority-transform.yml
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "test(mac): record exact authority transform mismatch"
+          git push origin HEAD:feat/native-macos-document-authority
