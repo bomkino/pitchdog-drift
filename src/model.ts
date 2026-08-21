@@ -9,7 +9,7 @@ export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel";
 export type ImageFit = "cover" | "contain";
 export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
 export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
-export type SonicPalette = "studio" | "cinematic" | "paper";
+export type SonicPalette = "studio" | "cinematic" | "paper" | "editorial";
 
 export interface StageSettings {
   width: number;
