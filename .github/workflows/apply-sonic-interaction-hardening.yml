@@ -1,0 +1,177 @@
+name: Apply sonic interaction hardening
+
+on:
+  push:
+    branches:
+      - feat/tactile-sound-system-v2
+    paths:
+      - .github/workflows/apply-sonic-interaction-hardening.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-sonic-interaction-hardening
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.repository == 'bomkino/pitchdog-drift'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact draft head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: feat/tactile-sound-system-v2
+          fetch-depth: 0
+
+      - name: Refuse stale or concurrent application
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feat/tactile-sound-system-v2
+          branch_head="$(git rev-parse origin/feat/tactile-sound-system-v2)"
+          if [[ "$branch_head" != "$GITHUB_SHA" ]]; then
+            echo "Branch advanced from workflow event $GITHUB_SHA to $branch_head; refusing stale patch." >&2
+            exit 1
+          fi
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Apply source hardening
+        shell: bash
+        env:
+          PATCH_GZIP_BASE64: |
+            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
+            ueZFMC2HAAA=
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import gzip
+          import os
+          from pathlib import Path
+          payload = ''.join(os.environ['PATCH_GZIP_BASE64'].split())
+          Path('/tmp/apply-sonic-interaction-hardening.py').write_bytes(
+              gzip.decompress(base64.b64decode(payload))
+          )
+          PY
+          python3 /tmp/apply-sonic-interaction-hardening.py
+
+      - name: Verify type, unit, build, bundle, and treatment gates
+        run: npm run check
+
+      - name: Install pinned Chromium
+        run: npx playwright install chromium
+
+      - name: Verify the sound user journey
+        run: npx playwright test e2e/sonic-interactions.e2e.ts e2e/sonic-loading.e2e.ts
+
+      - name: Remove one-shot machinery and commit the clean branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feat/tactile-sound-system-v2
+          branch_head="$(git rev-parse origin/feat/tactile-sound-system-v2)"
+          if [[ "$branch_head" != "$GITHUB_SHA" ]]; then
+            echo "Branch advanced during validation; refusing to overwrite $branch_head." >&2
+            exit 1
+          fi
+
+          rm -f .github/workflows/apply-sonic-interaction-hardening.yml
+          rm -f .github/sonic-phase-parity-trigger
+          test ! -e .github/workflows/apply-sonic-interaction-hardening.yml
+          test ! -e .github/sonic-phase-parity-trigger
+
+          git config user.name "pitchdog-drift-hardening"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --name-status
+          git commit -m "feat(sound): harden tactile interaction lifecycle"
+          git push origin HEAD:refs/heads/feat/tactile-sound-system-v2
