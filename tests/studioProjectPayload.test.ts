@@ -152,6 +152,6 @@ describe("portable studio payload boundary", () => {
         schema: "dog.pitch.drift/project",
         formatVersion: 4,
       },
-    }, { ...context, assets: [] })).toThrow(/studio settings/i);
+    }, { ...context, assets: [] })).toThrow(/Project format 4 is not supported/);
   });
 });
