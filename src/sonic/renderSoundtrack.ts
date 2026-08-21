@@ -144,11 +144,14 @@ export async function renderSonicSoundtrack(
     1,
     Math.max(0, settings.sound.masterGain * settings.sound.motionGain),
   );
-  compressor.threshold.value = -18;
-  compressor.knee.value = 22;
-  compressor.ratio.value = 3.5;
-  compressor.attack.value = 0.004;
-  compressor.release.value = 0.16;
+  // These dynamics deliberately match SonicEngine's live preview graph. The
+  // exported gesture should not become flatter, louder, or softer merely
+  // because it moved from the stage into the master.
+  compressor.threshold.value = -17;
+  compressor.knee.value = 20;
+  compressor.ratio.value = 4;
+  compressor.attack.value = 0.003;
+  compressor.release.value = 0.18;
   master.connect(compressor);
   compressor.connect(context.destination);
 
