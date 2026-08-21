@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
+import {
+  getLogicalSlotCount,
+  getSlideGeometry,
+  velocityAtTime,
+} from "../src/engine/evaluate";
 import { mixSoundtrackIntoPlanar, type ReadableAudioBuffer } from "../src/sonic/mix";
 import {
   buildSonicTimeline,
   getSonicPassageDecision,
+  getSonicPassageDistance,
+  getSonicPassageStep,
   shouldIncludeSonicPassage,
 } from "../src/sonic/plan";
 
@@ -124,6 +131,37 @@ describe("sonic timeline", () => {
       expect(decision.included).toBe(true);
       expect(event.variant).toBe(decision.variant);
       expect(event.playbackRate).toBe(decision.playbackRate);
+    }
+  });
+
+  it("uses one direction-symmetric half-stride focus hand-off in preview and export", () => {
+    const stride = 640;
+    expect(getSonicPassageStep(0.499 * stride, stride)).toBe(0);
+    expect(getSonicPassageStep(0.5 * stride, stride)).toBe(1);
+    expect(getSonicPassageStep(-0.499 * stride, stride)).toBe(0);
+    expect(getSonicPassageStep(-0.5 * stride, stride)).toBe(-1);
+    expect(getSonicPassageDistance(1, stride)).toBe(0.5 * stride);
+    expect(getSonicPassageDistance(4, stride)).toBe(3.5 * stride);
+    expect(getSonicPassageDistance(-2, stride)).toBe(-1.5 * stride);
+
+    const settings = audibleSettings();
+    settings.sound.density = 1;
+    settings.output.duration = 14;
+    const geometry = getSlideGeometry(settings);
+    const slots = getLogicalSlotCount(8, geometry);
+    const speed = Math.abs(
+      velocityAtTime(settings, slots, geometry.stride, true),
+    );
+    const passages = buildSonicTimeline(settings, 8, 14)
+      .filter((event) => event.cue === "passage")
+      .slice(0, 4);
+
+    expect(passages).toHaveLength(4);
+    for (const event of passages) {
+      expect(event.time).toBeCloseTo(
+        getSonicPassageDistance(event.sequence, geometry.stride) / speed,
+        10,
+      );
     }
   });
 
