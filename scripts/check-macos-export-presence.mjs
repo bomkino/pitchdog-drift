@@ -16,6 +16,19 @@ const requireMarkers = (path, markers) => {
   }
   return text;
 };
+const sliceBetween = (source, start, end, label) => {
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  if (startIndex < 0 || endIndex < 0) fail(`could not isolate ${label}`);
+  return source.slice(startIndex, endIndex);
+};
+const requireBefore = (source, first, second, label) => {
+  const firstIndex = source.indexOf(first);
+  const secondIndex = source.indexOf(second);
+  if (firstIndex < 0 || secondIndex < 0 || firstIndex >= secondIndex) {
+    fail(`${label} no longer keeps ${JSON.stringify(first)} before ${JSON.stringify(second)}`);
+  }
+};
 
 const models = requireMarkers("macos/App/NativeModels.swift", [
   "import AppKit",
@@ -76,16 +89,73 @@ if ((host.match(/exportActivityGuard\.end\(\)/g) ?? []).length < 3) {
   fail("quit, document reset, and native abort must all clear export presence");
 }
 
+const app = read("src/App.tsx");
+const mp4 = sliceBetween(
+  app,
+  "const exportVideo = useCallback(async () => {",
+  "const exportStill = useCallback(async () => {",
+  "the MP4 export path",
+);
+requireBefore(
+  mp4,
+  "fileHandle = await savePicker({",
+  "session = beginExport();",
+  "MP4 destination preflight",
+);
+const still = sliceBetween(
+  app,
+  "const exportStill = useCallback(async () => {",
+  "const exportFrames = useCallback(async () => {",
+  "the PNG-still export path",
+);
+requireBefore(
+  still,
+  "session = beginExport();",
+  "await downloadBlob(result.blob",
+  "PNG-still protected save lifecycle",
+);
+const sequence = sliceBetween(
+  app,
+  "const exportFrames = useCallback(async () => {",
+  "const savePortableProjectNow = useCallback(async () => {",
+  "the PNG-sequence export path",
+);
+requireBefore(
+  sequence,
+  "session = beginExport();",
+  "const directory = await picker({",
+  "PNG-sequence protected chooser lifecycle",
+);
+
+requireMarkers("macos/CI/probe-macos-packaged-webview.sh-ci", [
+  "DRIFT_WEBVIEW_LOG_TIMEOUT",
+  "subprocess.run([real_log, *arguments]",
+  "timeout=timeout",
+  "the bounded application receipt remains authoritative",
+  "bash \"$ROOT/scripts/probe-macos-packaged-webview.sh\"",
+]);
+requireMarkers(".github/workflows/macos.yml", [
+  'DRIFT_WEBVIEW_MATRIX_TIMEOUT: "100"',
+  'DRIFT_WEBVIEW_LOG_TIMEOUT: "20"',
+  "bash macos/CI/probe-macos-packaged-webview.sh-ci",
+]);
+
 requireMarkers("docs/MACOS_EXPORT_PRESENCE.md", [
-  "The Dock badge reads **EXPORT** only while Drift reports an authoritative active export.",
+  "The Dock badge reads **EXPORT** only while Drift reports an authoritative protected export lifecycle.",
+  "MP4 asks for its destination first.",
+  "PNG sequence enters protected export state before its directory chooser.",
+  "PNG still renders before its native save panel.",
   "The badge is presence, not progress.",
   "No new renderer message, timer, DOM observer, polling loop, or high-frequency bridge event was added.",
   "Completion, cancellation, native abort, document reload, WebKit content-process termination, window teardown, and app termination",
   "EXPORT\nclear",
+  "MP4 destination selection precedes `beginExport()`",
+  "PNG still enters `beginExport()` before its native save",
+  "PNG sequence enters `beginExport()` before its directory chooser",
   "Physical-Mac review",
   "is Drift still exporting?",
 ]);
 
 console.log(
-  "macOS export-presence contract passed: one privacy-safe EXPORT badge follows authoritative native export protection, deduplicates updates, clears through every shared terminal path, and has explicit physical-Mac falsification steps.",
+  "macOS export-presence contract passed: one privacy-safe EXPORT badge follows authoritative native export protection, deduplicates updates, clears through every shared terminal path, its MP4, still, and sequence timing claims are checked against App.tsx, and optional unified-log collection cannot consume the app-evidence budget.",
 );

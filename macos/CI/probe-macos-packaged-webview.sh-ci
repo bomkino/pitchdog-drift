@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/drift-log-shim.XXXXXX")"
+
+cleanup() {
+  rm -rf "$TEMP_ROOT"
+}
+trap cleanup EXIT
+
+cat > "$TEMP_ROOT/log" <<'PY'
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+
+real_log = os.environ.get("DRIFT_REAL_MACOS_LOG", "/usr/bin/log")
+arguments = sys.argv[1:]
+if arguments[:1] != ["show"]:
+    os.execv(real_log, [real_log, *arguments])
+
+timeout = float(os.environ.get("DRIFT_WEBVIEW_LOG_TIMEOUT", "20"))
+try:
+    completed = subprocess.run([real_log, *arguments], check=False, timeout=timeout)
+except subprocess.TimeoutExpired:
+    print(
+        f"Drift diagnostic log capture reached its {timeout:g}s ceiling; "
+        "the bounded application receipt remains authoritative.",
+        file=sys.stderr,
+    )
+    raise SystemExit(124)
+raise SystemExit(completed.returncode)
+PY
+chmod 0700 "$TEMP_ROOT/log"
+
+PATH="$TEMP_ROOT:$PATH" \
+DRIFT_REAL_MACOS_LOG="/usr/bin/log" \
+bash "$ROOT/scripts/probe-macos-packaged-webview.sh" "$@"
