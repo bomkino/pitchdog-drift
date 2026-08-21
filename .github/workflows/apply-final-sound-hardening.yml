@@ -1,0 +1,514 @@
+name: Apply final tactile sound hardening
+
+on:
+  push:
+    branches:
+      - gauntlet/tactile-sound-final-gpt56pro
+
+permissions:
+  contents: write
+
+concurrency:
+  group: final-tactile-sound-hardening
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: ${{ contains(github.event.head_commit.message, '[apply-final-sound-hardening]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out isolated final branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gauntlet/tactile-sound-final-gpt56pro
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply audited source hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          ROOT = Path.cwd()
+
+          def read(path: str) -> str:
+              return (ROOT / path).read_text(encoding="utf-8")
+
+          def write(path: str, content: str) -> None:
+              target = ROOT / path
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content.rstrip() + "\n", encoding="utf-8")
+
+          def replace_once(path: str, before: str, after: str) -> None:
+              source = read(path)
+              count = source.count(before)
+              if count != 1:
+                  raise RuntimeError(
+                      f"{path}: expected one patch target, found {count}: {before[:100]!r}"
+                  )
+              write(path, source.replace(before, after, 1))
+
+          # Preview and export must use the same physical half-stride hand-off.
+          replace_once(
+              "src/engine/CinematicCarousel.ts",
+              'import type { StudioAsset, StudioSettings } from "../model";\nimport {\n',
+              'import type { StudioAsset, StudioSettings } from "../model";\nimport { getSonicPassageStep } from "../sonic/plan";\nimport {\n',
+          )
+          replace_once(
+              "src/engine/CinematicCarousel.ts",
+              "    const step = Math.round(this.motionPosition / stride);",
+              "    const step = getSonicPassageStep(this.motionPosition, stride);",
+          )
+
+          # Do not let an unmounted engine report stale async failures, and clear
+          # the generic core error once both essential cues have recovered.
+          replace_once(
+              "src/sonic/SonicEngine.ts",
+              """      await this.ensureCore(this.settings.palette);
+      this.primeMotionCues(this.settings.palette);""",
+              """      await this.ensureCore(this.settings.palette);
+      if (this.disposed) return;
+      this.primeMotionCues(this.settings.palette);""",
+          )
+          replace_once(
+              "src/sonic/SonicEngine.ts",
+              """  private primeMotionCues(palette: SonicPalette): void {
+    for (const cue of MOTION_PRIME_CUES) {""",
+              """  private primeMotionCues(palette: SonicPalette): void {
+    if (this.disposed) return;
+    for (const cue of MOTION_PRIME_CUES) {""",
+          )
+          replace_once(
+              "src/sonic/SonicEngine.ts",
+              """      paletteBuffers.set(cue, assets);
+      this.reportedLoadErrors.delete(key);
+      return assets;""",
+              """      paletteBuffers.set(cue, assets);
+      this.reportedLoadErrors.delete(key);
+      if (this.hasCore(palette)) this.reportedLoadErrors.delete("core");
+      return assets;""",
+          )
+          replace_once(
+              "src/sonic/SonicEngine.ts",
+              """  private reportRecoverable(error: unknown, key: string): void {
+    if (this.reportedLoadErrors.has(key)) return;""",
+              """  private reportRecoverable(error: unknown, key: string): void {
+    if (this.disposed || this.reportedLoadErrors.has(key)) return;""",
+          )
+          replace_once(
+              "src/sonic/SonicEngine.ts",
+              """  private publishState(): void {
+    const state = this.runtimeState;""",
+              """  private publishState(): void {
+    if (this.disposed) return;
+    const state = this.runtimeState;""",
+          )
+
+          # AVC capability probing must not eagerly load the ~1 MB software AAC
+          # encoder before the user asks for an audio-bearing export.
+          replace_once(
+              "src/lib/exportStudio.ts",
+              """export async function probeExportCapabilities(
+  settings: ExportSettings = DEFAULT_EXPORT_SETTINGS,
+): Promise<ExportCapabilityReport> {""",
+              """export type ExportCapabilityProbeOptions = Readonly<{
+  includeAudio?: boolean;
+}>;
+
+export async function probeExportCapabilities(
+  settings: ExportSettings = DEFAULT_EXPORT_SETTINGS,
+  options: ExportCapabilityProbeOptions = {},
+): Promise<ExportCapabilityReport> {""",
+          )
+          replace_once(
+              "src/lib/exportStudio.ts",
+              """  try {
+    await ensureSoftwareAacEncoder();
+    aac = await canEncodeAudio("aac", {
+      numberOfChannels: AUDIO_CHANNELS,
+      sampleRate: AUDIO_SAMPLE_RATE,
+      quality: aacQuality(),
+    });
+  } catch {
+    aac = false;
+  }
+  if (!aac) reasons.push("Browser has no compatible AAC encoder; audio-bearing masters cannot be exported safely.");
+  const presenterAudioFpsSupported = settings.fps <= 30;
+  if (!presenterAudioFpsSupported) {
+    reasons.push("Audio-bearing masters are limited to 30 fps; disable exported sound for a higher-frame-rate master.");
+  }""",
+              """  const includeAudio = options.includeAudio ?? true;
+  if (includeAudio) {
+    try {
+      await ensureSoftwareAacEncoder();
+      aac = await canEncodeAudio("aac", {
+        numberOfChannels: AUDIO_CHANNELS,
+        sampleRate: AUDIO_SAMPLE_RATE,
+        quality: aacQuality(),
+      });
+    } catch {
+      aac = false;
+    }
+    if (!aac) reasons.push("Browser has no compatible AAC encoder; audio-bearing masters cannot be exported safely.");
+  }
+  const presenterAudioFpsSupported = settings.fps <= 30;
+  if (includeAudio && !presenterAudioFpsSupported) {
+    reasons.push("Audio-bearing masters are limited to 30 fps; disable exported sound for a higher-frame-rate master.");
+  }""",
+          )
+          replace_once(
+              "src/App.tsx",
+              "probeExportCapabilities(settingsRef.current.output)",
+              "probeExportCapabilities(settingsRef.current.output, { includeAudio: false })",
+          )
+          replace_once(
+              "src/App.tsx",
+              """    if (mp4Supported === false) {
+      announce("This browser cannot encode the requested H.264 master. Use current desktop Chromium or Brave, or export PNG frames.", "error");
+      return;
+    }
+    let fileHandle: FileSystemFileHandle | null = null;""",
+              """    if (mp4Supported === false) {
+      announce("This browser cannot encode the requested H.264 master. Use current desktop Chromium or Brave, or export PNG frames.", "error");
+      return;
+    }
+    if (
+      settingsRef.current.sound.exportEnabled
+      && settingsRef.current.output.fps > 30
+    ) {
+      announce("Tactile MP4 sound is verified at 24, 25, or 30 fps. Choose 30 fps or disable Include in MP4 before selecting a destination.", "error");
+      return;
+    }
+    let fileHandle: FileSystemFileHandle | null = null;""",
+          )
+
+          # Make asset refresh transactional, preserve treatments, and describe
+          # the actual same-origin runtime boundary truthfully.
+          replace_once(
+              "scripts/vendor-sonic-assets.py",
+              "import sys\nimport urllib.request\n",
+              "import sys\nimport tempfile\nimport urllib.request\n",
+          )
+          vendor = read("scripts/vendor-sonic-assets.py")
+          start = vendor.index("def vendor() -> None:\n")
+          end = vendor.index("\ndef verify() -> None:\n", start)
+          new_vendor = '''def vendor() -> None:
+    recording_payloads: list[tuple[Recording, bytes]] = []
+    for recording in RECORDINGS:
+        data = read_url(f"{RAW_ROOT}/{recording.upstream_path}")
+        assert_wav(data, recording.upstream_path)
+        actual_blob = git_blob_sha1(data)
+        if actual_blob != recording.git_blob_sha1:
+            raise RuntimeError(
+                f"{recording.upstream_path}: expected Git blob "
+                f"{recording.git_blob_sha1}, got {actual_blob}."
+            )
+        recording_payloads.append((recording, data))
+
+    license_payloads: list[tuple[str, str, bytes]] = []
+    for pack, upstream_path in LICENSES.items():
+        data = read_url(f"{RAW_ROOT}/{upstream_path}")
+        if b"CC0" not in data.upper():
+            raise RuntimeError(f"{upstream_path} does not identify CC0.")
+        license_payloads.append((pack, upstream_path, data))
+
+    entries = [
+        manifest_entry(recording, data)
+        for recording, data in recording_payloads
+    ]
+    license_entries = [
+        {
+            "localPath": str(
+                (LICENSE_ROOT / f"{pack}-CC0-1.0.txt").relative_to(ROOT)
+            ).replace("\\\\", "/"),
+            "upstreamPath": upstream_path,
+            "sha256": sha256(data),
+            "bytes": len(data),
+            "pack": pack,
+            "canonicalSource": PACK_SOURCES[pack],
+            "license": "CC0-1.0",
+        }
+        for pack, upstream_path, data in license_payloads
+    ]
+    manifest = {
+        "schemaVersion": 1,
+        "generatedAt": "2026-08-21",
+        "upstreamRepository": UPSTREAM_REPOSITORY,
+        "upstreamRevision": UPSTREAM_REVISION,
+        "runtimeThirdPartyRequests": False,
+        "delivery": "same-origin-lazy",
+        "license": "CC0-1.0",
+        "recordings": entries,
+        "licenseFiles": license_entries,
+    }
+
+    ASSET_ROOT.mkdir(parents=True, exist_ok=True)
+    ASSET_ROOT.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=".drift-sonic-vendor-",
+        dir=ASSET_ROOT.parent,
+    ) as temporary:
+        stage = Path(temporary)
+        staged_recordings = stage / "recordings-new"
+        staged_licenses = stage / "licenses-new"
+        staged_manifest = stage / "manifest-new.json"
+        staged_recordings.mkdir()
+        staged_licenses.mkdir()
+
+        for recording, data in recording_payloads:
+            (staged_recordings / recording.local_name).write_bytes(data)
+        for pack, _upstream_path, data in license_payloads:
+            (staged_licenses / f"{pack}-CC0-1.0.txt").write_bytes(data)
+        staged_manifest.write_text(
+            json.dumps(manifest, indent=2) + "\\n",
+            encoding="utf-8",
+        )
+
+        backup_recordings = stage / "recordings-old"
+        backup_licenses = stage / "licenses-old"
+        backup_manifest = stage / "manifest-old.json"
+        try:
+            if RECORDING_ROOT.exists():
+                RECORDING_ROOT.replace(backup_recordings)
+            staged_recordings.replace(RECORDING_ROOT)
+
+            if LICENSE_ROOT.exists():
+                LICENSE_ROOT.replace(backup_licenses)
+            staged_licenses.replace(LICENSE_ROOT)
+
+            if MANIFEST_PATH.exists():
+                MANIFEST_PATH.replace(backup_manifest)
+            staged_manifest.replace(MANIFEST_PATH)
+            verify()
+        except Exception:
+            if RECORDING_ROOT.exists():
+                shutil.rmtree(RECORDING_ROOT)
+            if backup_recordings.exists():
+                backup_recordings.replace(RECORDING_ROOT)
+
+            if LICENSE_ROOT.exists():
+                shutil.rmtree(LICENSE_ROOT)
+            if backup_licenses.exists():
+                backup_licenses.replace(LICENSE_ROOT)
+
+            if MANIFEST_PATH.exists():
+                MANIFEST_PATH.unlink()
+            if backup_manifest.exists():
+                backup_manifest.replace(MANIFEST_PATH)
+            raise
+
+    for recording, data in recording_payloads:
+        print(f"vendored {recording.local_name} ({len(data)} bytes)")
+'''
+          write(
+              "scripts/vendor-sonic-assets.py",
+              vendor[:start] + new_vendor + vendor[end:],
+          )
+
+          vendor = read("scripts/vendor-sonic-assets.py")
+          start = vendor.index("def verify() -> None:\n")
+          end = vendor.index("\ndef main() -> int:\n", start)
+          new_verify = '''def verify() -> None:
+    if not MANIFEST_PATH.exists():
+        raise RuntimeError("Sonic asset manifest is missing.")
+
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise RuntimeError(f"Sonic manifest contains duplicate key {key!r}.")
+            result[key] = value
+        return result
+
+    manifest = json.loads(
+        MANIFEST_PATH.read_text(encoding="utf-8"),
+        object_pairs_hook=reject_duplicate_keys,
+    )
+    if manifest.get("schemaVersion") != 1:
+        raise RuntimeError("Sonic manifest schema version is not supported.")
+    if manifest.get("upstreamRepository") != UPSTREAM_REPOSITORY:
+        raise RuntimeError("Sonic manifest upstream repository changed.")
+    if manifest.get("upstreamRevision") != UPSTREAM_REVISION:
+        raise RuntimeError("Sonic manifest is not pinned to the expected revision.")
+    if manifest.get("runtimeThirdPartyRequests") is not False:
+        raise RuntimeError("Sonic manifest must reject third-party runtime requests.")
+    if manifest.get("delivery") != "same-origin-lazy":
+        raise RuntimeError("Sonic manifest must declare lazy same-origin delivery.")
+    if manifest.get("license") != "CC0-1.0":
+        raise RuntimeError("Sonic manifest licence identifier changed.")
+
+    recordings = manifest.get("recordings")
+    if not isinstance(recordings, list) or len(recordings) != len(RECORDINGS):
+        raise RuntimeError("Sonic manifest recording count changed.")
+    by_local = {entry.get("localPath"): entry for entry in recordings}
+    if len(by_local) != len(recordings):
+        raise RuntimeError("Sonic manifest contains duplicate recording paths.")
+
+    expected_paths = {
+        f"src/sonic/assets/recordings/{recording.local_name}"
+        for recording in RECORDINGS
+    }
+    actual_paths = {
+        str(path.relative_to(ROOT)).replace("\\\\", "/")
+        for path in RECORDING_ROOT.glob("*.wav")
+    }
+    if set(by_local) != expected_paths or actual_paths != expected_paths:
+        raise RuntimeError(
+            f"Sonic recording set mismatch; manifest={sorted(by_local)}, "
+            f"files={sorted(actual_paths)}."
+        )
+
+    for recording in RECORDINGS:
+        relative = f"src/sonic/assets/recordings/{recording.local_name}"
+        data = (ROOT / relative).read_bytes()
+        assert_wav(data, relative)
+        expected = manifest_entry(recording, data)
+        if by_local[relative] != expected:
+            raise RuntimeError(f"{relative}: manifest provenance or digest mismatch.")
+
+    license_files = manifest.get("licenseFiles")
+    if not isinstance(license_files, list) or len(license_files) != len(LICENSES):
+        raise RuntimeError("Sonic manifest licence count changed.")
+    by_pack = {entry.get("pack"): entry for entry in license_files}
+    if len(by_pack) != len(license_files) or set(by_pack) != set(LICENSES):
+        raise RuntimeError("Sonic manifest licence packs are missing or duplicated.")
+
+    expected_license_paths: set[str] = set()
+    for pack, upstream_path in LICENSES.items():
+        path = LICENSE_ROOT / f"{pack}-CC0-1.0.txt"
+        data = path.read_bytes()
+        if b"CC0" not in data.upper():
+            raise RuntimeError(f"{path}: CC0 notice is missing.")
+        relative = str(path.relative_to(ROOT)).replace("\\\\", "/")
+        expected_license_paths.add(relative)
+        expected = {
+            "localPath": relative,
+            "upstreamPath": upstream_path,
+            "sha256": sha256(data),
+            "bytes": len(data),
+            "pack": pack,
+            "canonicalSource": PACK_SOURCES[pack],
+            "license": "CC0-1.0",
+        }
+        if by_pack[pack] != expected:
+            raise RuntimeError(f"{path}: licence provenance or digest mismatch.")
+
+    actual_license_paths = {
+        str(path.relative_to(ROOT)).replace("\\\\", "/")
+        for path in LICENSE_ROOT.glob("*.txt")
+    }
+    if actual_license_paths != expected_license_paths:
+        raise RuntimeError("Committed sonic licence-file set changed.")
+    if not (ASSET_ROOT / "treatments.json").is_file():
+        raise RuntimeError("Acoustic-treatment ledger is missing.")
+
+    print(f"verified {len(RECORDINGS)} pinned CC0 tactile recordings")
+'''
+          write(
+              "scripts/vendor-sonic-assets.py",
+              vendor[:start] + new_verify + vendor[end:],
+          )
+
+          replace_once(
+              "tests/sonicAssets.test.js",
+              """    expect(manifest.runtimeNetworkRequests).toBe(false);
+    expect(manifest.recordings).toHaveLength(23);""",
+              """    expect(manifest.runtimeThirdPartyRequests).toBe(false);
+    expect(manifest.delivery).toBe("same-origin-lazy");
+    expect(manifest.recordings).toHaveLength(23);""",
+          )
+
+          package_path = ROOT / "package.json"
+          package = json.loads(package_path.read_text(encoding="utf-8"))
+          scripts = package.setdefault("scripts", {})
+          scripts.setdefault("test:e2e:dev", scripts["test:e2e"])
+          scripts["test:e2e:production"] = (
+              "playwright test --config=playwright.production.config.ts"
+          )
+          scripts["test:e2e"] = (
+              "npm run test:e2e:dev && npm run test:e2e:production"
+          )
+          scripts["sound:vendor-safety"] = (
+              "python3 scripts/check-sonic-vendor-safety.py"
+          )
+          scripts["check"] = (
+              "npm run typecheck && npm run test && "
+              "npm run sound:vendor-safety && npm run build"
+          )
+          package_path.write_text(
+              json.dumps(package, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          replace_once(
+              "README.md",
+              "python3 scripts/vendor-sonic-assets.py --verify  # Pinned CC0 foley integrity",
+              "npm run sound:verify  # Pinned CC0 foley integrity",
+          )
+          replace_once(
+              "docs/SONIC_DESIGN.md",
+              """`scripts/vendor-sonic-assets.py` verifies each downloaded file against its
+expected Git blob SHA-1, verifies RIFF/WAVE headers, computes SHA-256, preserves
+the pack licence texts, and writes `src/sonic/assets/manifest.json`.""",
+              """`scripts/vendor-sonic-assets.py` downloads and verifies the complete candidate
+corpus before touching committed assets, then replaces recordings, licences, and
+the manifest as one rollback-safe transaction. A failed refresh preserves the
+previous corpus and the independent treatment ledger. Every file is checked
+against its expected Git blob SHA-1, RIFF/WAVE header, SHA-256, and pack licence
+before `src/sonic/assets/manifest.json` is accepted.""",
+          )
+          PY
+
+      - name: Refresh the exact pinned corpus through the transactional vendor
+        run: python3 scripts/vendor-sonic-assets.py
+
+      - name: Remove temporary delivery workflow before validation
+        run: rm -f .github/workflows/apply-final-sound-hardening.yml
+
+      - name: Install exact dependency lock
+        run: npm ci
+
+      - name: Run static, unit, vendor-safety, build, bundle, and treatment gates
+        run: npm run check
+
+      - name: Verify committed source and licence provenance
+        run: npm run sound:verify
+
+      - name: Install pinned Chromium
+        run: npx playwright install chromium
+
+      - name: Run development and production real-browser gauntlets
+        run: npm run test:e2e
+
+      - name: Commit the reviewable hardening tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "feat(sound): finish timing, dialogue, and provenance hardening"
+          git push origin HEAD:gauntlet/tactile-sound-final-gpt56pro
+
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: final-tactile-sound-failure-evidence
+          path: |
+            playwright-report/
+            playwright-production-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
