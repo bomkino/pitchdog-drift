@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  dispatchNativeMacFiles,
   isNativeMacRuntime,
   pickNativeMacFiles,
   type NativeMacImportKind,
@@ -16,6 +17,7 @@ export function nativeImportKindForInput(input: HTMLInputElement): NativeMacImpo
   return "slides";
 }
 
+/** Browser-only compatibility helper retained for ordinary DOM input tests. */
 export function assignFilesAndDispatchChange(input: HTMLInputElement, files: readonly File[]): void {
   const transfer = new DataTransfer();
   for (const file of files) transfer.items.add(file);
@@ -33,8 +35,8 @@ function userFacingError(error: unknown): string {
  * Native File-menu commands ultimately activate the same hidden inputs used by
  * the browser build. On macOS, intercept those activations before WebKit opens
  * its generic file panel and route them through Drift's explicit, typed native
- * picker instead. This removes the timing race between an asynchronous input
- * intent message and WKUIDelegate's open-panel callback.
+ * picker instead. Verified File objects enter the installed React app bridge
+ * directly because WKWebView does not reliably synthesize a writable FileList.
  */
 export function NativeFileInputBridge() {
   const pickerActive = useRef(false);
@@ -58,11 +60,13 @@ export function NativeFileInputBridge() {
       setError(null);
       const kind = nativeImportKindForInput(input);
       void pickNativeMacFiles(kind, input.multiple)
-        .then((files) => {
+        .then(async (files) => {
           if (files === null) {
             throw new Error("Drift's native file bridge is unavailable. Reload the studio and try again.");
           }
-          if (files.length > 0) assignFilesAndDispatchChange(input, files);
+          if (files.length > 0 && !await dispatchNativeMacFiles(kind, files)) {
+            throw new Error("Drift's React import bridge is unavailable. Reload the studio and try again.");
+          }
         })
         .catch((caught: unknown) => {
           const message = userFacingError(caught);
