@@ -100,7 +100,7 @@ function rms(values: Float32Array): number {
   return Math.sqrt(squareSum / values.length);
 }
 
-export async function inspectAudioAt(blob: Blob, timestamp: number): Promise<{
+interface AudioInspection {
   trackCount: number;
   channels: number;
   sampleRate: number;
@@ -110,7 +110,37 @@ export async function inspectAudioAt(blob: Blob, timestamp: number): Promise<{
   coversTimestamp: boolean;
   leftRms: number;
   rightRms: number;
-}> {
+  /** Centred content such as mono narration. */
+  midRms: number;
+  /** Lateral content after cancelling centred narration: (R - L) / 2. */
+  sideRms: number;
+}
+
+function emptyInspection(
+  trackCount: number,
+  channels = 0,
+  sampleRate = 0,
+  duration = 0,
+): AudioInspection {
+  return {
+    trackCount,
+    channels,
+    sampleRate,
+    duration,
+    sampleStart: null,
+    sampleEnd: null,
+    coversTimestamp: false,
+    leftRms: 0,
+    rightRms: 0,
+    midRms: 0,
+    sideRms: 0,
+  };
+}
+
+export async function inspectAudioAt(
+  blob: Blob,
+  timestamp: number,
+): Promise<AudioInspection> {
   const input = new Input({
     formats: ALL_FORMATS,
     source: new BlobSource(blob),
@@ -118,19 +148,7 @@ export async function inspectAudioAt(blob: Blob, timestamp: number): Promise<{
   try {
     const tracks = await input.getAudioTracks();
     const track = await input.getPrimaryAudioTrack();
-    if (!track) {
-      return {
-        trackCount: tracks.length,
-        channels: 0,
-        sampleRate: 0,
-        duration: 0,
-        sampleStart: null,
-        sampleEnd: null,
-        coversTimestamp: false,
-        leftRms: 0,
-        rightRms: 0,
-      };
-    }
+    if (!track) return emptyInspection(tracks.length);
 
     const [channels, sampleRate, duration] = await Promise.all([
       track.getNumberOfChannels(),
@@ -139,17 +157,7 @@ export async function inspectAudioAt(blob: Blob, timestamp: number): Promise<{
     ]);
     const sample = await new AudioSampleSink(track).getSample(timestamp);
     if (!sample) {
-      return {
-        trackCount: tracks.length,
-        channels,
-        sampleRate,
-        duration,
-        sampleStart: null,
-        sampleEnd: null,
-        coversTimestamp: false,
-        leftRms: 0,
-        rightRms: 0,
-      };
+      return emptyInspection(tracks.length, channels, sampleRate, duration);
     }
 
     try {
@@ -164,6 +172,15 @@ export async function inspectAudioAt(blob: Blob, timestamp: number): Promise<{
           return values;
         },
       );
+      const left = planes[0] ?? new Float32Array();
+      const right = planes[1] ?? left;
+      const mid = new Float32Array(Math.min(left.length, right.length));
+      const side = new Float32Array(mid.length);
+      for (let frame = 0; frame < mid.length; frame += 1) {
+        mid[frame] = (left[frame]! + right[frame]!) * 0.5;
+        side[frame] = (right[frame]! - left[frame]!) * 0.5;
+      }
+
       const sampleEnd = sample.timestamp + sample.duration;
       return {
         trackCount: tracks.length,
@@ -175,8 +192,10 @@ export async function inspectAudioAt(blob: Blob, timestamp: number): Promise<{
         coversTimestamp:
           sample.timestamp <= timestamp
           && timestamp < sampleEnd - Number.EPSILON,
-        leftRms: rms(planes[0] ?? new Float32Array()),
-        rightRms: rms(planes[1] ?? planes[0] ?? new Float32Array()),
+        leftRms: rms(left),
+        rightRms: rms(right),
+        midRms: rms(mid),
+        sideRms: rms(side),
       };
     } finally {
       sample.close();
