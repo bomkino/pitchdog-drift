@@ -63,15 +63,15 @@ describe("authored motion recipes", () => {
     const applied = applyProjectCommand(
       current,
       createProjectRevisionState(),
-      applyEditorialCutCommand("paper-argument"),
+      applyEditorialCutCommand("clean-data"),
       "2026-08-21T00:01:00.000Z",
     );
 
     expect(applied.project.motion).toMatchObject({
-      transport: { axis: "vertical", direction: -1, slidesPerSecond: 0.34 },
-      cadence: { cutId: "paper-argument" },
+      transport: { axis: "horizontal", direction: -1, slidesPerSecond: 0.62 },
+      cadence: { cutId: "clean-data" },
     });
-    expect(detectEditorialCut(applied.project)?.id).toBe("paper-argument");
+    expect(detectEditorialCut(applied.project)?.id).toBe("clean-data");
     expect(applied.project).toMatchObject(frozen);
     expect(applied.receipt.ownedDomains).toEqual(["motion", "provenance"]);
     expect(applied.receipt.preservedDomains).toContain("master");
@@ -133,8 +133,10 @@ describe("authored motion recipes", () => {
 
   it("applies every motion character through one reversible project command", () => {
     for (const character of MOTION_CHARACTERS) {
+      const current = project();
+      const before = structuredClone(current.motion.character);
       const applied = applyProjectCommand(
-        project(),
+        current,
         createProjectRevisionState(),
         applyMotionCharacterCommand(character.id),
         "2026-08-21T00:01:00.000Z",
@@ -143,7 +145,9 @@ describe("authored motion recipes", () => {
         id: character.id,
         amount: character.amount,
       });
-      expect(applied.receipt.changed).toBe(character.id !== "direct");
+      expect(applied.receipt.changed).toBe(
+        before.id !== character.id || before.amount !== character.amount,
+      );
     }
   });
 
