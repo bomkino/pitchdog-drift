@@ -1,4 +1,5 @@
 import type { DriftProjectV3 } from "../project/schema";
+import { evaluateSpatialSlides } from "../spatial/spatial";
 import { planSemanticEvents } from "./eventPlanner";
 import type { EvaluatedFrameSlide, FrameEvaluation } from "./FrameEvaluation";
 import { poseCadenceFps } from "./master";
@@ -115,6 +116,6 @@ export function evaluateFrame(
         : [],
   };
 
-  const slides = options.spatialEvaluator?.({ project, sourceCount, track, frame: base }) ?? [];
-  return { ...base, slides };
+  const evaluator = options.spatialEvaluator ?? evaluateSpatialSlides;
+  return { ...base, slides: evaluator({ project, sourceCount, track, frame: base }) };
 }
