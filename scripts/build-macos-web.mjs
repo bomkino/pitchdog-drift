@@ -84,11 +84,12 @@ if (stylesheets.length === 0) {
 
 const applicationScript = javascript[0];
 const applicationSource = await readFile(applicationScript, "utf8");
-// Script performs a real classic-script parse. Unlike a text search, it cannot
-// mistake dependency diagnostics or string literals containing `import.meta`
-// for executable module syntax. The one-JavaScript-file invariant above proves
-// there is no boot-critical split chunk left for file:// to discover later.
-new Script(applicationSource, { filename: posixRelative(outDir, applicationScript) });
+const guardedApplicationSource = `try {\n${applicationSource}\n} catch (error) {\n  if (typeof window.__driftMacApplicationFailed === "function") {\n    window.__driftMacApplicationFailed(error);\n  }\n  throw error;\n}\n`;
+// Parse the exact guarded bytes that enter the signed bundle. The wrapper makes
+// a synchronous top-level failure observable from inside the same file origin,
+// before WebKit can redact it to the unhelpful cross-file “Script error.” text.
+new Script(guardedApplicationSource, { filename: posixRelative(outDir, applicationScript) });
+await writeFile(applicationScript, guardedApplicationSource, "utf8");
 
 const scriptRelative = posixRelative(outDir, applicationScript);
 const stylesheetRelatives = stylesheets.map((path) => posixRelative(outDir, path)).sort();
@@ -116,10 +117,14 @@ const bootstrapDiagnostics = String.raw`    <script>
         });
         const bounded = (value) => String(value ?? "unknown").replace(/[\r\n\t]+/g, " ").slice(0, 180);
         const fail = (name, message) => {
+          if (state.phase === "failed") return;
           state.phase = "failed";
           state.errorName = bounded(name);
           state.errorMessage = bounded(message);
           document.title = "Drift boot error · " + state.errorName + ": " + state.errorMessage;
+        };
+        window.__driftMacApplicationFailed = (error) => {
+          fail(error?.name ?? "Error", error?.message ?? error);
         };
         window.addEventListener("error", (event) => {
           fail(event.error?.name ?? "Error", event.error?.message ?? event.message);
