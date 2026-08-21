@@ -1,0 +1,23 @@
+Recovered from PR #17 head f7461c3a723cc9397a0358cf121af52a02515248
+f068be651f6bc3637273b34449b6ba64eaa834b73b290cfa47292a1dcb3bd8c5  .github/recovered-final-delta.patch
+1294 .github/recovered-final-delta.patch
+82022 .github/recovered-final-delta.patch
+diff --git a/docs/QA_REPORT.md b/docs/QA_REPORT.md
+diff --git a/docs/UNTIL_IT_HOLDS.md b/docs/UNTIL_IT_HOLDS.md
+diff --git a/e2e/cleanLensComparison.e2e.ts b/e2e/cleanLensComparison.e2e.ts
+diff --git a/e2e/creatorJourney.e2e.ts b/e2e/creatorJourney.e2e.ts
+diff --git a/e2e/directorCommands.e2e.ts b/e2e/directorCommands.e2e.ts
+diff --git a/e2e/staticOpticsDeterminism.e2e.ts b/e2e/staticOpticsDeterminism.e2e.ts
+diff --git a/e2e/studio.e2e.ts b/e2e/studio.e2e.ts
+diff --git a/e2e/visualEvidence.e2e.ts b/e2e/visualEvidence.e2e.ts
+diff --git a/e2e/worldExposureContract.e2e.ts b/e2e/worldExposureContract.e2e.ts
+diff --git a/e2e/worldVisualContract.e2e.ts b/e2e/worldVisualContract.e2e.ts
+diff --git a/src/App.tsx b/src/App.tsx
+diff --git a/src/components/ControlPanel.tsx b/src/components/ControlPanel.tsx
+diff --git a/src/components/MediaLibrary.tsx b/src/components/MediaLibrary.tsx
+diff --git a/src/components/Stage.tsx b/src/components/Stage.tsx
+diff --git a/src/engine/shaders.ts b/src/engine/shaders.ts
+diff --git a/src/lib/directorCommands.ts b/src/lib/directorCommands.ts
+diff --git a/src/styles.css b/src/styles.css
+diff --git a/tests/creatorSurface.test.ts b/tests/creatorSurface.test.ts
+diff --git a/tests/engineShader.test.ts b/tests/engineShader.test.ts
