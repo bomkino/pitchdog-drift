@@ -7,7 +7,7 @@ import {
   type ReadablePresenterBuffer,
 } from "../src/sonic/renderMixedMaster";
 
-function monoBuffer(values: readonly number[], sampleRate: number): ReadablePresenterBuffer {
+function monoBuffer(values: ArrayLike<number>, sampleRate: number): ReadablePresenterBuffer {
   const channel = Float32Array.from(values);
   return {
     sampleRate,
