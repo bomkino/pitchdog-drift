@@ -37,6 +37,13 @@ await build({
   configFile: false,
   base: "./",
   plugins: [react()],
+  define: {
+    // Vite's library mode intentionally leaves some dependency environment
+    // reads intact. The signed browser runtime has no Node `process` global;
+    // compile the one supported production constant into the bundle instead of
+    // installing a mutable compatibility shim in the privileged page world.
+    "process.env.NODE_ENV": JSON.stringify("production"),
+  },
   resolve: {
     alias: {
       "@mediabunny/aac-encoder": aacShim,
