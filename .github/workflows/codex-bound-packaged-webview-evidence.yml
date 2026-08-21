@@ -1,0 +1,249 @@
+name: codex-bound-packaged-webview-evidence
+
+on:
+  push:
+    branches:
+      - feat/native-macos-studio
+    paths:
+      - .github/workflows/codex-bound-packaged-webview-evidence.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: codex-bound-packaged-webview-evidence
+  cancel-in-progress: true
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out standalone-app branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/native-macos-studio
+          fetch-depth: 0
+
+      - name: Bound every diagnostic and signing subprocess
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          root = Path.cwd()
+          script_path = root / "scripts/probe-macos-packaged-webview.sh"
+          source = script_path.read_text(encoding="utf-8")
+
+          old = 'TIMEOUT_SECONDS="${DRIFT_WEBVIEW_MATRIX_TIMEOUT:-100}"\n'
+          new = (
+              'TIMEOUT_SECONDS="${DRIFT_WEBVIEW_MATRIX_TIMEOUT:-75}"\n'
+              'LOG_TIMEOUT_SECONDS="${DRIFT_WEBVIEW_LOG_TIMEOUT:-18}"\n'
+              'COMMAND_TIMEOUT_SECONDS="${DRIFT_WEBVIEW_COMMAND_TIMEOUT:-20}"\n'
+          )
+          if source.count(old) != 1:
+              raise SystemExit("matrix timeout declaration changed unexpectedly")
+          source = source.replace(old, new, 1)
+
+          receipt_end = "PY\n\ncapture_signature() {"
+          helper = r'''PY
+
+          cat > "$TEMP_ROOT/run-bounded.py" <<'PY'
+          from __future__ import annotations
+
+          import subprocess
+          import sys
+
+          timeout = float(sys.argv[1])
+          command = sys.argv[2:]
+          try:
+              completed = subprocess.run(command, check=False, timeout=timeout)
+          except subprocess.TimeoutExpired:
+              print(
+                  f"bounded command exceeded {timeout:g}s: {' '.join(command)}",
+                  file=sys.stderr,
+              )
+              raise SystemExit(124)
+          raise SystemExit(completed.returncode)
+          PY
+
+          bounded() {
+            local seconds="$1"
+            shift
+            python3 "$TEMP_ROOT/run-bounded.py" "$seconds" "$@"
+          }
+
+          capture_signature() {'''
+          if source.count(receipt_end) != 1:
+              raise SystemExit("receipt helper boundary changed unexpectedly")
+          source = source.replace(receipt_end, helper, 1)
+
+          source = source.replace(
+              '  codesign -dv --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-signature.txt" 2>&1 || true\n',
+              '  bounded "$COMMAND_TIMEOUT_SECONDS" codesign -dv --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-signature.txt" 2>&1 || true\n',
+          )
+          source = source.replace(
+              '  codesign -d --entitlements :- "$app_path" >"$EVIDENCE/variants/$variant-entitlements.plist" 2>"$EVIDENCE/variants/$variant-entitlements.stderr" || true\n',
+              '  bounded "$COMMAND_TIMEOUT_SECONDS" codesign -d --entitlements :- "$app_path" >"$EVIDENCE/variants/$variant-entitlements.plist" 2>"$EVIDENCE/variants/$variant-entitlements.stderr" || true\n',
+          )
+          source = source.replace(
+              '  codesign --verify --deep --strict --all-architectures --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-codesign-verify.txt" 2>&1 || true\n',
+              '  bounded "$COMMAND_TIMEOUT_SECONDS" codesign --verify --deep --strict --all-architectures --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-codesign-verify.txt" 2>&1 || true\n',
+          )
+          source = source.replace(
+              '  spctl --assess --type execute --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-spctl.txt" 2>&1 || true\n',
+              '  bounded "$COMMAND_TIMEOUT_SECONDS" spctl --assess --type execute --verbose=4 "$app_path" >"$EVIDENCE/variants/$variant-spctl.txt" 2>&1 || true\n',
+          )
+
+          start = source.index("capture_runtime_logs() {")
+          end = source.index("\nrun_variant() {", start)
+          bounded_logs = r'''capture_runtime_logs() {
+            local variant="$1"
+            python3 - \
+              "$EVIDENCE/logs/$variant-system.log" \
+              "$LOG_TIMEOUT_SECONDS" <<'PY'
+          from __future__ import annotations
+
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          output = Path(sys.argv[1])
+          timeout = float(sys.argv[2])
+          command = [
+              "log", "show",
+              "--last", "4m",
+              "--style", "compact",
+              "--predicate",
+              '(process == "Drift") OR (process == "sandboxd") OR (process CONTAINS[c] "WebKit") OR (eventMessage CONTAINS[c] "dog.pitch.drift")',
+          ]
+          try:
+              completed = subprocess.run(
+                  command,
+                  check=False,
+                  capture_output=True,
+                  text=True,
+                  timeout=timeout,
+              )
+              text = completed.stdout
+              if completed.stderr:
+                  text += "\n--- stderr ---\n" + completed.stderr
+              if completed.returncode != 0:
+                  text += f"\nlog show returned {completed.returncode}\n"
+          except subprocess.TimeoutExpired as error:
+              stdout = error.stdout if isinstance(error.stdout, str) else ""
+              stderr = error.stderr if isinstance(error.stderr, str) else ""
+              text = (
+                  stdout
+                  + ("\n--- stderr ---\n" + stderr if stderr else "")
+                  + f"\nlog collection stopped after its {timeout:g}s evidence budget.\n"
+              )
+          output.write_text(text, encoding="utf-8")
+          PY
+
+            local diagnostics="$HOME/Library/Logs/DiagnosticReports"
+            if [[ -d "$diagnostics" ]]; then
+              while IFS= read -r -d '' report; do
+                local basename
+                basename="$(basename "$report")"
+                cp "$report" "$EVIDENCE/crashes/$variant-$basename" || true
+              done < <(find "$diagnostics" -type f -mmin -10 \
+                \( -name 'Drift*' -o -name 'WebKit*' -o -name 'com.apple.WebKit*' \) -print0 2>/dev/null)
+            fi
+          }
+          '''
+          source = source[:start] + bounded_logs + source[end:]
+
+          substitutions = {
+              '  security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"\n':
+                  '  bounded "$COMMAND_TIMEOUT_SECONDS" security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"\n',
+              '  security set-keychain-settings -lut 3600 "$KEYCHAIN"\n':
+                  '  bounded "$COMMAND_TIMEOUT_SECONDS" security set-keychain-settings -lut 3600 "$KEYCHAIN"\n',
+              '  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"\n':
+                  '  bounded "$COMMAND_TIMEOUT_SECONDS" security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"\n',
+              '  security import "$TEMP_ROOT/identity.p12" \\\n':
+                  '  bounded "$COMMAND_TIMEOUT_SECONDS" security import "$TEMP_ROOT/identity.p12" \\\n',
+              '  security set-key-partition-list \\\n':
+                  '  bounded "$COMMAND_TIMEOUT_SECONDS" security set-key-partition-list \\\n',
+              '  security add-trusted-cert -d -r trustRoot -k "$KEYCHAIN" "$TEMP_ROOT/certificate.pem" \\\n':
+                  '  bounded "$COMMAND_TIMEOUT_SECONDS" security add-trusted-cert -d -r trustRoot -k "$KEYCHAIN" "$TEMP_ROOT/certificate.pem" \\\n',
+              '  IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk \'/Drift CI Runtime/ {print $2; exit}\')"\n':
+                  '  IDENTITY="$(bounded "$COMMAND_TIMEOUT_SECONDS" security find-identity -v -p codesigning "$KEYCHAIN" | awk \'/Drift CI Runtime/ {print $2; exit}\')"\n',
+          }
+          for old_text, new_text in substitutions.items():
+              if source.count(old_text) != 1:
+                  raise SystemExit(f"matrix command changed unexpectedly: {old_text!r}")
+              source = source.replace(old_text, new_text, 1)
+
+          script_path.write_text(source, encoding="utf-8")
+
+          checker = r'''import { existsSync, readFileSync } from "node:fs";
+          import { dirname, join } from "node:path";
+          import { fileURLToPath } from "node:url";
+
+          const root = dirname(dirname(fileURLToPath(import.meta.url)));
+          const matrixPath = join(root, "scripts/probe-macos-packaged-webview.sh");
+          if (!existsSync(matrixPath)) throw new Error("packaged-WebView matrix script is missing");
+          const source = readFileSync(matrixPath, "utf8");
+          const required = [
+            'DRIFT_WEBVIEW_MATRIX_TIMEOUT:-75',
+            'DRIFT_WEBVIEW_LOG_TIMEOUT:-18',
+            'DRIFT_WEBVIEW_COMMAND_TIMEOUT:-20',
+            'run-bounded.py',
+            'except subprocess.TimeoutExpired',
+            'log collection stopped after its',
+            '"--last", "4m"',
+            'bounded "$COMMAND_TIMEOUT_SECONDS" security',
+            'bounded "$COMMAND_TIMEOUT_SECONDS" codesign',
+            'bounded "$COMMAND_TIMEOUT_SECONDS" spctl',
+          ];
+          for (const marker of required) {
+            if (!source.includes(marker)) throw new Error(`packaged-WebView matrix lost ${JSON.stringify(marker)}`);
+          }
+          if (/\blog show\\\s/.test(source)) {
+            throw new Error("packaged-WebView logs are again collected by an unbounded shell command");
+          }
+          const launch = Number(source.match(/DRIFT_WEBVIEW_MATRIX_TIMEOUT:-(\d+)/)?.[1]);
+          const logs = Number(source.match(/DRIFT_WEBVIEW_LOG_TIMEOUT:-(\d+)/)?.[1]);
+          const commands = Number(source.match(/DRIFT_WEBVIEW_COMMAND_TIMEOUT:-(\d+)/)?.[1]);
+          if (!(launch <= 75 && logs <= 18 && commands <= 20)) {
+            throw new Error(`matrix budgets expanded unexpectedly: launch=${launch}, logs=${logs}, commands=${commands}`);
+          }
+          console.log("Packaged-WebView evidence budget passed: app launches, system-log capture, codesign, spctl, and temporary-keychain operations are all bounded.");
+          '''
+          (root / "scripts/check-macos-matrix-budget.mjs").write_text(checker, encoding="utf-8")
+
+          package_path = root / "package.json"
+          package = json.loads(package_path.read_text(encoding="utf-8"))
+          current = package["scripts"]["check:mac-source"]
+          anchor = "node scripts/check-native-import-contract.mjs && "
+          if anchor not in current:
+              raise SystemExit("package.json source-check anchor changed")
+          if "check-macos-matrix-budget" not in current:
+              package["scripts"]["check:mac-source"] = current.replace(
+                  anchor,
+                  anchor + "node scripts/check-macos-matrix-budget.mjs && ",
+                  1,
+              )
+          package_path.write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Verify bounded source contract
+        run: |
+          bash -n scripts/probe-macos-packaged-webview.sh
+          node scripts/check-macos-matrix-budget.mjs
+          npm run check:mac-source
+
+      - name: Remove transport and commit
+        shell: bash
+        run: |
+          rm .github/workflows/codex-bound-packaged-webview-evidence.yml
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "test(mac): bound packaged-WebView evidence collection"
+          git push origin HEAD:feat/native-macos-studio
