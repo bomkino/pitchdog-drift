@@ -114,10 +114,16 @@ describe("editorial micro-Foley language", () => {
   });
 
   it("declares every dependent recording cue before playback or export", () => {
-    expect(getSonicRecipeCues(input("editorial", "passage", 2))).toEqual([
+    const contactSequence = Array.from({ length: 3 }, (_, index) => index + 1)
+      .find((sequence) => buildSonicRecipe(
+        input("editorial", "passage", sequence),
+      ).some((layer) => layer.role === "contact"));
+    expect(contactSequence).toBeDefined();
+    expect(getSonicRecipeCues(input(
+      "editorial",
       "passage",
-      "settle",
-    ]);
+      contactSequence!,
+    ))).toEqual(["passage", "settle"]);
     expect(getSonicRecipeCues(input("editorial", "grab", 2))).toEqual([
       "grab",
       "passage",
