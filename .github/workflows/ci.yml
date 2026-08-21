@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   apply-final-sound-hardening:
-    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[apply-final-sound-hardening-v3]') }}
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[apply-final-sound-hardening-v4]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -31,6 +31,39 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Separate product patches from temporary runner plumbing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/apply-final-sonic-hardening.py")
+          source = path.read_text(encoding="utf-8")
+          blocks = [
+              '''replace_once(
+              ".github/workflows/ci.yml",
+              "timeout-minutes: 25",
+              "timeout-minutes: 35",
+          )
+          ''',
+              '''replace_once(
+              ".github/workflows/ci.yml",
+              """            playwright-report/
+              test-results/""",
+              """            playwright-report/
+              playwright-production-report/
+              test-results/""",
+          )
+          ''',
+          ]
+          for block in blocks:
+              if source.count(block) != 1:
+                  raise RuntimeError("Could not isolate the temporary CI patch block.")
+              source = source.replace(block, "", 1)
+          path.write_text(source, encoding="utf-8")
+          PY
 
       - name: Apply audited large-file patches
         run: |
@@ -49,59 +82,25 @@ jobs:
             .github/workflows/apply-final-sound-hardening-v2.yml \
             scripts/apply-final-sonic-hardening.py \
             scripts/apply-final-sonic-followups.py
-          cat > .github/workflows/ci.yml <<'EOF'
-          name: CI
+          git fetch origin main:refs/remotes/origin/main
+          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
+          python3 - <<'PY'
+          from pathlib import Path
 
-          on:
-            push:
-              branches: [main]
-            pull_request:
-
-          permissions:
-            contents: read
-
-          concurrency:
-            group: ci-${{ github.ref }}
-            cancel-in-progress: true
-
-          jobs:
-            verify:
-              runs-on: ubuntu-latest
-              timeout-minutes: 35
-              steps:
-                - name: Check out source
-                  uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-                - name: Use Node.js 22
-                  uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-                  with:
-                    node-version: 22
-                    cache: npm
-
-                - name: Install locked dependencies
-                  run: npm ci
-
-                - name: Typecheck, test, and build
-                  run: npm run check
-
-                - name: Install pinned Chromium
-                  run: npx playwright install chromium
-
-                - name: Run real-browser gauntlet
-                  run: npm run test:e2e
-
-                - name: Preserve failure evidence
-                  if: failure()
-                  uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-                  with:
-                    name: playwright-failure-evidence
-                    path: |
-                      playwright-report/
-                      playwright-production-report/
-                      test-results/
-                    if-no-files-found: ignore
-                    retention-days: 7
-          EOF
+          path = Path(".github/workflows/ci.yml")
+          source = path.read_text(encoding="utf-8")
+          if source.count("timeout-minutes: 25") != 1:
+              raise RuntimeError("Ordinary CI timeout target changed.")
+          source = source.replace("timeout-minutes: 25", "timeout-minutes: 35", 1)
+          before = """            playwright-report/
+              test-results/"""
+          after = """            playwright-report/
+              playwright-production-report/
+              test-results/"""
+          if source.count(before) != 1:
+              raise RuntimeError("Ordinary CI artifact target changed.")
+          path.write_text(source.replace(before, after, 1), encoding="utf-8")
+          PY
           git diff --check
 
       - name: Install exact dependency lock
@@ -135,7 +134,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: final-tactile-sound-v3-failure-evidence
+          name: final-tactile-sound-v4-failure-evidence
           path: |
             playwright-report/
             playwright-production-report/
@@ -144,7 +143,7 @@ jobs:
           retention-days: 7
 
   verify:
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[apply-final-sound-hardening-v3]') }}
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[apply-final-sound-hardening-v4]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
