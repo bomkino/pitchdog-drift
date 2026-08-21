@@ -9,6 +9,9 @@ async function waitForStudio(page: Page): Promise<void> {
     "data-context",
     /ready|restored/,
   );
+  await expect(page.locator(".header-status")).toContainText("saved locally", {
+    timeout: 30_000,
+  });
 }
 
 async function waitForDurableSave(page: Page): Promise<void> {
