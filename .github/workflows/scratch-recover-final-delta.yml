@@ -1,0 +1,46 @@
+name: Scratch recover Director's Cut final delta
+
+on:
+  push:
+    branches:
+      - scratch/directors-cut-audit-20260821
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    if: ${{ !contains(github.event.head_commit.message, '[recovered-delta]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out scratch branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: scratch/directors-cut-audit-20260821
+          fetch-depth: 0
+
+      - name: Recover payload as reviewable text
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gauntlet/directors-cut-clean-final
+          rm -rf /tmp/directors-cut-payload
+          mkdir -p /tmp/directors-cut-payload
+          git archive --format=tar origin/gauntlet/directors-cut-clean-final .github/final-delta-payload \
+            | tar -xf - -C /tmp/directors-cut-payload
+          cat /tmp/directors-cut-payload/.github/final-delta-payload/part-* > /tmp/directors-cut-final.patch.gz
+          echo "76f53d4e34029e0128d1bca980108cd626c0938f664382d955b2d077b4702845  /tmp/directors-cut-final.patch.gz" | sha256sum --check -
+          gzip -dc /tmp/directors-cut-final.patch.gz > .github/recovered-final-delta.patch
+          {
+            echo "Recovered from PR #17 head f7461c3a723cc9397a0358cf121af52a02515248"
+            sha256sum .github/recovered-final-delta.patch
+            wc -l .github/recovered-final-delta.patch
+            wc -c .github/recovered-final-delta.patch
+            grep '^diff --git ' .github/recovered-final-delta.patch || true
+          } > .github/recovered-final-delta.manifest.txt
+          git config user.name "pitch.dog audit"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add .github/recovered-final-delta.patch .github/recovered-final-delta.manifest.txt
+          git commit -m "chore(audit): recover final delta [recovered-delta]"
+          git push origin HEAD:scratch/directors-cut-audit-20260821
