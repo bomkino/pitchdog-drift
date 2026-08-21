@@ -1439,7 +1439,9 @@ a:focus-visible {
 }
 
 .sonic-dock[data-state="ready"] .sonic-mute,
-.sonic-dock[data-state="ready"] summary span {
+.sonic-dock[data-state="ready"] summary span,
+.sonic-dock[data-state="auditioning"] .sonic-mute,
+.sonic-dock[data-state="auditioning"] summary span {
   color: #d9c2a7;
 }
 
@@ -1470,8 +1472,13 @@ a:focus-visible {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.025);
 }
 
-.sonic-dock[data-state="ready"] summary i {
+.sonic-dock[data-state="ready"] summary i,
+.sonic-dock[data-state="auditioning"] summary i {
   box-shadow: 0 0 10px rgba(216, 170, 124, 0.52);
+}
+
+.sonic-dock[data-state="loading"] summary i {
+  opacity: 0.58;
 }
 
 .sonic-popover {
@@ -1636,6 +1643,13 @@ a:focus-visible {
   border-color: rgba(197, 126, 80, 0.42);
   color: #d7c1aa;
   font-size: 9px;
+}
+
+.sonic-audition-note {
+  margin: -3px 0 0;
+  color: #6d675f;
+  font-size: 8px;
+  line-height: 1.45;
 }
 
 .sonic-popover footer {

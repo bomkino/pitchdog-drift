@@ -1190,9 +1190,16 @@ test("a pinned image outside the moving mesh pool is awaited before export", asy
 
 test("tactile sound direction persists locally without external requests", async ({ page }) => {
   const externalRequests: string[] = [];
+  const localWaveRequests: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
     const isNetworkRequest = url.protocol === "http:" || url.protocol === "https:";
+    if (
+      isNetworkRequest
+      && (url.hostname === "127.0.0.1" || url.hostname === "localhost")
+      && url.pathname.endsWith(".wav")
+      && !url.searchParams.has("import")
+    ) localWaveRequests.push(request.url());
     if (
       isNetworkRequest
       && url.hostname !== "127.0.0.1"
@@ -1201,6 +1208,7 @@ test("tactile sound direction persists locally without external requests", async
   });
 
   await waitForStudio(page);
+  expect(localWaveRequests).toEqual([]);
   await page.getByLabel("Open sound direction controls").click();
   await expect(page.getByRole("group", { name: "Sound direction" })).toBeVisible();
   await page.getByRole("radio", { name: "Cinema", exact: true }).check();
@@ -1218,8 +1226,56 @@ test("tactile sound direction persists locally without external requests", async
   await expect(page.getByRole("radio", { name: "Cinema", exact: true })).toBeChecked();
   await expect(page.getByRole("slider", { name: "Sound level", exact: true })).toHaveValue("0.41");
   await expect(page.getByRole("switch", { name: /Include in MP4/ })).not.toBeChecked();
-  await expect(page.getByRole("button", { name: "Enable tactile preview sound" })).toBeVisible();
+  const audition = page.getByRole("button", { name: "Audition gesture" });
+  await expect(audition).toBeEnabled();
+  await audition.click();
+  await expect(page.getByText("auditioning", { exact: true })).toBeVisible();
+  await expect(page.getByText("muted", { exact: true })).toBeVisible({ timeout: 3_000 });
+
+  await page.getByRole("button", { name: "Enable tactile preview sound" }).click();
+  await expect(page.getByText("armed", { exact: true })).toBeVisible({ timeout: 10_000 });
+  expect(localWaveRequests.length).toBeGreaterThan(0);
+  const distinctLocalRecordings = new Set(
+    localWaveRequests.map((request) => new URL(request).pathname),
+  );
+  expect(distinctLocalRecordings.size).toBeLessThan(23);
   expect(externalRequests).toEqual([]);
+});
+
+test("cancelled tactile waiters do not poison the shared local asset cache", async ({ page }) => {
+  await page.route(/\.wav(?:\?|$)/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    await route.continue();
+  });
+  await page.goto("/");
+
+  const receipt = await page.evaluate(async () => {
+    const { getSonicAssetBytes } = await import("/src/sonic/catalog.ts");
+    const controller = new AbortController();
+    const cancelled = getSonicAssetBytes(
+      "studio",
+      "passage",
+      0,
+      controller.signal,
+    ).then(
+      () => "resolved",
+      (error: unknown) => error instanceof DOMException ? error.name : "error",
+    );
+    const shared = getSonicAssetBytes("studio", "passage", 0);
+    window.setTimeout(() => controller.abort(), 20);
+
+    const [cancelledState, sharedBytes] = await Promise.all([cancelled, shared]);
+    const cachedBytes = await getSonicAssetBytes("studio", "passage", 0);
+    return {
+      cancelledState,
+      sharedBytes: sharedBytes.byteLength,
+      cachedBytes: cachedBytes.byteLength,
+    };
+  });
+
+  expect(receipt.cancelledState).toBe("AbortError");
+  expect(receipt.sharedBytes).toBeGreaterThan(10_000);
+  expect(receipt.cachedBytes).toBe(receipt.sharedBytes);
 });
 
 test("sound-design-only MP4 produces one verified AAC track", async ({ page }) => {

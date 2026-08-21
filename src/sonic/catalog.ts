@@ -1,4 +1,5 @@
 import type { SonicPalette } from "../model";
+import treatmentLedger from "./assets/treatments.json";
 
 import bookClose from "./assets/recordings/book-close.wav?no-inline";
 import bookFlip1 from "./assets/recordings/book-flip-1.wav?no-inline";
@@ -61,38 +62,116 @@ export const SONIC_PALETTE_LABELS: Readonly<Record<SonicPalette, Readonly<{
   },
 };
 
-type SonicAssetVariants = readonly [string, ...string[]];
+export interface SonicAssetSpec {
+  /** Build-hashed, same-origin URL for the untouched committed CC0 file. */
+  uri: string;
+  /** Human-readable source filename for diagnostics and treatment receipts. */
+  name: string;
+  /** Non-destructive source offset in seconds. */
+  trimStart: number;
+  /** Non-destructive dead-tail removal in seconds. */
+  trimEnd: number;
+  /** Auditable level compensation in decibels. */
+  gainDb: number;
+  /** Linear compensation before the cue-family and master gains. */
+  gain: number;
+}
+
+type SonicAssetVariants = readonly [SonicAssetSpec, ...SonicAssetSpec[]];
+
+function dbToGain(db: number): number {
+  return 10 ** (db / 20);
+}
+
+interface SonicTreatmentRecord {
+  name: string;
+  trimStart: number;
+  trimEnd: number;
+  gainDb: number;
+}
+
+const TREATMENTS = new Map<string, SonicTreatmentRecord>(
+  treatmentLedger.assets.map((treatment) => [treatment.name, treatment]),
+);
+
+function recording(uri: string, name: string): SonicAssetSpec {
+  const treatment = TREATMENTS.get(name);
+  if (!treatment) {
+    throw new Error(`Missing tactile treatment metadata for ${name}.`);
+  }
+  return Object.freeze({
+    uri,
+    name,
+    trimStart: treatment.trimStart,
+    trimEnd: treatment.trimEnd,
+    gainDb: treatment.gainDb,
+    gain: dbToGain(treatment.gainDb),
+  });
+}
+
+/**
+ * Editorial treatments are intentionally metadata, not destructive edits.
+ * The committed WAVs therefore continue to match their pinned upstream hashes.
+ * Values are measured against the committed PCM: active event energy is held
+ * within a narrow range and meaningful sound begins promptly without erasing
+ * the physical attack. The machine-readable ledger is enforced during build.
+ */
+const ASSETS = {
+  bookClose: recording(bookClose, "book-close.wav"),
+  bookFlip1: recording(bookFlip1, "book-flip-1.wav"),
+  bookFlip2: recording(bookFlip2, "book-flip-2.wav"),
+  bookPlace1: recording(bookPlace1, "book-place-1.wav"),
+  bookPlace3: recording(bookPlace3, "book-place-3.wav"),
+  cardPlace2: recording(cardPlace2, "card-place-2.wav"),
+  cardPlace3: recording(cardPlace3, "card-place-3.wav"),
+  cardShove1: recording(cardShove1, "card-shove-1.wav"),
+  cardShove2: recording(cardShove2, "card-shove-2.wav"),
+  cardSlide1: recording(cardSlide1, "card-slide-1.wav"),
+  cardSlide2: recording(cardSlide2, "card-slide-2.wav"),
+  cloth2: recording(cloth2, "cloth-2.wav"),
+  cloth4: recording(cloth4, "cloth-4.wav"),
+  genericImpact1: recording(genericImpact1, "generic-impact-1.wav"),
+  genericImpact2: recording(genericImpact2, "generic-impact-2.wav"),
+  leatherDrop: recording(leatherDrop, "leather-drop.wav"),
+  leatherHandle1: recording(leatherHandle1, "leather-handle-1.wav"),
+  leatherHandle2: recording(leatherHandle2, "leather-handle-2.wav"),
+  metalClick: recording(metalClick, "metal-click.wav"),
+  metalLatch: recording(metalLatch, "metal-latch.wav"),
+  softImpact1: recording(softImpact1, "soft-impact-1.wav"),
+  softImpact2: recording(softImpact2, "soft-impact-2.wav"),
+  woodImpact1: recording(woodImpact1, "wood-impact-1.wav"),
+} as const;
 
 const CATALOG: Readonly<Record<
   SonicPalette,
   Readonly<Record<SonicCue, SonicAssetVariants>>
 >> = {
   studio: {
-    passage: [cardSlide1, cardSlide2, bookFlip1],
-    grab: [leatherHandle1, leatherHandle2],
-    release: [cardPlace2, cardPlace3],
-    settle: [softImpact1, softImpact2],
-    control: [metalClick, bookClose],
-    success: [bookPlace1, cardPlace3],
-    failure: [leatherDrop],
+    passage: [ASSETS.cardSlide1, ASSETS.cardSlide2, ASSETS.bookFlip1],
+    grab: [ASSETS.leatherHandle1, ASSETS.leatherHandle2],
+    release: [ASSETS.cardPlace2, ASSETS.cardPlace3],
+    settle: [ASSETS.softImpact1, ASSETS.softImpact2],
+    control: [ASSETS.metalClick, ASSETS.bookClose],
+    success: [ASSETS.bookPlace1, ASSETS.cardPlace3],
+    failure: [ASSETS.leatherDrop],
   },
   cinematic: {
-    passage: [cardShove1, cardShove2],
-    grab: [metalLatch, leatherHandle2],
-    release: [woodImpact1, genericImpact2],
-    settle: [genericImpact1, softImpact2],
-    control: [metalLatch, metalClick],
-    success: [cardPlace3, bookPlace1],
-    failure: [leatherDrop, genericImpact2],
+    passage: [ASSETS.cardShove1, ASSETS.cardShove2],
+    grab: [ASSETS.metalLatch, ASSETS.leatherHandle2],
+    release: [ASSETS.woodImpact1, ASSETS.genericImpact2],
+    settle: [ASSETS.genericImpact1, ASSETS.softImpact2],
+    control: [ASSETS.metalLatch, ASSETS.metalClick],
+    success: [ASSETS.cardPlace3, ASSETS.bookPlace1],
+    failure: [ASSETS.leatherDrop, ASSETS.genericImpact2],
   },
   paper: {
-    passage: [bookFlip1, bookFlip2, cardSlide2],
-    grab: [cloth2, leatherHandle1],
-    release: [cloth4, bookPlace3],
-    settle: [bookPlace1, softImpact1],
-    control: [bookClose, metalClick],
-    success: [bookPlace3, bookPlace1],
-    failure: [leatherDrop],
+    passage: [ASSETS.bookFlip1, ASSETS.cardSlide2, ASSETS.cloth2],
+    grab: [ASSETS.cloth4, ASSETS.leatherHandle1],
+    release: [ASSETS.bookFlip2, ASSETS.bookPlace3],
+    settle: [ASSETS.bookPlace1, ASSETS.softImpact1],
+    control: [ASSETS.bookClose, ASSETS.metalClick],
+    success: [ASSETS.bookPlace3, ASSETS.bookPlace1],
+    failure: [ASSETS.leatherDrop],
   },
 };
 
@@ -103,8 +182,20 @@ function variantIndex(length: number, variant: number): number {
   return ((Math.trunc(variant) % length) + length) % length;
 }
 
-export function getSonicAssetVariantCount(palette: SonicPalette, cue: SonicCue): number {
+export function getSonicAssetVariantCount(
+  palette: SonicPalette,
+  cue: SonicCue,
+): number {
   return CATALOG[palette][cue].length;
+}
+
+export function getSonicAssetSpec(
+  palette: SonicPalette,
+  cue: SonicCue,
+  variant = 0,
+): SonicAssetSpec {
+  const variants = CATALOG[palette][cue];
+  return variants[variantIndex(variants.length, variant)]!;
 }
 
 export function getSonicAssetUri(
@@ -112,8 +203,39 @@ export function getSonicAssetUri(
   cue: SonicCue,
   variant = 0,
 ): string {
-  const variants = CATALOG[palette][cue];
-  return variants[variantIndex(variants.length, variant)]!;
+  return getSonicAssetSpec(palette, cue, variant).uri;
+}
+
+
+function cancelledAssetLoad(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  return new DOMException("Tactile asset loading was cancelled.", "AbortError");
+}
+
+async function awaitAssetLoad(
+  load: Promise<ArrayBuffer>,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  if (!signal) return await load;
+  if (signal.aborted) throw cancelledAssetLoad(signal);
+  return await new Promise<ArrayBuffer>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      reject(cancelledAssetLoad(signal));
+    };
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    signal.addEventListener("abort", onAbort, { once: true });
+    void load.then(
+      (bytes) => {
+        cleanup();
+        resolve(bytes);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
 }
 
 /**
@@ -125,6 +247,7 @@ export async function getSonicAssetBytes(
   palette: SonicPalette,
   cue: SonicCue,
   variant = 0,
+  signal?: AbortSignal,
 ): Promise<ArrayBuffer> {
   const uri = getSonicAssetUri(palette, cue, variant);
   let load = byteLoads.get(uri);
@@ -146,6 +269,6 @@ export async function getSonicAssetBytes(
     });
   }
 
-  const bytes = await load;
+  const bytes = await awaitAssetLoad(load, signal);
   return bytes.slice(0);
 }

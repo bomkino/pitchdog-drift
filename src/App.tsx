@@ -513,7 +513,13 @@ export function App() {
         onContextState: setContextState,
         onFrame: setFps,
         onSonicEvent: (event: CarouselSonicEvent) => {
-          sonicRef.current?.play(event.type, { intensity: event.intensity, pan: event.pan });
+          sonicRef.current?.play(event.type, {
+            intensity: event.intensity,
+            pan: event.pan,
+            sequence: event.sequence,
+            seed: event.seed,
+            panVariation: event.panVariation,
+          });
         },
       });
       engineRef.current = engine;
@@ -983,7 +989,12 @@ export function App() {
   }, [announce]);
 
   const directSound = useCallback((patch: Partial<StudioSettings["sound"]>) => {
-    if (patch.previewEnabled === true) void sonicRef.current?.unlock();
+    const sonic = sonicRef.current;
+    const immediateSound = { ...settingsRef.current.sound, ...patch };
+    // Sync the audio engine inside the trusted gesture. Waiting for React's
+    // effect would make a migrated muted project require a second click.
+    sonic?.setSettings(immediateSound);
+    if (patch.previewEnabled === true) void sonic?.unlock();
     setSettings((current) => ({
       ...current,
       sound: { ...current.sound, ...patch },

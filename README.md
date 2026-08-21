@@ -19,7 +19,7 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 - One optional pinned image or presenter video, off by default.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
 - Authentic CC0 card, paper, cloth, leather, wood, and metal foley for semantic motion and controls—bundled locally, never music or generated UI bleeps.
-- One verified AAC track at 48 kHz stereo: presenter speech, authored sound design, or a sample-aligned mix of both.
+- One verified AAC track at 48 kHz stereo: presenter speech, authored sound design, or one continuous exact-duration stereo master of both.
 - IndexedDB autosave and portable `.pitched` project bundles with SHA-256 asset verification.
 - Visible DOM fallback when WebGL2 is unavailable. It keeps media and project management usable while refusing to fake cinematic export.
 - No analytics, cloud upload, remote font, runtime API, or hidden network request.
@@ -45,7 +45,7 @@ python3 scripts/vendor-sonic-assets.py --verify  # Pinned CC0 foley integrity
 
 ## Export truth
 
-The default master is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque H.264 at 16 Mbit/s. Tactile preview is available after a trusted gesture, while exported effects start off. When effects or presenter speech are present, Drift writes one AAC track at 48 kHz stereo and 192 kbit/s.
+The default master is 1080 × 1920, 30 fps, 8 seconds, SDR sRGB/Rec.709, opaque H.264 at 16 Mbit/s. Tactile preview is available after a trusted gesture, while exported effects start off. Committed CC0 recordings load as hashed same-origin assets only after intent. When effects or presenter speech are present, Drift writes one continuous AAC track at 48 kHz stereo and 192 kbit/s.
 
 - H.264 does not preserve alpha. Transparent masters use PNG stills or PNG sequences.
 - PNG sequences stream to a chosen directory when File System Access is available. The ZIP fallback has a strict memory cap.

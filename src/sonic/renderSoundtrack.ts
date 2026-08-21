@@ -1,13 +1,24 @@
 import type { StudioSettings } from "../model";
 import {
   getSonicAssetBytes,
+  getSonicAssetSpec,
   getSonicAssetVariantCount,
+  type SonicAssetSpec,
   type SonicCue,
 } from "./catalog";
 import { buildSonicTimeline } from "./plan";
 
 export const SONIC_SAMPLE_RATE = 48_000;
 export const SONIC_CHANNELS = 2;
+
+interface DecodedSonicAsset {
+  buffer: AudioBuffer;
+  spec: SonicAssetSpec;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return;
@@ -16,37 +27,82 @@ function throwIfAborted(signal?: AbortSignal): void {
     : new DOMException("Soundtrack rendering was canceled.", "AbortError");
 }
 
+async function renderInterruptibly(
+  context: OfflineAudioContext,
+  signal?: AbortSignal,
+): Promise<AudioBuffer> {
+  throwIfAborted(signal);
+  const rendering = context.startRendering();
+  if (!signal) return await rendering;
+
+  // OfflineAudioContext cannot be canceled. Reject the export transaction as
+  // soon as the user aborts, keep the losing render observed, and discard it.
+  void rendering.catch(() => undefined);
+  let onAbort: (() => void) | null = null;
+  const cancellation = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(
+      signal.reason instanceof Error
+        ? signal.reason
+        : new DOMException("Soundtrack rendering was canceled.", "AbortError"),
+    );
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+
+  try {
+    return await Promise.race([rendering, cancellation]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
 async function decodeCueVariants(
   context: BaseAudioContext,
   palette: StudioSettings["sound"]["palette"],
   cue: SonicCue,
   signal?: AbortSignal,
-): Promise<readonly AudioBuffer[]> {
+): Promise<readonly DecodedSonicAsset[]> {
   const variantCount = getSonicAssetVariantCount(palette, cue);
   return await Promise.all(
     Array.from({ length: variantCount }, async (_, variant) => {
       throwIfAborted(signal);
-      const bytes = await getSonicAssetBytes(palette, cue, variant);
+      const bytes = await getSonicAssetBytes(palette, cue, variant, signal);
       throwIfAborted(signal);
-      return await context.decodeAudioData(bytes);
+      return {
+        buffer: await context.decodeAudioData(bytes),
+        spec: getSonicAssetSpec(palette, cue, variant),
+      };
     }),
   );
 }
 
 function selectVariant(
-  variants: readonly AudioBuffer[],
+  variants: readonly DecodedSonicAsset[],
   variant: number,
-): AudioBuffer | undefined {
+): DecodedSonicAsset | undefined {
   if (variants.length === 0) return undefined;
   const index = ((Math.trunc(variant) % variants.length) + variants.length)
     % variants.length;
   return variants[index];
 }
 
+function playbackWindow(asset: DecodedSonicAsset): Readonly<{
+  offset: number;
+  duration: number;
+}> {
+  const offset = clamp(asset.spec.trimStart, 0, asset.buffer.duration);
+  const remaining = Math.max(0, asset.buffer.duration - offset);
+  const tail = clamp(asset.spec.trimEnd, 0, remaining);
+  return {
+    offset,
+    duration: Math.max(0, remaining - tail),
+  };
+}
+
 /**
  * Renders the authored cue plan into an exact-length 48 kHz stereo buffer.
- * Source selection, timing, pitch, gain and pan are deterministic. Export later
- * mixes this effects bed beneath presenter speech into one verified AAC track.
+ * Source selection, timing, pitch, gain, pan and non-destructive recording
+ * treatments are deterministic. Export later mixes this effects bed beneath
+ * presenter speech into one verified AAC track.
  */
 export async function renderSonicSoundtrack(
   settings: StudioSettings,
@@ -68,7 +124,7 @@ export async function renderSonicSoundtrack(
     SONIC_SAMPLE_RATE,
   );
   const requiredCues = [...new Set(events.map((event) => event.cue))];
-  const decoded = new Map<SonicCue, readonly AudioBuffer[]>();
+  const decoded = new Map<SonicCue, readonly DecodedSonicAsset[]>();
   await Promise.all(requiredCues.map(async (cue) => {
     decoded.set(
       cue,
@@ -98,20 +154,23 @@ export async function renderSonicSoundtrack(
 
   for (const event of events) {
     const variants = decoded.get(event.cue);
-    const buffer = variants
+    const asset = variants
       ? selectVariant(variants, event.variant)
       : undefined;
-    if (!buffer) continue;
+    if (!asset) continue;
+
+    const window = playbackWindow(asset);
+    if (window.duration <= 0) continue;
 
     const source = context.createBufferSource();
     const gain = context.createGain();
     const panner = context.createStereoPanner();
-    source.buffer = buffer;
+    source.buffer = asset.buffer;
     source.playbackRate.value = event.playbackRate;
     panner.pan.value = event.pan;
 
     const start = Math.max(0, event.time);
-    const audibleDuration = buffer.duration / Math.max(
+    const audibleDuration = window.duration / Math.max(
       0.01,
       event.playbackRate,
     );
@@ -125,19 +184,25 @@ export async function renderSonicSoundtrack(
       attackEnd,
       end - Math.min(0.032, audibleDuration * 0.28),
     );
+    const treatedGain = event.gain * asset.spec.gain;
     gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(event.gain, attackEnd);
-    gain.gain.setValueAtTime(event.gain, releaseStart);
+    gain.gain.linearRampToValueAtTime(treatedGain, attackEnd);
+    gain.gain.setValueAtTime(treatedGain, releaseStart);
     gain.gain.linearRampToValueAtTime(0, end);
 
     source.connect(gain);
     gain.connect(panner);
     panner.connect(master);
-    source.start(start);
+    const renderedDuration = Math.max(0, end - start);
+    const sourceDuration = Math.min(
+      window.duration,
+      renderedDuration * source.playbackRate.value,
+    );
+    source.start(start, window.offset, sourceDuration);
     source.stop(end);
   }
 
-  const rendered = await context.startRendering();
+  const rendered = await renderInterruptibly(context, signal);
   throwIfAborted(signal);
   if (
     rendered.sampleRate !== SONIC_SAMPLE_RATE

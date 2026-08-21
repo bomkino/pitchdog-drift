@@ -27,6 +27,12 @@ export type CarouselSonicEvent = Readonly<{
   type: "passage" | "grab" | "release";
   intensity: number;
   pan: number;
+  /** Stable physical crossing identity; preview and export choose the same take. */
+  sequence?: number;
+  /** Composition seed used by deterministic density and variation decisions. */
+  seed?: number;
+  /** Horizontal passages share export's restrained lateral variation. */
+  panVariation?: boolean;
 }>;
 
 interface EngineCallbacks {
@@ -707,11 +713,23 @@ export class CinematicCarousel {
     if (step === this.lastSonicStep) return;
     const delta = step - this.lastSonicStep;
     this.lastSonicStep = step;
-    const intensity = THREE.MathUtils.clamp(Math.abs(this.motionVelocity) / Math.max(1, stride * 0.72), 0.32, 1);
-    const pan = this.settings.motion.axis === "horizontal"
-      ? THREE.MathUtils.clamp(-Math.sign(delta) * (0.32 + intensity * 0.2), -0.72, 0.72)
+    const intensity = THREE.MathUtils.clamp(
+      Math.abs(this.motionVelocity) / Math.max(1, stride * 0.78),
+      0.32,
+      1,
+    );
+    const horizontal = this.settings.motion.axis === "horizontal";
+    const pan = horizontal
+      ? THREE.MathUtils.clamp(-Math.sign(delta) * 0.44, -0.72, 0.72)
       : 0;
-    this.callbacks.onSonicEvent({ type: "passage", intensity, pan });
+    this.callbacks.onSonicEvent({
+      type: "passage",
+      intensity,
+      pan,
+      sequence: Math.max(1, Math.abs(step)),
+      seed: this.settings.background.seed,
+      panVariation: horizontal,
+    });
   }
 
   private renderInternal(time: number, distance: number, velocity: number, exportMode: boolean): void {

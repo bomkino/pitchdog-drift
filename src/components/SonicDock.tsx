@@ -47,6 +47,8 @@ function RangeRow({
 
 function stateLabel(state: SonicRuntimeState): string {
   switch (state) {
+    case "loading": return "loading";
+    case "auditioning": return "auditioning";
     case "ready": return "armed";
     case "muted": return "muted";
     case "unavailable": return "unavailable";
@@ -62,8 +64,13 @@ export function SonicDock({
   onSettings,
   onAudition,
 }: SonicDockProps) {
+  const busy = state === "loading" || state === "auditioning";
   return (
-    <div className="sonic-dock" data-state={state}>
+    <div
+      className="sonic-dock"
+      data-state={state}
+      aria-busy={state === "loading"}
+    >
       <button
         type="button"
         className="sonic-mute"
@@ -86,7 +93,7 @@ export function SonicDock({
       </button>
       <details>
         <summary aria-label="Open sound direction controls">
-          <span>{stateLabel(state)}</span>
+          <span aria-live="polite">{stateLabel(state)}</span>
           <i aria-hidden="true" />
         </summary>
         <div
@@ -105,7 +112,7 @@ export function SonicDock({
 
           <fieldset
             className="sonic-palettes"
-            disabled={disabled || state === "unavailable"}
+            disabled={disabled || state === "unavailable" || state === "loading"}
           >
             <legend>Material direction</legend>
             <div>
@@ -192,20 +199,20 @@ export function SonicDock({
           <button
             type="button"
             className="sonic-audition"
-            disabled={
-              disabled
-              || state === "unavailable"
-              || !settings.previewEnabled
-            }
+            disabled={disabled || state === "unavailable" || busy}
+            aria-describedby="sonic-audition-note"
             title={
               settings.previewEnabled
                 ? "Play a short passage and settle gesture"
-                : "Enable tactile preview to audition"
+                : "Play one deliberate gesture without arming ongoing preview"
             }
             onClick={onAudition}
           >
             Audition gesture
           </button>
+          <p id="sonic-audition-note" className="sonic-audition-note">
+            An explicit audition is still available while ongoing preview is muted.
+          </p>
           <footer>
             <span>Kenney recordings · CC0 · pinned and local</span>
             <span>Audio master · 24 / 25 / 30 fps</span>

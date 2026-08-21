@@ -1,20 +1,42 @@
 import type { SonicPalette, SonicSettings } from "../model";
 import {
   getSonicAssetBytes,
+  getSonicAssetSpec,
   getSonicAssetVariantCount,
-  SONIC_CUES,
+  type SonicAssetSpec,
   type SonicCue,
 } from "./catalog";
-import { getSonicDensityStep } from "./plan";
+import { getSonicPassageDecision } from "./plan";
 
-export type SonicRuntimeState = "idle" | "ready" | "muted" | "unavailable";
+export type SonicRuntimeState =
+  | "idle"
+  | "loading"
+  | "auditioning"
+  | "ready"
+  | "muted"
+  | "unavailable";
 
 export interface SonicGesture {
   intensity?: number;
   pan?: number;
+  /** Absolute carousel crossing when available; makes preview match export. */
+  sequence?: number;
+  /** Composition seed used by deterministic density and variation decisions. */
+  seed?: number;
+  /** Horizontal passages receive the same restrained variation as export. */
+  panVariation?: boolean;
+  /** Audition can demonstrate a palette even when authored density is zero. */
+  force?: boolean;
+}
+
+interface DecodedSonicAsset {
+  buffer: AudioBuffer;
+  spec: SonicAssetSpec;
 }
 
 const MAX_VOICES = 8;
+const CORE_CUES: readonly SonicCue[] = ["passage", "settle"];
+const MOTION_PRIME_CUES: readonly SonicCue[] = ["grab", "release"];
 const MOTION_CUES = new Set<SonicCue>(["passage", "grab", "release", "settle"]);
 const COOLDOWN_MS: Readonly<Record<SonicCue, number>> = {
   passage: 85,
@@ -31,8 +53,28 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function hashUnit(value: number): number {
-  const sine = Math.sin(value * 12.9898 + 78.233) * 43_758.5453;
-  return sine - Math.floor(sine);
+  let seed = value | 0;
+  seed = Math.imul(seed ^ (seed >>> 16), 0x45d9f3b);
+  seed = Math.imul(seed ^ (seed >>> 16), 0x45d9f3b);
+  seed ^= seed >>> 16;
+  return (seed >>> 0) / 4_294_967_295;
+}
+
+function assetKey(palette: SonicPalette, cue: SonicCue): string {
+  return `${palette}:${cue}`;
+}
+
+function playbackWindow(asset: DecodedSonicAsset): Readonly<{
+  offset: number;
+  duration: number;
+}> {
+  const offset = clamp(asset.spec.trimStart, 0, asset.buffer.duration);
+  const remaining = Math.max(0, asset.buffer.duration - offset);
+  const tail = clamp(asset.spec.trimEnd, 0, remaining);
+  return {
+    offset,
+    duration: Math.max(0, remaining - tail),
+  };
 }
 
 export class SonicEngine {
@@ -44,17 +86,22 @@ export class SonicEngine {
   private compressor: DynamicsCompressorNode | null = null;
   private readonly decoded = new Map<
     SonicPalette,
-    Map<SonicCue, readonly AudioBuffer[]>
+    Map<SonicCue, readonly DecodedSonicAsset[]>
   >();
-  private readonly loads = new Map<
-    SonicPalette,
-    Promise<Map<SonicCue, readonly AudioBuffer[]>>
+  private readonly cueLoads = new Map<
+    string,
+    Promise<readonly DecodedSonicAsset[]>
   >();
+  private readonly coreLoads = new Map<SonicPalette, Promise<void>>();
   private readonly voices = new Set<AudioBufferSourceNode>();
   private readonly lastPlayed = new Map<SonicCue, number>();
   private readonly timers = new Set<number>();
+  private readonly reportedLoadErrors = new Set<string>();
   private sequence = 0;
   private motionSequence = 0;
+  private settingsRevision = 0;
+  private auditionToken = 0;
+  private auditioning = false;
   private suppressed = false;
   private unavailable = false;
   private disposed = false;
@@ -73,24 +120,32 @@ export class SonicEngine {
 
   get runtimeState(): SonicRuntimeState {
     if (this.unavailable) return "unavailable";
+    if (this.auditioning) return "auditioning";
     if (!this.settings.previewEnabled) return "muted";
-    if (this.context && this.decoded.has(this.settings.palette)) return "ready";
+    if (this.coreLoads.has(this.settings.palette)) return "loading";
+    if (this.context && this.hasCore(this.settings.palette)) return "ready";
     return "idle";
   }
 
   setSettings(settings: SonicSettings): void {
+    if (this.auditioning) {
+      this.auditioning = false;
+      this.auditionToken += 1;
+    }
+    this.settingsRevision += 1;
     const paletteChanged = settings.palette !== this.settings.palette;
+    const previewEnabled = !this.settings.previewEnabled && settings.previewEnabled;
     this.settings = { ...settings };
     this.updateMasterGain();
     if (
-      paletteChanged
+      (paletteChanged || previewEnabled)
       && this.context
       && !this.unavailable
       && this.settings.previewEnabled
     ) {
-      void this.loadPalette(settings.palette)
-        .then(() => this.publishState())
-        .catch((error: unknown) => this.reportError(error));
+      void this.ensureCore(settings.palette)
+        .then(() => this.primeMotionCues(settings.palette))
+        .catch((error: unknown) => this.reportRecoverable(error, "core"));
     }
     this.publishState();
   }
@@ -101,17 +156,13 @@ export class SonicEngine {
   }
 
   async unlock(): Promise<void> {
-    // The explicit enable button calls unlock before React propagates the new
-    // setting back into the engine. Allow that trusted gesture to create and
-    // resume audio now; play() and master gain still remain silent until the
-    // saved previewEnabled setting becomes true.
+    // The explicit enable button can update this engine synchronously before
+    // React commits the project state, so a single trusted click is sufficient.
     if (this.disposed || this.unavailable) return;
     try {
       if (!this.context) {
         if (typeof AudioContext === "undefined") {
-          this.markUnavailable(
-            "This browser does not expose Web Audio, so tactile preview is unavailable.",
-          );
+          this.markUnavailable("This browser does not expose Web Audio.");
           return;
         }
         const context = new AudioContext({ latencyHint: "interactive" });
@@ -129,21 +180,24 @@ export class SonicEngine {
         this.compressor = compressor;
       }
       if (this.context.state === "suspended") await this.context.resume();
-      await this.loadPalette(this.settings.palette);
+      await this.ensureCore(this.settings.palette);
+      this.primeMotionCues(this.settings.palette);
       this.updateMasterGain();
       this.publishState();
     } catch (error) {
-      // Local asset delivery, decoding, and a temporarily blocked AudioContext
-      // are recoverable. Keep the engine idle so the next trusted gesture can
-      // try again instead of poisoning the session permanently.
-      this.reportError(error);
+      if (!this.context) {
+        this.markUnavailable(error);
+      } else {
+        this.reportRecoverable(error, "core");
+      }
     }
   }
 
   play(cue: SonicCue, gesture: SonicGesture = {}): boolean {
     const context = this.context;
     const master = this.master;
-    const buffers = this.decoded.get(this.settings.palette);
+    const palette = this.settings.palette;
+    const variants = this.decoded.get(palette)?.get(cue);
     if (
       this.disposed
       || this.unavailable
@@ -152,16 +206,35 @@ export class SonicEngine {
       || !context
       || context.state !== "running"
       || !master
-      || !buffers
     ) return false;
 
+    if (!variants?.length) {
+      void this.loadCue(palette, cue)
+        .then(() => this.publishState())
+        .catch((error: unknown) => {
+          this.reportRecoverable(error, assetKey(palette, cue));
+        });
+      return false;
+    }
+
+    let passageDecision: ReturnType<typeof getSonicPassageDecision> | null = null;
+    let passageSequence = gesture.sequence;
     if (cue === "passage") {
-      const densityStep = getSonicDensityStep(this.settings.density);
-      this.motionSequence += 1;
-      if (
-        !Number.isFinite(densityStep)
-        || (this.motionSequence - 1) % densityStep !== 0
-      ) return false;
+      if (typeof passageSequence !== "number" || !Number.isFinite(passageSequence)) {
+        this.motionSequence += 1;
+        passageSequence = this.motionSequence;
+      } else {
+        passageSequence = Math.max(1, Math.abs(Math.trunc(passageSequence)));
+        this.motionSequence = Math.max(this.motionSequence, passageSequence);
+      }
+      passageDecision = getSonicPassageDecision(
+        palette,
+        this.settings.density,
+        this.settings.variation,
+        gesture.seed ?? 0,
+        passageSequence,
+      );
+      if (!gesture.force && !passageDecision.included) return false;
     }
 
     const nowMs = performance.now();
@@ -169,8 +242,23 @@ export class SonicEngine {
     if (nowMs - previous < COOLDOWN_MS[cue]) return false;
     this.lastPlayed.set(cue, nowMs);
 
-    const variants = buffers.get(cue);
-    if (!variants?.length) return false;
+    this.sequence += 1;
+    const pitchUnit = hashUnit(this.sequence + cue.length * 17);
+    const sampleUnit = hashUnit(this.sequence * 131 + cue.length * 47);
+    const signedVariation = passageDecision?.signedVariation
+      ?? (pitchUnit * 2 - 1) * this.settings.variation;
+    const selectedVariant = passageDecision?.variant
+      ?? (
+        this.settings.variation <= 0.01
+          ? 0
+          : Math.floor(sampleUnit * variants.length)
+      );
+    const variantIndex = (
+      (Math.trunc(selectedVariant) % variants.length) + variants.length
+    ) % variants.length;
+    const asset = variants[variantIndex]!;
+    const window = playbackWindow(asset);
+    if (window.duration <= 0) return false;
 
     while (this.voices.size >= MAX_VOICES) {
       const oldest = this.voices.values().next().value as
@@ -185,14 +273,6 @@ export class SonicEngine {
       this.voices.delete(oldest);
     }
 
-    this.sequence += 1;
-    const pitchUnit = hashUnit(this.sequence + cue.length * 17);
-    const sampleUnit = hashUnit(this.sequence * 131 + cue.length * 47);
-    const signedVariation = (pitchUnit * 2 - 1) * this.settings.variation;
-    const variantIndex = this.settings.variation <= 0.01
-      ? 0
-      : Math.min(variants.length - 1, Math.floor(sampleUnit * variants.length));
-    const buffer = variants[variantIndex]!;
     const intensity = clamp(gesture.intensity ?? 0.7, 0.08, 1);
     const familyGain = MOTION_CUES.has(cue)
       ? this.settings.motionGain
@@ -201,25 +281,46 @@ export class SonicEngine {
     const gain = context.createGain();
     const panner = context.createStereoPanner();
 
-    source.buffer = buffer;
-    source.playbackRate.value = clamp(
+    source.buffer = asset.buffer;
+    source.playbackRate.value = passageDecision?.playbackRate ?? clamp(
       1 + signedVariation * 0.085,
       0.8,
       1.2,
     );
-    panner.pan.value = clamp(gesture.pan ?? 0, -0.82, 0.82);
+    panner.pan.value = clamp(
+      (gesture.pan ?? 0)
+      + (
+        cue === "passage" && gesture.panVariation
+          ? signedVariation * 0.09
+          : 0
+      ),
+      -0.82,
+      0.82,
+    );
 
-    const voiceGain = clamp(familyGain * (0.4 + intensity * 0.6), 0, 1);
+    const authoredGain = cue === "passage"
+      ? clamp(
+        0.42 + intensity * 0.43 + signedVariation * 0.05,
+        0.26,
+        0.92,
+      )
+      : 0.4 + intensity * 0.6;
+    const voiceGain = clamp(
+      familyGain * authoredGain * asset.spec.gain,
+      0,
+      4,
+    );
     const start = context.currentTime + 0.003;
-    const end = start + buffer.duration / source.playbackRate.value;
+    const audibleDuration = window.duration / source.playbackRate.value;
+    const end = start + audibleDuration;
     gain.gain.setValueAtTime(0, start);
     gain.gain.linearRampToValueAtTime(
       voiceGain,
-      start + Math.min(0.012, buffer.duration * 0.2),
+      start + Math.min(0.012, audibleDuration * 0.2),
     );
     gain.gain.setValueAtTime(
       voiceGain,
-      Math.max(start + 0.012, end - 0.024),
+      Math.max(start + 0.012, end - Math.min(0.024, audibleDuration * 0.28)),
     );
     gain.gain.linearRampToValueAtTime(0, end);
 
@@ -233,18 +334,64 @@ export class SonicEngine {
       panner.disconnect();
     };
     this.voices.add(source);
-    source.start(start);
+    source.start(start, window.offset, window.duration);
     return true;
   }
 
   async audition(): Promise<void> {
-    await this.unlock();
-    if (!this.play("passage", { intensity: 0.72, pan: -0.34 })) return;
-    const timer = window.setTimeout(() => {
-      this.timers.delete(timer);
-      this.play("settle", { intensity: 0.58, pan: 0.18 });
-    }, 210);
-    this.timers.add(timer);
+    if (this.auditioning) return;
+    const token = ++this.auditionToken;
+    const revision = this.settingsRevision;
+    const temporaryPreview = !this.settings.previewEnabled;
+    if (temporaryPreview) {
+      this.auditioning = true;
+      this.settings = { ...this.settings, previewEnabled: true };
+      this.updateMasterGain();
+      this.publishState();
+    }
+
+    const restoreTemporaryPreview = () => {
+      if (
+        !temporaryPreview
+        || token !== this.auditionToken
+        || revision !== this.settingsRevision
+      ) return;
+      this.auditioning = false;
+      this.settings = { ...this.settings, previewEnabled: false };
+      this.updateMasterGain();
+      this.publishState();
+    };
+
+    try {
+      await this.unlock();
+      if (!this.play("passage", {
+        intensity: 0.72,
+        pan: -0.34,
+        panVariation: true,
+        sequence: 1,
+        seed: 0,
+        force: true,
+      })) {
+        restoreTemporaryPreview();
+        return;
+      }
+      const settleTimer = window.setTimeout(() => {
+        this.timers.delete(settleTimer);
+        this.play("settle", { intensity: 0.58, pan: 0.18 });
+      }, 210);
+      this.timers.add(settleTimer);
+
+      if (temporaryPreview) {
+        const restoreTimer = window.setTimeout(() => {
+          this.timers.delete(restoreTimer);
+          restoreTemporaryPreview();
+        }, 950);
+        this.timers.add(restoreTimer);
+      }
+    } catch (error) {
+      restoreTemporaryPreview();
+      throw error;
+    }
   }
 
   async suspendForVisibility(hidden: boolean): Promise<void> {
@@ -280,37 +427,78 @@ export class SonicEngine {
     this.context = null;
     this.master = null;
     this.compressor = null;
+    this.coreLoads.clear();
+    this.cueLoads.clear();
   }
 
-  private async loadPalette(
+  private hasCore(palette: SonicPalette): boolean {
+    const paletteBuffers = this.decoded.get(palette);
+    return CORE_CUES.every((cue) => Boolean(paletteBuffers?.get(cue)?.length));
+  }
+
+  private async ensureCore(palette: SonicPalette): Promise<void> {
+    if (this.hasCore(palette)) return;
+    const existing = this.coreLoads.get(palette);
+    if (existing) return await existing;
+
+    const load = Promise.all(
+      CORE_CUES.map(async (cue) => await this.loadCue(palette, cue)),
+    ).then(() => undefined).finally(() => {
+      this.coreLoads.delete(palette);
+      this.publishState();
+    });
+    this.coreLoads.set(palette, load);
+    this.publishState();
+    return await load;
+  }
+
+  private primeMotionCues(palette: SonicPalette): void {
+    for (const cue of MOTION_PRIME_CUES) {
+      void this.loadCue(palette, cue).catch((error: unknown) => {
+        this.reportRecoverable(error, assetKey(palette, cue));
+      });
+    }
+  }
+
+  private async loadCue(
     palette: SonicPalette,
-  ): Promise<Map<SonicCue, readonly AudioBuffer[]>> {
-    const cached = this.decoded.get(palette);
+    cue: SonicCue,
+  ): Promise<readonly DecodedSonicAsset[]> {
+    const cached = this.decoded.get(palette)?.get(cue);
     if (cached) return cached;
-    const existing = this.loads.get(palette);
-    if (existing) return existing;
+    const key = assetKey(palette, cue);
+    const existing = this.cueLoads.get(key);
+    if (existing) return await existing;
     const context = this.context;
     if (!context) throw new Error("Sound engine has not been unlocked.");
 
-    const load = Promise.all(SONIC_CUES.map(async (cue) => {
-      const variantCount = getSonicAssetVariantCount(palette, cue);
-      const variants = await Promise.all(
-        Array.from({ length: variantCount }, async (_, variant) => {
+    const load = Promise.all(
+      Array.from(
+        { length: getSonicAssetVariantCount(palette, cue) },
+        async (_, variant): Promise<DecodedSonicAsset> => {
           const bytes = await getSonicAssetBytes(palette, cue, variant);
-          return await context.decodeAudioData(bytes);
-        }),
-      );
-      return [cue, variants] as const;
-    })).then((entries) => {
-      const buffers = new Map<SonicCue, readonly AudioBuffer[]>(entries);
-      this.decoded.set(palette, buffers);
-      return buffers;
+          return {
+            buffer: await context.decodeAudioData(bytes),
+            spec: getSonicAssetSpec(palette, cue, variant),
+          };
+        },
+      ),
+    ).then((assets) => {
+      if (this.disposed || this.context !== context) return assets;
+      let paletteBuffers = this.decoded.get(palette);
+      if (!paletteBuffers) {
+        paletteBuffers = new Map<SonicCue, readonly DecodedSonicAsset[]>();
+        this.decoded.set(palette, paletteBuffers);
+      }
+      paletteBuffers.set(cue, assets);
+      this.reportedLoadErrors.delete(key);
+      return assets;
     }).finally(() => {
-      this.loads.delete(palette);
+      this.cueLoads.delete(key);
     });
 
-    this.loads.set(palette, load);
-    return load;
+    this.cueLoads.set(key, load);
+    return await load;
   }
 
   private updateMasterGain(): void {
@@ -324,18 +512,26 @@ export class SonicEngine {
     master.gain.setTargetAtTime(target, context.currentTime, 0.012);
   }
 
-  private reportError(error: unknown): void {
+  private markUnavailable(error: unknown): void {
+    this.unavailable = true;
     this.onError?.(
       error instanceof Error
         ? error.message
-        : "Tactile sound could not start. Try the gesture again.",
+        : typeof error === "string"
+          ? error
+          : "Tactile sound could not start in this browser.",
     );
     this.publishState();
   }
 
-  private markUnavailable(message: string): void {
-    this.unavailable = true;
-    this.onError?.(message);
+  private reportRecoverable(error: unknown, key: string): void {
+    if (this.reportedLoadErrors.has(key)) return;
+    this.reportedLoadErrors.add(key);
+    this.onError?.(
+      error instanceof Error
+        ? `${error.message} Sound remains retryable.`
+        : "A local tactile recording could not be prepared. Sound remains retryable.",
+    );
     this.publishState();
   }
 

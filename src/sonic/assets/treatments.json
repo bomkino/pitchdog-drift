@@ -1,0 +1,249 @@
+{
+  "version": 1,
+  "method": {
+    "description": "Non-destructive editorial trim and level treatments measured from the committed PCM recordings.",
+    "activeWindowMs": 20,
+    "activeHopMs": 5,
+    "activeRelativeFloorDb": -20,
+    "activeAbsoluteFloorDb": -60,
+    "onsetWindowMs": 10,
+    "onsetHopMs": 2,
+    "onsetRelativeFloorDb": -24,
+    "onsetAbsoluteFloorDb": -50,
+    "maximumActiveSpreadDb": 3.5,
+    "maximumOnsetMs": 50,
+    "maximumPreMixPeakDb": 6.0
+  },
+  "assets": [
+    {
+      "name": "book-close.wav",
+      "trimStart": 0.045,
+      "trimEnd": 0.03,
+      "gainDb": -4.0,
+      "measuredDurationMs": 156,
+      "measuredOnsetMs": 20,
+      "measuredActiveRmsDb": -20.1,
+      "measuredPeakDb": -4.1
+    },
+    {
+      "name": "book-flip-1.wav",
+      "trimStart": 0.55,
+      "trimEnd": 0.045,
+      "gainDb": 1.0,
+      "measuredDurationMs": 174,
+      "measuredOnsetMs": 30,
+      "measuredActiveRmsDb": -19.9,
+      "measuredPeakDb": 1.0
+    },
+    {
+      "name": "book-flip-2.wav",
+      "trimStart": 0.015,
+      "trimEnd": 0.045,
+      "gainDb": 13.5,
+      "measuredDurationMs": 370,
+      "measuredOnsetMs": 14,
+      "measuredActiveRmsDb": -22.8,
+      "measuredPeakDb": 3.7
+    },
+    {
+      "name": "book-place-1.wav",
+      "trimStart": 0.025,
+      "trimEnd": 0.1,
+      "gainDb": -8.5,
+      "measuredDurationMs": 152,
+      "measuredOnsetMs": 0,
+      "measuredActiveRmsDb": -20.1,
+      "measuredPeakDb": -8.6
+    },
+    {
+      "name": "book-place-3.wav",
+      "trimStart": 0,
+      "trimEnd": 0.08,
+      "gainDb": -6.5,
+      "measuredDurationMs": 181,
+      "measuredOnsetMs": 4,
+      "measuredActiveRmsDb": -20.0,
+      "measuredPeakDb": -6.5
+    },
+    {
+      "name": "card-place-2.wav",
+      "trimStart": 0.16,
+      "trimEnd": 0.19,
+      "gainDb": 0.6,
+      "measuredDurationMs": 106,
+      "measuredOnsetMs": 26,
+      "measuredActiveRmsDb": -20.0,
+      "measuredPeakDb": -1.4
+    },
+    {
+      "name": "card-place-3.wav",
+      "trimStart": 0.4,
+      "trimEnd": 0.32,
+      "gainDb": 0.0,
+      "measuredDurationMs": 163,
+      "measuredOnsetMs": 44,
+      "measuredActiveRmsDb": -19.7,
+      "measuredPeakDb": -1.1
+    },
+    {
+      "name": "card-shove-1.wav",
+      "trimStart": 0.075,
+      "trimEnd": 0.35,
+      "gainDb": 7.0,
+      "measuredDurationMs": 341,
+      "measuredOnsetMs": 34,
+      "measuredActiveRmsDb": -20.1,
+      "measuredPeakDb": 3.9
+    },
+    {
+      "name": "card-shove-2.wav",
+      "trimStart": 0.17,
+      "trimEnd": 0.3,
+      "gainDb": 7.5,
+      "measuredDurationMs": 297,
+      "measuredOnsetMs": 30,
+      "measuredActiveRmsDb": -20.0,
+      "measuredPeakDb": 5.5
+    },
+    {
+      "name": "card-slide-1.wav",
+      "trimStart": 0.12,
+      "trimEnd": 0.35,
+      "gainDb": -3.5,
+      "measuredDurationMs": 131,
+      "measuredOnsetMs": 22,
+      "measuredActiveRmsDb": -20.1,
+      "measuredPeakDb": -6.0
+    },
+    {
+      "name": "card-slide-2.wav",
+      "trimStart": 0.035,
+      "trimEnd": 0.43,
+      "gainDb": -4.5,
+      "measuredDurationMs": 119,
+      "measuredOnsetMs": 20,
+      "measuredActiveRmsDb": -20.1,
+      "measuredPeakDb": -6.2
+    },
+    {
+      "name": "cloth-2.wav",
+      "trimStart": 0.07,
+      "trimEnd": 0.08,
+      "gainDb": 7.0,
+      "measuredDurationMs": 265,
+      "measuredOnsetMs": 0,
+      "measuredActiveRmsDb": -19.8,
+      "measuredPeakDb": -3.3
+    },
+    {
+      "name": "cloth-4.wav",
+      "trimStart": 0.015,
+      "trimEnd": 0.06,
+      "gainDb": 15.5,
+      "measuredDurationMs": 309,
+      "measuredOnsetMs": 2,
+      "measuredActiveRmsDb": -20.1,
+      "measuredPeakDb": -0.9
+    },
+    {
+      "name": "generic-impact-1.wav",
+      "trimStart": 0,
+      "trimEnd": 0,
+      "gainDb": -2.0,
+      "measuredDurationMs": 161,
+      "measuredOnsetMs": 0,
+      "measuredActiveRmsDb": -20.3,
+      "measuredPeakDb": -3.2
+    },
+    {
+      "name": "generic-impact-2.wav",
+      "trimStart": 0,
+      "trimEnd": 0,
+      "gainDb": -1.0,
+      "measuredDurationMs": 115,
+      "measuredOnsetMs": 0,
+      "measuredActiveRmsDb": -20.3,
+      "measuredPeakDb": -2.0
+    },
+    {
+      "name": "leather-drop.wav",
+      "trimStart": 0.03,
+      "trimEnd": 0.12,
+      "gainDb": 1.0,
+      "measuredDurationMs": 265,
+      "measuredOnsetMs": 4,
+      "measuredActiveRmsDb": -20.0,
+      "measuredPeakDb": -6.9
+    },
+    {
+      "name": "leather-handle-1.wav",
+      "trimStart": 0.09,
+      "trimEnd": 0.11,
+      "gainDb": 13.0,
+      "measuredDurationMs": 138,
+      "measuredOnsetMs": 0,
+      "measuredActiveRmsDb": -19.8,
+      "measuredPeakDb": -1.6
+    },
+    {
+      "name": "leather-handle-2.wav",
+      "trimStart": 0.09,
+      "trimEnd": 0.07,
+      "gainDb": 16.5,
+      "measuredDurationMs": 147,
+      "measuredOnsetMs": 0,
+      "measuredActiveRmsDb": -20.1,
+      "measuredPeakDb": -1.0
+    },
+    {
+      "name": "metal-click.wav",
+      "trimStart": 0.075,
+      "trimEnd": 0.09,
+      "gainDb": 9.0,
+      "measuredDurationMs": 281,
+      "measuredOnsetMs": 0,
+      "measuredActiveRmsDb": -20.2,
+      "measuredPeakDb": 0.8
+    },
+    {
+      "name": "metal-latch.wav",
+      "trimStart": 0.015,
+      "trimEnd": 0.08,
+      "gainDb": -5.0,
+      "measuredDurationMs": 166,
+      "measuredOnsetMs": 20,
+      "measuredActiveRmsDb": -20.1,
+      "measuredPeakDb": -5.0
+    },
+    {
+      "name": "soft-impact-1.wav",
+      "trimStart": 0,
+      "trimEnd": 0,
+      "gainDb": -7.5,
+      "measuredDurationMs": 115,
+      "measuredOnsetMs": 0,
+      "measuredActiveRmsDb": -20.0,
+      "measuredPeakDb": -8.5
+    },
+    {
+      "name": "soft-impact-2.wav",
+      "trimStart": 0,
+      "trimEnd": 0,
+      "gainDb": -9.0,
+      "measuredDurationMs": 180,
+      "measuredOnsetMs": 0,
+      "measuredActiveRmsDb": -20.2,
+      "measuredPeakDb": -9.9
+    },
+    {
+      "name": "wood-impact-1.wav",
+      "trimStart": 0,
+      "trimEnd": 0.12,
+      "gainDb": -1.5,
+      "measuredDurationMs": 143,
+      "measuredOnsetMs": 0,
+      "measuredActiveRmsDb": -20.0,
+      "measuredPeakDb": -2.6
+    }
+  ]
+}

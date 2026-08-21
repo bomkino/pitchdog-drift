@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
 import { mixSoundtrackIntoPlanar, type ReadableAudioBuffer } from "../src/sonic/mix";
-import { buildSonicTimeline, getSonicDensityStep } from "../src/sonic/plan";
+import {
+  buildSonicTimeline,
+  getSonicPassageDecision,
+  shouldIncludeSonicPassage,
+} from "../src/sonic/plan";
 
 function audibleSettings() {
   const settings = cloneSettings(DEFAULT_SETTINGS);
@@ -42,6 +46,8 @@ describe("sonic timeline", () => {
       expect(Math.abs(event.pan)).toBeLessThanOrEqual(0.78);
       expect(Number.isInteger(event.variant)).toBe(true);
       expect(event.variant).toBeGreaterThanOrEqual(0);
+      expect(Number.isInteger(event.sequence)).toBe(true);
+      expect(event.sequence).toBeGreaterThanOrEqual(0);
     }
   });
 
@@ -62,18 +68,63 @@ describe("sonic timeline", () => {
     expect(buildSonicTimeline(reduced, 8)).toEqual([]);
   });
 
-  it("increases cue frequency monotonically with density", () => {
-    const counts = [0.18, 0.5, 0.9].map((density) => {
-      const settings = audibleSettings();
-      settings.sound.density = density;
-      settings.output.duration = 20;
-      return buildSonicTimeline(settings, 8, 20).filter((event) => event.cue === "passage").length;
-    });
+  it("makes density continuous, monotonic, and compositionally stable", () => {
+    const densities = [0, 0.12, 0.28, 0.5, 0.74, 1];
+    const selections = densities.map((density) => new Set(
+      Array.from({ length: 512 }, (_, index) => index + 1)
+        .filter((sequence) => shouldIncludeSonicPassage(sequence, density, 17)),
+    ));
 
-    expect(counts[0]).toBeGreaterThan(0);
-    expect(counts[0]).toBeLessThan(counts[1]!);
-    expect(counts[1]).toBeLessThan(counts[2]!);
-    expect(getSonicDensityStep(0)).toBe(Number.POSITIVE_INFINITY);
+    expect(selections[0]!.size).toBe(0);
+    expect(selections.at(-1)!.size).toBe(512);
+    for (let index = 1; index < selections.length; index += 1) {
+      const previous = selections[index - 1]!;
+      const current = selections[index]!;
+      expect(current.size).toBeGreaterThan(previous.size);
+      expect([...previous].every((sequence) => current.has(sequence))).toBe(true);
+    }
+
+    // Material changes timbre, not the placement rhythm the user directed.
+    const studio = Array.from({ length: 96 }, (_, index) => index + 1)
+      .filter((sequence) => getSonicPassageDecision(
+        "studio",
+        0.46,
+        0.7,
+        17,
+        sequence,
+      ).included);
+    const paper = Array.from({ length: 96 }, (_, index) => index + 1)
+      .filter((sequence) => getSonicPassageDecision(
+        "paper",
+        0.46,
+        0.7,
+        17,
+        sequence,
+      ).included);
+    expect(paper).toEqual(studio);
+  });
+
+  it("shares passage inclusion, take, and pitch decisions with live preview", () => {
+    const settings = audibleSettings();
+    settings.sound.density = 0.61;
+    settings.sound.variation = 0.78;
+    settings.output.duration = 24;
+    const passages = buildSonicTimeline(settings, 8, 24)
+      .filter((event) => event.cue === "passage");
+
+    expect(passages.length).toBeGreaterThan(3);
+    for (const event of passages) {
+      const decision = getSonicPassageDecision(
+        settings.sound.palette,
+        settings.sound.density,
+        settings.sound.variation,
+        settings.background.seed,
+        event.sequence,
+      );
+      expect(decision.included).toBe(true);
+      expect(event.variant).toBe(decision.variant);
+      expect(event.playbackRate).toBe(decision.playbackRate);
+    }
   });
 
   it("keeps seamless repeats free of a doubled seam cue", () => {

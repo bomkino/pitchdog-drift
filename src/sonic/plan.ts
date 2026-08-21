@@ -11,12 +11,23 @@ export type ExportSonicCue = "passage" | "settle";
 
 export interface SonicTimelineEvent {
   cue: ExportSonicCue;
+  /** Absolute semantic crossing index. Settles use 0. */
+  sequence: number;
   time: number;
   gain: number;
   playbackRate: number;
   pan: number;
   variant: number;
 }
+
+export interface SonicPassageDecision {
+  included: boolean;
+  signedVariation: number;
+  playbackRate: number;
+  variant: number;
+}
+
+const GOLDEN_CONJUGATE = 0.618_033_988_749_894_9;
 
 function hashUnit(seed: number): number {
   let value = seed | 0;
@@ -48,19 +59,84 @@ function variantSeed(seed: number): number {
   return Math.floor(hashUnit(seed ^ 0x63a9b71d) * 2_147_483_647);
 }
 
-export function getSonicDensityStep(density: number): number {
-  if (!Number.isFinite(density) || density <= 0.01) {
-    return Number.POSITIVE_INFINITY;
-  }
-  if (density >= 0.67) return 1;
-  if (density >= 0.34) return 2;
-  return 3;
+function normalizeSequence(sequence: number): number {
+  if (!Number.isFinite(sequence)) return 1;
+  return Math.max(1, Math.abs(Math.trunc(sequence)));
+}
+
+/**
+ * Continuous, deterministic and monotonic passage thinning.
+ *
+ * A golden-ratio sequence spreads selected crossings more evenly than a raw
+ * pseudo-random gate. Raising density can only add cues: every event retained
+ * at a lower value remains retained at a higher value. The first meaningful
+ * crossing is always represented once sound is above its intentional-off zone.
+ */
+export function shouldIncludeSonicPassage(
+  sequence: number,
+  density: number,
+  seed = 0,
+): boolean {
+  const normalizedDensity = clamp(
+    Number.isFinite(density) ? density : 0,
+    0,
+    1,
+  );
+  if (normalizedDensity <= 0.01) return false;
+  if (normalizedDensity >= 0.995) return true;
+
+  const normalizedSequence = normalizeSequence(sequence);
+  if (normalizedSequence === 1) return true;
+
+  const phase = hashUnit(seed ^ 0x2c1b3c6d);
+  const gate = (
+    phase + (normalizedSequence - 1) * GOLDEN_CONJUGATE
+  ) % 1;
+  return gate < normalizedDensity;
+}
+
+/**
+ * Shared sample and pitch decision for live preview and deterministic export.
+ * Inclusion deliberately ignores palette so changing material does not rewrite
+ * the composition's rhythm; sample and pitch still respond to the palette.
+ */
+export function getSonicPassageDecision(
+  palette: SonicPalette,
+  density: number,
+  variation: number,
+  seed: number,
+  sequence: number,
+): SonicPassageDecision {
+  const normalizedSequence = normalizeSequence(sequence);
+  const normalizedVariation = clamp(
+    Number.isFinite(variation) ? variation : 0,
+    0,
+    1,
+  );
+  const eventSeed = (
+    (Number.isFinite(seed) ? Math.trunc(seed) : 0)
+    + paletteSeed(palette)
+    + Math.imul(normalizedSequence, 977)
+  ) | 0;
+  const unit = hashUnit(eventSeed);
+  const signedVariation = (unit * 2 - 1) * normalizedVariation;
+
+  return {
+    included: shouldIncludeSonicPassage(normalizedSequence, density, seed),
+    signedVariation,
+    playbackRate: clamp(
+      paletteRate(palette) * (1 + signedVariation * 0.09),
+      0.78,
+      1.2,
+    ),
+    variant: normalizedVariation <= 0.01 ? 0 : variantSeed(eventSeed),
+  };
 }
 
 /**
  * Builds exact editorial sound events from the same pure motion evaluators as
  * picture export. The timeline is independent of preview frame rate and wall
- * clock timing, including its sample choices.
+ * clock timing, including density, sample choices and pitch.
  */
 export function buildSonicTimeline(
   settings: StudioSettings,
@@ -87,20 +163,26 @@ export function buildSonicTimeline(
     distanceAtTime(settings, duration, slotCount, geometry.stride, true),
   );
   const crossingCount = Math.floor(travel / geometry.stride + 1e-8);
-  const densityStep = getSonicDensityStep(settings.sound.density);
-  if (!Number.isFinite(densityStep) || crossingCount <= 0) return [];
+  if (crossingCount <= 0) return [];
 
   const slidesPerSecond = speed / geometry.stride;
   const intensity = clamp(slidesPerSecond / 0.78, 0.34, 1);
-  const baseRate = paletteRate(settings.sound.palette);
-  const baseSeed = settings.background.seed + paletteSeed(settings.sound.palette);
+  const seed = settings.background.seed;
   const panDirection = settings.motion.axis === "horizontal"
     ? clamp(-settings.motion.direction * 0.44, -0.7, 0.7)
     : 0;
   const events: SonicTimelineEvent[] = [];
 
   for (let crossing = 1; crossing <= crossingCount; crossing += 1) {
-    if ((crossing - 1) % densityStep !== 0) continue;
+    const decision = getSonicPassageDecision(
+      settings.sound.palette,
+      settings.sound.density,
+      settings.sound.variation,
+      seed,
+      crossing,
+    );
+    if (!decision.included) continue;
+
     const crossingTime = (crossing * geometry.stride) / speed;
     const lead = clamp(
       0.08 / Math.max(slidesPerSecond, 0.18),
@@ -111,26 +193,24 @@ export function buildSonicTimeline(
     // A cue exactly on the loop seam is heard twice by repeating social players.
     if (time < 0 || time >= duration - 0.045) continue;
 
-    const eventSeed = baseSeed + crossing * 977;
-    const unit = hashUnit(eventSeed);
-    const signedVariation = (unit * 2 - 1) * settings.sound.variation;
     events.push({
       cue: "passage",
+      sequence: crossing,
       time,
       gain: clamp(
-        0.42 + intensity * 0.43 + signedVariation * 0.05,
+        0.42 + intensity * 0.43 + decision.signedVariation * 0.05,
         0.26,
         0.92,
       ),
-      playbackRate: clamp(
-        baseRate * (1 + signedVariation * 0.09),
-        0.78,
-        1.2,
-      ),
+      playbackRate: decision.playbackRate,
       pan: settings.motion.axis === "horizontal"
-        ? clamp(panDirection + signedVariation * 0.09, -0.78, 0.78)
+        ? clamp(
+          panDirection + decision.signedVariation * 0.09,
+          -0.78,
+          0.78,
+        )
         : 0,
-      variant: settings.sound.variation <= 0.01 ? 0 : variantSeed(eventSeed),
+      variant: decision.variant,
     });
   }
 
@@ -138,20 +218,25 @@ export function buildSonicTimeline(
     const last = events.at(-1)!;
     const settleTime = duration - 0.13;
     if (settleTime - last.time > 0.22) {
-      const eventSeed = baseSeed ^ 0x51f15e;
+      const eventSeed = (seed + paletteSeed(settings.sound.palette)) ^ 0x51f15e;
       const unit = hashUnit(eventSeed);
-      const signedVariation = (unit * 2 - 1) * settings.sound.variation;
+      const signedVariation = (
+        unit * 2 - 1
+      ) * settings.sound.variation;
       events.push({
         cue: "settle",
+        sequence: 0,
         time: settleTime,
         gain: clamp(0.28 + intensity * 0.16, 0.22, 0.52),
         playbackRate: clamp(
-          baseRate * (1 + signedVariation * 0.05),
+          paletteRate(settings.sound.palette) * (1 + signedVariation * 0.05),
           0.82,
           1.15,
         ),
         pan: 0,
-        variant: settings.sound.variation <= 0.01 ? 0 : variantSeed(eventSeed),
+        variant: settings.sound.variation <= 0.01
+          ? 0
+          : variantSeed(eventSeed),
       });
     }
   }
