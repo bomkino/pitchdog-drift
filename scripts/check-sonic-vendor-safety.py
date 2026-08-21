@@ -56,6 +56,16 @@ def local_upstream_reader(module, url: str) -> bytes:
     raise RuntimeError(f"No local pinned fixture for {upstream_path}")
 
 
+def expect_failure(operation, expected: str) -> None:
+    try:
+        operation()
+    except RuntimeError as error:
+        if expected not in str(error):
+            raise
+    else:
+        raise RuntimeError(f"Expected failure containing {expected!r}.")
+
+
 def main() -> int:
     module = load_vendor_module()
     with tempfile.TemporaryDirectory(prefix="drift-sonic-vendor-") as temporary:
@@ -76,17 +86,41 @@ def main() -> int:
             raise RuntimeError("intentional offline failure")
 
         module.read_url = fail_download
-        try:
-            module.vendor()
-        except RuntimeError as error:
-            if "intentional offline failure" not in str(error):
-                raise
-        else:
-            raise RuntimeError("Vendor unexpectedly succeeded through a forced download failure.")
+        expect_failure(module.vendor, "intentional offline failure")
+        if snapshot_files(asset_root) != before_failure:
+            raise RuntimeError("A failed download mutated the committed sonic corpus.")
 
-        after_failure = snapshot_files(asset_root)
-        if after_failure != before_failure:
-            raise RuntimeError("A failed vendor run mutated the committed sonic corpus.")
+        module.read_url = lambda url: local_upstream_reader(module, url)
+        original_commit = module.commit_staged_assets
+        for boundary in ("recordings", "licenses", "manifest"):
+            before_boundary = snapshot_files(asset_root)
+
+            def fail_at_boundary(
+                staged_recordings,
+                staged_licenses,
+                staged_manifest,
+                stage,
+                *,
+                selected=boundary,
+            ):
+                return original_commit(
+                    staged_recordings,
+                    staged_licenses,
+                    staged_manifest,
+                    stage,
+                    fail_after=selected,
+                )
+
+            module.commit_staged_assets = fail_at_boundary
+            expect_failure(
+                module.vendor,
+                f"intentional failure after {boundary}",
+            )
+            module.commit_staged_assets = original_commit
+            if snapshot_files(asset_root) != before_boundary:
+                raise RuntimeError(
+                    f"Rollback after the {boundary} swap changed the prior corpus."
+                )
 
         # Prove a successful run replaces stale vendored bytes while preserving
         # the independent acoustic-treatment ledger.
@@ -95,7 +129,6 @@ def main() -> int:
         stale_recording = module.RECORDING_ROOT / module.RECORDINGS[0].local_name
         stale_recording.write_bytes(b"stale recording")
 
-        module.read_url = lambda url: local_upstream_reader(module, url)
         module.vendor()
         module.verify()
 
@@ -104,13 +137,26 @@ def main() -> int:
         if stale_recording.read_bytes() == b"stale recording":
             raise RuntimeError("Successful vendoring did not replace stale recording bytes.")
 
+        # A licence and its manifest entry cannot be altered together to invent
+        # provenance: verification is anchored to an independent pinned digest.
+        pack = "casino-audio"
+        license_path = module.LICENSE_ROOT / f"{pack}-CC0-1.0.txt"
+        original_license = license_path.read_bytes()
+        license_path.write_bytes(original_license + b"\nmutated")
+        expect_failure(module.verify, "pinned licence SHA-256 mismatch")
+        license_path.write_bytes(original_license)
+        module.verify()
+
         manifest = json.loads(module.MANIFEST_PATH.read_text(encoding="utf-8"))
         if manifest.get("runtimeThirdPartyRequests") is not False:
             raise RuntimeError("Manifest does not declare the third-party runtime boundary.")
         if manifest.get("delivery") != "same-origin-lazy":
             raise RuntimeError("Manifest does not declare lazy same-origin delivery.")
 
-    print("Sonic vendor safety gate passed: failure is non-destructive; treatments survive refresh.")
+    print(
+        "Sonic vendor safety gate passed: download and every swap boundary roll back; "
+        "treatments survive; licence hashes are independently pinned."
+    )
     return 0
 
 
