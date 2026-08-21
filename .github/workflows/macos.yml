@@ -2,10 +2,11 @@ name: macOS standalone app
 
 on:
   push:
-    branches: [main, feat/native-macos-studio]
+    branches: [main, feat/native-macos-studio, integration/mega-main-native]
     paths:
       - "macos/**"
       - "scripts/build-macos-app.sh"
+      - "scripts/build-macos-web.mjs"
       - "scripts/check-macos-hardening.mjs"
       - "scripts/check-macos-matrix-budget.mjs"
       - "scripts/check-macos-source.mjs"
@@ -20,6 +21,7 @@ on:
       - "src/**"
       - "tests/**"
       - "docs/MACOS_*.md"
+      - "docs/mega-main/**"
       - "package.json"
       - "package-lock.json"
       - "vite.config.ts"
@@ -28,6 +30,7 @@ on:
     paths:
       - "macos/**"
       - "scripts/build-macos-app.sh"
+      - "scripts/build-macos-web.mjs"
       - "scripts/check-macos-hardening.mjs"
       - "scripts/check-macos-matrix-budget.mjs"
       - "scripts/check-macos-source.mjs"
@@ -42,6 +45,7 @@ on:
       - "src/**"
       - "tests/**"
       - "docs/MACOS_*.md"
+      - "docs/mega-main/**"
       - "package.json"
       - "package-lock.json"
       - "vite.config.ts"
@@ -124,7 +128,6 @@ jobs:
           DRIFT_EXPECT_ARCHS: "arm64 x86_64"
           DRIFT_BUILD_NUMBER: ${{ github.run_number }}
           DRIFT_SOURCE_REVISION: ${{ github.sha }}
-          DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST: "1"
         run: npm run build:mac
 
       - name: Record incomplete-build evidence

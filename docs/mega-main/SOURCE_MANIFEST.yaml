@@ -1,0 +1,68 @@
+schema_version: 1
+integration_branch: integration/mega-main-native
+baseline:
+  main: 6c450add8a68d32df1cad75aeff334ba1bf8a4fa
+  native_chassis: 6b346364a2a797c8424ccb9b803dad150090c3cd
+
+sources:
+  - pr: 9
+    head: 3012ea983de80106933f2cde788ce932128390d1
+    role: canonical editorial cadence and delivery donor
+  - pr: 12
+    head: b66ed101ebc69b7a980ab5b1c0312f38029b0b75
+    role: canonical paths, material, shell and preview-physics donor
+  - pr: 14
+    head: 771a94e2a1b1f889c44b6ab4e31a402f88ce04d4
+    role: canonical cinematic-lighting and analytical-shadow donor
+  - pr: 8
+    head: ff83b2303fa21be114dfeb25d1da165b839e0fcd
+    role: canonical background-atlas corpus donor
+  - pr: 17
+    head: 9ada43913ed797e64e9d0c24229e850cebd33e67
+    role: canonical scene-lens and directing-journey donor
+  - pr: 3
+    head: 2d6378ba034e7e51646f505e5dd71a076e43e4d0
+    role: supplemental global-optics, worlds, stress and recovery donor
+  - pr: 4
+    head: 3af9836da5cf2b815ea4d95850780b45662cafba
+    role: local finish, paths and world-library donor
+  - pr: 5
+    head: dbac0c296a34c78b71b5eafa115fd178aa282f9b
+    role: intent-first journey, optics and atmosphere donor
+  - pr: 19
+    head: d29c79c1cfcd284055725dd9bf921578a4801082
+    role: canonical recorded sound, provenance and mixed-master donor
+  - pr: 28
+    head: db912237b681de3c148df5a343bd356d7f930db8
+    role: editorial micro-Foley grammar donor
+  - pr: 29
+    head: c4b0d93ca11f652b159c589b7fe6003b5701d6ec
+    role: organic sonic grammar donor
+  - pr: 10
+    head: 3a0e8b4c7cacf01248cd8eef4a062e25bc7e8f10
+    role: procedural Foley source-provider donor
+  - pr: 13
+    head: 6b346364a2a797c8424ccb9b803dad150090c3cd
+    role: native sandbox, bridge, broker, AAC, packaging and lifecycle chassis
+  - pr: 21
+    head: 269e45da313b4fe90342704b08690783bdd621f2
+    role: native Help, About, diagnostics and product-fit donor
+  - pr: 22
+    head: d1ee628c10b491884a331276a06f2fdd0fb93ab6
+    role: Dock export-presence donor
+  - pr: 24
+    head: e2eca77b227dca20d501715b2d3d25e00ef8e326
+    role: Finder reveal and PNG-sequence rollback truth donor
+  - pr: 25
+    head: 75a6265c6495d81b86219251000df0a0314a3ff2
+    role: native-issued document-generation authority donor
+  - pr: 27
+    head: d7cc6bc1072365ac55de4a1f6c86248ef5337279
+    role: .pitched Finder document-identity donor
+
+excluded_as_product_source:
+  - temporary transport pull requests
+  - encoded payload fragments
+  - self-mutating or source-generating workflows
+  - branch-repair scripts whose output, not machinery, is the donor
+  - generated build output and evidence artifacts

@@ -46,17 +46,35 @@ else
   npm run check
 fi
 
-# Always replace the ordinary browser bundle with the system-framework Mac
-# build. Skipping checks may save CI time; skipping this rebuild is forbidden.
+# This replaces the old `vite build --mode macos` ES-module graph. Drift.app
+# ships one classic IIFE entry so signed file:// production boot is the same
+# topology already proven by the deterministic WKWebView export harness.
 rm -rf dist
-npm exec -- vite build --mode macos
+npm run build:mac:web
 
 if [[ ! -f dist/index.html ]]; then
-  echo "dist/index.html is missing after the macOS Vite build." >&2
+  echo "dist/index.html is missing after the macOS web build." >&2
+  exit 1
+fi
+if [[ ! -f dist/MacWebBundleReceipt.json ]]; then
+  echo "The macOS web bundle has no topology and byte receipt." >&2
   exit 1
 fi
 if grep -Eq '(src|href)="/assets/' dist/index.html; then
-  echo "The Vite bundle contains root-absolute assets and cannot run inside Drift.app." >&2
+  echo "The Mac bundle contains root-absolute assets and cannot run inside Drift.app." >&2
+  exit 1
+fi
+if grep -Eq 'type=["'"']module["'"']' dist/index.html; then
+  echo "The Mac application bootstrap unexpectedly uses an ES-module script." >&2
+  exit 1
+fi
+if ! grep -q 'data-drift-bootstrap="classic-iife-single-entry"' dist/index.html; then
+  echo "The Mac application bootstrap topology marker is missing." >&2
+  exit 1
+fi
+javascript_count="$(find dist -type f -name '*.js' | wc -l | tr -d '[:space:]')"
+if [[ "${javascript_count}" != "1" ]]; then
+  echo "The Mac application must contain exactly one JavaScript entry; found ${javascript_count}." >&2
   exit 1
 fi
 if [[ -n "$(find dist -type f \( -name '*.wasm' -o -name '*.map' \) -print -quit)" ]]; then
@@ -156,6 +174,7 @@ source_revision=${SOURCE_REVISION}
 minimum_macos=${MINIMUM_MACOS}
 architectures=${ARCHITECTURES}
 renderer=WKWebView+Three.js
+web_bootstrap=classic-iife-single-entry
 codec_policy=system-frameworks-only
 video_codec=WKWebView-H264-capability-gated
 audio_codec=AudioToolbox-Apple-software-AAC-LC
@@ -209,4 +228,5 @@ printf '\nBuilt %s\n' "${APP_BUNDLE}"
 printf 'Architectures: %s\n' "$(lipo -archs "${MACOS_DIR}/${APP_NAME}")"
 printf 'Audio: Apple software AAC-LC through AudioToolbox\n'
 printf 'Video: WKWebView H.264, capability-gated and output-verified\n'
+printf 'Web bootstrap: classic IIFE, single boot-critical entry\n'
 printf 'Open with: open %q\n' "${APP_BUNDLE}"
