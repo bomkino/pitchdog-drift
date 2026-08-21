@@ -72,14 +72,15 @@ test("mixed master preserves stereo foley and releases ducking through presenter
     expect(inspection.coversTimestamp).toBe(true);
   }
 
-  // Presenter audio is present and mono at 0.25s; the right-only tactile bed is
-  // deliberately attenuated there instead of competing with speech.
-  expect(receipt.voice.leftRms).toBeGreaterThan(0.012);
-  expect(receipt.voice.rightRms).toBeLessThan(receipt.gap.rightRms * 0.65);
+  // The presenter is centred. Side RMS cancels that narration and measures the
+  // right-authored foley independently, so this assertion proves real ducking
+  // rather than merely observing a louder mono voice in both channels.
+  expect(receipt.voice.midRms).toBeGreaterThan(0.012);
+  expect(receipt.voice.sideRms).toBeLessThan(receipt.gap.sideRms * 0.65);
 
-  // In the genuine packet gap, the tactile bed recovers to full level and
-  // retains its lateral authorship rather than being erased or centred.
-  expect(receipt.gap.rightRms).toBeGreaterThan(0.07);
-  expect(receipt.gap.leftRms).toBeLessThan(receipt.gap.rightRms * 0.2);
-  expect(receipt.gap.rightRms).toBeGreaterThan(receipt.voice.rightRms * 1.5);
+  // In the genuine decoded-silence gap, the tactile bed recovers to full level
+  // and retains its lateral authorship rather than being erased or centred.
+  expect(receipt.gap.sideRms).toBeGreaterThan(0.035);
+  expect(receipt.gap.midRms).toBeGreaterThan(0.035);
+  expect(receipt.gap.sideRms).toBeGreaterThan(receipt.voice.sideRms * 1.5);
 });
