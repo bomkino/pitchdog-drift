@@ -188,7 +188,11 @@ requireMarkers("src/App.tsx", [
   "presenterInputRef={presenterInputRef}",
 ]);
 requireMarkers("src/components/MediaLibrary.tsx", ["imageInputRef: RefObject", "presenterInputRef: RefObject"]);
-requireMarkers("src/lib/nativeMac.ts", ['lastNotice: state.lastNotice ? "present" : null']);
+requireMarkers("src/lib/nativeMac.ts", [
+  'lastNotice: state.lastNotice ? "present" : null',
+  "dispatchNativeMacFiles",
+  "installedAppBridge",
+]);
 requireMarkers("src/lib/projectStore.ts", [
   "maxArchiveBytes: 96 * 1024 * 1024",
   "maxAssetBytes: 64 * 1024 * 1024",
@@ -267,6 +271,9 @@ requireMarkers("macos/App/DriftAppDelegate.swift", [
   "The visual engine stopped twice",
   "Recovery stability countdown active",
   "Reveal Last Saved File in Finder",
+  "url-filter\":\"^https?://.*",
+  "url-filter\":\"^wss?://.*",
+  "url-filter\":\"^ftp://.*",
 ]);
 requireMarkers("macos/App/NativeGauntlet.swift", [
   "second WebKit termination reopened an automatic recovery loop",
@@ -326,6 +333,7 @@ requireMarkers("scripts/build-macos-app.sh", [
   "macos/App/*.swift",
   "BuildManifest.txt",
   "verify-macos-app.sh",
+  "network_entitlement=webkit-client-only",
 ]);
 requireMarkers("scripts/verify-macos-app.sh", [
   "--smoke-test",
@@ -333,6 +341,7 @@ requireMarkers("scripts/verify-macos-app.sh", [
   "--webview-self-test",
   "Video: WKWebView H.264, capability-gated and output-verified",
   "Audio: Apple software AAC-LC through AudioToolbox; no FFmpeg WASM",
+  "WebKit client entitlement present; application traffic blocked",
 ]);
 for (const marker of ["*.wasm", "@mediabunny/aac-encoder", "libavcodec"]) {
   requireMarkers("scripts/build-macos-app.sh", [marker]);
@@ -343,8 +352,13 @@ requireMarkers("macos/Info.plist", ["<string>13.3</string>", "UTExportedTypeDecl
 requireMarkers("macos/Drift.entitlements", [
   "com.apple.security.app-sandbox",
   "com.apple.security.files.user-selected.read-write",
+  "com.apple.security.network.client",
 ]);
-forbidMarkers("macos/Drift.entitlements", ["com.apple.security.network"]);
+forbidMarkers("macos/Drift.entitlements", [
+  "com.apple.security.network.server",
+  "com.apple.security.files.downloads",
+  "com.apple.security.files.user-selected.read-only",
+]);
 
 requireMarkers(".github/workflows/macos.yml", [
   "macos/Probes/NativeGauntletMain.swift",
@@ -367,5 +381,5 @@ requireMarkers(".github/workflows/macos-release.yml", [
 forbidMarkers(".github/workflows/macos-release.yml", ["ref: ${{ inputs.source_ref }}"]);
 
 console.log(
-  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge and document-session authority, export power activity, stable-incident recovery, portable-project media budget parity, command parity, sandbox and codec boundaries, explicit native probes, and a non-publishing release-evidence lane.`,
+  `macOS source contract passed: ${appSwift.length} canonical Swift files, signed-index bridge and document-session authority, export power activity, stable-incident recovery, portable-project media budget parity, command parity, sandboxed WebKit client viability with application traffic blocked, codec boundaries, explicit native probes, and a non-publishing release-evidence lane.`,
 );
