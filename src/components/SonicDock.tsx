@@ -85,6 +85,7 @@ export function SonicDock({
             ? "Mute tactile preview"
             : "Enable tactile preview"
         }
+        aria-pressed={settings.previewEnabled}
         onClick={() => onSettings({
           previewEnabled: !settings.previewEnabled,
         })}
@@ -168,7 +169,7 @@ export function SonicDock({
               onChange={(variation) => onSettings({ variation })}
             />
             <RangeRow
-              label="Under voice"
+              label="Foley under voice"
               value={settings.duckUnderPresenter}
               disabled={disabled || !settings.exportEnabled}
               onChange={(duckUnderPresenter) => onSettings({
@@ -181,7 +182,7 @@ export function SonicDock({
             <span>
               <strong>Include in MP4</strong>
               <small>
-                Off by default. When enabled, picture and presenter speech
+                Off by default. When enabled, foley and presenter speech
                 leave as one verified AAC master.
               </small>
             </span>

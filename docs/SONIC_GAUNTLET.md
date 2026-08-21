@@ -26,7 +26,13 @@ build is necessary but not sufficient.
 - Changing palette preserves passage placement and therefore authored rhythm.
 - Preview and export choose the same inclusion, take, and restrained pitch for
   the same passage sequence and saved state.
-- Dragging emits one grab and one release, not a continuous loop.
+- A click without meaningful movement emits no false grab/release pair.
+- A real drag emits one grab and one release, not a continuous loop.
+- Lost pointer capture cannot leave the carousel stuck in a dragging state.
+- Drag, wheel, and paused-autoplay inertia emit at most one settle when motion
+  truly rests.
+- Continuous autoplay never emits a false settle, and wheel packets never each
+  become a settle cue.
 - Slider movement is silent; it does not chatter on every input event.
 - Variation changes both sample choice and restrained playback rate.
 - Variation zero is stable and repeatable.
@@ -52,6 +58,9 @@ build is necessary but not sufficient.
 - Mixed output is one continuous exact-duration stereo PCM master before AAC.
 - Decoded AAC padding is bounded to at most one 1,024-sample access unit.
 - Cancellation cannot leave preview muted or resources retained.
+- Success and failure feedback occurs only after preview suppression is lifted.
+- Renderer-surface recovery failure cannot leave the sound engine suppressed.
+- User cancellation is neutral, not misreported or sounded as failure.
 - Aborting while a local asset request is shared rejects the caller promptly
   without poisoning the reusable asset cache.
 - A failed export restores preview suppression and reports the real failure.
@@ -105,5 +114,7 @@ build is necessary but not sufficient.
 - Chromium sound-design-only MP4 test with verified AAC readback.
 - Chromium mixed-master test with mono narration, a deliberate packet gap,
   lateral foley, and full encode/decode inspection.
+- Chromium interaction test proving silent clicks, one grab/release/settle drag,
+  one wheel settle, accessible mute state, and post-suppression outcome feedback.
 - Existing repository CI with no unrelated regression.
 - `git diff --check` and a final changed-path audit.

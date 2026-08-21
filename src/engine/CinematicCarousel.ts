@@ -24,7 +24,7 @@ const PREVIEW_TEXTURE_EDGE = 2048;
 const CAMERA_FOV = 35;
 
 export type CarouselSonicEvent = Readonly<{
-  type: "passage" | "grab" | "release";
+  type: "passage" | "grab" | "release" | "settle";
   intensity: number;
   pan: number;
   /** Stable physical crossing identity; preview and export choose the same take. */
@@ -233,8 +233,13 @@ export class CinematicCarousel {
   private paused = false;
   private dragging = false;
   private dragPointerId: number | null = null;
+  private dragDistanceCss = 0;
+  private dragSonicActive = false;
   private lastPointerCoordinate = 0;
   private lastPointerTime = 0;
+  private sonicSettlePending = false;
+  private sonicSettleIntensity = 0;
+  private sonicSettlePan = 0;
   private reducedMotionPreview = false;
   private contextLost = false;
   private disposed = false;
@@ -326,6 +331,7 @@ export class CinematicCarousel {
     canvas.addEventListener("pointermove", this.onPointerMoveBound);
     canvas.addEventListener("pointerup", this.onPointerUpBound);
     canvas.addEventListener("pointercancel", this.onPointerUpBound);
+    canvas.addEventListener("lostpointercapture", this.onPointerUpBound);
     canvas.addEventListener("wheel", this.onWheelBound, { passive: false });
     canvas.addEventListener("webglcontextlost", this.onContextLostBound);
     canvas.addEventListener("webglcontextrestored", this.onContextRestoredBound);
@@ -377,6 +383,7 @@ export class CinematicCarousel {
   setSettings(settings: StudioSettings): void {
     this.settings = settings;
     this.lastSonicStep = null;
+    this.clearPendingSettle();
     this.updateCamera();
     this.updateSettingsUniforms();
     this.updatePresenterGeometry();
@@ -387,6 +394,7 @@ export class CinematicCarousel {
     const previousKeys = new Set(this.assets.map((asset) => this.textureKey(asset)));
     this.assets = assets.filter((asset) => asset.kind === "image");
     this.lastSonicStep = null;
+    this.clearPendingSettle();
     this.pruneInactiveTextures();
     const activeKeys = new Set(this.assets.map((asset) => this.textureKey(asset)));
     for (const item of this.pool) {
@@ -542,8 +550,24 @@ export class CinematicCarousel {
   }
 
   setPaused(paused: boolean): void {
+    const wasPaused = this.paused;
     this.paused = paused;
-    if (paused) this.motionVelocity *= 0.7;
+    if (paused) {
+      const geometry = getSlideGeometry(this.settings);
+      const normalizedVelocity = Math.abs(this.motionVelocity) / Math.max(1, geometry.stride);
+      this.motionVelocity *= 0.7;
+      if (!wasPaused && normalizedVelocity > 0.02) {
+        const pan = this.settings.motion.axis === "horizontal"
+          ? THREE.MathUtils.clamp(-Math.sign(this.motionVelocity) * 0.3, -0.45, 0.45)
+          : 0;
+        this.armSettleCue(
+          THREE.MathUtils.clamp(normalizedVelocity, 0.3, 0.8),
+          pan,
+        );
+      }
+    } else {
+      this.clearPendingSettle();
+    }
     this.syncPresenterPlayback();
   }
 
@@ -554,11 +578,15 @@ export class CinematicCarousel {
 
   setReducedMotionPreview(reduced: boolean): void {
     this.reducedMotionPreview = reduced;
-    if (reduced) this.motionVelocity = 0;
+    if (reduced) {
+      this.motionVelocity = 0;
+      this.clearPendingSettle();
+    }
   }
 
   stepSlides(amount: number): void {
     const geometry = getSlideGeometry(this.settings);
+    this.clearPendingSettle();
     this.motionPosition += geometry.stride * amount * this.settings.motion.direction;
     this.motionVelocity = 0;
     this.renderPreview();
@@ -582,6 +610,7 @@ export class CinematicCarousel {
     const previousPaused = this.paused;
     this.exportActive = true;
     this.paused = true;
+    this.clearPendingSettle();
     this.syncPresenterPlayback();
     this.resolvePresenterTexture();
     this.renderer.setPixelRatio(1);
@@ -689,10 +718,12 @@ export class CinematicCarousel {
     const geometry = getSlideGeometry(this.settings);
     const autoplay = this.settings.motion.autoplay && !this.paused && !this.reducedMotionPreview;
     const desiredVelocity = autoplay ? this.settings.motion.direction * this.settings.motion.speed * geometry.stride : 0;
+    if (autoplay) this.clearPendingSettle();
     if (!this.dragging) {
       const response = 1 - Math.exp(-delta * (autoplay ? 4.8 : 7.5));
       this.motionVelocity += (desiredVelocity - this.motionVelocity) * response;
       this.motionPosition += this.motionVelocity * delta;
+      this.emitSettleCueWhenReady(geometry.stride, autoplay);
     }
   }
 
@@ -730,6 +761,43 @@ export class CinematicCarousel {
       seed: this.settings.background.seed,
       panVariation: horizontal,
     });
+  }
+
+  private armSettleCue(intensity: number, pan: number): void {
+    if (!this.callbacks.onSonicEvent || this.assets.length === 0) return;
+    this.sonicSettlePending = true;
+    this.sonicSettleIntensity = Math.max(
+      this.sonicSettleIntensity,
+      THREE.MathUtils.clamp(intensity, 0.24, 1),
+    );
+    this.sonicSettlePan = THREE.MathUtils.clamp(pan, -0.5, 0.5);
+  }
+
+  private clearPendingSettle(): void {
+    this.sonicSettlePending = false;
+    this.sonicSettleIntensity = 0;
+    this.sonicSettlePan = 0;
+  }
+
+  private emitSettleCueWhenReady(stride: number, autoplay: boolean): void {
+    if (
+      autoplay
+      || !this.sonicSettlePending
+      || this.dragging
+      || stride <= 0
+    ) return;
+    const settleVelocity = Math.max(1, stride * 0.018);
+    if (Math.abs(this.motionVelocity) > settleVelocity) return;
+
+    this.motionVelocity = 0;
+    const intensity = THREE.MathUtils.clamp(
+      0.24 + this.sonicSettleIntensity * 0.42,
+      0.28,
+      0.66,
+    );
+    const pan = this.sonicSettlePan;
+    this.clearPendingSettle();
+    this.callbacks.onSonicEvent?.({ type: "settle", intensity, pan });
   }
 
   private renderInternal(time: number, distance: number, velocity: number, exportMode: boolean): void {
@@ -1031,14 +1099,21 @@ export class CinematicCarousel {
   }
 
   private onPointerDown(event: PointerEvent): void {
-    if (this.exportActive || event.button !== 0) return;
+    if (
+      this.exportActive
+      || this.dragging
+      || event.button !== 0
+      || !event.isPrimary
+    ) return;
     this.dragging = true;
     this.dragPointerId = event.pointerId;
+    this.dragDistanceCss = 0;
+    this.dragSonicActive = false;
+    this.clearPendingSettle();
     this.lastPointerCoordinate = this.settings.motion.axis === "horizontal" ? event.clientX : event.clientY;
     this.lastPointerTime = performance.now();
     this.canvas.setPointerCapture(event.pointerId);
     this.canvas.dataset.dragging = "true";
-    this.callbacks.onSonicEvent?.({ type: "grab", intensity: 0.46, pan: 0 });
   }
 
   private onPointerMove(event: PointerEvent): void {
@@ -1051,6 +1126,24 @@ export class CinematicCarousel {
     const cssExtent = this.settings.motion.axis === "horizontal" ? rect.width : rect.height;
     const worldExtent = this.settings.motion.axis === "horizontal" ? this.settings.stage.width : this.settings.stage.height;
     const deltaWorld = (-deltaCss / Math.max(1, cssExtent)) * worldExtent * this.settings.motion.dragSensitivity;
+    this.dragDistanceCss += Math.abs(deltaCss);
+    if (
+      !this.dragSonicActive
+      && this.dragDistanceCss >= 3
+      && this.assets.length > 0
+    ) {
+      this.dragSonicActive = true;
+      const geometry = getSlideGeometry(this.settings);
+      const intensity = THREE.MathUtils.clamp(
+        Math.abs(deltaWorld) / Math.max(1, geometry.stride * 0.06),
+        0.38,
+        0.72,
+      );
+      const pan = this.settings.motion.axis === "horizontal"
+        ? THREE.MathUtils.clamp(-Math.sign(deltaWorld) * 0.24, -0.36, 0.36)
+        : 0;
+      this.callbacks.onSonicEvent?.({ type: "grab", intensity, pan });
+    }
     this.motionPosition += deltaWorld;
     this.motionVelocity = deltaWorld / deltaTime;
     this.lastPointerCoordinate = coordinate;
@@ -1060,16 +1153,22 @@ export class CinematicCarousel {
 
   private onPointerUp(event: PointerEvent): void {
     if (!this.dragging || event.pointerId !== this.dragPointerId) return;
+    const sonicDragWasActive = this.dragSonicActive;
     this.dragging = false;
     this.dragPointerId = null;
+    this.dragDistanceCss = 0;
+    this.dragSonicActive = false;
     this.canvas.dataset.dragging = "false";
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+    if (!sonicDragWasActive || this.assets.length === 0) return;
+
     const geometry = getSlideGeometry(this.settings);
     const intensity = THREE.MathUtils.clamp(Math.abs(this.motionVelocity) / Math.max(1, geometry.stride), 0.34, 1);
     const pan = this.settings.motion.axis === "horizontal"
       ? THREE.MathUtils.clamp(-Math.sign(this.motionVelocity) * 0.38, -0.62, 0.62)
       : 0;
     this.callbacks.onSonicEvent?.({ type: "release", intensity, pan });
+    this.armSettleCue(intensity, pan * 0.55);
   }
 
   private onWheel(event: WheelEvent): void {
@@ -1080,11 +1179,27 @@ export class CinematicCarousel {
     const impulse = THREE.MathUtils.clamp(raw * modeScale, -180, 180) * this.settings.motion.dragSensitivity;
     this.motionPosition += impulse;
     this.motionVelocity += impulse * 5.5;
+    const geometry = getSlideGeometry(this.settings);
+    if (
+      this.assets.length > 0
+      && Math.abs(impulse) >= Math.max(2, geometry.stride * 0.004)
+    ) {
+      const intensity = THREE.MathUtils.clamp(
+        Math.abs(impulse) / Math.max(1, geometry.stride * 0.28),
+        0.3,
+        0.86,
+      );
+      const pan = this.settings.motion.axis === "horizontal"
+        ? THREE.MathUtils.clamp(-Math.sign(impulse) * 0.3, -0.45, 0.45)
+        : 0;
+      this.armSettleCue(intensity, pan);
+    }
     this.renderPreview();
   }
 
   private onVisibilityChange(): void {
     this.lastFrameTime = performance.now();
+    if (document.hidden) this.clearPendingSettle();
     this.syncPresenterPlayback();
   }
 
@@ -1101,6 +1216,7 @@ export class CinematicCarousel {
   private onContextLost(event: Event): void {
     event.preventDefault();
     this.contextLost = true;
+    this.clearPendingSettle();
     this.syncPresenterPlayback();
     this.callbacks.onContextState?.("lost");
     this.callbacks.onError?.("WebGL context was lost. Preview paused; project data remains safe.");
@@ -1138,6 +1254,7 @@ export class CinematicCarousel {
     this.canvas.removeEventListener("pointermove", this.onPointerMoveBound);
     this.canvas.removeEventListener("pointerup", this.onPointerUpBound);
     this.canvas.removeEventListener("pointercancel", this.onPointerUpBound);
+    this.canvas.removeEventListener("lostpointercapture", this.onPointerUpBound);
     this.canvas.removeEventListener("wheel", this.onWheelBound);
     this.canvas.removeEventListener("webglcontextlost", this.onContextLostBound);
     this.canvas.removeEventListener("webglcontextrestored", this.onContextRestoredBound);

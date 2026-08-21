@@ -52,6 +52,29 @@ interface ProjectIdentity {
   createdAt: string;
 }
 
+type NoticeKind = "quiet" | "good" | "error";
+
+interface ExportOutcome {
+  message: string;
+  kind: NoticeKind;
+}
+
+function exportOutcomeFromError(
+  error: unknown,
+  signal: AbortSignal | undefined,
+  canceledMessage: string,
+  fallbackMessage: string,
+): ExportOutcome {
+  const canceled = signal?.aborted
+    || (error instanceof DOMException && error.name === "AbortError");
+  return canceled
+    ? { message: canceledMessage, kind: "quiet" }
+    : {
+        message: error instanceof Error ? error.message : fallbackMessage,
+        kind: "error",
+      };
+}
+
 interface PickerWindow extends Window {
   showDirectoryPicker?: (options?: { id?: string; mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
   showSaveFilePicker?: (options?: {
@@ -253,7 +276,7 @@ export function App() {
     [allAssets, settings.presenter.assetId],
   );
 
-  const announce = useCallback((message: string, kind: "quiet" | "good" | "error" = "quiet") => {
+  const announce = useCallback((message: string, kind: NoticeKind = "quiet") => {
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
     setNotice(message);
     setNoticeKind(kind);
@@ -744,11 +767,20 @@ export function App() {
     return { engine, controller, surface, output };
   }, []);
 
-  const endExport = useCallback((surface: { restore: () => void }) => {
-    surface.restore();
-    sonicRef.current?.setSuppressed(false);
-    abortRef.current = null;
-    window.setTimeout(() => setExportProgress(null), 650);
+  const endExport = useCallback((surface: { restore: () => void }): Error | null => {
+    let restoreError: Error | null = null;
+    try {
+      surface.restore();
+    } catch (error) {
+      restoreError = error instanceof Error
+        ? error
+        : new Error("Preview could not be restored after export.");
+    } finally {
+      sonicRef.current?.setSuppressed(false);
+      abortRef.current = null;
+      window.setTimeout(() => setExportProgress(null), 650);
+    }
+    return restoreError;
   }, []);
 
   const exportVideo = useCallback(async () => {
@@ -779,6 +811,7 @@ export function App() {
       }
     }
     let session: ReturnType<typeof beginExport> | null = null;
+    let outcome: ExportOutcome | null = null;
     try {
       session = beginExport();
       const pinnedVideo = settingsRef.current.presenter.enabled && pinnedAsset?.kind === "video" ? pinnedAsset : null;
@@ -822,16 +855,32 @@ export function App() {
         target,
       });
       if (result.blob) downloadBlob(result.blob, `drift-master-${timestampSlug()}.mp4`);
-      announce(`${result.width} × ${result.height} H.264 master verified: ${result.verification.frameCount} frames at ${result.fps} fps.`, "good");
+      outcome = {
+        message: `${result.width} × ${result.height} H.264 master verified: ${result.verification.frameCount} frames at ${result.fps} fps.`,
+        kind: "good",
+      };
     } catch (error) {
-      announce(error instanceof Error ? error.message : "MP4 export failed.", "error");
+      outcome = exportOutcomeFromError(
+        error,
+        session?.controller.signal,
+        "MP4 export canceled.",
+        "MP4 export failed.",
+      );
     } finally {
-      if (session) endExport(session.surface);
+      const restoreError = session ? endExport(session.surface) : null;
+      if (restoreError) {
+        outcome = {
+          message: `Export completed, but preview recovery failed: ${restoreError.message}`,
+          kind: "error",
+        };
+      }
+      if (outcome) announce(outcome.message, outcome.kind);
     }
   }, [announce, beginExport, endExport, mp4Supported, pinnedAsset, renderForExport]);
 
   const exportStill = useCallback(async () => {
     let session: ReturnType<typeof beginExport> | null = null;
+    let outcome: ExportOutcome | null = null;
     try {
       session = beginExport();
       const pinnedVideo = settingsRef.current.presenter.enabled && pinnedAsset?.kind === "video" ? pinnedAsset : null;
@@ -852,16 +901,32 @@ export function App() {
         onProgress: (progress) => setExportProgress(encoderProgress(progress)),
       });
       downloadBlob(result.blob, `drift-still-${timestampSlug()}.png`);
-      announce(`${result.width} × ${result.height} PNG captured with an alpha-capable channel.`, "good");
+      outcome = {
+        message: `${result.width} × ${result.height} PNG captured with an alpha-capable channel.`,
+        kind: "good",
+      };
     } catch (error) {
-      announce(error instanceof Error ? error.message : "PNG capture failed.", "error");
+      outcome = exportOutcomeFromError(
+        error,
+        session?.controller.signal,
+        "PNG capture canceled.",
+        "PNG capture failed.",
+      );
     } finally {
-      if (session) endExport(session.surface);
+      const restoreError = session ? endExport(session.surface) : null;
+      if (restoreError) {
+        outcome = {
+          message: `PNG capture completed, but preview recovery failed: ${restoreError.message}`,
+          kind: "error",
+        };
+      }
+      if (outcome) announce(outcome.message, outcome.kind);
     }
   }, [announce, beginExport, endExport, pinnedAsset, renderForExport]);
 
   const exportFrames = useCallback(async () => {
     let session: ReturnType<typeof beginExport> | null = null;
+    let outcome: ExportOutcome | null = null;
     try {
       session = beginExport();
       const pinnedVideo = settingsRef.current.presenter.enabled && pinnedAsset?.kind === "video" ? pinnedAsset : null;
@@ -885,17 +950,35 @@ export function App() {
       if (picker) {
         const directory = await picker({ id: "pitchdog-drift-frames", mode: "readwrite" });
         const result = await exportPngSequence({ ...common, destination: "directory", directory, framePrefix: "drift" });
-        announce(`${result.frameCount} numbered PNG frames written and verified.`, "good");
+        outcome = {
+          message: `${result.frameCount} numbered PNG frames written and verified.`,
+          kind: "good",
+        };
       } else {
         const result = await exportPngSequence({ ...common, destination: "zip", framePrefix: "drift" });
         if (!result.blob) throw new Error("PNG ZIP completed without bytes.");
         downloadBlob(result.blob, `drift-frames-${timestampSlug()}.zip`);
-        announce(`${result.frameCount} numbered PNG frames rendered into a verified ZIP.`, "good");
+        outcome = {
+          message: `${result.frameCount} numbered PNG frames rendered into a verified ZIP.`,
+          kind: "good",
+        };
       }
     } catch (error) {
-      announce(error instanceof Error ? error.message : "PNG sequence export failed.", "error");
+      outcome = exportOutcomeFromError(
+        error,
+        session?.controller.signal,
+        "PNG sequence export canceled.",
+        "PNG sequence export failed.",
+      );
     } finally {
-      if (session) endExport(session.surface);
+      const restoreError = session ? endExport(session.surface) : null;
+      if (restoreError) {
+        outcome = {
+          message: `PNG sequence completed, but preview recovery failed: ${restoreError.message}`,
+          kind: "error",
+        };
+      }
+      if (outcome) announce(outcome.message, outcome.kind);
     }
   }, [announce, beginExport, endExport, pinnedAsset, renderForExport]);
 
