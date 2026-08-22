@@ -773,11 +773,21 @@ requireMarkers(".github/workflows/macos-release.yml", [
   "workflow_dispatch",
   "source_commit",
   "name: macos-release",
+  "Establish isolated release paths before secrets exist",
+  'KEYCHAIN_PATH=${RUNNER_TEMP}/drift-release.keychain-db',
+  'NOTARY_KEY_PATH=${RUNNER_TEMP}/AuthKey_Drift.p8',
+  "CANONICAL_REQUESTED_COMMIT=\"$(printf '%s' \"$REQUESTED_COMMIT\" | tr '[:upper:]' '[:lower:]')\"",
   "Retain text receipts only",
   "binary_uploaded=no",
   "github_release_created=no",
 ]);
-forbidMarkers(".github/workflows/macos-release.yml", ["ref: ${{ inputs.source_ref }}"]);
+forbidMarkers(".github/workflows/macos-release.yml", [
+  "ref: ${{ inputs.source_ref }}",
+  "KEYCHAIN_PATH: ${{ runner.temp }}",
+  "CERTIFICATE_PATH: ${{ runner.temp }}",
+  "NOTARY_KEY_PATH: ${{ runner.temp }}",
+  "${REQUESTED_COMMIT,,}",
+]);
 requireMarkers(".github/workflows/ci.yml", [
   "mm/native-foundation-gate",
   "source_head_sha=$DRIFT_SOURCE_HEAD_SHA",
