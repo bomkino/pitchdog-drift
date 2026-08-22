@@ -8,8 +8,22 @@ describe("authored pin composition", () => {
     const landscape = resolveFirstPinComposition(stage, { width: 1920, height: 1080 });
     const portrait = resolveFirstPinComposition(stage, { width: 1080, height: 1920 });
 
-    expect(landscape).toMatchObject({ x: 0.94, y: 0.62, width: 0.42, shadowSoftness: 72 });
-    expect(portrait).toMatchObject({ x: 0.94, y: 0.58, width: 0.38, shadowSoftness: 72 });
+    expect(landscape).toMatchObject({
+      layoutMode: "safe-overlay",
+      aspectMode: "source",
+      x: 0.94,
+      y: 0.62,
+      width: 0.42,
+      shadowSoftness: 72,
+    });
+    expect(portrait).toMatchObject({
+      layoutMode: "safe-overlay",
+      aspectMode: "source",
+      x: 0.94,
+      y: 0.58,
+      width: 0.38,
+      shadowSoftness: 72,
+    });
     expect(landscape.y).toBeLessThan(1);
     expect(portrait.y).toBeLessThan(1);
   });

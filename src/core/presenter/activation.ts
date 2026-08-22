@@ -1,6 +1,8 @@
 import type { AspectSize, StageSize } from "./layout";
 
 export interface FirstPinComposition {
+  readonly layoutMode: "safe-overlay";
+  readonly aspectMode: "source";
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -24,6 +26,8 @@ export function resolveFirstPinComposition(
 
   if (stagePortrait) {
     return Object.freeze({
+      layoutMode: "safe-overlay",
+      aspectMode: "source",
       x: 0.94,
       y: sourcePortrait ? 0.58 : 0.62,
       width: sourcePortrait ? 0.38 : 0.42,
@@ -36,6 +40,8 @@ export function resolveFirstPinComposition(
   }
 
   return Object.freeze({
+    layoutMode: "safe-overlay",
+    aspectMode: "source",
     x: 0.94,
     y: 0.86,
     width: sourcePortrait ? 0.25 : 0.32,
