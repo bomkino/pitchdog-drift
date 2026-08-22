@@ -15,7 +15,7 @@ const required = [
   'log collection stopped after its',
   '"--start", start_text',
   'processIdentifier == {pid}',
-  'No exact app/WebContent PIDs were recorded; broad logs were intentionally not collected.',
+  'No exact app PID was recorded; broad logs were intentionally not collected.',
   'bounded "$COMMAND_TIMEOUT_SECONDS" security',
   'bounded "$COMMAND_TIMEOUT_SECONDS" codesign',
   'bounded "$COMMAND_TIMEOUT_SECONDS" spctl',

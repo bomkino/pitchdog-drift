@@ -91,7 +91,6 @@ mkdir -p "$EVIDENCE/variants" "$EVIDENCE/logs" "$EVIDENCE/crashes" "$TEMP_ROOT/v
 cat > "$TEMP_ROOT/run-receipt.py" <<'PY'
 from __future__ import annotations
 
-import atexit
 import ctypes
 import hashlib
 import json
@@ -129,11 +128,6 @@ expected_executable_name = subprocess.check_output(
     text=True,
 ).strip()
 expected_app_executable = (app / "Contents" / "MacOS" / expected_executable_name).resolve()
-web_content_logical = Path(
-    "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/"
-    "com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
-)
-expected_web_content_executable = web_content_logical.resolve()
 
 
 @dataclass(frozen=True)
@@ -182,7 +176,6 @@ class ProcBSDInfo(ctypes.Structure):
 
 
 PROC_PIDTBSDINFO = 3
-SSTOP = 4
 if ctypes.sizeof(ProcBSDInfo) != 136:
     raise RuntimeError("unexpected public proc_bsdinfo ABI size")
 
@@ -274,17 +267,6 @@ def identity_is_current(identity: ProcessIdentity) -> bool:
     return process_identity(identity.pid, Path(identity.executablePath)) == identity
 
 
-def identity_is_stopped(identity: ProcessIdentity) -> bool:
-    info = process_bsd_info(identity.pid)
-    return (
-        identity_is_current(identity)
-        and info is not None
-        and int(info.pbi_start_tvsec) == identity.startSeconds
-        and int(info.pbi_start_tvusec) == identity.startMicroseconds
-        and int(info.pbi_status) == SSTOP
-    )
-
-
 def executable_snapshot(executable: Path) -> ExecutableSnapshot:
     status = executable.stat()
     return ExecutableSnapshot(
@@ -302,20 +284,6 @@ def executable_snapshot_is_current(snapshot: ExecutableSnapshot) -> bool:
         return executable_snapshot(Path(snapshot.resolvedPath)) == snapshot
     except OSError:
         return False
-
-
-def content_rule_is_open(pid: int, policy_identifier: str) -> bool | None:
-    try:
-        completed = subprocess.run(
-            ["lsof", "-n", "-P", "-p", str(pid)],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return None
-    return f"ContentRuleList-{policy_identifier}" in completed.stdout
 
 
 def write_json_atomic(path: Path, value: dict[str, object]) -> None:
@@ -383,25 +351,8 @@ def resolve_existing_executable_binding(value: object) -> Path | None:
 
 
 expected_app_executable_snapshot = executable_snapshot(expected_app_executable)
-expected_web_content_executable_snapshot = executable_snapshot(expected_web_content_executable)
 if resolve_existing_executable_binding(str(expected_app_executable)) != expected_app_executable:
     raise RuntimeError("the executable-binding canonicalizer failed its exact-path self-test")
-stopped_target_identity_guard: ProcessIdentity | None = None
-
-
-def resume_guarded_web_content() -> None:
-    identity = stopped_target_identity_guard
-    if identity is None or not identity_is_current(identity):
-        return
-    try:
-        os.kill(identity.pid, signal.SIGCONT)
-    except OSError:
-        pass
-
-
-atexit.register(resume_guarded_web_content)
-
-
 run_nonce = secrets.token_hex(32)
 probe_token = f"drift-{secrets.token_hex(16)}"
 probe_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -557,7 +508,6 @@ for root in roots:
         (root / f"{receipt_name}{suffix}").unlink(missing_ok=True)
 
 baseline_app_identities = matching_identities(expected_app_executable)
-baseline_web_content_identities = matching_identities(expected_web_content_executable)
 
 command = [
     "open", "-W", "-n", str(app), "--args",
@@ -571,31 +521,18 @@ launch_started_wall = time.time()
 launcher = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 deadline = launch_started + timeout
 app_identity: ProcessIdentity | None = None
-termination_target_identity: ProcessIdentity | None = None
-replacement_web_content_identity: ProcessIdentity | None = None
-target_exit_observed = False
 termination_requested = False
-termination_association: dict[str, object] | None = None
 termination_request_digest: str | None = None
 request_app_executable_raw: str | None = None
 request_app_executable_resolved: str | None = None
 request_app_executable_snapshot: ExecutableSnapshot | None = None
 request_app_executable_same_snapshot: bool | None = None
 coordination_failures: list[str] = []
-observed_web_content_identities: set[ProcessIdentity] = set()
-pre_kill_web_content_identities: set[ProcessIdentity] | None = None
-pre_kill_snapshot_at_monotonic: float | None = None
-target_exit_observed_at_monotonic: float | None = None
-replacement_first_observed_at_monotonic: float | None = None
 
 while time.monotonic() < deadline:
     if not executable_snapshot_is_current(expected_app_executable_snapshot):
         coordination_failures.append("the exact app executable changed after the launch snapshot")
         break
-    if not executable_snapshot_is_current(expected_web_content_executable_snapshot):
-        coordination_failures.append("the exact WebContent executable changed after the launch snapshot")
-        break
-
     current_app_identities = matching_identities(expected_app_executable)
     new_app_identities = current_app_identities - baseline_app_identities
     if len(new_app_identities) == 1:
@@ -608,34 +545,6 @@ while time.monotonic() < deadline:
     elif len(new_app_identities) > 1:
         coordination_failures.append("more than one new exact app identity appeared; refusing ambiguous cleanup")
         break
-
-    current_web_content_identities = matching_identities(expected_web_content_executable)
-    new_web_content_identities = current_web_content_identities - baseline_web_content_identities
-    observed_web_content_identities.update(new_web_content_identities)
-    if target_exit_observed and termination_target_identity is not None:
-        replacement_candidates = new_web_content_identities - {termination_target_identity}
-        if len(replacement_candidates) == 1:
-            observed_replacement = next(iter(replacement_candidates))
-            if (
-                pre_kill_web_content_identities is None
-                or observed_replacement in pre_kill_web_content_identities
-                or target_exit_observed_at_monotonic is None
-            ):
-                coordination_failures.append(
-                    "the alleged replacement was present before the exact target exit"
-                )
-                break
-            if replacement_web_content_identity is None:
-                replacement_web_content_identity = observed_replacement
-                replacement_first_observed_at_monotonic = time.monotonic()
-            elif replacement_web_content_identity != observed_replacement:
-                coordination_failures.append("the replacement WebContent identity changed during recovery")
-                break
-        elif len(replacement_candidates) > 1:
-            coordination_failures.append(
-                "more than one distinct replacement WebContent identity appeared; association is ambiguous"
-            )
-            break
 
     request_path: Path | None = None
     request: dict[str, object] | None = None
@@ -749,114 +658,6 @@ while time.monotonic() < deadline:
             coordination_failures.append("termination request app identity did not match the public libproc launch snapshot")
             break
 
-        candidates = sorted(
-            matching_identities(expected_web_content_executable) - baseline_web_content_identities,
-            key=lambda value: (value.pid, value.startSeconds, value.startMicroseconds),
-        )
-        if len(candidates) != 1:
-            coordination_failures.append(
-                f"expected one new exact WebContent identity in the controlled harness, found {len(candidates)}"
-            )
-            break
-        termination_target_identity = candidates[0]
-        if (
-            not identity_is_current(termination_target_identity)
-            or not executable_snapshot_is_current(expected_web_content_executable_snapshot)
-        ):
-            coordination_failures.append("WebContent identity changed before SIGSTOP; no signal was sent")
-            break
-        # lsof is diagnostic only and can take seconds. Run it before stopping
-        # the target, then repeat both the identity and uniqueness gates.
-        content_rule_open_diagnostic = content_rule_is_open(
-            termination_target_identity.pid,
-            request["networkPolicyIdentifier"],
-        )
-        candidates_after_diagnostic = (
-            matching_identities(expected_web_content_executable) - baseline_web_content_identities
-        )
-        if (
-            candidates_after_diagnostic != {termination_target_identity}
-            or not identity_is_current(termination_target_identity)
-            or not executable_snapshot_is_current(expected_web_content_executable_snapshot)
-        ):
-            coordination_failures.append(
-                "WebContent identity or controlled-harness uniqueness changed during the diagnostic; no signal was sent"
-            )
-            break
-        try:
-            os.kill(termination_target_identity.pid, signal.SIGSTOP)
-            stopped_target_identity_guard = termination_target_identity
-        except (OSError, ProcessLookupError) as error:
-            coordination_failures.append(f"exact WebContent SIGSTOP failed: {type(error).__name__}: {error}")
-            break
-
-        stop_deadline = time.monotonic() + 1
-        while (
-            time.monotonic() < stop_deadline
-            and identity_is_current(termination_target_identity)
-            and not identity_is_stopped(termination_target_identity)
-        ):
-            time.sleep(0.005)
-        if (
-            not identity_is_current(termination_target_identity)
-            or not identity_is_stopped(termination_target_identity)
-            or not executable_snapshot_is_current(expected_web_content_executable_snapshot)
-        ):
-            if identity_is_current(termination_target_identity):
-                try:
-                    os.kill(termination_target_identity.pid, signal.SIGCONT)
-                except OSError:
-                    pass
-            stopped_target_identity_guard = None
-            coordination_failures.append("WebContent identity changed after SIGSTOP; SIGKILL was withheld")
-            break
-
-        # The last public-API snapshot before SIGKILL must still contain only
-        # the exact stopped target. This preserves the honest controlled-harness
-        # uniqueness claim and keeps a pre-existing second process from being
-        # relabelled as the post-termination replacement.
-        pre_kill_web_content_identities = (
-            matching_identities(expected_web_content_executable) - baseline_web_content_identities
-        )
-        if (
-            pre_kill_web_content_identities != {termination_target_identity}
-            or not identity_is_current(termination_target_identity)
-            or not identity_is_stopped(termination_target_identity)
-            or not executable_snapshot_is_current(expected_web_content_executable_snapshot)
-        ):
-            if identity_is_current(termination_target_identity):
-                try:
-                    os.kill(termination_target_identity.pid, signal.SIGCONT)
-                except OSError:
-                    pass
-            stopped_target_identity_guard = None
-            coordination_failures.append(
-                "the final pre-SIGKILL identity or uniqueness gate changed; SIGKILL was withheld"
-            )
-            break
-        pre_kill_snapshot_at_monotonic = time.monotonic()
-        try:
-            os.kill(termination_target_identity.pid, signal.SIGKILL)
-        except (OSError, ProcessLookupError) as error:
-            if identity_is_current(termination_target_identity):
-                try:
-                    os.kill(termination_target_identity.pid, signal.SIGCONT)
-                except OSError:
-                    pass
-            stopped_target_identity_guard = None
-            coordination_failures.append(f"exact WebContent SIGKILL failed: {type(error).__name__}: {error}")
-            break
-        stopped_target_identity_guard = None
-
-        exit_deadline = time.monotonic() + 3
-        while time.monotonic() < exit_deadline and identity_is_current(termination_target_identity):
-            time.sleep(0.01)
-        target_exit_observed = not identity_is_current(termination_target_identity)
-        if not target_exit_observed:
-            coordination_failures.append("the exact stopped WebContent identity did not exit; no acknowledgement was written")
-            break
-        target_exit_observed_at_monotonic = time.monotonic()
-
         acknowledgement = {
             key: request[key]
             for key in [
@@ -877,26 +678,13 @@ while time.monotonic() < deadline:
                 "requestDigest",
             ]
         }
-        termination_association = {
-            "method": "controlled-harness-unique-new-exact-executable",
-            "controlledHarnessUniqueNewExactExecutable": True,
-            "publicAPIOwnershipClaimed": False,
-            "candidateCount": len(candidates),
-            "lastPreSignalCandidateCount": len(pre_kill_web_content_identities),
-            "lastPreSignalCandidateSetExact": pre_kill_web_content_identities == {termination_target_identity},
-            "productionContentRuleOpenDiagnostic": content_rule_open_diagnostic,
-            "productionContentRuleDiagnosticOnly": True,
-        }
         acknowledgement.update({
             "schemaVersion": 2,
-            "targetPID": termination_target_identity.pid,
-            "targetExecutablePath": termination_target_identity.executablePath,
-            "targetStartSeconds": termination_target_identity.startSeconds,
-            "targetStartMicroseconds": termination_target_identity.startMicroseconds,
-            "signal": int(signal.SIGKILL),
-            "killSucceeded": True,
-            "targetExitObserved": True,
-            "association": termination_association,
+            "recoveryMode": "simulated-public-delegate-seam",
+            "externalProcessKilled": False,
+            "signalSentToWebContent": False,
+            "publicAPIOwnershipClaimed": False,
+            "processTerminationClaimed": False,
         })
         write_json_atomic(
             request_path.with_name(f"{receipt_name}.termination-ack.json"),
@@ -941,28 +729,13 @@ launch: dict[str, object] = {
     "appPID": app_identity.pid if app_identity is not None else None,
     "appIdentity": asdict(app_identity) if app_identity is not None else None,
     "appExecutableSnapshot": asdict(expected_app_executable_snapshot),
-    "terminationRequested": termination_requested,
-    "terminationTargetPID": (
-        termination_target_identity.pid if termination_target_identity is not None else None
-    ),
-    "terminationTargetIdentity": (
-        asdict(termination_target_identity) if termination_target_identity is not None else None
-    ),
-    "targetExitObserved": target_exit_observed,
-    "preKillWebContentIdentities": (
-        [
-            asdict(value)
-            for value in sorted(
-                pre_kill_web_content_identities,
-                key=lambda item: (item.pid, item.startSeconds, item.startMicroseconds),
-            )
-        ]
-        if pre_kill_web_content_identities is not None else None
-    ),
-    "preKillSnapshotAtMonotonicSeconds": pre_kill_snapshot_at_monotonic,
-    "targetExitObservedAtMonotonicSeconds": target_exit_observed_at_monotonic,
-    "terminationAssociation": termination_association,
-    "terminationRequestDigest": termination_request_digest,
+    "recoveryRequested": termination_requested,
+    "recoveryMode": "simulated-public-delegate-seam",
+    "externalProcessKilled": False,
+    "signalSentToWebContent": False,
+    "publicAPIOwnershipClaimed": False,
+    "processTerminationClaimed": False,
+    "recoveryRequestDigest": termination_request_digest,
     "requestAppExecutableBinding": {
         "requestPath": request_app_executable_raw,
         "requestResolvedPath": request_app_executable_resolved,
@@ -974,21 +747,6 @@ launch: dict[str, object] = {
         "expectedSnapshot": asdict(expected_app_executable_snapshot),
         "sameSnapshot": request_app_executable_same_snapshot,
     },
-    "replacementWebContentIdentity": (
-        asdict(replacement_web_content_identity)
-        if replacement_web_content_identity is not None else None
-    ),
-    "replacementWebContentIdentityObserved": replacement_web_content_identity is not None,
-    "replacementFirstObservedAtMonotonicSeconds": replacement_first_observed_at_monotonic,
-    "webContentPIDs": sorted({value.pid for value in observed_web_content_identities}),
-    "webContentIdentities": [
-        asdict(value)
-        for value in sorted(
-            observed_web_content_identities,
-            key=lambda item: (item.pid, item.startSeconds, item.startMicroseconds),
-        )
-    ],
-    "webContentExecutableSnapshot": asdict(expected_web_content_executable_snapshot),
     "coordinationFailures": coordination_failures,
     "networkProbeCoordinatorsStopped": probe_coordinators_stopped,
     "tcpProbeDetectorSelfTestPassed": tcp_probe_detector_self_test_passed,
@@ -1052,40 +810,7 @@ expect(not timed_out, "application exceeded its packaged-runtime deadline")
 expect(not coordination_failures, "; ".join(coordination_failures))
 expect(probe_coordinators_stopped, "a loopback probe coordinator did not stop before evidence was sealed")
 expect(tcp_probe_detector_self_test_passed, "the loopback TCP detector failed its fragmented-stream self-test")
-expect(termination_requested, "application never requested the bounded WebContent termination")
-expect(termination_target_identity is not None, "no exact WebContent identity was terminated")
-expect(target_exit_observed, "the exact terminated WebContent identity was not observed to exit")
-expect(
-    replacement_web_content_identity is not None,
-    "no distinct replacement WebContent identity was observed after the exact target exited",
-)
-if termination_target_identity is not None and replacement_web_content_identity is not None:
-    expect(
-        replacement_web_content_identity != termination_target_identity,
-        "the replacement WebContent identity was not distinct from the terminated identity",
-    )
-    expect(
-        replacement_web_content_identity.executablePath == str(expected_web_content_executable),
-        "the replacement WebContent executable identity changed",
-    )
-expect(
-    termination_association is not None
-    and termination_association.get("method") == "controlled-harness-unique-new-exact-executable"
-    and termination_association.get("controlledHarnessUniqueNewExactExecutable") is True
-    and termination_association.get("publicAPIOwnershipClaimed") is False
-    and termination_association.get("candidateCount") == 1
-    and termination_association.get("lastPreSignalCandidateCount") == 1
-    and termination_association.get("lastPreSignalCandidateSetExact") is True,
-    "termination association was not the honest controlled-harness uniqueness claim",
-)
-expect(
-    pre_kill_snapshot_at_monotonic is not None
-    and target_exit_observed_at_monotonic is not None
-    and replacement_first_observed_at_monotonic is not None
-    and pre_kill_snapshot_at_monotonic < target_exit_observed_at_monotonic
-    < replacement_first_observed_at_monotonic,
-    "the replacement identity was not first observed strictly after the exact target exit",
-)
+expect(termination_requested, "application never requested the run-bound recovery seam")
 expect(
     not probe_tcp_connections,
     f"WebKit outbound policy accepted loopback TCP connections: {probe_tcp_connections}",
@@ -1105,8 +830,15 @@ if receipt is not None:
     expect(receipt.get("finishedNavigation") is True, "WKWebView never finished navigation")
     expect(receipt.get("documentAuthorityDelivered") is True, "AppKit document authority was never delivered")
     expect(receipt.get("nativeDocumentActive") is True, "native document authority was not active at receipt time")
-    expect(int(receipt.get("contentProcessTerminationCount", -1)) == 1, "packaged test did not induce and recover from exactly one WebKit process termination")
-    expect(receipt.get("terminationInduced") is True, "WebContent termination lacks a PID-bounded external acknowledgement")
+    expect(int(receipt.get("contentProcessTerminationCount", -1)) == 0, "the safe packaged test observed an actual WebContent termination")
+    expect(receipt.get("terminationInduced") is False, "the safe packaged test overclaimed a WebContent termination")
+    expect(receipt.get("recoveryMode") == "simulated-public-delegate-seam", "the receipt misstated the recovery mode")
+    expect(receipt.get("recoveryDelegateSeamSimulated") is True, "the shared public delegate seam was not simulated")
+    expect(int(receipt.get("recoveryDelegateSeamInvocationCount", -1)) == 1, "the shared recovery seam did not run exactly once")
+    expect(receipt.get("externalProcessKilled") is False, "the packaged gauntlet killed an external process")
+    expect(receipt.get("signalSentToWebContent") is False, "the packaged gauntlet signaled WebContent")
+    expect(receipt.get("publicAPIOwnershipClaimed") is False, "the receipt claimed unavailable public PID ownership")
+    expect(receipt.get("processTerminationClaimed") is False, "the receipt claimed a process termination")
     expect(receipt.get("terminationAcknowledgementValidated") is True, "the app did not validate every external acknowledgement binding")
     expect(receipt.get("terminationRunNonce") == run_nonce, "the receipt did not retain the launcher's exact run binding")
     expect(
@@ -1239,14 +971,11 @@ pids: set[int] = set()
 app_pid = launch.get("appPID")
 if isinstance(app_pid, int) and app_pid > 1:
     pids.add(app_pid)
-for pid in launch.get("webContentPIDs", []):
-    if isinstance(pid, int) and pid > 1:
-        pids.add(pid)
 started_at = launch.get("startedAtUnix")
 if not isinstance(started_at, (int, float)):
     started_at = 0
 if not pids:
-    output.write_text("No exact app/WebContent PIDs were recorded; broad logs were intentionally not collected.\n", encoding="utf-8")
+    output.write_text("No exact app PID was recorded; broad logs were intentionally not collected.\n", encoding="utf-8")
     raise SystemExit(0)
 
 predicate = " OR ".join(f"processIdentifier == {pid}" for pid in sorted(pids))
