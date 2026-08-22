@@ -13,6 +13,12 @@ struct DriftMain {
         }
         if arguments.contains("--native-self-test") {
             do {
+                try NavigationIdentityTracker.runSelfTest()
+                try TrustedWebRuntime.runSelfTest()
+                try TrustedNavigationPolicy.runSelfTest()
+                try WebViewSelfTest.runTerminationProtocolSelfTest()
+                try NativeBridgeHost.runReplyLifecycleSelfTest()
+                try NativeDocumentSession.runSelfTest()
                 try NativeFileBroker.runSelfTest()
                 try NativeGauntlet.run()
                 try NativeAacEncoderBroker.runSelfTest()
@@ -27,7 +33,19 @@ struct DriftMain {
             let receiptName = argumentList
                 .first(where: { $0.hasPrefix(prefix) })
                 .map { String($0.dropFirst(prefix.count)) }
-            Darwin.exit(WebViewSelfTest.run(receiptName: receiptName))
+            let networkPrefix = "--webview-self-test-network-probe-url="
+            let networkProbeURL = argumentList
+                .first(where: { $0.hasPrefix(networkPrefix) })
+                .flatMap { URL(string: String($0.dropFirst(networkPrefix.count))) }
+            let runNoncePrefix = "--webview-self-test-run-nonce="
+            let runNonce = argumentList
+                .first(where: { $0.hasPrefix(runNoncePrefix) })
+                .map { String($0.dropFirst(runNoncePrefix.count)) }
+            Darwin.exit(WebViewSelfTest.run(
+                receiptName: receiptName,
+                networkProbeURL: networkProbeURL,
+                runNonce: runNonce
+            ))
         }
 
         let application = NSApplication.shared

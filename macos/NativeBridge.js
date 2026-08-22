@@ -29,7 +29,19 @@
   let statusHost = null;
   let appBridge = null;
   let appBridgeGeneration = 0;
+  const documentInstanceBytes = new Uint8Array(16);
+  crypto.getRandomValues(documentInstanceBytes);
+  const documentInstanceChallenge = Array.from(
+    documentInstanceBytes,
+    (value) => value.toString(16).padStart(2, "0"),
+  ).join("");
+  let documentNonce = null;
+  let resolveDocumentAuthorization;
+  let runtimeClaimPromise = null;
   const queuedImports = [];
+  const documentAuthorization = new Promise((resolve) => {
+    resolveDocumentAuthorization = resolve;
+  });
 
   function nativeError(raw) {
     const name = typeof raw?.name === "string" ? raw.name : "InvalidStateError";
@@ -39,15 +51,79 @@
     return new DOMException(message, name);
   }
 
-  async function callNative(command, payload = {}) {
+  function documentChallenge() {
+    return documentInstanceChallenge;
+  }
+
+  function authorizeDocument(rawNonce, expectedDocumentChallenge) {
+    if (documentNonce !== null) {
+      throw new DOMException("This Drift document already received native authority.", "InvalidStateError");
+    }
+    if (expectedDocumentChallenge !== documentInstanceChallenge) {
+      throw new DOMException(
+        "AppKit attempted to authorize a Drift document that has already been replaced.",
+        "SecurityError",
+      );
+    }
+    if (
+      typeof rawNonce !== "string"
+      || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(rawNonce)
+    ) {
+      throw new DOMException("AppKit supplied an invalid document-generation token.", "SecurityError");
+    }
+    documentNonce = rawNonce;
+    resolveDocumentAuthorization();
+    return true;
+  }
+
+  function requireExpectedDocument(rawNonce) {
+    if (documentNonce === null || rawNonce !== documentNonce) {
+      throw new DOMException(
+        "That AppKit callback belongs to a Drift document that was replaced or reloaded.",
+        "SecurityError",
+      );
+    }
+  }
+
+  async function postAuthorizedNative(command, payload = {}) {
+    await documentAuthorization;
     let envelope;
     try {
-      envelope = await handler.postMessage({ command, payload });
+      envelope = await handler.postMessage({ command, payload, documentNonce });
     } catch (error) {
       throw error instanceof Error ? error : new DOMException(String(error), "InvalidStateError");
     }
     if (envelope?.ok) return envelope.value;
     throw nativeError(envelope?.error);
+  }
+
+  function claimNativeRuntime() {
+    if (!runtimeClaimPromise) {
+      runtimeClaimPromise = postAuthorizedNative("runtime-info").then((runtime) => {
+        if (
+          runtime?.documentAuthority !== "appkit-issued-per-document"
+          || typeof runtime?.sandboxed !== "boolean"
+          || typeof runtime?.networkClientEntitled !== "boolean"
+          || (runtime.sandboxed && !runtime.networkClientEntitled)
+          || runtime?.webKitOutboundPolicyInstalled !== true
+          || runtime?.webKitOutboundPolicyVersion !== 3
+          || runtime?.nativeNetworkClientSurface !== "none-shipped"
+          || runtime?.networkBoundary !== "app-entitled-webkit-blocked"
+        ) {
+          throw new DOMException("The native host returned an untrusted runtime contract.", "SecurityError");
+        }
+        return runtime;
+      });
+    }
+    return runtimeClaimPromise;
+  }
+
+  async function callNative(command, payload = {}) {
+    if (command === "runtime-info") {
+      throw new DOMException("Runtime authority may be claimed only by Drift's internal bootstrap.", "SecurityError");
+    }
+    await claimNativeRuntime();
+    return postAuthorizedNative(command, payload);
   }
 
   function clampFilename(value, fallback = "Drift Export") {
@@ -488,22 +564,23 @@
     }
   }
 
-  async function dispatchAppImport(kind, file) {
-    if (!appBridge) return false;
-    try {
-      await appBridge.importFile(kind, file);
-      return true;
-    } catch (error) {
-      console.error("Native import failed", error);
-      showNativeStatus(error?.message || "The selected file could not be opened.", "failed");
-      return false;
+  async function dispatchAppImport(kind, file, candidate = appBridge) {
+    if (!candidate) {
+      throw new DOMException("Drift's React import bridge is not ready.", "InvalidStateError");
     }
+    await candidate.importFile(kind, file);
+    return true;
   }
 
-  async function flushQueuedImports(generation) {
-    while (appBridge && generation === appBridgeGeneration && queuedImports.length) {
+  async function flushQueuedImports(generation, candidate) {
+    while (appBridge === candidate && generation === appBridgeGeneration && queuedImports.length) {
       const item = queuedImports.shift();
-      await dispatchAppImport(item.kind, item.file);
+      try {
+        await dispatchAppImport(item.kind, item.file, candidate);
+        item.resolve(true);
+      } catch (error) {
+        item.reject(error);
+      }
     }
   }
 
@@ -514,7 +591,7 @@
     const generation = ++appBridgeGeneration;
     appBridge = candidate;
     document.documentElement.dataset.driftNativeAppBridge = "ready";
-    void flushQueuedImports(generation);
+    void flushQueuedImports(generation, candidate);
     return () => {
       if (generation === appBridgeGeneration && appBridge === candidate) {
         appBridge = null;
@@ -523,32 +600,41 @@
     };
   }
 
-  function nativeCommand(command) {
+  async function nativeCommand(expectedDocumentNonce, command) {
+    requireExpectedDocument(expectedDocumentNonce);
     if (!VALID_COMMANDS.has(command)) return false;
     if (!appBridge) {
       showNativeStatus("Drift is still opening. Try that command again in a moment.", "quiet");
       return false;
     }
-    void dispatchAppCommand(command);
-    return true;
+    return dispatchAppCommand(command);
   }
 
-  async function importGranted(descriptor, rawKind = "project") {
+  async function importGranted(expectedDocumentNonce, descriptor, rawKind = "project") {
+    requireExpectedDocument(expectedDocumentNonce);
     const kind = VALID_IMPORT_KINDS.has(rawKind) ? rawKind : "project";
     try {
       const file = await descriptorToFile(descriptor);
+      requireExpectedDocument(expectedDocumentNonce);
       if (!appBridge) {
         if (queuedImports.length >= MAX_QUEUED_IMPORTS) {
           throw new DOMException("Too many files are waiting for the studio to open.", "QuotaExceededError");
         }
-        queuedImports.push({ kind, file });
         showNativeStatus(`${file.name} will open when the studio is ready.`, "quiet");
-        return;
+        // Finder owns the outer AppKit reply. Keep that reply pending until a
+        // real React bridge has either verified + persisted the project or
+        // rejected it; merely placing bytes in this document's queue is not a
+        // successful open.
+        return await new Promise((resolve, reject) => {
+          queuedImports.push({ kind, file, resolve, reject });
+        });
       }
       await dispatchAppImport(kind, file);
+      return true;
     } catch (error) {
       console.error("Native import failed", error);
       showNativeStatus(error?.message || "The selected project could not be opened.", "failed");
+      throw error;
     }
   }
 
@@ -632,6 +718,9 @@
       showSaveFilePicker: { configurable: true, writable: true, value: showSaveFilePicker },
       showDirectoryPicker: { configurable: true, writable: true, value: showDirectoryPicker },
       showOpenFilePicker: { configurable: true, writable: true, value: showOpenFilePicker },
+      __driftNativeAuthorizeDocument: { configurable: false, writable: false, value: authorizeDocument },
+      __driftNativeDocumentInstanceChallenge: { configurable: false, writable: false, value: documentChallenge },
+      __driftNativeCall: { configurable: false, writable: false, value: callNative },
       __driftNativeSaveBlob: { configurable: false, writable: false, value: saveBlob },
       __driftNativeImportGranted: { configurable: false, writable: false, value: importGranted },
       __driftNativeCommand: { configurable: false, writable: false, value: nativeCommand },
@@ -644,6 +733,12 @@
           bridgeVersion: DRIFT_NATIVE_BRIDGE_VERSION,
           platform: "macOS",
           systemCodecsOnly: true,
+          documentAuthority: "appkit-issued-per-document",
+          webKitOutboundPolicyInstalled: true,
+          webKitOutboundPolicyVersion: 3,
+          nativeNetworkClientSurface: "none-shipped",
+          networkBoundary: "app-entitled-webkit-blocked",
+          networkClientEntitlementRequiredWhenSandboxed: true,
         }),
       },
     });
@@ -661,7 +756,7 @@
 
   const boot = () => {
     ensureNativeStyle();
-    void callNative("runtime-info").then((runtime) => {
+    void claimNativeRuntime().then((runtime) => {
       window.dispatchEvent(new CustomEvent("drift-native-ready", { detail: runtime }));
     }).catch((error) => {
       console.error("Drift native bridge failed to initialize", error);

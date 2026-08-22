@@ -25,16 +25,38 @@ cleanup() {
 trap cleanup EXIT
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "local DMG verification must run on macOS"
-for command in hdiutil shasum node readlink; do
+for command in hdiutil node plutil python3 readlink; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
 done
 [[ -f "$DMG_PATH" ]] || fail "disk image is missing: $DMG_PATH"
 [[ -f "$CHECKSUM_PATH" ]] || fail "disk-image checksum is missing: $CHECKSUM_PATH"
 
-(
-  cd "$(dirname "$DMG_PATH")"
-  shasum -a 256 -c "$(basename "$CHECKSUM_PATH")"
-)
+python3 - "$DMG_PATH" "$CHECKSUM_PATH" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import re
+import sys
+from pathlib import Path
+
+dmg = Path(sys.argv[1]).resolve()
+checksum = Path(sys.argv[2]).resolve()
+lines = checksum.read_text(encoding="utf-8").splitlines()
+if len(lines) != 1:
+    raise SystemExit("verify-dmg(mac): checksum file must contain exactly one entry")
+match = re.fullmatch(r"([0-9a-f]{64})  ([^/]+)", lines[0])
+if match is None:
+    raise SystemExit("verify-dmg(mac): checksum entry must use lowercase SHA-256 and one plain basename")
+expected_digest, filename = match.groups()
+if filename != dmg.name or Path(filename).name != filename:
+    raise SystemExit("verify-dmg(mac): checksum entry does not name the requested disk image")
+digest = hashlib.sha256()
+with dmg.open("rb") as stream:
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        digest.update(chunk)
+if digest.hexdigest() != expected_digest:
+    raise SystemExit("verify-dmg(mac): requested disk-image checksum does not match")
+PY
 hdiutil verify "$DMG_PATH"
 
 ATTACH_OUTPUT="$(hdiutil attach "$DMG_PATH" -readonly -nobrowse -mountpoint "$MOUNT_ROOT")"
@@ -51,20 +73,51 @@ grep -q 'AudioToolbox' "$MOUNT_ROOT/Install Drift.txt" \
   || fail "install note does not describe the native AudioToolbox AAC path"
 grep -q 'WKWebView' "$MOUNT_ROOT/Install Drift.txt" \
   || fail "install note does not describe the H.264 capability boundary"
+MOUNTED_SOURCE_REVISION="$(plutil -extract DriftSourceRevision raw -o - "$MOUNT_ROOT/Drift.app/Contents/Info.plist")"
+grep -Fq "https://github.com/bomkino/pitchdog-drift/tree/${MOUNTED_SOURCE_REVISION}" "$MOUNT_ROOT/Install Drift.txt" \
+  || fail "install note does not link the exact packaged source revision"
 if grep -q 'WebKit runtime exposes a compatible system AAC encoder' "$MOUNT_ROOT/Install Drift.txt"; then
   fail "install note still describes the deleted WebKit AAC design"
 fi
 
 "$ROOT/scripts/verify-macos-app.sh" "$MOUNT_ROOT/Drift.app"
 
-if [[ -d "$APP_PATH" ]]; then
-  SOURCE_EXECUTABLE="$APP_PATH/Contents/MacOS/Drift"
-  MOUNTED_EXECUTABLE="$MOUNT_ROOT/Drift.app/Contents/MacOS/Drift"
-  [[ -x "$SOURCE_EXECUTABLE" && -x "$MOUNTED_EXECUTABLE" ]] || fail "source or mounted executable is missing"
-  SOURCE_SHA="$(shasum -a 256 "$SOURCE_EXECUTABLE" | awk '{print $1}')"
-  MOUNTED_SHA="$(shasum -a 256 "$MOUNTED_EXECUTABLE" | awk '{print $1}')"
-  [[ "$SOURCE_SHA" == "$MOUNTED_SHA" ]] || fail "disk image changed the app executable"
-fi
+[[ -d "$APP_PATH" ]] || fail "frozen source app is missing for exact DMG comparison: $APP_PATH"
+python3 - "$APP_PATH" "$MOUNT_ROOT/Drift.app" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import os
+import stat
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).resolve()
+mounted = Path(sys.argv[2]).resolve()
+
+def inventory(root: Path) -> dict[str, tuple[str, int, str]]:
+    result: dict[str, tuple[str, int, str]] = {}
+    candidates = [root, *sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix())]
+    for candidate in candidates:
+        relative = "." if candidate == root else candidate.relative_to(root).as_posix()
+        mode = stat.S_IMODE(candidate.lstat().st_mode)
+        if candidate.is_symlink():
+            result[relative] = ("symlink", mode, os.readlink(candidate))
+        elif candidate.is_dir():
+            result[relative] = ("directory", mode, "")
+        elif candidate.is_file():
+            digest = hashlib.sha256()
+            with candidate.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            result[relative] = ("file", mode, digest.hexdigest())
+        else:
+            raise SystemExit(f"verify-dmg(mac): unsupported app entry: {relative}")
+    return result
+
+if inventory(source) != inventory(mounted):
+    raise SystemExit("verify-dmg(mac): mounted disk image app differs from the frozen source app")
+PY
 
 printf 'Local Drift DMG verification passed.\n'
 printf '  DMG: %s\n' "$DMG_PATH"

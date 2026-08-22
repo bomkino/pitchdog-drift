@@ -32,8 +32,9 @@ The release lane fails if packaged Web resources contain:
 
 It also fails if the native bundle cannot prove:
 
-- App Sandbox and user-selected read/write entitlements;
-- no network client or server entitlement;
+- App Sandbox, user-selected read/write, and network-client entitlements from the signed finished app;
+- no network-server, broad-directory, or temporary-exception entitlement;
+- production WebKit lockdown with zero token-bearing TCP and UDP loopback hits and no shipped native network client;
 - no non-system linked dynamic library;
 - a valid native AAC self-test;
 - a complete byte manifest;
@@ -141,7 +142,9 @@ This lane builds and verifies the actual `.app`:
 - universal slices;
 - app structure and resources;
 - signing flags and entitlements;
-- no network/broad-filesystem entitlement;
+- truthful App Sandbox, user-selected read/write, and app-wide network-client entitlements, with no network-server/broad-filesystem exceptions;
+- the production WebKit rule identifier, remote response/download denial, and exact packaged TCP/UDP loopback zero-hit receipt;
+- no native `URLSession`, Network.framework, socket, updater, analytics, or cloud-upload client;
 - no non-system library;
 - no browser AAC/FFmpeg binary path;
 - build-manifest byte identity;
@@ -168,7 +171,7 @@ This lane exercises the media stack in a visible hosted Apple Silicon WKWebView 
 - transparent PNG with visible and non-opaque pixels;
 - native progress events and content-process stability.
 
-The deterministic exporter probe is one receipt-verified classic bundle with dynamic imports inlined. The packaged app self-test separately owns the exact production ES-module graph. This prevents a local module bootstrap failure from being misreported as an encoder failure while keeping both claims directly tested.
+The deterministic exporter probe and the shipped app are separate receipt-verified, single-entry classic IIFEs. The packaged app self-test owns the exact production application graph; the exporter probe owns the real export source path. This prevents a bootstrap failure from being misreported as an encoder failure while keeping both claims directly tested.
 
 ## Detached verification
 
@@ -186,7 +189,9 @@ It checks:
 - Developer ID authority;
 - hardened runtime;
 - App Sandbox enabled;
-- no client or server network entitlement;
+- app-wide network-client entitlement present in the sandboxed signature and network-server/broad-directory entitlements absent;
+- production WebKit policy plus exact packaged TCP/UDP zero-hit evidence;
+- no shipped native networking surface;
 - both CPU architectures;
 - complete legal bundle and SBOM;
 - no source maps, WebAssembly, browser AAC extension, FFmpeg, or libavcodec implementation;
@@ -214,7 +219,7 @@ APPLE_NOTARY_KEY_ID
 APPLE_NOTARY_ISSUER_ID
 ```
 
-The workflow imports the certificate into a temporary keychain, writes the API key into the runner’s temporary directory, executes the release lane, uploads the evidence bundle as a private workflow artifact, and deletes key material in an `always()` cleanup step.
+The workflow imports the certificate into a temporary keychain, writes the API key into the runner’s temporary directory, executes the release lane, uploads publication-safe text receipts as an ordinary Actions artifact, and deletes key material in an `always()` cleanup step. The artifact is evidence, not a confidentiality boundary.
 
 Workflow artifacts are maintainership evidence. They are not automatically public binaries.
 

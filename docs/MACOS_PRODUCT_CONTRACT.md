@@ -40,8 +40,8 @@ The native layer must disappear when things are going well and become unusually 
 - One restored, resizable AppKit window with normal full-screen and Dock reopen behavior.
 - Native File, Edit, Playback, View, Window, and Help menus.
 - Finder ownership of `.pitched` documents.
-- App Sandbox with only user-selected read/write access.
-- No network client or server entitlement.
+- App Sandbox with user-selected read/write access and the network-client entitlement required by the packaged WKWebView topology.
+- No network-server, broad-directory, or temporary-exception entitlement.
 - Main-frame-only, reply-based, typed WebKit bridge.
 - Opaque grants rather than renderer-visible file paths.
 - Same-volume staged writes followed by commit-time replacement.
@@ -74,8 +74,9 @@ The contract is specific:
 
 ## Protected boundaries
 
-- No analytics, update daemon, remote font, cloud upload, URLSession, socket, shell, AppleScript, or arbitrary native command execution.
-- HTTP, HTTPS, WebSocket, and FTP loads are blocked inside the WebView. Explicit source/help links open in the user’s default browser.
+- No analytics, update daemon, remote font, cloud upload, shipped native `URLSession`/Network.framework/socket client, shell, AppleScript, or arbitrary native command execution.
+- A document-start page-world lockdown removes WebRTC constructors. Versioned content rules block HTTP, HTTPS, WS, WSS, and FTP; navigation/download policy cancels remote responses and download authority before any native destination. Explicit source/help links open in the user’s default browser.
+- `com.apple.security.network.client` is an app-wide entitlement, not a WebKit-only capability. Adding native networking is a protected-boundary change; a WebKit or macOS compromise remains a residual risk.
 - JavaScript never receives an absolute filesystem path.
 - Native grants are scoped to files and directories selected by the user or handed to the app by Finder.
 - Recursive deletion is not exposed.
@@ -91,13 +92,13 @@ The contract is specific:
 1. **An `.app` directory that cannot import media.** Countercheck: real native open panels for every hidden file input, Finder-opened `.pitched` files, and launch-time import queuing.
 2. **A native save panel followed by browser-style fake success.** Countercheck: suppress premature notices and report completion only after staged commit.
 3. **“Atomic” writes in a forbidden sibling path.** Countercheck: use `itemReplacementDirectory`, abort, then byte-compare the pre-existing destination.
-4. **A sandbox badge with broad network or filesystem entitlement.** Countercheck: extract entitlements from the signed finished bundle and reject any network or broad-directory entitlement.
+4. **A sandbox badge paired with a false “no network entitlement” claim.** Countercheck: extract entitlements from the signed finished bundle, require the app-wide network-client entitlement and absence of network-server/broad-directory entitlements, then independently prove the packaged WebKit policy produces zero TCP and UDP loopback hits.
 5. **A universal claim with one architecture.** Countercheck: inspect `lipo -archs`; separately record that cross-compilation is not Intel runtime evidence.
 6. **A distributable DMG that quietly contains codec WASM.** Countercheck: dedicated macOS Vite alias plus bundle scan for `.wasm`, FFmpeg, and libavcodec markers.
 7. **A “native AAC” bridge that ignores priming.** Countercheck: require exact leading/input/trailing frame accounting and negative priming timestamps before muxing.
 8. **A web wrapper with no Mac behavior.** Countercheck: menus, document opening, Finder reveal, restored window, full-screen, external-link handoff, crash reload, and quit interlocks.
 9. **A smoke test that only checks filenames.** Countercheck: broker self-test, manifest readback, signature/entitlement inspection, packaged WKWebView load, real AVC/AAC probes, and deterministic MP4/PNG output.
-10. **Green CI that tests a different topology from the app.** Countercheck: packaged ES-module loading belongs to the app self-test; deterministic export uses one receipt-verified classic bundle so local module bootstrap cannot masquerade as an encoder failure.
+10. **Green CI that tests a different topology from the app.** Countercheck: both the shipped app and deterministic exporter probe use receipt-verified single-entry classic IIFEs; the packaged self-test owns the exact application graph while the exporter probe owns the real export source path.
 
 ## Frozen bar
 
@@ -114,7 +115,9 @@ The branch holds only when all of the following are direct evidence, not aspirat
 - `npm run build:mac` produces a signed universal app on macOS.
 - `npm run verify:mac` passes manifest, architecture, entitlement, smoke, broker, and packaged-WebView checks.
 - `npm run package:mac:dmg` creates a verifiable disk image without uploading it.
-- App Sandbox is present; network client/server entitlements are absent.
+- App Sandbox, user-selected read/write, and network-client entitlements are present in the signed app; network-server and broad-directory entitlements are absent.
+- Exact packaged probes read back those signed entitlements and observe zero token-bearing TCP and UDP loopback requests under the production content, page-world, and navigation/download policies.
+- The source contract proves no native `URLSession`, Network.framework, or socket client is shipped and rejects weakening of the remote response/download gate.
 - The bundled web runtime contains no `.wasm`, source map, FFmpeg, or libavcodec marker.
 
 ### User journey

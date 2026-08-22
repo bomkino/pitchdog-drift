@@ -20,7 +20,7 @@ The maintainers may ask for a private proof-of-concept after establishing a secu
 
 ## Supported surfaces
 
-Security fixes target the current `main` branch and active release branches. The standalone Mac work is developed on `feat/native-macos-studio` until reviewed and merged. Public source can move faster than a notarized binary; always identify the exact commit or app build.
+Security fixes target the current `main` branch and explicitly active construction or release branches. Public source can move faster than a notarized binary; always identify the exact commit or app build.
 
 No public compiled Mac release is promised merely because CI can build `Drift.app`. A binary is supported only when the repository explicitly publishes it with a version, source revision, checksum, signing/notarization receipt, and release notes.
 
@@ -47,13 +47,15 @@ The Mac application is expected to preserve all of the following:
 - main-frame-only `WKScriptMessageHandlerWithReply` bridge;
 - fixed command allowlist and bounded payloads;
 - opaque file/directory tokens; no renderer-visible absolute paths;
-- user-selected read/write App Sandbox entitlement only;
-- no network client or server entitlement;
+- App Sandbox with user-selected read/write and the app-wide network-client entitlement required by the packaged WKWebView topology;
+- no network-server, broad-directory, or temporary-exception entitlement;
+- no shipped native `URLSession`, Network.framework, socket, updater, analytics, or cloud-upload client;
 - no broad home, Documents, Downloads, temporary-exception, shell, process, AppleScript, or recursive-delete capability;
 - symlink and traversal rejection;
 - item-replacement staging and atomic commit;
 - abort preserving the prior committed destination;
-- HTTP, HTTPS, WebSocket, and FTP blocking inside the WebView;
+- document-start removal of page-visible WebRTC constructors, plus HTTP, HTTPS, WebSocket, and FTP blocking inside the WebView;
+- remote response/download cancellation before WebKit or AppKit can grant destination authority;
 - system-codec-only Mac bundle with no FFmpeg WebAssembly;
 - executable broker and packaged-WebView self-tests;
 - CI compilation without accidental binary publication.
@@ -66,7 +68,7 @@ See `docs/MACOS_THREAT_MODEL.md` for trust boundaries and residual risks.
 
 Production runtime source contains no analytics, remote font, cloud upload, hidden API, or automatic update service. Imported media and projects remain in browser storage, the Mac app container, or user-selected files unless the user deliberately moves or shares them.
 
-External links in the Mac app should open in the default browser only after user activation. The app itself should not receive network entitlement merely to make those links convenient.
+External links in the Mac app should open in the default browser only after user activation. The network-client entitlement is app-wide, not WebKit-only: adding any native networking is a security-boundary change, and arbitrary WebKit/macOS compromise remains a residual risk.
 
 Diagnostics must remain useful without including absolute paths, project contents, asset hashes that identify private material, or raw media metadata beyond what a reporter deliberately supplies.
 

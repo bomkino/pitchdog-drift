@@ -2,7 +2,7 @@ name: macOS standalone app
 
 on:
   push:
-    branches: [main, feat/native-macos-studio, integration/mega-main-native]
+    branches: [main, feat/native-macos-studio, integration/mega-main-native, mm/native-foundation-gate]
     paths:
       - "macos/**"
       - "scripts/build-macos-app.sh"
@@ -101,6 +101,10 @@ jobs:
         run: |
           set -euo pipefail
           SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
+          SOURCES=()
+          for SOURCE in macos/App/*.swift; do
+            [[ "$SOURCE" == "macos/App/DriftMain.swift" ]] || SOURCES+=("$SOURCE")
+          done
           xcrun --sdk macosx swiftc \
             -parse-as-library \
             -O \
@@ -109,13 +113,12 @@ jobs:
             -target "arm64-apple-macos13.3" \
             -framework AppKit \
             -framework AudioToolbox \
+            -framework CryptoKit \
             -framework Foundation \
+            -framework Security \
             -framework UniformTypeIdentifiers \
-            macos/App/NativeModels.swift \
-            macos/App/NativeDocumentSession.swift \
-            macos/App/NativeFileBroker.swift \
-            macos/App/NativeAacEncoder.swift \
-            macos/App/NativeGauntlet.swift \
+            -framework WebKit \
+            "${SOURCES[@]}" \
             macos/Probes/NativeGauntletMain.swift \
             -o "$RUNNER_TEMP/DriftNativeGauntlet"
           "$RUNNER_TEMP/DriftNativeGauntlet"
@@ -245,6 +248,10 @@ jobs:
         run: npm run verify:mac
 
       - name: Create and mount-check local DMG
+        env:
+          # Package the exact app whose packaged-WebKit matrix passed above.
+          # Rebuilding here would create a distinct, unprobed artifact.
+          DRIFT_SKIP_APP_BUILD: "1"
         run: npm run package:mac
 
       - name: Reopen and independently verify local DMG

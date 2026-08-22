@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 022
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="${DRIFT_MACOS_OUTPUT_DIR:-${ROOT_DIR}/build/macos}"
@@ -34,9 +35,28 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-for command in node npm python3 xcrun lipo iconutil plutil codesign xattr; do
+for command in git node npm python3 xcrun lipo iconutil plutil codesign xattr; do
   require_command "${command}"
 done
+
+if [[ "${OUTPUT_DIR}" != /* ]]; then
+  echo "DRIFT_MACOS_OUTPUT_DIR must be an absolute path." >&2
+  exit 1
+fi
+
+python3 - "${ROOT_DIR}/build" "${APP_BUNDLE}" <<'PY'
+from pathlib import Path
+import sys
+
+allowed = Path(sys.argv[1]).resolve()
+target = Path(sys.argv[2]).resolve()
+try:
+    relative = target.relative_to(allowed)
+except ValueError:
+    raise SystemExit(f"Refusing unsafe Mac app output outside the repository build root: {target}")
+if not relative.parts or target.name != "Drift.app":
+    raise SystemExit(f"Refusing unsafe Mac app output target: {target}")
+PY
 
 cd "${ROOT_DIR}"
 
@@ -44,6 +64,21 @@ if [[ "${DRIFT_SKIP_WEB_CHECKS:-0}" == "1" ]]; then
   npm run check:mac-source
 else
   npm run check
+fi
+
+# Every packaged source revision must name the literal bytes being compiled.
+# Ignored build/evidence directories are harmless; any unignored tracked or
+# untracked change could otherwise produce an app that falsely names HEAD.
+GIT_HEAD="$(git rev-parse --verify HEAD)"
+SOURCE_STATUS="$(git status --porcelain=v1 --untracked-files=all)"
+if [[ -n "${SOURCE_STATUS}" ]]; then
+  echo "The Mac app must be built from a clean, committed worktree:" >&2
+  printf '%s\n' "${SOURCE_STATUS}" >&2
+  exit 1
+fi
+if [[ -n "${DRIFT_SOURCE_REVISION:-}" && "${DRIFT_SOURCE_REVISION}" != "${GIT_HEAD}" ]]; then
+  echo "DRIFT_SOURCE_REVISION does not match the checked-out commit." >&2
+  exit 1
 fi
 
 # This replaces the old `vite build --mode macos` ES-module graph. Drift.app
@@ -112,7 +147,7 @@ cp \
 
 PACKAGE_VERSION="$(node -p "require('./package.json').version")"
 BUILD_NUMBER="${DRIFT_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || printf '1')}"
-SOURCE_REVISION="${DRIFT_SOURCE_REVISION:-$(git rev-parse --verify HEAD 2>/dev/null || printf 'unknown')}"
+SOURCE_REVISION="${DRIFT_SOURCE_REVISION:-${GIT_HEAD}}"
 plutil -replace CFBundleShortVersionString -string "${PACKAGE_VERSION}" "${CONTENTS_DIR}/Info.plist"
 plutil -replace CFBundleVersion -string "${BUILD_NUMBER}" "${CONTENTS_DIR}/Info.plist"
 plutil -replace LSMinimumSystemVersion -string "${MINIMUM_MACOS}" "${CONTENTS_DIR}/Info.plist"
@@ -149,7 +184,9 @@ for architecture in ${ARCHITECTURES}; do
     -target "${architecture}-apple-macos${MINIMUM_MACOS}" \
     -framework AppKit \
     -framework AudioToolbox \
+    -framework CryptoKit \
     -framework Foundation \
+    -framework Security \
     -framework UniformTypeIdentifiers \
     -framework WebKit \
     -Xlinker -dead_strip \
@@ -179,8 +216,12 @@ codec_policy=system-frameworks-only
 video_codec=WKWebView-H264-capability-gated
 audio_codec=AudioToolbox-Apple-software-AAC-LC
 sandbox=user-selected-read-write
-network_entitlement=webkit-client-only
-application_network_policy=blocked
+network_client_entitlement=present-in-sandbox-signature
+webview_outbound_policy=v3-block-http-ws-ftp
+webrtc_page_capability=page-world-document-start-lockdown
+navigation_download_policy=remote-denied-before-destination
+native_network_client_surface=none-shipped
+network_boundary=app-entitled-webkit-blocked
 EOF
 
 # The resource manifest is generated before signing. Code signing subsequently
@@ -203,6 +244,13 @@ for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_p
 manifest.write_text("\n".join(entries) + "\n", encoding="utf-8")
 PY
 chmod 0644 "${RESOURCES_DIR}/BuildReceipt.txt" "${RESOURCES_DIR}/BuildManifest.txt"
+
+# A bundle installed in /Applications must be traversable and readable by
+# every local account. Freeze modes before signing so permissions are part of
+# the exact artifact that verification and packaging consume.
+find "${APP_BUNDLE}" -type d -exec chmod 0755 {} +
+find "${APP_BUNDLE}" -type f -exec chmod 0644 {} +
+chmod 0755 "${MACOS_DIR}/${APP_NAME}"
 
 xattr -cr "${APP_BUNDLE}"
 if [[ "${SIGNING_IDENTITY}" == "-" ]]; then
@@ -229,6 +277,6 @@ printf '\nBuilt %s\n' "${APP_BUNDLE}"
 printf 'Architectures: %s\n' "$(lipo -archs "${MACOS_DIR}/${APP_NAME}")"
 printf 'Audio: Apple software AAC-LC through AudioToolbox\n'
 printf 'Video: WKWebView H.264, capability-gated and output-verified\n'
-printf 'Network: WebKit client entitlement present; application traffic blocked\n'
+printf 'Network: app-wide client entitlement present; packaged WebKit outbound policy tested; no native client shipped\n'
 printf 'Web bootstrap: classic IIFE, single boot-critical entry\n'
 printf 'Open with: open %q\n' "${APP_BUNDLE}"

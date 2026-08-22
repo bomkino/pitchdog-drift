@@ -2,7 +2,7 @@ name: macOS WKWebView runtime
 
 on:
   push:
-    branches: [main, feat/native-macos-studio, integration/mega-main-native]
+    branches: [main, feat/native-macos-studio, integration/mega-main-native, mm/native-foundation-gate]
   pull_request:
     paths:
       - "macos/**"

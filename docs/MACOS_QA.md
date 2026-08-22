@@ -35,8 +35,9 @@ Expected facts:
 - No source map, `.wasm`, browser AAC extension, FFmpeg, or libavcodec marker exists in packaged Web resources.
 - Swift compiles both architecture slices against the minimum deployment target.
 - App bundle is ad-hoc or Developer-ID signed with hardened runtime.
-- Extracted entitlements contain App Sandbox and user-selected read/write only.
-- Extracted entitlements contain no network client/server or broad-directory entitlement.
+- Entitlements extracted from the signed finished app contain App Sandbox, user-selected read/write, and network-client access.
+- Extracted entitlements contain no network-server, broad-directory, or temporary-exception entitlement.
+- The exact packaged app produces zero token-bearing TCP and UDP hits against isolated loopback listeners while the production WebKit policy is installed.
 - Build manifest byte-checks every executable/resource except itself.
 - Native smoke, broker, AAC, packaged-WebView, typed-command, and recovery self-tests pass.
 - DMG verifies and its SHA-256 receipt matches.
@@ -56,7 +57,7 @@ It should prove:
 - staged replacement and output ceilings;
 - native AudioToolbox AAC markers and receipt validation;
 - macOS build, verifier, DMG, release, and workflow wiring;
-- exact sandbox/no-network policy;
+- exact sandbox entitlement truth, page-world/content-rule lockdown, remote navigation/download denial, and absence of a shipped native network client;
 - deterministic exporter receipt and progress instrumentation.
 
 Deleting an obsolete escape hatch must not break CI merely because a string assertion remembers it.
@@ -91,10 +92,27 @@ The executable `--webview-self-test` loads copied `Resources/Web/index.html`, ne
 - authoritative client state settled to idle/saved;
 - native `toggle-focus` command reaching React and restoring state;
 - relative bundle assets;
+- the production document-start WebRTC lockdown and versioned HTTP(S)/WS(S)/FTP content rules;
+- remote response/download cancellation before any native destination authority;
+- signed-entitlement readback and zero token-bearing TCP/UDP loopback hits for the exact launched app and WebContent processes;
 - one content-process termination followed by successful reload recovery;
 - a second termination treated as failure, not an infinite retry.
 
-Use a nonpersistent website data store so the self-test cannot mutate a user project.
+Use an isolated throwaway persistent website data store so Blob/File-backed IndexedDB follows the production storage path without touching a user project. Name it uniquely, verify reload persistence, and delete the test database after the run.
+
+## Network-boundary gauntlet
+
+The sandbox network-client entitlement is app-wide; calling it “WebKit-only” is a false security claim. Before the local-only boundary can pass, one exact packaged run must prove all of these independently:
+
+- `codesign` entitlement extraction from the tested `.app` reports App Sandbox, user-selected read/write, and `com.apple.security.network.client = true`;
+- the same extraction reports no network-server, broad-directory, or temporary-exception entitlement;
+- production document-start code removes `RTCPeerConnection` and `webkitRTCPeerConnection` before application code runs;
+- the versioned content-rule list blocks HTTP, HTTPS, WS, WSS, and FTP;
+- the shared production navigation policy rejects remote responses and every remote `shouldPerformDownload` case before WebKit can create a download or request destination authority;
+- isolated TCP and UDP loopback listeners, each protected by an unpredictable per-run token, observe exactly zero accepted token-bearing requests from the exact packaged app/WebContent lifecycle;
+- source inspection rejects a shipped native `URLSession`, Network.framework, socket, updater, analytics, or cloud-upload client.
+
+Record the signed entitlement readback, rule identifier/version, exact app and WebContent process identities, listener addresses, token-hit counts, and cleanup result. Source markers alone do not prove runtime denial; zero loopback hits alone do not prove the signature or forbid future native networking. An arbitrary WebKit or macOS compromise remains outside this boundary.
 
 ## WKWebView capability gauntlet
 
@@ -173,6 +191,8 @@ The output contract:
 - PNG signature and requested dimensions.
 
 The representative probe is intentionally small. Passing it proves the code path and runtime contract, not 30-second full-resolution performance.
+
+The shipped application also uses one receipt-verified, single-entry classic IIFE. Do not describe its packaged topology as an ES-module graph.
 
 ## First-launch journey
 
@@ -314,6 +334,7 @@ Record:
 - app and DMG SHA-256;
 - architecture list;
 - extracted entitlements and dynamic libraries;
+- exact packaged TCP/UDP loopback zero-hit receipt, content-rule identifier, and remote response/download-policy receipt;
 - code-sign identity and notarization IDs;
 - workflow run IDs and artifact hashes;
 - hosted macOS codec, AAC, and deterministic export receipts;

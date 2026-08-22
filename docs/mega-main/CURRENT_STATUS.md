@@ -1,4 +1,6 @@
-# Mega Main current status
+# Mega Main historical status snapshot
+
+> Preserved from 2026-08-21. This file is not the current foundation verdict, and its branch, test-count, and CI observations must not be read as 2026-08-22 evidence. See `FOUNDATION_GAUNTLET.md` and the latest exact-SHA gate receipt for the active state.
 
 Updated: 2026-08-21  
 Branch: `integration/mega-main-native`  

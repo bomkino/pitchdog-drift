@@ -33,6 +33,12 @@ interface NativeMacRuntimeMarker {
   bridgeVersion: number;
   platform: "macOS";
   systemCodecsOnly: true;
+  documentAuthority: "appkit-issued-per-document";
+  webKitOutboundPolicyInstalled: true;
+  webKitOutboundPolicyVersion: 3;
+  nativeNetworkClientSurface: "none-shipped";
+  networkBoundary: "app-entitled-webkit-blocked";
+  networkClientEntitlementRequiredWhenSandboxed: true;
 }
 
 interface NativeMacFileHandle extends FileSystemFileHandle {
@@ -55,6 +61,10 @@ declare global {
     __driftNativeInstallAppBridge?: (bridge: NativeMacAppBridge) => void | (() => void);
     __driftNativeReportClientState?: (state: NativeMacClientState) => void;
     __driftNativeSaveBlob?: (blob: Blob, suggestedName: string) => Promise<void>;
+    __driftNativeCall?: (
+      command: string,
+      payload?: Readonly<Record<string, unknown>>,
+    ) => Promise<unknown>;
   }
 }
 
@@ -93,7 +103,13 @@ let installedAppBridge: NativeMacAppBridge | null = null;
 export function isNativeMacRuntime(): boolean {
   return typeof window !== "undefined"
     && window.__DRIFT_NATIVE_MAC__?.platform === "macOS"
-    && window.__DRIFT_NATIVE_MAC__.bridgeVersion === 2;
+    && window.__DRIFT_NATIVE_MAC__.bridgeVersion === 2
+    && window.__DRIFT_NATIVE_MAC__.documentAuthority === "appkit-issued-per-document"
+    && window.__DRIFT_NATIVE_MAC__.webKitOutboundPolicyInstalled === true
+    && window.__DRIFT_NATIVE_MAC__.webKitOutboundPolicyVersion === 3
+    && window.__DRIFT_NATIVE_MAC__.nativeNetworkClientSurface === "none-shipped"
+    && window.__DRIFT_NATIVE_MAC__.networkBoundary === "app-entitled-webkit-blocked"
+    && window.__DRIFT_NATIVE_MAC__.networkClientEntitlementRequiredWhenSandboxed === true;
 }
 
 export function installNativeMacAppBridge(bridge: NativeMacAppBridge): () => void {

@@ -2,29 +2,133 @@ import AppKit
 import Foundation
 import WebKit
 
+struct NativeWebViewGenerationTracker {
+    private var activeIdentity: ObjectIdentifier?
+    private(set) var generation: UInt64 = 0
+
+    @discardableResult
+    mutating func install(_ webView: AnyObject) -> UInt64 {
+        generation &+= 1
+        activeIdentity = ObjectIdentifier(webView)
+        return generation
+    }
+
+    mutating func retire() {
+        generation &+= 1
+        activeIdentity = nil
+    }
+
+    func accepts(_ webView: AnyObject, generation expectedGeneration: UInt64? = nil) -> Bool {
+        guard activeIdentity == ObjectIdentifier(webView) else { return false }
+        if let expectedGeneration, generation != expectedGeneration { return false }
+        return true
+    }
+
+    static func runSelfTest() throws {
+        let first = NSObject()
+        let replacement = NSObject()
+        var tracker = NativeWebViewGenerationTracker()
+        let firstGeneration = tracker.install(first)
+        guard tracker.accepts(first, generation: firstGeneration) else {
+            throw BridgeFailure("InvalidStateError", "The installed WebView generation was not accepted.")
+        }
+        let replacementGeneration = tracker.install(replacement)
+        guard !tracker.accepts(first),
+              !tracker.accepts(first, generation: firstGeneration),
+              !tracker.accepts(replacement, generation: firstGeneration),
+              tracker.accepts(replacement, generation: replacementGeneration) else {
+            throw BridgeFailure(
+                "InvalidStateError",
+                "A callback from a retired WebView generation could reach its replacement."
+            )
+        }
+        tracker.retire()
+        guard !tracker.accepts(first), !tracker.accepts(replacement) else {
+            throw BridgeFailure("InvalidStateError", "Retiring a WebView left its callback identity active.")
+        }
+        print("Drift WebView-generation self-test passed: retired and replaced views cannot mutate the active native runtime.")
+    }
+}
+
+/// AppDelegate retains this token from Finder admission through React's final
+/// import acknowledgement. Teardown may fail it first; any late native/WebKit
+/// completion then becomes a no-op instead of replying twice.
+final class NativeFinderOpenReplyOnce {
+    let identifier: UUID
+    private let lock = NSLock()
+    private var reply: ((NSApplication.DelegateReply) -> Void)?
+
+    init(
+        identifier: UUID = UUID(),
+        reply: @escaping (NSApplication.DelegateReply) -> Void
+    ) {
+        self.identifier = identifier
+        self.reply = reply
+    }
+
+    func finish(_ value: NSApplication.DelegateReply) {
+        lock.lock()
+        let activeReply = reply
+        reply = nil
+        lock.unlock()
+        activeReply?(value)
+    }
+
+    static func runSelfTest() throws {
+        try NativeWebViewGenerationTracker.runSelfTest()
+        var firstResults: [NSApplication.DelegateReply] = []
+        let first = NativeFinderOpenReplyOnce { firstResults.append($0) }
+        first.finish(.failure)
+        first.finish(.success)
+
+        var replacementResults: [NSApplication.DelegateReply] = []
+        let replacement = NativeFinderOpenReplyOnce { replacementResults.append($0) }
+        first.finish(.success)
+        replacement.finish(.success)
+        replacement.finish(.failure)
+
+        guard firstResults.count == 1,
+              firstResults.first == .failure,
+              replacementResults.count == 1,
+              replacementResults.first == .success else {
+            throw BridgeFailure(
+                "InvalidStateError",
+                "Finder open replies were not isolated and settled exactly once across replacement."
+            )
+        }
+        print("Drift Finder reply self-test passed: queued, in-flight, teardown, late-callback, and replacement replies share one exactly-once token contract.")
+    }
+}
+
 final class DriftAppDelegate: NSObject,
     NSApplicationDelegate,
     NSWindowDelegate,
     NSMenuItemValidation,
     WKNavigationDelegate,
-    WKUIDelegate,
-    WKDownloadDelegate {
+    WKUIDelegate {
 
     private var window: NSWindow?
     private var webView: WKWebView?
     private var webRootURL: URL?
     private var trustedIndexURL: URL?
     private var nativeBridge: NativeBridgeHost?
+    private var activeDocumentTicket: NativeDocumentTicket?
     private var contentRuleList: WKContentRuleList?
     private var preparingRuntime = false
     private var webRuntimeReady = false
+    private var webNavigationFinished = false
+    private var documentAuthorityDelivered = false
     private var receivedAuthoritativeClientState = false
     private var recoveryResetScheduled = false
     private var recoveryStabilityGeneration = 0
     private var pendingProjectURLs: [URL] = []
+    private var pendingProjectReply: NativeFinderOpenReplyOnce?
+    private var inFlightProjectReplyIdentifier: UUID?
+    private var webViewGeneration = NativeWebViewGenerationTracker()
     private var approvedClose = false
     private var revealLastSavedFileItem: NSMenuItem?
     private var webContentRecoveryPolicy = WebContentRecoveryPolicy()
+    private var navigationIdentity = NavigationIdentityTracker()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = nil
@@ -34,8 +138,11 @@ final class DriftAppDelegate: NSObject,
 
     func applicationWillTerminate(_ notification: Notification) {
         invalidateRecoveryStabilityWindow()
-        nativeBridge?.abortAllWrites()
-        removeNativeMessageHandler()
+        navigationIdentity.invalidate()
+        retireCurrentWebView()
+        nativeBridge?.shutdown()
+        resetDocumentReadiness()
+        failPendingProjectOpen()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -48,12 +155,12 @@ final class DriftAppDelegate: NSObject,
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !approvedClose, let bridge = nativeBridge, bridge.clientState.hasProtectedWork else {
+        guard !approvedClose, hasProtectedWork else {
             return .terminateNow
         }
         if confirmProtectedExit(verb: "Quit") {
             approvedClose = true
-            bridge.abortAllWrites()
+            invalidateDocumentAuthority()
             return .terminateNow
         }
         return .terminateCancel
@@ -78,6 +185,16 @@ final class DriftAppDelegate: NSObject,
             )
             return
         }
+        guard pendingProjectReply == nil,
+              inFlightProjectReplyIdentifier == nil,
+              pendingProjectURLs.isEmpty else {
+            application.reply(toOpenOrPrint: .failure)
+            presentWarning(
+                title: "A project is already waiting to open",
+                message: "Drift accepts one Finder project request through verification and local storage. Let the current request settle before opening another."
+            )
+            return
+        }
         if receivedAuthoritativeClientState,
            let state = nativeBridge?.clientState,
            state.hasProtectedWork {
@@ -88,40 +205,37 @@ final class DriftAppDelegate: NSObject,
             )
             return
         }
-        guard pendingProjectURLs.isEmpty else {
-            application.reply(toOpenOrPrint: .failure)
-            presentWarning(
-                title: "A project is already waiting to open",
-                message: "Drift accepts one launch-time project at a time. Let the current project verify and settle before opening another."
-            )
-            return
-        }
-
         pendingProjectURLs = [project]
+        pendingProjectReply = NativeFinderOpenReplyOnce { reply in
+            application.reply(toOpenOrPrint: reply)
+        }
         showMainWindowIfNeeded()
         deliverPendingProjectsIfPossible()
-        application.reply(toOpenOrPrint: .success)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard !approvedClose, let bridge = nativeBridge, bridge.clientState.hasProtectedWork else {
+        guard sender === window else { return true }
+        guard !approvedClose, hasProtectedWork else {
             return true
         }
         if confirmProtectedExit(verb: "Close") {
             approvedClose = true
-            bridge.abortAllWrites()
+            invalidateDocumentAuthority()
             return true
         }
         return false
     }
 
     func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow,
+              closingWindow === window else { return }
         invalidateRecoveryStabilityWindow()
-        nativeBridge?.abortAllWrites()
-        removeNativeMessageHandler()
+        navigationIdentity.invalidate()
+        retireCurrentWebView()
+        nativeBridge?.shutdown()
+        resetDocumentReadiness()
+        failPendingProjectOpen()
         pendingProjectURLs.removeAll()
-        webRuntimeReady = false
-        receivedAuthoritativeClientState = false
         webRootURL = nil
         trustedIndexURL = nil
         webView = nil
@@ -131,11 +245,20 @@ final class DriftAppDelegate: NSObject,
         webContentRecoveryPolicy.reset()
     }
 
-    private func removeNativeMessageHandler() {
-        webView?.configuration.userContentController.removeScriptMessageHandler(
+    private func removeNativeMessageHandler(from webView: WKWebView) {
+        webView.configuration.userContentController.removeScriptMessageHandler(
             forName: driftBridgeName,
             contentWorld: .page
         )
+    }
+
+    private func retireCurrentWebView() {
+        webViewGeneration.retire()
+        guard let webView else { return }
+        removeNativeMessageHandler(from: webView)
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
     }
 
     private func showMainWindowIfNeeded() {
@@ -154,17 +277,9 @@ final class DriftAppDelegate: NSObject,
     private func prepareLocalRuntime() {
         guard window == nil, !preparingRuntime else { return }
         preparingRuntime = true
-        let networkRules = """
-        [
-          {"trigger":{"url-filter":"^https?://.*","resource-type":["document","image","style-sheet","script","font","media","raw","svg-document","popup"]},"action":{"type":"block"}},
-          {"trigger":{"url-filter":"^wss?://.*"},"action":{"type":"block"}},
-          {"trigger":{"url-filter":"^ftp://.*"},"action":{"type":"block"}}
-        ]
-        """
-
         WKContentRuleListStore.default().compileContentRuleList(
-            forIdentifier: "dog.pitch.drift.network-lock.v2",
-            encodedContentRuleList: networkRules
+            forIdentifier: TrustedWebRuntime.networkPolicyIdentifier,
+            encodedContentRuleList: TrustedWebRuntime.networkPolicyJSON
         ) { [weak self] ruleList, error in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -194,8 +309,7 @@ final class DriftAppDelegate: NSObject,
         }
         webRootURL = indexURL.deletingLastPathComponent().standardizedFileURL
         trustedIndexURL = indexURL.standardizedFileURL
-        webRuntimeReady = false
-        receivedAuthoritativeClientState = false
+        resetDocumentReadiness()
         invalidateRecoveryStabilityWindow()
 
         let configuration = WKWebViewConfiguration()
@@ -207,6 +321,12 @@ final class DriftAppDelegate: NSObject,
         let controller = configuration.userContentController
         controller.add(ruleList)
         controller.addUserScript(WKUserScript(
+            source: TrustedWebRuntime.webRTCCapabilityLockdownJavaScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false,
+            in: .page
+        ))
+        controller.addUserScript(WKUserScript(
             source: bridgeSource,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true,
@@ -214,15 +334,19 @@ final class DriftAppDelegate: NSObject,
         ))
 
         let bridge = NativeBridgeHost()
-        bridge.clientStateDidChange = { [weak self] _ in
-            guard let self else { return }
+        bridge.clientStateDidChange = { [weak self, weak bridge] _ in
+            guard let self, let bridge,
+                  self.nativeBridge === bridge,
+                  bridge.hasActiveDocument else { return }
             self.receivedAuthoritativeClientState = true
+            self.updateWebRuntimeReadiness()
             self.refreshMenuState()
             self.deliverPendingProjectsIfPossible()
             self.scheduleRecoveryBudgetResetIfNeeded()
         }
-        bridge.lastCommittedFileDidChange = { [weak self] _ in
-            self?.revealLastSavedFileItem?.isEnabled = true
+        bridge.lastCommittedFileDidChange = { [weak self, weak bridge] _ in
+            guard let self, let bridge, self.nativeBridge === bridge else { return }
+            self.revealLastSavedFileItem?.isEnabled = true
         }
         controller.addScriptMessageHandler(bridge, contentWorld: .page, name: driftBridgeName)
         nativeBridge = bridge
@@ -234,6 +358,7 @@ final class DriftAppDelegate: NSObject,
         webView.allowsBackForwardNavigationGestures = false
         webView.underPageBackgroundColor = NSColor(calibratedWhite: 0.035, alpha: 1)
         bridge.webView = webView
+        webViewGeneration.install(webView)
         self.webView = webView
 
         let window = NSWindow(
@@ -261,17 +386,30 @@ final class DriftAppDelegate: NSObject,
     }
 
     private func confirmProtectedExit(verb: String) -> Bool {
-        guard let state = nativeBridge?.clientState else { return true }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "\(verb) Drift while work is protected?"
-        alert.informativeText = "\(state.protectionReason) Closing now may discard the unfinished operation. Completed local projects remain in Drift’s app container."
+        alert.informativeText = "\(protectionReason) Closing now may discard the unfinished operation. Completed local projects remain in Drift’s app container."
         alert.addButton(withTitle: "Keep Working")
-        alert.addButton(withTitle: state.exportInProgress ? "Cancel Export and \(verb)" : "\(verb) Anyway")
+        alert.addButton(withTitle: nativeBridge?.clientState.exportInProgress == true ? "Cancel Export and \(verb)" : "\(verb) Anyway")
         return alert.runModal() == .alertSecondButtonReturn
     }
 
+    private var hasProtectedWork: Bool {
+        pendingProjectReply != nil
+            || inFlightProjectReplyIdentifier != nil
+            || nativeBridge?.clientState.hasProtectedWork == true
+    }
+
+    private var protectionReason: String {
+        if pendingProjectReply != nil || inFlightProjectReplyIdentifier != nil {
+            return "A Finder project is still being verified and copied into Drift’s local project store."
+        }
+        return nativeBridge?.clientState.protectionReason ?? "Drift still has protected work."
+    }
+
     private func presentFatalError(_ message: String) {
+        failPendingProjectOpen()
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = "Drift could not start"
@@ -293,14 +431,72 @@ final class DriftAppDelegate: NSObject,
         }
     }
 
+    private func resetDocumentReadiness() {
+        webRuntimeReady = false
+        webNavigationFinished = false
+        documentAuthorityDelivered = false
+        receivedAuthoritativeClientState = false
+        activeDocumentTicket = nil
+        refreshMenuState()
+    }
+
+    private func ownsWebRuntime(
+        _ candidate: WKWebView,
+        bridge: NativeBridgeHost? = nil,
+        generation: UInt64? = nil
+    ) -> Bool {
+        guard webView === candidate else { return false }
+        if let bridge, nativeBridge !== bridge { return false }
+        return webViewGeneration.accepts(candidate, generation: generation)
+    }
+
+    private func invalidateDocumentAuthority() {
+        nativeBridge?.invalidateDocument()
+        resetDocumentReadiness()
+    }
+
+    private func updateWebRuntimeReadiness() {
+        let ticketCurrent = activeDocumentTicket.map {
+            nativeBridge?.isCurrentDocument($0) == true
+        } ?? false
+        webRuntimeReady = webNavigationFinished
+            && documentAuthorityDelivered
+            && receivedAuthoritativeClientState
+            && ticketCurrent
+    }
+
     private func deliverPendingProjectsIfPossible() {
         guard webRuntimeReady,
               let bridge = nativeBridge,
               !bridge.clientState.exportInProgress,
               !bridge.clientState.projectBusy,
-              let pending = pendingProjectURLs.first else { return }
+              let pending = pendingProjectURLs.first,
+              let reply = pendingProjectReply,
+              inFlightProjectReplyIdentifier == nil else { return }
         pendingProjectURLs.removeAll()
-        bridge.importExternalFile(pending, kind: .project)
+        inFlightProjectReplyIdentifier = reply.identifier
+        bridge.importExternalFile(pending, kind: .project) { [weak self] error in
+            guard let self else {
+                reply.finish(.failure)
+                return
+            }
+            guard self.inFlightProjectReplyIdentifier == reply.identifier,
+                  self.pendingProjectReply === reply else {
+                reply.finish(error == nil ? .success : .failure)
+                return
+            }
+            self.inFlightProjectReplyIdentifier = nil
+            self.pendingProjectReply = nil
+            reply.finish(error == nil ? .success : .failure)
+        }
+    }
+
+    private func failPendingProjectOpen() {
+        pendingProjectURLs.removeAll()
+        let reply = pendingProjectReply
+        pendingProjectReply = nil
+        inFlightProjectReplyIdentifier = nil
+        reply?.finish(.failure)
     }
 
     private func refreshMenuState() {
@@ -334,38 +530,125 @@ final class DriftAppDelegate: NSObject,
 
     // MARK: - WebKit navigation and recovery
 
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        guard ownsWebRuntime(webView) else { return }
+        if inFlightProjectReplyIdentifier != nil {
+            failPendingProjectOpen()
+        }
+        navigationIdentity.start(navigation)
+        invalidateRecoveryStabilityWindow()
+        invalidateDocumentAuthority()
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard ownsWebRuntime(webView),
+              navigationIdentity.accepts(navigation),
+              TrustedWebRuntime.acceptsMainFrameURL(webView.url, trustedIndexURL: trustedIndexURL),
+              let bridge = nativeBridge else {
+            if ownsWebRuntime(webView), navigationIdentity.accepts(navigation) {
+                failPendingProjectOpen()
+                invalidateDocumentAuthority()
+            }
+            return
+        }
+        let committedWebViewGeneration = webViewGeneration.generation
+
+        let ticket: NativeDocumentTicket
+        do {
+            ticket = try bridge.prepareDocumentBootstrap()
+        } catch {
+            failPendingProjectOpen()
+            invalidateDocumentAuthority()
+            presentWarning(title: "Drift could not authorize the studio", message: error.localizedDescription)
+            return
+        }
+        activeDocumentTicket = ticket
+
+        bridge.deliverDocumentAuthority(
+            ticket,
+            to: webView,
+            while: { [weak self, weak bridge, weak webView] in
+                guard let self, let bridge, let webView else { return false }
+                return self.ownsWebRuntime(
+                    webView,
+                    bridge: bridge,
+                    generation: committedWebViewGeneration
+                )
+                    && self.navigationIdentity.accepts(navigation)
+                    && self.activeDocumentTicket == ticket
+                    && bridge.isPreparedOrCurrentDocument(ticket)
+            },
+            completion: { [weak self, weak bridge, weak webView] result in
+                guard let self, let bridge, let webView,
+                      self.ownsWebRuntime(
+                          webView,
+                          bridge: bridge,
+                          generation: committedWebViewGeneration
+                      ),
+                      self.navigationIdentity.accepts(navigation),
+                      self.activeDocumentTicket == ticket,
+                      bridge.isPreparedOrCurrentDocument(ticket) else { return }
+                switch result {
+                case .success(true):
+                    self.documentAuthorityDelivered = true
+                    self.updateWebRuntimeReadiness()
+                case .success(false):
+                    self.failPendingProjectOpen()
+                    self.invalidateDocumentAuthority()
+                    self.presentWarning(
+                        title: "Drift could not authorize the studio",
+                        message: "The signed local document did not accept its AppKit-issued generation."
+                    )
+                case .failure(let error):
+                    self.failPendingProjectOpen()
+                    self.invalidateDocumentAuthority()
+                    self.presentWarning(title: "Drift could not authorize the studio", message: error.localizedDescription)
+                }
+            }
+        )
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard TrustedWebRuntime.acceptsMainFrameURL(webView.url, trustedIndexURL: trustedIndexURL) else {
-            webRuntimeReady = false
+        guard ownsWebRuntime(webView), navigationIdentity.accepts(navigation) else { return }
+        guard TrustedWebRuntime.acceptsMainFrameURL(webView.url, trustedIndexURL: trustedIndexURL),
+              let ticket = activeDocumentTicket,
+              nativeBridge?.isPreparedOrCurrentDocument(ticket) == true else {
+            failPendingProjectOpen()
+            invalidateDocumentAuthority()
             invalidateRecoveryStabilityWindow()
             return
         }
-        webRuntimeReady = true
+        webNavigationFinished = true
+        updateWebRuntimeReadiness()
         deliverPendingProjectsIfPossible()
         scheduleRecoveryBudgetResetIfNeeded()
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        nativeBridge?.abortAllWrites()
-        webRuntimeReady = false
-        receivedAuthoritativeClientState = false
+        guard ownsWebRuntime(webView), navigationIdentity.accepts(navigation) else { return }
+        failPendingProjectOpen()
+        navigationIdentity.invalidate()
+        invalidateDocumentAuthority()
         invalidateRecoveryStabilityWindow()
         presentWarning(title: "Drift could not finish loading", message: error.localizedDescription)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        nativeBridge?.abortAllWrites()
-        webRuntimeReady = false
-        receivedAuthoritativeClientState = false
+        guard ownsWebRuntime(webView), navigationIdentity.accepts(navigation) else { return }
+        failPendingProjectOpen()
+        navigationIdentity.invalidate()
+        invalidateDocumentAuthority()
         invalidateRecoveryStabilityWindow()
         presentWarning(title: "Drift could not begin loading", message: error.localizedDescription)
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard ownsWebRuntime(webView) else { return }
+        let terminatedWebViewGeneration = webViewGeneration.generation
+        failPendingProjectOpen()
         invalidateRecoveryStabilityWindow()
-        nativeBridge?.abortAllWrites()
-        webRuntimeReady = false
-        receivedAuthoritativeClientState = false
+        navigationIdentity.invalidate()
+        invalidateDocumentAuthority()
 
         let mayOfferRecovery = webContentRecoveryPolicy.consumeAttempt()
         let alert = NSAlert()
@@ -375,6 +658,7 @@ final class DriftAppDelegate: NSObject,
             alert.informativeText = "Drift stopped this recovery loop. Incomplete native writes were rolled back. Quit, reopen the app, and use the autosaved project or a portable .pitched backup."
             alert.addButton(withTitle: "Quit Drift")
             alert.runModal()
+            guard ownsWebRuntime(webView, generation: terminatedWebViewGeneration) else { return }
             approvedClose = true
             NSApp.terminate(nil)
             return
@@ -384,7 +668,9 @@ final class DriftAppDelegate: NSObject,
         alert.informativeText = "Any incomplete native export was rolled back. Drift can make one recovery attempt from the locally saved project in its app container. A studio that remains healthy for 30 seconds regains one future recovery attempt."
         alert.addButton(withTitle: "Reload Drift")
         alert.addButton(withTitle: "Quit")
-        if alert.runModal() == .alertFirstButtonReturn {
+        let response = alert.runModal()
+        guard ownsWebRuntime(webView, generation: terminatedWebViewGeneration) else { return }
+        if response == .alertFirstButtonReturn {
             webView.reload()
         } else {
             approvedClose = true
@@ -397,56 +683,27 @@ final class DriftAppDelegate: NSObject,
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        if navigationAction.shouldPerformDownload {
-            decisionHandler(.download)
-            return
-        }
-        guard let url = navigationAction.request.url,
-              let scheme = url.scheme?.lowercased() else {
+        guard ownsWebRuntime(webView) else {
             decisionHandler(.cancel)
             return
         }
-
-        if navigationAction.targetFrame?.isMainFrame == true {
-            if TrustedWebRuntime.acceptsMainFrameURL(url, trustedIndexURL: trustedIndexURL) {
-                decisionHandler(.allow)
-                return
-            }
-            if ["http", "https"].contains(scheme), navigationAction.navigationType == .linkActivated {
-                NSWorkspace.shared.open(url)
-            } else {
-                NSSound.beep()
-            }
-            decisionHandler(.cancel)
-            return
-        }
-
-        if scheme == "file" {
-            guard let webRootURL else {
-                decisionHandler(.cancel)
-                return
-            }
-            let candidate = url.standardizedFileURL
-            let rootPath = webRootURL.path.hasSuffix("/") ? webRootURL.path : webRootURL.path + "/"
-            if candidate == webRootURL || candidate.path.hasPrefix(rootPath) {
-                decisionHandler(.allow)
-            } else {
-                NSSound.beep()
-                decisionHandler(.cancel)
-            }
-            return
-        }
-        if ["blob", "data", "about"].contains(scheme) {
+        let decision = TrustedNavigationPolicy.action(
+            url: navigationAction.request.url,
+            isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
+            isActivatedLink: navigationAction.navigationType == .linkActivated,
+            shouldPerformDownload: navigationAction.shouldPerformDownload,
+            trustedIndexURL: trustedIndexURL,
+            webRootURL: webRootURL
+        )
+        switch decision {
+        case .allow:
             decisionHandler(.allow)
-            return
-        }
-        if ["http", "https"].contains(scheme), navigationAction.navigationType == .linkActivated {
+        case .cancel:
+            decisionHandler(.cancel)
+        case .openExternally(let url):
             NSWorkspace.shared.open(url)
             decisionHandler(.cancel)
-            return
         }
-        NSSound.beep()
-        decisionHandler(.cancel)
     }
 
     func webView(
@@ -454,13 +711,31 @@ final class DriftAppDelegate: NSObject,
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
-        decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
+        guard ownsWebRuntime(webView) else {
+            decisionHandler(.cancel)
+            return
+        }
+        guard TrustedNavigationPolicy.response(
+            url: navigationResponse.response.url,
+            canShowMIMEType: navigationResponse.canShowMIMEType
+        ) == .allow else {
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if let url = navigationAction.request.url,
-           let scheme = url.scheme?.lowercased(),
-           ["http", "https"].contains(scheme) {
+        guard ownsWebRuntime(webView) else { return nil }
+        if case .openExternally(let url) = TrustedNavigationPolicy.action(
+            url: navigationAction.request.url,
+            isMainFrame: false,
+            isActivatedLink: navigationAction.navigationType == .linkActivated
+                && navigationAction.sourceFrame.isMainFrame,
+            shouldPerformDownload: navigationAction.shouldPerformDownload,
+            trustedIndexURL: trustedIndexURL,
+            webRootURL: webRootURL
+        ) {
             NSWorkspace.shared.open(url)
         }
         return nil
@@ -472,78 +747,14 @@ final class DriftAppDelegate: NSObject,
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping ([URL]?) -> Void
     ) {
-        guard frame.isMainFrame, let bridge = nativeBridge else {
+        guard ownsWebRuntime(webView) else {
             completionHandler(nil)
             return
         }
-        let intent = bridge.currentInputIntent(defaultMultiple: parameters.allowsMultipleSelection)
-        let panel = bridge.configuredOpenPanel(
-            kind: intent.kind,
-            multiple: parameters.allowsMultipleSelection && intent.multiple
-        )
-        panel.canChooseDirectories = parameters.allowsDirectories
-
-        let finish: (NSApplication.ModalResponse) -> Void = { [weak self, weak bridge] result in
-            guard let self, let bridge else {
-                completionHandler(nil)
-                return
-            }
-            guard result == .OK else {
-                completionHandler(nil)
-                return
-            }
-            do {
-                let urls = try bridge.validateOpenPanelSelection(panel.urls, kind: intent.kind)
-                bridge.rememberOpenPanelDirectory(urls)
-                completionHandler(urls)
-            } catch {
-                self.presentWarning(
-                    title: "Those files could not be added",
-                    message: (error as? BridgeFailure)?.message ?? error.localizedDescription
-                )
-                completionHandler(nil)
-            }
-        }
-
-        if let window {
-            panel.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            finish(panel.runModal())
-        }
-    }
-
-    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        download.delegate = self
-    }
-
-    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        download.delegate = self
-    }
-
-    func download(
-        _ download: WKDownload,
-        decideDestinationUsing response: URLResponse,
-        suggestedFilename: String,
-        completionHandler: @escaping (URL?) -> Void
-    ) {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = safeLeafName(suggestedFilename, fallback: "Drift Export")
-        panel.canCreateDirectories = true
-        panel.isExtensionHidden = false
-        let finish: (NSApplication.ModalResponse) -> Void = { result in
-            completionHandler(result == .OK ? panel.url : nil)
-        }
-        if let window {
-            panel.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            finish(panel.runModal())
-        }
-    }
-
-    func downloadDidFinish(_ download: WKDownload) {}
-
-    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
-        presentWarning(title: "The file could not be saved", message: error.localizedDescription)
+        // Browser-owned file panels do not carry Drift's document generation
+        // through their delayed callback. NativeBridge.js intercepts file-input
+        // activation and uses the typed, generation-bound broker instead.
+        completionHandler(nil)
     }
 
     // MARK: - Menus
@@ -690,7 +901,7 @@ final class DriftAppDelegate: NSObject,
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let exporting = nativeBridge?.clientState.exportInProgress == true
-        let protected = nativeBridge?.clientState.hasProtectedWork == true
+        let protected = hasProtectedWork
         switch menuItem.action {
         case #selector(openProject(_:)), #selector(addSlides(_:)), #selector(addPresenter(_:)),
              #selector(savePortableProject(_:)), #selector(exportMP4(_:)), #selector(exportStill(_:)),
@@ -746,10 +957,9 @@ final class DriftAppDelegate: NSObject,
             )
             return
         }
-        nativeBridge?.abortAllWrites()
         invalidateRecoveryStabilityWindow()
-        webRuntimeReady = false
-        receivedAuthoritativeClientState = false
+        failPendingProjectOpen()
+        invalidateDocumentAuthority()
         webView?.reload()
     }
 
@@ -768,13 +978,21 @@ final class DriftAppDelegate: NSObject,
 
     @objc private func copyDiagnostics(_ sender: Any?) {
         let state = nativeBridge?.clientState ?? ClientState()
+        let security = NativeRuntimeSecurityFacts.current()
         let diagnostics = """
         Drift \(appVersionString())
         macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)
         Architecture: \(currentArchitecture())
         Native bridge: \(driftBridgeVersion)
+        Native document authority: \(nativeBridge?.hasActiveDocument == true ? "active" : "inactive")
+        Trusted navigation finished: \(webNavigationFinished)
+        Authoritative React state received: \(receivedAuthoritativeClientState)
         System codecs only: yes
-        App network entitlement: none
+        App Sandbox entitlement: \(security.sandboxed ? "present" : "absent")
+        Network client entitlement: \(security.networkClientEntitled ? "present" : "absent")
+        WebKit outbound policy: blocked (v3)
+        Native network client surface: none shipped
+        Network boundary: app-entitled-webkit-blocked
         Export active: \(state.exportInProgress)
         Project operation active: \(state.projectBusy)
         Local save state: \(state.saveState)
@@ -787,10 +1005,29 @@ final class DriftAppDelegate: NSObject,
     }
 
     private func dispatchNativeCommand(_ command: String) {
-        guard let webView else { return }
-        let escaped = command.replacingOccurrences(of: "'", with: "\\'")
-        webView.evaluateJavaScript("window.__driftNativeCommand?.('\(escaped)');") { _, error in
-            if let error { NSLog("Drift menu command failed: %@", error.localizedDescription) }
-        }
+        guard webRuntimeReady,
+              let bridge = nativeBridge,
+              let ticket = activeDocumentTicket,
+              bridge.isCurrentDocument(ticket),
+              let webView else { return }
+        let commandWebViewGeneration = webViewGeneration.generation
+        webView.callAsyncJavaScript(
+            "return await window.__driftNativeCommand(documentNonce, command);",
+            arguments: ["documentNonce": ticket.nonceString, "command": command],
+            in: nil,
+            in: .page,
+            completionHandler: { [weak self, weak bridge, weak webView] result in
+                guard let self, let bridge, let webView,
+                      self.ownsWebRuntime(
+                          webView,
+                          bridge: bridge,
+                          generation: commandWebViewGeneration
+                      ),
+                      bridge.isCurrentDocument(ticket) else { return }
+                if case .failure(let error) = result {
+                    NSLog("Drift menu command failed: %@", error.localizedDescription)
+                }
+            }
+        )
     }
 }

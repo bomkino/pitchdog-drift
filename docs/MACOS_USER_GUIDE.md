@@ -26,7 +26,7 @@ Drag `Drift.app` from the disk image to Applications. Keep one copy open at a ti
 
 A built-in study opens immediately so the stage is alive before you import anything. It is starter material, not part of your future deck. The first successful real-slide import replaces the study instead of mixing the two.
 
-No account, login, server, browser extension, cloud folder, or network permission is required.
+No account, login, server, browser extension, cloud folder, or network setup is required. Drift does not ask for a network permission or run a local server.
 
 The header reports three distinct truths:
 
@@ -199,16 +199,19 @@ When a recovery bundle is available, save it before opening a replacement. A rec
 
 ## Privacy and filesystem boundary
 
-The signed app uses App Sandbox with user-selected read/write access. It has no network client or server entitlement.
+The signed app uses App Sandbox with user-selected read/write access. It also carries macOS’s network-client entitlement because the packaged WebView needs that capability; the entitlement applies to the whole app, not only to WebKit. The app has no network-server or broad-folder entitlement, and Drift ships no native network client.
 
 Inside Drift:
 
-- HTTP and HTTPS loads are blocked;
-- WebSocket and FTP loads are blocked;
+- WebRTC constructors are removed from the page before Drift’s application code starts;
+- HTTP, HTTPS, WebSocket, and FTP requests are blocked by the packaged WebView policy;
+- remote responses and downloads are cancelled before Drift can choose a file destination;
 - bundled files and generated Blob/data media remain available;
 - deliberate source, licence, and documentation links open in the default browser.
 
 Imported media, projects, and renders remain on the Mac unless you move or share them.
+
+These layers are tested as Drift’s local-only boundary. They cannot promise that a security flaw in WebKit or macOS itself would be harmless, so keep macOS security updates current and treat unexpected network behavior as a bug.
 
 JavaScript receives opaque permission tokens, leaf filenames, MIME types, sizes, dates, and bytes. It never receives an absolute Finder path. The bridge exposes no shell, AppleScript, URLSession, socket, selector reflection, arbitrary method dispatch, or recursive deletion.
 

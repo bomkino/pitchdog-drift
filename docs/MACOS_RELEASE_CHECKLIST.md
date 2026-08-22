@@ -44,7 +44,7 @@ This checklist governs a downloadable Mac binary. Building an `.app` locally or 
 - [ ] Extract entitlements from the signed finished app, not the source plist.
 - [ ] `com.apple.security.app-sandbox` is true.
 - [ ] `com.apple.security.files.user-selected.read-write` is true.
-- [ ] `com.apple.security.network.client` is absent.
+- [ ] `com.apple.security.network.client` is present in the signed sandboxed app and reported truthfully at runtime.
 - [ ] `com.apple.security.network.server` is absent.
 - [ ] Broad Downloads, Documents, home-directory, and temporary-exception entitlements are absent.
 - [ ] Hardened runtime flag is present.
@@ -55,11 +55,15 @@ This checklist governs a downloadable Mac binary. Building an `.app` locally or 
 - [ ] Symlink, traversal, unsafe-leaf, grant-cap, session-cap, and output-cap tests pass.
 - [ ] Quit, close, and content-process crash abort incomplete native writes.
 - [ ] The bundled WebView cannot load HTTP, HTTPS, WS, WSS, or FTP resources.
+- [ ] Document-start page-world lockdown removes `RTCPeerConnection` and `webkitRTCPeerConnection` before application code runs.
+- [ ] Production navigation policy cancels remote responses and every download request before WebKit or AppKit can grant a destination.
+- [ ] Exact packaged TCP and UDP loopback probes, protected by unpredictable per-run tokens, record zero accepted hits from the tested app/WebContent lifecycle.
+- [ ] No native `URLSession`, Network.framework, socket, updater, analytics, or cloud-upload client is shipped; adding one is reviewed as an app-wide capability change.
 - [ ] Explicit external links open in the default browser rather than Drift.
 
 ## 5. Codec and licensing gate
 
-- [ ] Build uses `vite build --mode macos`.
+- [ ] `npm run build:mac:web` produces the receipt-verified single-entry classic IIFE used by the packaged app.
 - [ ] `@mediabunny/aac-encoder` resolves to `src/lib/macosAacEncoder.ts` only for the Mac build.
 - [ ] `src/lib/macosAacEncoder.ts` registers the bounded native Mediabunny custom encoder.
 - [ ] `macos/App/NativeAacEncoder.swift` explicitly requests Apple’s software AAC-LC component through AudioToolbox.
@@ -86,7 +90,7 @@ This checklist governs a downloadable Mac binary. Building an `.app` locally or 
 - [ ] PNG readback verifies dimensions, visible content, alpha-capable channel, and transparent pixels.
 - [ ] The exporter probe emits native progress events and no content-process termination.
 - [ ] `ProbeBundleReceipt.json` byte-counts and SHA-256-verifies every probe file before launch.
-- [ ] The probe bundle is a single classic IIFE with code splitting disabled; the packaged-app self-test separately owns production ES-module loading.
+- [ ] The exporter probe and packaged app are separately receipt-verified single-entry classic IIFEs; each self-test exercises the graph it actually ships or claims.
 
 ## 7. User-journey gate
 
@@ -209,6 +213,7 @@ Cross-compiling the Intel slice is not an Intel runtime test.
 - [ ] DMG SHA-256
 - [ ] Architecture output
 - [ ] Extracted entitlements
+- [ ] Packaged TCP/UDP zero-hit receipt, WebKit rule identifier, and remote response/download-policy receipt
 - [ ] Dynamic-library inventory
 - [ ] Signature identity
 - [ ] Notarization IDs

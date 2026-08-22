@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 IFS=$'\n\t'
+umask 022
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_ROOT="${DRIFT_MACOS_BUILD_ROOT:-$ROOT/build/macos}"
@@ -76,6 +77,34 @@ if [[ "$NOTARIZE" == true ]]; then
   fi
 fi
 
+[[ "${DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST:-0}" == "0" ]] || fail \
+  "release verification may not inherit DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST"
+[[ "${DRIFT_SKIP_WEB_CHECKS:-0}" == "0" ]] || fail \
+  "release construction may not inherit DRIFT_SKIP_WEB_CHECKS"
+
+[[ "$APP_PATH" == /* && "$DIST_ROOT" == /* ]] || fail \
+  "release app and output paths must be absolute"
+
+python3 - "${ROOT}/build" "${APP_PATH}" "${DIST_ROOT}" <<'PY'
+from pathlib import Path
+import sys
+
+allowed = Path(sys.argv[1]).resolve()
+app = Path(sys.argv[2]).resolve()
+dist = Path(sys.argv[3]).resolve()
+for label, target in (("release app", app), ("release output", dist)):
+    try:
+        relative = target.relative_to(allowed)
+    except ValueError:
+        raise SystemExit(f"Refusing unsafe {label} outside the repository build root: {target}")
+    if not relative.parts:
+        raise SystemExit(f"Refusing unsafe {label} equal to the repository build root: {target}")
+if app.name != "Drift.app":
+    raise SystemExit(f"Refusing unexpected release app bundle name: {app}")
+if app == dist or app in dist.parents or dist in app.parents:
+    raise SystemExit("Refusing overlapping release app and output paths")
+PY
+
 rm -rf "$DIST_ROOT"
 mkdir -p "$DIST_ROOT"
 
@@ -89,6 +118,7 @@ fi
 # evidence is added below and the frozen bundle is signed once more afterwards.
 DRIFT_CODESIGN_IDENTITY="$SIGN_IDENTITY" \
 DRIFT_MACOS_ARCHS="${DRIFT_MACOS_ARCHS:-arm64 x86_64}" \
+DRIFT_MACOS_OUTPUT_DIR="$(dirname "$APP_PATH")" \
   "$ROOT/scripts/build-macos-app.sh"
 
 [[ -d "$APP_PATH" ]] || fail "builder did not create $APP_PATH"
@@ -207,7 +237,9 @@ Applications.
 
 Drift is local-first. Imported deck media and saved projects remain on this Mac
 unless you deliberately export or move them. The signed app has App Sandbox,
-user-selected file access, and no client or server network entitlement.
+user-selected file access, and the app-wide network-client entitlement required
+by its packaged WebView. It has no network-server entitlement and ships no native
+network client; its production WebView policy blocks outbound page traffic.
 
 Presenter audio uses Drift’s bounded bridge to Apple’s software AAC-LC encoder
 in AudioToolbox. H.264 video remains capability-gated through WKWebView. The app

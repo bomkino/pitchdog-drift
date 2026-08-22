@@ -11,7 +11,7 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 The repository now contains two first-class ways to run the same studio:
 
 - the original local browser application;
-- a sandboxed, standalone macOS application on [`feat/native-macos-studio`](../../tree/feat/native-macos-studio).
+- a sandboxed, standalone macOS application in [`macos/`](macos/) with its native build and verification lanes in [`scripts/`](scripts/).
 
 The native application keeps the WebGL renderer and project format intact. AppKit owns the window, menus, Finder integration, file permissions, staged destination writes, recovery, signing, and packaging. It does not invent a second renderer or a second export timeline.
 
@@ -68,7 +68,7 @@ npm run verify:mac             # bundle, manifest, signature, native and WebView
 npm run package:mac:dmg        # local drag-to-Applications disk image
 ```
 
-Read [the Mac architecture](docs/MACOS_APP.md), [user guide](docs/MACOS_USER_GUIDE.md), [product contract](docs/MACOS_PRODUCT_CONTRACT.md), [threat model](docs/MACOS_THREAT_MODEL.md), [QA gauntlet](docs/MACOS_QA.md), and [release boundary](docs/MACOS_RELEASE.md).
+Read [the repository map](docs/REPOSITORY_MAP.md), [Mac architecture](docs/MACOS_APP.md), [user guide](docs/MACOS_USER_GUIDE.md), [product contract](docs/MACOS_PRODUCT_CONTRACT.md), [threat model](docs/MACOS_THREAT_MODEL.md), [QA gauntlet](docs/MACOS_QA.md), and [release boundary](docs/MACOS_RELEASE.md).
 
 ## Mac codec truth
 
@@ -127,13 +127,13 @@ Those checks are evidence for the tested runtime, not a substitute for physical 
 | Other WebGL2 browsers | Tested case by case | Capability-gated | Capability-gated | If canvas PNG is available | Yes |
 | No WebGL2 | DOM media strip | Blocked visibly | Blocked | Blocked | Yes |
 
-Media never leaves the browser or app container. The current portable archive cap is 96 MiB, with 80 MiB total source assets and 64 MiB per asset. Those limits prevent a friendly local tool from becoming a memory bomb.
+Drift ships no uploader, analytics client, or native network client. The packaged app separately tests its page-level outbound lockdown; the signed network-client entitlement remains app-wide and is documented as a residual risk. The current portable archive cap is 96 MiB, with 80 MiB total source assets and 64 MiB per asset. Those limits prevent a friendly local tool from becoming a memory bomb.
 
 ## Why the Mac app is not an Electron bundle
 
-The native shell is compiled directly from Swift using AppKit, WebKit, Foundation, Uniform Type Identifiers, CryptoKit, and AudioToolbox. There is no Electron runtime, Chromium distribution, background server, updater daemon, shell bridge, or arbitrary native method invocation.
+The native shell is compiled directly from Swift using AppKit, WebKit, Foundation, Security, CryptoKit, Uniform Type Identifiers, and AudioToolbox. There is no Electron runtime, Chromium distribution, background server, updater daemon, shell bridge, or arbitrary native method invocation.
 
-JavaScript receives opaque grants rather than absolute file paths. Native save and directory panels produce scoped capabilities. Writes are chunked, bounded, staged, synchronized, and either committed or rolled back. HTTP, HTTPS, WebSocket, and FTP loads are blocked inside the app; deliberate help/source links open in the default browser.
+JavaScript receives opaque grants rather than absolute file paths. Native save and directory panels produce scoped capabilities. Writes are chunked, bounded, staged, synchronized, and either committed or rolled back. A document-start page boundary removes WebRTC constructors; HTTP, HTTPS, WebSocket, and FTP loads are blocked; remote downloads never receive destination authority. Deliberate help/source links open in the default browser. These are tested application controls, not a claim that arbitrary WebKit or macOS compromise is impossible.
 
 ## Binary release boundary
 
@@ -149,7 +149,7 @@ A distributable candidate still requires:
 - physical Apple Silicon and Intel user-journey testing;
 - explicit authorization to publish.
 
-The release workflow is manual and uploads private evidence only. It does not create a GitHub Release, push a tag, deploy a website, or publish binaries by itself.
+The release workflow is manual and uploads text-only Actions evidence suitable for a public repository. It does not create a GitHub Release, push a tag, deploy a website, or publish binaries by itself.
 
 ## Design position
 

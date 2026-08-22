@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  dispatchNativeMacFiles,
   installNativeMacAppBridge,
   isNativeMacRuntime,
   pickNativeMacFiles,
@@ -23,6 +24,12 @@ function nativeMarker(): Record<string, unknown> {
     bridgeVersion: 2,
     platform: "macOS",
     systemCodecsOnly: true,
+    documentAuthority: "appkit-issued-per-document",
+    webKitOutboundPolicyInstalled: true,
+    webKitOutboundPolicyVersion: 3,
+    nativeNetworkClientSurface: "none-shipped",
+    networkBoundary: "app-entitled-webkit-blocked",
+    networkClientEntitlementRequiredWhenSandboxed: true,
   };
 }
 
@@ -70,6 +77,50 @@ describe("native macOS app contract", () => {
     expect(installer).toHaveBeenCalledWith(bridge);
     release();
     expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it("does not finish native delivery until the React import promise finishes", async () => {
+    let finishImport: (() => void) | undefined;
+    const importFile = vi.fn(() => new Promise<void>((resolve) => { finishImport = resolve; }));
+    setWindow({
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
+      __driftNativeInstallAppBridge: vi.fn(() => () => undefined),
+    });
+    const cleanup = installNativeMacAppBridge({ command: vi.fn(), importFile });
+    const file = new File(["verified later"], "later.pitched", {
+      type: "application/vnd.pitchdog.pitched+zip",
+    });
+
+    let settled = false;
+    const delivery = dispatchNativeMacFiles("project", [file]).then((value) => {
+      settled = true;
+      return value;
+    });
+    await Promise.resolve();
+
+    expect(importFile).toHaveBeenCalledWith("project", file);
+    expect(settled).toBe(false);
+    finishImport?.();
+    await expect(delivery).resolves.toBe(true);
+    expect(settled).toBe(true);
+    cleanup();
+  });
+
+  it("propagates a React project rejection to the native delivery caller", async () => {
+    const rejection = new DOMException("Project verification failed.", "DataError");
+    const importFile = vi.fn(async () => { throw rejection; });
+    setWindow({
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
+      __driftNativeInstallAppBridge: vi.fn(() => () => undefined),
+    });
+    const cleanup = installNativeMacAppBridge({ command: vi.fn(), importFile });
+    const file = new File(["broken"], "broken.pitched", {
+      type: "application/vnd.pitchdog.pitched+zip",
+    });
+
+    await expect(dispatchNativeMacFiles("project", [file])).rejects.toBe(rejection);
+    expect(importFile).toHaveBeenCalledOnce();
+    cleanup();
   });
 
   it("reports authoritative state without carrying confidential notice text into AppKit", () => {

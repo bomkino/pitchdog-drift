@@ -230,9 +230,17 @@ export function App() {
     }, kind === "error" ? 9_000 : 4_800);
   }, []);
 
-  const enqueueProjectOperation = useCallback((operation: () => Promise<void>) => {
+  const enqueueProjectOperation = useCallback((
+    operation: () => Promise<void>,
+    rejectWhenExportBlocks = false,
+  ) => {
     if (abortRef.current) {
-      announce("Wait for the current export to finish or cancel it first.", "error");
+      const error = new DOMException(
+        "Wait for the current export to finish or cancel it first.",
+        "InvalidStateError",
+      );
+      announce(error.message, "error");
+      if (rejectWhenExportBlocks) return Promise.reject(error);
       return Promise.resolve();
     }
     projectPendingRef.current += 1;
@@ -869,7 +877,7 @@ export function App() {
     void enqueueProjectOperation(savePortableProjectNow);
   }, [enqueueProjectOperation, savePortableProjectNow]);
 
-  const openPortableProjectFile = useCallback(async (file: File) => {
+  const openPortableProjectFile = useCallback(async (file: File, propagateFailure = false) => {
     try {
       const verified = await importProject<StudioProjectPayload>(file);
       const wasHydrated = hydratedRef.current;
@@ -925,6 +933,7 @@ export function App() {
       announce("Portable project verified, migrated when necessary, and copied into local Project V3 storage.", "good");
     } catch (error) {
       announce(error instanceof Error ? `Project rejected: ${error.message}` : "Project was rejected.", "error");
+      if (propagateFailure) throw error;
     }
   }, [announce, persist, replaceProjectState]);
 
@@ -1003,7 +1012,10 @@ export function App() {
       addPresenter(file);
       return;
     }
-    return enqueueProjectOperation(() => openPortableProjectFile(file));
+    // Finder must not receive a success reply merely because React displayed
+    // an error. Propagate native-open failures through the awaited bridge;
+    // browser input keeps its existing visible, non-throwing journey.
+    return enqueueProjectOperation(() => openPortableProjectFile(file, true), true);
   };
 
   useEffect(() => installNativeMacAppBridge({

@@ -13,7 +13,6 @@ KEYCHAIN="$TEMP_ROOT/DriftCIRuntime.keychain-db"
 KEYCHAIN_PASSWORD="drift-ci-$(uuidgen | tr '[:upper:]' '[:lower:]')"
 
 cleanup() {
-  pkill -x Drift >/dev/null 2>&1 || true
   security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
   rm -rf "$TEMP_ROOT"
 }
@@ -30,16 +29,45 @@ for command in codesign ditto log node open openssl plutil python3 security spct
   command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
 done
 
-rm -rf "$EVIDENCE"
+python3 - "$ROOT/build/macos" "$EVIDENCE" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).resolve()
+evidence = Path(sys.argv[2]).resolve()
+try:
+    relative = evidence.relative_to(root)
+except ValueError:
+    raise SystemExit(f"unsafe evidence path outside the repository Mac build root: {evidence}")
+if not relative.parts:
+    raise SystemExit(f"unsafe evidence path is the Mac build root itself: {evidence}")
+PY
+
+mkdir -p "$EVIDENCE"
+touch "$EVIDENCE/.drift-packaged-webview-evidence-v1"
+# Clear only probe-owned children. Keep workflow checkout identity and any
+# unrelated evidence placed beside the matrix.
+rm -rf "$EVIDENCE/variants" "$EVIDENCE/logs" "$EVIDENCE/crashes"
+rm -f "$EVIDENCE/matrix-summary.json"
 mkdir -p "$EVIDENCE/variants" "$EVIDENCE/logs" "$EVIDENCE/crashes" "$TEMP_ROOT/variants"
 
 cat > "$TEMP_ROOT/run-receipt.py" <<'PY'
 from __future__ import annotations
 
+import atexit
+import ctypes
+import hashlib
 import json
+import os
+import re
+import secrets
+import signal
+import socket
 import subprocess
 import sys
+import threading
 import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 variant, app_raw, receipt_name, output_raw, timeout_raw = sys.argv[1:]
@@ -51,6 +79,425 @@ expected_bundle_id = subprocess.check_output(
     ["plutil", "-extract", "CFBundleIdentifier", "raw", "-o", "-", str(info)],
     text=True,
 ).strip()
+expected_bundle_version = subprocess.check_output(
+    ["plutil", "-extract", "CFBundleVersion", "raw", "-o", "-", str(info)],
+    text=True,
+).strip()
+expected_source_revision = subprocess.check_output(
+    ["plutil", "-extract", "DriftSourceRevision", "raw", "-o", "-", str(info)],
+    text=True,
+).strip()
+expected_executable_name = subprocess.check_output(
+    ["plutil", "-extract", "CFBundleExecutable", "raw", "-o", "-", str(info)],
+    text=True,
+).strip()
+expected_app_executable = (app / "Contents" / "MacOS" / expected_executable_name).resolve()
+web_content_logical = Path(
+    "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/"
+    "com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+)
+expected_web_content_executable = web_content_logical.resolve()
+
+
+@dataclass(frozen=True)
+class ProcessIdentity:
+    pid: int
+    executablePath: str
+    startSeconds: int
+    startMicroseconds: int
+
+
+@dataclass(frozen=True)
+class ExecutableSnapshot:
+    resolvedPath: str
+    device: int
+    inode: int
+    size: int
+    modificationTimeNanoseconds: int
+    changeTimeNanoseconds: int
+
+
+class ProcBSDInfo(ctypes.Structure):
+    _fields_ = [
+        ("pbi_flags", ctypes.c_uint32),
+        ("pbi_status", ctypes.c_uint32),
+        ("pbi_xstatus", ctypes.c_uint32),
+        ("pbi_pid", ctypes.c_uint32),
+        ("pbi_ppid", ctypes.c_uint32),
+        ("pbi_uid", ctypes.c_uint32),
+        ("pbi_gid", ctypes.c_uint32),
+        ("pbi_ruid", ctypes.c_uint32),
+        ("pbi_rgid", ctypes.c_uint32),
+        ("pbi_svuid", ctypes.c_uint32),
+        ("pbi_svgid", ctypes.c_uint32),
+        ("rfu_1", ctypes.c_uint32),
+        ("pbi_comm", ctypes.c_char * 16),
+        ("pbi_name", ctypes.c_char * 32),
+        ("pbi_nfiles", ctypes.c_uint32),
+        ("pbi_pgid", ctypes.c_uint32),
+        ("pbi_pjobc", ctypes.c_uint32),
+        ("e_tdev", ctypes.c_uint32),
+        ("e_tpgid", ctypes.c_uint32),
+        ("pbi_nice", ctypes.c_int32),
+        ("pbi_start_tvsec", ctypes.c_uint64),
+        ("pbi_start_tvusec", ctypes.c_uint64),
+    ]
+
+
+PROC_PIDTBSDINFO = 3
+SSTOP = 4
+if ctypes.sizeof(ProcBSDInfo) != 136:
+    raise RuntimeError("unexpected public proc_bsdinfo ABI size")
+
+libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+libproc.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+libproc.proc_pidpath.restype = ctypes.c_int
+libproc.proc_pidinfo.argtypes = [
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_uint64,
+    ctypes.c_void_p,
+    ctypes.c_int,
+]
+libproc.proc_pidinfo.restype = ctypes.c_int
+libproc.proc_listallpids.argtypes = [ctypes.c_void_p, ctypes.c_int]
+libproc.proc_listallpids.restype = ctypes.c_int
+
+
+def process_path(pid: int) -> Path | None:
+    buffer = ctypes.create_string_buffer(4096)
+    length = libproc.proc_pidpath(pid, buffer, len(buffer))
+    if length <= 0:
+        return None
+    try:
+        return Path(os.fsdecode(buffer.value)).resolve()
+    except (OSError, ValueError):
+        return None
+
+
+def process_bsd_info(pid: int) -> ProcBSDInfo | None:
+    info = ProcBSDInfo()
+    received = libproc.proc_pidinfo(
+        pid,
+        PROC_PIDTBSDINFO,
+        0,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+    )
+    if received != ctypes.sizeof(info):
+        return None
+    return info
+
+
+def process_start_identity(pid: int) -> tuple[int, int] | None:
+    info = process_bsd_info(pid)
+    if info is None:
+        return None
+    seconds = int(info.pbi_start_tvsec)
+    microseconds = int(info.pbi_start_tvusec)
+    if seconds <= 0 or not 0 <= microseconds < 1_000_000:
+        return None
+    return seconds, microseconds
+
+
+def all_pids() -> list[int]:
+    estimated = libproc.proc_listallpids(None, 0)
+    if estimated <= 0:
+        return []
+    values = (ctypes.c_int * (estimated + 512))()
+    count = libproc.proc_listallpids(values, ctypes.sizeof(values))
+    if count <= 0:
+        return []
+    return [pid for pid in values[:count] if pid > 1]
+
+
+def process_identity(pid: int, expected_executable: Path) -> ProcessIdentity | None:
+    path_before = process_path(pid)
+    start = process_start_identity(pid)
+    path_after = process_path(pid)
+    if path_before != expected_executable or path_after != expected_executable or start is None:
+        return None
+    return ProcessIdentity(
+        pid=pid,
+        executablePath=str(expected_executable),
+        startSeconds=start[0],
+        startMicroseconds=start[1],
+    )
+
+
+def matching_identities(executable: Path) -> set[ProcessIdentity]:
+    return {
+        identity
+        for pid in all_pids()
+        if (identity := process_identity(pid, executable)) is not None
+    }
+
+
+def identity_is_current(identity: ProcessIdentity) -> bool:
+    return process_identity(identity.pid, Path(identity.executablePath)) == identity
+
+
+def identity_is_stopped(identity: ProcessIdentity) -> bool:
+    info = process_bsd_info(identity.pid)
+    return (
+        identity_is_current(identity)
+        and info is not None
+        and int(info.pbi_start_tvsec) == identity.startSeconds
+        and int(info.pbi_start_tvusec) == identity.startMicroseconds
+        and int(info.pbi_status) == SSTOP
+    )
+
+
+def executable_snapshot(executable: Path) -> ExecutableSnapshot:
+    status = executable.stat()
+    return ExecutableSnapshot(
+        resolvedPath=str(executable),
+        device=status.st_dev,
+        inode=status.st_ino,
+        size=status.st_size,
+        modificationTimeNanoseconds=status.st_mtime_ns,
+        changeTimeNanoseconds=status.st_ctime_ns,
+    )
+
+
+def executable_snapshot_is_current(snapshot: ExecutableSnapshot) -> bool:
+    try:
+        return executable_snapshot(Path(snapshot.resolvedPath)) == snapshot
+    except OSError:
+        return False
+
+
+def content_rule_is_open(pid: int, policy_identifier: str) -> bool | None:
+    try:
+        completed = subprocess.run(
+            ["lsof", "-n", "-P", "-p", str(pid)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    return f"ContentRuleList-{policy_identifier}" in completed.stdout
+
+
+def write_json_atomic(path: Path, value: dict[str, object]) -> None:
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def terminate_exact_app(identity: ProcessIdentity) -> None:
+    if (
+        not identity_is_current(identity)
+        or not executable_snapshot_is_current(expected_app_executable_snapshot)
+    ):
+        return
+    try:
+        os.kill(identity.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and identity_is_current(identity):
+        time.sleep(0.05)
+    if (
+        identity_is_current(identity)
+        and executable_snapshot_is_current(expected_app_executable_snapshot)
+    ):
+        os.kill(identity.pid, signal.SIGKILL)
+
+
+def utf8_hex(value: str) -> str:
+    return value.encode("utf-8").hex()
+
+
+def canonical_request_material(request: dict[str, object]) -> str:
+    return "\n".join([
+        "drift-webcontent-termination-request-v2",
+        "schemaVersion=2",
+        f"receiptNameHex={utf8_hex(request['receiptName'])}",
+        f"runNonceHex={utf8_hex(request['runNonce'])}",
+        f"bundleIdentifierHex={utf8_hex(request['bundleIdentifier'])}",
+        f"bundleVersionHex={utf8_hex(request['bundleVersion'])}",
+        f"sourceRevisionHex={utf8_hex(request['sourceRevision'])}",
+        f"appExecutablePathHex={utf8_hex(request['appExecutablePath'])}",
+        f"appPID={request['appPID']}",
+        f"appStartSeconds={request['appStartSeconds']}",
+        f"appStartMicroseconds={request['appStartMicroseconds']}",
+        f"phaseHex={utf8_hex(request['phase'])}",
+        f"sequence={request['sequence']}",
+        f"documentEpoch={request['documentEpoch']}",
+        f"authorityGenerationDigestHex={utf8_hex(request['authorityGenerationDigest'])}",
+        f"networkPolicyIdentifierHex={utf8_hex(request['networkPolicyIdentifier'])}",
+    ]) + "\n"
+
+
+def canonical_request_digest(request: dict[str, object]) -> str:
+    return hashlib.sha256(canonical_request_material(request).encode("utf-8")).hexdigest()
+
+
+expected_app_executable_snapshot = executable_snapshot(expected_app_executable)
+expected_web_content_executable_snapshot = executable_snapshot(expected_web_content_executable)
+stopped_target_identity_guard: ProcessIdentity | None = None
+
+
+def resume_guarded_web_content() -> None:
+    identity = stopped_target_identity_guard
+    if identity is None or not identity_is_current(identity):
+        return
+    try:
+        os.kill(identity.pid, signal.SIGCONT)
+    except OSError:
+        pass
+
+
+atexit.register(resume_guarded_web_content)
+
+
+run_nonce = secrets.token_hex(32)
+probe_token = f"drift-{secrets.token_hex(16)}"
+probe_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+probe_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+probe_listener.bind(("127.0.0.1", 0))
+probe_listener.listen(8)
+probe_listener.settimeout(0.2)
+probe_port = probe_listener.getsockname()[1]
+probe_url = f"http://127.0.0.1:{probe_port}/{probe_token}"
+web_rtc_udp_listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+# TCP and UDP have independent port spaces. Reuse the token-bound HTTP probe's
+# random port so the page needs no second privileged launch argument.
+web_rtc_udp_listener.bind(("127.0.0.1", probe_port))
+web_rtc_udp_listener.settimeout(0.2)
+probe_stop = threading.Event()
+probe_tcp_connections: list[dict[str, object]] = []
+web_rtc_udp_datagrams: list[dict[str, object]] = []
+probe_lock = threading.Lock()
+
+
+def read_bounded_http_request(connection: socket.socket, maximum: int = 8192) -> bytes:
+    request_parts: list[bytes] = []
+    request_size = 0
+    while request_size < maximum:
+        try:
+            chunk = connection.recv(maximum - request_size)
+        except OSError:
+            break
+        if not chunk:
+            break
+        request_parts.append(chunk)
+        request_size += len(chunk)
+        joined = b"".join(request_parts)
+        if b"\r\n\r\n" in joined or b"\n\n" in joined:
+            break
+    return b"".join(request_parts)
+
+
+def run_tcp_detector_self_test() -> bool:
+    reader, writer = socket.socketpair()
+    reader.settimeout(0.5)
+    expected = b"GET /drift-fragmented?lane=fetch HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+
+    def send_fragments() -> None:
+        try:
+            writer.sendall(b"GET /drift-")
+            time.sleep(0.01)
+            writer.sendall(expected[len(b"GET /drift-"):])
+        finally:
+            writer.close()
+
+    sender = threading.Thread(target=send_fragments, name="drift-tcp-detector-self-test")
+    sender.start()
+    try:
+        observed = read_bounded_http_request(reader)
+    finally:
+        reader.close()
+    sender.join(timeout=1)
+    return not sender.is_alive() and observed == expected
+
+
+def serve_network_probe() -> None:
+    token = probe_token.encode("ascii")
+    while not probe_stop.is_set():
+        try:
+            connection, source = probe_listener.accept()
+        except TimeoutError:
+            continue
+        except OSError:
+            break
+        connection_record: dict[str, object] = {
+            "acceptedAtMonotonicSeconds": time.monotonic(),
+            "sourceHost": source[0],
+            "sourcePort": source[1],
+            "requestByteCount": 0,
+            "tokenPresent": False,
+            "lane": "unclassified",
+        }
+        # An accepted connection is already proof that the TCP boundary opened.
+        # Record it before reading: TCP is a stream, so the token is not
+        # guaranteed to arrive in the first recv() (or at all).
+        with probe_lock:
+            probe_tcp_connections.append(connection_record)
+        with connection:
+            connection.settimeout(0.5)
+            request = read_bounded_http_request(connection)
+            lane = "unknown" if token in request else "unbound"
+            if token in request:
+                for candidate in ("fetch", "image", "beacon", "websocket", "attachment"):
+                    if f"lane={candidate}".encode("ascii") in request:
+                        lane = candidate
+                        break
+            with probe_lock:
+                connection_record.update({
+                    "requestByteCount": len(request),
+                    "tokenPresent": token in request,
+                    "lane": lane,
+                })
+            try:
+                connection.sendall(
+                    b"HTTP/1.1 204 No Content\r\n"
+                    b"Content-Length: 0\r\n"
+                    b"Connection: close\r\n\r\n"
+                )
+            except OSError:
+                pass
+
+
+def serve_web_rtc_udp_probe() -> None:
+    token = probe_token.encode("ascii")
+    stun_magic_cookie = b"\x21\x12\xa4\x42"
+    while not probe_stop.is_set():
+        try:
+            packet, source = web_rtc_udp_listener.recvfrom(65_535)
+        except TimeoutError:
+            continue
+        except OSError:
+            break
+        is_stun = (
+            len(packet) >= 20
+            and packet[0] & 0xC0 == 0
+            and packet[4:8] == stun_magic_cookie
+        )
+        with probe_lock:
+            web_rtc_udp_datagrams.append({
+                "byteCount": len(packet),
+                "isSTUN": is_stun,
+                "tokenPresent": token in packet,
+                "sourceHost": source[0],
+                "sourcePort": source[1],
+            })
+
+
+probe_thread = threading.Thread(target=serve_network_probe, name="drift-network-probe", daemon=True)
+web_rtc_udp_thread = threading.Thread(
+    target=serve_web_rtc_udp_probe,
+    name="drift-webrtc-udp-probe",
+    daemon=True,
+)
+tcp_probe_detector_self_test_passed = run_tcp_detector_self_test()
+if not tcp_probe_detector_self_test_passed:
+    raise RuntimeError("the loopback TCP detector missed a fragmented request")
+probe_thread.start()
+web_rtc_udp_thread.start()
 
 home = Path.home()
 roots = [
@@ -58,39 +505,421 @@ roots = [
     home / "Library" / "Caches" / "Drift" / "SelfTests",
 ]
 for root in roots:
-    (root / receipt_name).unlink(missing_ok=True)
+    for suffix in ("", ".termination-request.json", ".termination-ack.json"):
+        (root / f"{receipt_name}{suffix}").unlink(missing_ok=True)
+
+baseline_app_identities = matching_identities(expected_app_executable)
+baseline_web_content_identities = matching_identities(expected_web_content_executable)
 
 command = [
     "open", "-W", "-n", str(app), "--args",
     "--webview-self-test",
     f"--webview-self-test-report-name={receipt_name}",
+    f"--webview-self-test-network-probe-url={probe_url}",
+    f"--webview-self-test-run-nonce={run_nonce}",
 ]
 launch_started = time.monotonic()
-launch: dict[str, object]
+launch_started_wall = time.time()
+launcher = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+deadline = launch_started + timeout
+app_identity: ProcessIdentity | None = None
+termination_target_identity: ProcessIdentity | None = None
+replacement_web_content_identity: ProcessIdentity | None = None
+target_exit_observed = False
+termination_requested = False
+termination_association: dict[str, object] | None = None
+termination_request_digest: str | None = None
+coordination_failures: list[str] = []
+observed_web_content_identities: set[ProcessIdentity] = set()
+pre_kill_web_content_identities: set[ProcessIdentity] | None = None
+pre_kill_snapshot_at_monotonic: float | None = None
+target_exit_observed_at_monotonic: float | None = None
+replacement_first_observed_at_monotonic: float | None = None
+
+while time.monotonic() < deadline:
+    if not executable_snapshot_is_current(expected_app_executable_snapshot):
+        coordination_failures.append("the exact app executable changed after the launch snapshot")
+        break
+    if not executable_snapshot_is_current(expected_web_content_executable_snapshot):
+        coordination_failures.append("the exact WebContent executable changed after the launch snapshot")
+        break
+
+    current_app_identities = matching_identities(expected_app_executable)
+    new_app_identities = current_app_identities - baseline_app_identities
+    if len(new_app_identities) == 1:
+        observed_app_identity = next(iter(new_app_identities))
+        if app_identity is None:
+            app_identity = observed_app_identity
+        elif app_identity != observed_app_identity:
+            coordination_failures.append("the exact app process identity changed during the controlled run")
+            break
+    elif len(new_app_identities) > 1:
+        coordination_failures.append("more than one new exact app identity appeared; refusing ambiguous cleanup")
+        break
+
+    current_web_content_identities = matching_identities(expected_web_content_executable)
+    new_web_content_identities = current_web_content_identities - baseline_web_content_identities
+    observed_web_content_identities.update(new_web_content_identities)
+    if target_exit_observed and termination_target_identity is not None:
+        replacement_candidates = new_web_content_identities - {termination_target_identity}
+        if len(replacement_candidates) == 1:
+            observed_replacement = next(iter(replacement_candidates))
+            if (
+                pre_kill_web_content_identities is None
+                or observed_replacement in pre_kill_web_content_identities
+                or target_exit_observed_at_monotonic is None
+            ):
+                coordination_failures.append(
+                    "the alleged replacement was present before the exact target exit"
+                )
+                break
+            if replacement_web_content_identity is None:
+                replacement_web_content_identity = observed_replacement
+                replacement_first_observed_at_monotonic = time.monotonic()
+            elif replacement_web_content_identity != observed_replacement:
+                coordination_failures.append("the replacement WebContent identity changed during recovery")
+                break
+        elif len(replacement_candidates) > 1:
+            coordination_failures.append(
+                "more than one distinct replacement WebContent identity appeared; association is ambiguous"
+            )
+            break
+
+    request_path: Path | None = None
+    request: dict[str, object] | None = None
+    for root in roots:
+        candidate = root / f"{receipt_name}.termination-request.json"
+        if candidate.is_file():
+            request_path = candidate
+            try:
+                request = json.loads(candidate.read_text(encoding="utf-8"))
+            except Exception as error:  # noqa: BLE001 - hostile evidence
+                coordination_failures.append(f"termination request was unreadable: {type(error).__name__}: {error}")
+            break
+
+    if request_path is not None and not termination_requested:
+        termination_requested = True
+        if request is None:
+            break
+        exact_integer_fields = [
+            "appPID",
+            "appStartSeconds",
+            "appStartMicroseconds",
+            "sequence",
+            "documentEpoch",
+        ]
+        if any(
+            not isinstance(request.get(field), int) or isinstance(request.get(field), bool)
+            for field in exact_integer_fields
+        ):
+            coordination_failures.append("termination request contained a non-integral identity field")
+            break
+        exact_string_fields = [
+            "receiptName",
+            "runNonce",
+            "bundleIdentifier",
+            "bundleVersion",
+            "sourceRevision",
+            "appExecutablePath",
+            "phase",
+            "authorityGenerationDigest",
+            "networkPolicyIdentifier",
+            "requestDigest",
+        ]
+        if any(not isinstance(request.get(field), str) for field in exact_string_fields):
+            coordination_failures.append("termination request contained a non-string binding field")
+            break
+        if request.get("schemaVersion") != 2 or request.get("receiptName") != receipt_name:
+            coordination_failures.append("termination request identity did not match this run")
+            break
+        if request.get("runNonce") != run_nonce or re.fullmatch(r"[0-9a-f]{64}", run_nonce) is None:
+            coordination_failures.append("termination request did not echo the launcher's 256-bit run nonce")
+            break
+        if (
+            request.get("bundleIdentifier") != expected_bundle_id
+            or request.get("bundleVersion") != expected_bundle_version
+            or request.get("sourceRevision") != expected_source_revision
+            or request.get("appExecutablePath") != str(expected_app_executable)
+        ):
+            coordination_failures.append("termination request did not bind the exact bundle and source revision")
+            break
+        if (
+            request.get("phase") != "awaiting-webcontent-termination"
+            or request.get("sequence") != 1
+            or request.get("documentEpoch", 0) <= 0
+            or re.fullmatch(r"[0-9a-f]{64}", request.get("authorityGenerationDigest", "")) is None
+            or request.get("networkPolicyIdentifier") != "dog.pitch.drift.network-lock.v3"
+        ):
+            coordination_failures.append("termination request phase, sequence, authority generation, or policy was invalid")
+            break
+        if canonical_request_digest(request) != request.get("requestDigest"):
+            coordination_failures.append("termination request canonical digest did not verify")
+            break
+        termination_request_digest = request["requestDigest"]
+        if app_identity is None or not identity_is_current(app_identity):
+            coordination_failures.append("no one exact newly launched app identity remained current")
+            break
+        request_app_identity = ProcessIdentity(
+            pid=request["appPID"],
+            executablePath=request["appExecutablePath"],
+            startSeconds=request["appStartSeconds"],
+            startMicroseconds=request["appStartMicroseconds"],
+        )
+        if request_app_identity != app_identity:
+            coordination_failures.append("termination request app identity did not match the public libproc launch snapshot")
+            break
+
+        candidates = sorted(
+            matching_identities(expected_web_content_executable) - baseline_web_content_identities,
+            key=lambda value: (value.pid, value.startSeconds, value.startMicroseconds),
+        )
+        if len(candidates) != 1:
+            coordination_failures.append(
+                f"expected one new exact WebContent identity in the controlled harness, found {len(candidates)}"
+            )
+            break
+        termination_target_identity = candidates[0]
+        if (
+            not identity_is_current(termination_target_identity)
+            or not executable_snapshot_is_current(expected_web_content_executable_snapshot)
+        ):
+            coordination_failures.append("WebContent identity changed before SIGSTOP; no signal was sent")
+            break
+        # lsof is diagnostic only and can take seconds. Run it before stopping
+        # the target, then repeat both the identity and uniqueness gates.
+        content_rule_open_diagnostic = content_rule_is_open(
+            termination_target_identity.pid,
+            request["networkPolicyIdentifier"],
+        )
+        candidates_after_diagnostic = (
+            matching_identities(expected_web_content_executable) - baseline_web_content_identities
+        )
+        if (
+            candidates_after_diagnostic != {termination_target_identity}
+            or not identity_is_current(termination_target_identity)
+            or not executable_snapshot_is_current(expected_web_content_executable_snapshot)
+        ):
+            coordination_failures.append(
+                "WebContent identity or controlled-harness uniqueness changed during the diagnostic; no signal was sent"
+            )
+            break
+        try:
+            os.kill(termination_target_identity.pid, signal.SIGSTOP)
+            stopped_target_identity_guard = termination_target_identity
+        except (OSError, ProcessLookupError) as error:
+            coordination_failures.append(f"exact WebContent SIGSTOP failed: {type(error).__name__}: {error}")
+            break
+
+        stop_deadline = time.monotonic() + 1
+        while (
+            time.monotonic() < stop_deadline
+            and identity_is_current(termination_target_identity)
+            and not identity_is_stopped(termination_target_identity)
+        ):
+            time.sleep(0.005)
+        if (
+            not identity_is_current(termination_target_identity)
+            or not identity_is_stopped(termination_target_identity)
+            or not executable_snapshot_is_current(expected_web_content_executable_snapshot)
+        ):
+            if identity_is_current(termination_target_identity):
+                try:
+                    os.kill(termination_target_identity.pid, signal.SIGCONT)
+                except OSError:
+                    pass
+            stopped_target_identity_guard = None
+            coordination_failures.append("WebContent identity changed after SIGSTOP; SIGKILL was withheld")
+            break
+
+        # The last public-API snapshot before SIGKILL must still contain only
+        # the exact stopped target. This preserves the honest controlled-harness
+        # uniqueness claim and keeps a pre-existing second process from being
+        # relabelled as the post-termination replacement.
+        pre_kill_web_content_identities = (
+            matching_identities(expected_web_content_executable) - baseline_web_content_identities
+        )
+        if (
+            pre_kill_web_content_identities != {termination_target_identity}
+            or not identity_is_current(termination_target_identity)
+            or not identity_is_stopped(termination_target_identity)
+            or not executable_snapshot_is_current(expected_web_content_executable_snapshot)
+        ):
+            if identity_is_current(termination_target_identity):
+                try:
+                    os.kill(termination_target_identity.pid, signal.SIGCONT)
+                except OSError:
+                    pass
+            stopped_target_identity_guard = None
+            coordination_failures.append(
+                "the final pre-SIGKILL identity or uniqueness gate changed; SIGKILL was withheld"
+            )
+            break
+        pre_kill_snapshot_at_monotonic = time.monotonic()
+        try:
+            os.kill(termination_target_identity.pid, signal.SIGKILL)
+        except (OSError, ProcessLookupError) as error:
+            if identity_is_current(termination_target_identity):
+                try:
+                    os.kill(termination_target_identity.pid, signal.SIGCONT)
+                except OSError:
+                    pass
+            stopped_target_identity_guard = None
+            coordination_failures.append(f"exact WebContent SIGKILL failed: {type(error).__name__}: {error}")
+            break
+        stopped_target_identity_guard = None
+
+        exit_deadline = time.monotonic() + 3
+        while time.monotonic() < exit_deadline and identity_is_current(termination_target_identity):
+            time.sleep(0.01)
+        target_exit_observed = not identity_is_current(termination_target_identity)
+        if not target_exit_observed:
+            coordination_failures.append("the exact stopped WebContent identity did not exit; no acknowledgement was written")
+            break
+        target_exit_observed_at_monotonic = time.monotonic()
+
+        acknowledgement = {
+            key: request[key]
+            for key in [
+                "receiptName",
+                "runNonce",
+                "bundleIdentifier",
+                "bundleVersion",
+                "sourceRevision",
+                "appExecutablePath",
+                "appPID",
+                "appStartSeconds",
+                "appStartMicroseconds",
+                "phase",
+                "sequence",
+                "documentEpoch",
+                "authorityGenerationDigest",
+                "networkPolicyIdentifier",
+                "requestDigest",
+            ]
+        }
+        termination_association = {
+            "method": "controlled-harness-unique-new-exact-executable",
+            "controlledHarnessUniqueNewExactExecutable": True,
+            "publicAPIOwnershipClaimed": False,
+            "candidateCount": len(candidates),
+            "lastPreSignalCandidateCount": len(pre_kill_web_content_identities),
+            "lastPreSignalCandidateSetExact": pre_kill_web_content_identities == {termination_target_identity},
+            "productionContentRuleOpenDiagnostic": content_rule_open_diagnostic,
+            "productionContentRuleDiagnosticOnly": True,
+        }
+        acknowledgement.update({
+            "schemaVersion": 2,
+            "targetPID": termination_target_identity.pid,
+            "targetExecutablePath": termination_target_identity.executablePath,
+            "targetStartSeconds": termination_target_identity.startSeconds,
+            "targetStartMicroseconds": termination_target_identity.startMicroseconds,
+            "signal": int(signal.SIGKILL),
+            "killSucceeded": True,
+            "targetExitObserved": True,
+            "association": termination_association,
+        })
+        write_json_atomic(
+            request_path.with_name(f"{receipt_name}.termination-ack.json"),
+            acknowledgement,
+        )
+
+    if launcher.poll() is not None:
+        break
+    time.sleep(0.05)
+
+timed_out = launcher.poll() is None
+if timed_out:
+    if app_identity is not None:
+        terminate_exact_app(app_identity)
+    else:
+        remaining = matching_identities(expected_app_executable) - baseline_app_identities
+        if len(remaining) == 1:
+            terminate_exact_app(next(iter(remaining)))
+        elif remaining:
+            coordination_failures.append("timed out with ambiguous exact app identities; no broad kill attempted")
+
 try:
-    completed = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    launch = {
-        "timedOut": False,
-        "returnCode": completed.returncode,
-        "stdout": completed.stdout[-16_384:],
-        "stderr": completed.stderr[-16_384:],
-    }
-except subprocess.TimeoutExpired as error:
-    launch = {
-        "timedOut": True,
-        "returnCode": None,
-        "stdout": (error.stdout or "")[-16_384:] if isinstance(error.stdout, str) else "",
-        "stderr": (error.stderr or "")[-16_384:] if isinstance(error.stderr, str) else "",
-        "message": str(error),
-    }
-finally:
-    launch["elapsedSeconds"] = time.monotonic() - launch_started
+    stdout, stderr = launcher.communicate(timeout=4)
+except subprocess.TimeoutExpired:
+    launcher.terminate()
+    stdout, stderr = launcher.communicate(timeout=2)
+probe_stop.set()
+probe_listener.close()
+web_rtc_udp_listener.close()
+probe_thread.join(timeout=1)
+web_rtc_udp_thread.join(timeout=1)
+probe_coordinators_stopped = not probe_thread.is_alive() and not web_rtc_udp_thread.is_alive()
+
+launch: dict[str, object] = {
+    "timedOut": timed_out,
+    "returnCode": launcher.returncode,
+    "stdout": stdout[-16_384:],
+    "stderr": stderr[-16_384:],
+    "elapsedSeconds": time.monotonic() - launch_started,
+    "startedAtUnix": launch_started_wall,
+    "runNonce": run_nonce,
+    "appPID": app_identity.pid if app_identity is not None else None,
+    "appIdentity": asdict(app_identity) if app_identity is not None else None,
+    "appExecutableSnapshot": asdict(expected_app_executable_snapshot),
+    "terminationRequested": termination_requested,
+    "terminationTargetPID": (
+        termination_target_identity.pid if termination_target_identity is not None else None
+    ),
+    "terminationTargetIdentity": (
+        asdict(termination_target_identity) if termination_target_identity is not None else None
+    ),
+    "targetExitObserved": target_exit_observed,
+    "preKillWebContentIdentities": (
+        [
+            asdict(value)
+            for value in sorted(
+                pre_kill_web_content_identities,
+                key=lambda item: (item.pid, item.startSeconds, item.startMicroseconds),
+            )
+        ]
+        if pre_kill_web_content_identities is not None else None
+    ),
+    "preKillSnapshotAtMonotonicSeconds": pre_kill_snapshot_at_monotonic,
+    "targetExitObservedAtMonotonicSeconds": target_exit_observed_at_monotonic,
+    "terminationAssociation": termination_association,
+    "terminationRequestDigest": termination_request_digest,
+    "replacementWebContentIdentity": (
+        asdict(replacement_web_content_identity)
+        if replacement_web_content_identity is not None else None
+    ),
+    "replacementWebContentIdentityObserved": replacement_web_content_identity is not None,
+    "replacementFirstObservedAtMonotonicSeconds": replacement_first_observed_at_monotonic,
+    "webContentPIDs": sorted({value.pid for value in observed_web_content_identities}),
+    "webContentIdentities": [
+        asdict(value)
+        for value in sorted(
+            observed_web_content_identities,
+            key=lambda item: (item.pid, item.startSeconds, item.startMicroseconds),
+        )
+    ],
+    "webContentExecutableSnapshot": asdict(expected_web_content_executable_snapshot),
+    "coordinationFailures": coordination_failures,
+    "networkProbeCoordinatorsStopped": probe_coordinators_stopped,
+    "tcpProbeDetectorSelfTestPassed": tcp_probe_detector_self_test_passed,
+    "networkProbeAttemptCount": 5,
+    "networkProbeAcceptedConnections": len(probe_tcp_connections),
+    "networkProbeAcceptedRequests": sum(
+        1 for value in probe_tcp_connections if value["requestByteCount"] > 0
+    ),
+    "networkProbeAcceptedLanes": sorted(
+        str(value["lane"]) for value in probe_tcp_connections
+    ),
+    "networkProbeTCPConnections": probe_tcp_connections,
+    "webRTCUDPProbeToken": probe_token,
+    "webRTCUDPProbePort": probe_port,
+    "webRTCUDPSTUNDatagramCount": sum(1 for value in web_rtc_udp_datagrams if value["isSTUN"]),
+    "webRTCUDPSTUNTokenHitCount": sum(
+        1 for value in web_rtc_udp_datagrams if value["isSTUN"] and value["tokenPresent"]
+    ),
+    "webRTCUDPNonSTUNDatagramCount": sum(1 for value in web_rtc_udp_datagrams if not value["isSTUN"]),
+    "webRTCUDPZeroHit": not web_rtc_udp_datagrams,
+    "webRTCUDPDatagrams": web_rtc_udp_datagrams,
+}
 
 receipt_path: Path | None = None
 deadline = time.monotonic() + 8
@@ -118,6 +947,9 @@ if receipt_path is not None:
         receipt_error = f"{type(error).__name__}: {error}"
     finally:
         receipt_path.unlink(missing_ok=True)
+for root in roots:
+    (root / f"{receipt_name}.termination-request.json").unlink(missing_ok=True)
+    (root / f"{receipt_name}.termination-ack.json").unlink(missing_ok=True)
 
 failures: list[str] = []
 def expect(condition: bool, message: str) -> None:
@@ -125,25 +957,105 @@ def expect(condition: bool, message: str) -> None:
         failures.append(message)
 
 expect(receipt is not None, "application wrote no self-test receipt")
+expect(not timed_out, "application exceeded its packaged-runtime deadline")
+expect(not coordination_failures, "; ".join(coordination_failures))
+expect(probe_coordinators_stopped, "a loopback probe coordinator did not stop before evidence was sealed")
+expect(tcp_probe_detector_self_test_passed, "the loopback TCP detector failed its fragmented-stream self-test")
+expect(termination_requested, "application never requested the bounded WebContent termination")
+expect(termination_target_identity is not None, "no exact WebContent identity was terminated")
+expect(target_exit_observed, "the exact terminated WebContent identity was not observed to exit")
+expect(
+    replacement_web_content_identity is not None,
+    "no distinct replacement WebContent identity was observed after the exact target exited",
+)
+if termination_target_identity is not None and replacement_web_content_identity is not None:
+    expect(
+        replacement_web_content_identity != termination_target_identity,
+        "the replacement WebContent identity was not distinct from the terminated identity",
+    )
+    expect(
+        replacement_web_content_identity.executablePath == str(expected_web_content_executable),
+        "the replacement WebContent executable identity changed",
+    )
+expect(
+    termination_association is not None
+    and termination_association.get("method") == "controlled-harness-unique-new-exact-executable"
+    and termination_association.get("controlledHarnessUniqueNewExactExecutable") is True
+    and termination_association.get("publicAPIOwnershipClaimed") is False
+    and termination_association.get("candidateCount") == 1
+    and termination_association.get("lastPreSignalCandidateCount") == 1
+    and termination_association.get("lastPreSignalCandidateSetExact") is True,
+    "termination association was not the honest controlled-harness uniqueness claim",
+)
+expect(
+    pre_kill_snapshot_at_monotonic is not None
+    and target_exit_observed_at_monotonic is not None
+    and replacement_first_observed_at_monotonic is not None
+    and pre_kill_snapshot_at_monotonic < target_exit_observed_at_monotonic
+    < replacement_first_observed_at_monotonic,
+    "the replacement identity was not first observed strictly after the exact target exit",
+)
+expect(
+    not probe_tcp_connections,
+    f"WebKit outbound policy accepted loopback TCP connections: {probe_tcp_connections}",
+)
+expect(
+    not web_rtc_udp_datagrams,
+    f"page-world WebRTC capability leaked UDP/STUN datagrams: {web_rtc_udp_datagrams}",
+)
 if receipt is not None:
-    expect(receipt.get("schemaVersion") == 1, "unknown receipt schema")
+    expect(receipt.get("schemaVersion") == 2, "unknown receipt schema")
     expect(receipt.get("ok") is True, str(receipt.get("message") or "packaged WebView self-test failed"))
     expect(receipt.get("bundleIdentifier") == expected_bundle_id, "receipt bundle identifier changed")
+    expect(receipt.get("bundleVersion") == expected_bundle_version, "receipt bundle version changed")
+    expect(receipt.get("sourceRevision") == expected_source_revision, "receipt source revision changed")
     expect(receipt.get("startedNavigation") is True, "WKWebView never started navigation")
     expect(receipt.get("committedNavigation") is True, "WKWebView never committed navigation")
     expect(receipt.get("finishedNavigation") is True, "WKWebView never finished navigation")
-    expect(int(receipt.get("contentProcessTerminationCount", 99)) <= 1, "WebKit content process terminated more than once")
-    expect(receipt.get("webKitFileInputVerified") is True, "typed native file ingestion was not verified")
-    # WebViewSelfTest first waits for the real React project store to report a
-    # settled authoritative `saved` state. It then imports one temporary slide
-    # through a deliberately non-persistent WKWebsiteDataStore. The import may
-    # have started the normal autosave timer when the successful receipt is
-    # written; treating that test-only `saving` state as a product failure would
-    # require pretending a non-persistent store can prove durable Blob storage.
+    expect(receipt.get("documentAuthorityDelivered") is True, "AppKit document authority was never delivered")
+    expect(receipt.get("nativeDocumentActive") is True, "native document authority was not active at receipt time")
+    expect(int(receipt.get("contentProcessTerminationCount", -1)) == 1, "packaged test did not induce and recover from exactly one WebKit process termination")
+    expect(receipt.get("terminationInduced") is True, "WebContent termination lacks a PID-bounded external acknowledgement")
+    expect(receipt.get("terminationAcknowledgementValidated") is True, "the app did not validate every external acknowledgement binding")
+    expect(receipt.get("terminationRunNonce") == run_nonce, "the receipt did not retain the launcher's exact run binding")
     expect(
-        receipt.get("saveState") in {"saved", "saving"},
-        "React project entered an invalid state during packaged verification",
+        isinstance(receipt.get("terminationRequestDigest"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", receipt["terminationRequestDigest"]) is not None,
+        "the app retained no canonical termination-request digest",
     )
+    expect(
+        receipt.get("terminationRequestDigest") == termination_request_digest,
+        "the app receipt and external coordinator disagree on the canonical request digest",
+    )
+    expect(
+        isinstance(receipt.get("terminationDocumentEpoch"), int)
+        and isinstance(receipt.get("recoveredDocumentEpoch"), int)
+        and receipt["recoveredDocumentEpoch"] > receipt["terminationDocumentEpoch"] > 0,
+        "the replacement document did not advance AppKit's authority generation",
+    )
+    expect(receipt.get("staleDocumentRejected") is True, "the replaced document authority was not rejected after recovery")
+    expect(receipt.get("recoveredCommandVerified") is True, "the replacement document did not complete a fresh native command")
+    expect(receipt.get("persistedAssetVerified") is True, "the native-imported asset did not survive WebContent recovery")
+    expect(receipt.get("webKitFileInputVerified") is True, "typed native file ingestion was not verified")
+    expect(receipt.get("isolatedDatabaseCleanupVerified") is True, "isolated packaged-test database was not deleted")
+    expect(receipt.get("networkPolicyInstalled") is True, "the production WebKit outbound policy was not installed")
+    expect(receipt.get("outboundProbeAttempted") is True, "the page did not issue the WebKit outbound falsification lanes")
+    expect(receipt.get("outboundProbeCompleted") is True, "the page did not settle the WebKit outbound falsification lanes")
+    expect(receipt.get("webRTCCapabilityBoundary") == "page-world-document-start-lockdown", "the WebRTC boundary was misstated")
+    expect(receipt.get("webRTCCapabilityLockdownVerified") is True, "the page-world WebRTC constructors were not locked")
+    expect(receipt.get("webRTCProbeToken") == probe_token, "the WebRTC UDP probe was not bound to this run token")
+    expect(receipt.get("arbitraryRendererCompromiseContainmentClaimed") is False, "the page capability test overclaimed arbitrary renderer containment")
+    expect(receipt.get("webKitOutboundPolicyInstalled") is True, "the runtime did not report its WebKit outbound policy")
+    expect(receipt.get("webKitOutboundPolicyVersion") == 3, "the runtime used an unknown WebKit outbound policy")
+    expect(receipt.get("nativeNetworkClientSurface") == "none-shipped", "the bundle reports an unexpected native network client surface")
+    expect(receipt.get("networkBoundary") == "app-entitled-webkit-blocked", "the runtime network boundary is misstated")
+    if variant == "unsandboxed-adhoc":
+        expect(receipt.get("sandboxed") is False, "the unsandboxed control still reports App Sandbox")
+        expect(receipt.get("networkClientEntitled") is False, "the unsandboxed control falsely reports a network-client entitlement")
+    else:
+        expect(receipt.get("sandboxed") is True, "the sandboxed variant does not report App Sandbox")
+        expect(receipt.get("networkClientEntitled") is True, "the sandboxed variant lacks its required network-client entitlement")
+    expect(receipt.get("saveState") == "saved", "React project was not durably saved")
     expect(receipt.get("projectBusy") is False, "React project operation remained busy")
     expect(receipt.get("exportInProgress") is False, "React export remained in progress")
 if receipt_error:
@@ -202,23 +1114,56 @@ capture_signature() {
 
 capture_runtime_logs() {
   local variant="$1"
+  local result="$2"
   python3 - \
     "$EVIDENCE/logs/$variant-system.log" \
-    "$LOG_TIMEOUT_SECONDS" <<'PY'
+    "$LOG_TIMEOUT_SECONDS" \
+    "$result" \
+    "$EVIDENCE/crashes" \
+    "$variant" <<'PY'
 from __future__ import annotations
 
+import json
+import re
+import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 output = Path(sys.argv[1])
 timeout = float(sys.argv[2])
+result_path = Path(sys.argv[3])
+crash_output = Path(sys.argv[4])
+variant = sys.argv[5]
+try:
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+except Exception as error:  # noqa: BLE001 - evidence path
+    output.write_text(f"Exact runtime result unavailable: {type(error).__name__}: {error}\n", encoding="utf-8")
+    raise SystemExit(0)
+
+launch = result.get("launch") if isinstance(result.get("launch"), dict) else {}
+pids: set[int] = set()
+app_pid = launch.get("appPID")
+if isinstance(app_pid, int) and app_pid > 1:
+    pids.add(app_pid)
+for pid in launch.get("webContentPIDs", []):
+    if isinstance(pid, int) and pid > 1:
+        pids.add(pid)
+started_at = launch.get("startedAtUnix")
+if not isinstance(started_at, (int, float)):
+    started_at = 0
+if not pids:
+    output.write_text("No exact app/WebContent PIDs were recorded; broad logs were intentionally not collected.\n", encoding="utf-8")
+    raise SystemExit(0)
+
+predicate = " OR ".join(f"processIdentifier == {pid}" for pid in sorted(pids))
+start_text = datetime.fromtimestamp(max(0, float(started_at) - 2)).strftime("%Y-%m-%d %H:%M:%S")
 command = [
     "log", "show",
-    "--last", "4m",
+    "--start", start_text,
     "--style", "compact",
-    "--predicate",
-    '(process == "Drift") OR (process == "sandboxd") OR (process CONTAINS[c] "WebKit") OR (eventMessage CONTAINS[c] "dog.pitch.drift")',
+    "--predicate", predicate,
 ]
 try:
     completed = subprocess.run(
@@ -242,17 +1187,21 @@ except subprocess.TimeoutExpired as error:
         + f"\nlog collection stopped after its {timeout:g}s evidence budget.\n"
     )
 output.write_text(text, encoding="utf-8")
-PY
 
-  local diagnostics="$HOME/Library/Logs/DiagnosticReports"
-  if [[ -d "$diagnostics" ]]; then
-    while IFS= read -r -d '' report; do
-      local basename
-      basename="$(basename "$report")"
-      cp "$report" "$EVIDENCE/crashes/$variant-$basename" || true
-    done < <(find "$diagnostics" -type f -mmin -10 \
-      \( -name 'Drift*' -o -name 'WebKit*' -o -name 'com.apple.WebKit*' \) -print0 2>/dev/null)
-  fi
+diagnostics = Path.home() / "Library" / "Logs" / "DiagnosticReports"
+if diagnostics.is_dir():
+    crash_output.mkdir(parents=True, exist_ok=True)
+    pid_patterns = [re.compile(rf'"pid"\s*:\s*{pid}(?:\D|$)') for pid in pids]
+    for report in diagnostics.iterdir():
+        try:
+            if not report.is_file() or report.stat().st_mtime < float(started_at) - 2:
+                continue
+            sample = report.read_text(encoding="utf-8", errors="replace")[:1_048_576]
+        except OSError:
+            continue
+        if any(pattern.search(sample) for pattern in pid_patterns):
+            shutil.copy2(report, crash_output / f"{variant}-{report.name}")
+PY
 }
 
 run_variant() {
@@ -261,14 +1210,13 @@ run_variant() {
   local result="$EVIDENCE/variants/$variant.json"
   local receipt="matrix-$variant-$(date +%s)-${RANDOM}.json"
 
-  pkill -x Drift >/dev/null 2>&1 || true
   capture_signature "$app_path" "$variant"
   set +e
   python3 "$TEMP_ROOT/run-receipt.py" \
     "$variant" "$app_path" "$receipt" "$result" "$TIMEOUT_SECONDS"
   local status=$?
   set -e
-  capture_runtime_logs "$variant"
+  capture_runtime_logs "$variant" "$result"
   return "$status"
 }
 
@@ -335,8 +1283,6 @@ if [[ $CERT_STATUS -eq 0 ]]; then
     -S apple-tool:,apple:,codesign: \
     -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" \
     >>"$EVIDENCE/variants/self-signed-security-import.txt" 2>&1
-  bounded "$COMMAND_TIMEOUT_SECONDS" security add-trusted-cert -d -r trustRoot -k "$KEYCHAIN" "$TEMP_ROOT/certificate.pem" \
-    >>"$EVIDENCE/variants/self-signed-security-import.txt" 2>&1 || true
   IDENTITY="$(bounded "$COMMAND_TIMEOUT_SECONDS" security find-identity -v -p codesigning "$KEYCHAIN" | awk '/Drift CI Runtime/ {print $2; exit}')"
   if [[ -n "$IDENTITY" ]]; then
     bounded "$COMMAND_TIMEOUT_SECONDS" codesign \

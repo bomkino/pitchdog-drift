@@ -36,7 +36,9 @@ BUILD_RECEIPT="$APP_PATH/Contents/Resources/BuildReceipt.txt"
 [[ -d "$LEGAL_ROOT" ]] || fail "packaged legal evidence is missing"
 [[ -f "$BUILD_RECEIPT" ]] || fail "build receipt is missing"
 
-DRIFT_EXPECT_ARCHS="arm64 x86_64" "$ROOT/scripts/verify-macos-app.sh" "$APP_PATH"
+DRIFT_EXPECT_ARCHS="arm64 x86_64" \
+DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST=0 \
+  "$ROOT/scripts/verify-macos-app.sh" "$APP_PATH"
 
 SIGNATURE_DETAIL="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)"
 grep -Eq 'flags=.*runtime' <<<"$SIGNATURE_DETAIL" || fail "hardened runtime flag is absent"
@@ -71,10 +73,40 @@ fi
 codesign --verify --verbose=2 "$DMG_PATH"
 hdiutil verify "$DMG_PATH"
 
-(
-  cd "$(dirname "$CHECKSUM_PATH")"
-  shasum -a 256 -c "$(basename "$CHECKSUM_PATH")"
-)
+python3 - "$CHECKSUM_PATH" "$ARCHIVE_PATH" "$DMG_PATH" "$MANIFEST_PATH" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import re
+import sys
+from pathlib import Path
+
+checksum = Path(sys.argv[1]).resolve()
+targets = [Path(raw).resolve() for raw in sys.argv[2:]]
+expected = {target.name: target for target in targets}
+if len(expected) != 3 or any(Path(name).name != name for name in expected):
+    raise SystemExit("verify-release(mac): release artifacts must have three unique plain basenames")
+
+entries: dict[str, str] = {}
+for line in checksum.read_text(encoding="utf-8").splitlines():
+    match = re.fullmatch(r"([0-9a-f]{64})  ([^/]+)", line)
+    if match is None:
+        raise SystemExit("verify-release(mac): checksum entry must use lowercase SHA-256 and one plain basename")
+    digest, filename = match.groups()
+    if filename in entries:
+        raise SystemExit(f"verify-release(mac): duplicate checksum entry: {filename}")
+    entries[filename] = digest
+
+if set(entries) != set(expected):
+    raise SystemExit("verify-release(mac): checksum set does not name exactly the archive, DMG, and manifest")
+for filename, target in expected.items():
+    digest = hashlib.sha256()
+    with target.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != entries[filename]:
+        raise SystemExit(f"verify-release(mac): checksum mismatch: {filename}")
+PY
 
 NOTARIZED="$(node - "$MANIFEST_PATH" "$APP_PATH" "$ARCHIVE_PATH" "$DMG_PATH" "$SIGNING_TEAM" <<'NODE'
 const crypto = require('node:crypto');
