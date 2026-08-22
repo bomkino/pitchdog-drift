@@ -11,6 +11,38 @@ import {
   waitForStudio,
 } from "./studio.helpers";
 
+test("reopening a verified local project performs no phantom IndexedDB rewrite", async ({ page }) => {
+  await waitForStudio(page);
+  await page.waitForTimeout(1_800);
+  await expect(page.locator(".header-status")).toContainText("saved locally");
+
+  await page.addInitScript(() => {
+    const instrumentedWindow = window as Window & { __driftHydrationWrites?: number };
+    instrumentedWindow.__driftHydrationWrites = 0;
+    const originalPut = IDBObjectStore.prototype.put;
+    const originalClear = IDBObjectStore.prototype.clear;
+    IDBObjectStore.prototype.put = function put(value: unknown, key?: IDBValidKey) {
+      instrumentedWindow.__driftHydrationWrites = (instrumentedWindow.__driftHydrationWrites ?? 0) + 1;
+      return key === undefined
+        ? originalPut.call(this, value)
+        : originalPut.call(this, value, key);
+    };
+    IDBObjectStore.prototype.clear = function clear() {
+      instrumentedWindow.__driftHydrationWrites = (instrumentedWindow.__driftHydrationWrites ?? 0) + 1;
+      return originalClear.call(this);
+    };
+  });
+
+  await page.reload();
+  await expect(page.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".asset-list li")).toHaveCount(8);
+  await page.waitForTimeout(1_800);
+  await expect(page.locator(".header-status")).toContainText("saved locally");
+  expect(await page.evaluate(() => (
+    window as Window & { __driftHydrationWrites?: number }
+  ).__driftHydrationWrites)).toBe(0);
+});
+
 test("saved starter studies remain replaceable by the first real deck", async ({ page }) => {
   await waitForStudio(page);
   await page.waitForTimeout(1_800);

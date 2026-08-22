@@ -567,6 +567,15 @@ requireMarkers("macos/App/WebViewSelfTest.swift", [
   '"staleDocumentRejected": staleDocumentRejected',
   '"persistedAssetVerified": persistedAssetVerified',
   '"nativeImportCompletionVerified": nativeImportCompletionVerified',
+  "recoveredDocumentVerificationStarted",
+  "drift-recovery-authority-probe",
+  "freshRejectedAsUnsupported",
+  "pollRecoveredFinalState(",
+  "stableSavedObservationsRemaining: 20",
+]);
+forbidMarkers("macos/App/WebViewSelfTest.swift", [
+  "payload: { exportInProgress: false, projectBusy: false, saveState: 'saved'",
+  "window.__driftNativeCall('client-state'",
 ]);
 
 const packageJson = JSON.parse(read("package.json"));
@@ -760,7 +769,13 @@ requireMarkers("scripts/probe-macos-packaged-webview.sh", [
   "openssl pkcs12 -export -legacy",
   '"selectedCompatibilityMode"',
   "self-signed-openssl-capability.json",
-  "security find-certificate",
+  "user-keychain-registration.json",
+  "fcntl.flock",
+  "compositionally-remove-only-this-probe-keychain",
+  '["security", "list-keychains", "-d", "user", "-s", *registered]',
+  "security find-key",
+  "openssl x509",
+  "self-signed-certificate-fingerprint.txt",
   "classify_variant",
   '"harness-binding-failure"',
   '"identity-setup-failure"',
@@ -774,6 +789,7 @@ forbidMarkers("scripts/probe-macos-packaged-webview.sh", [
   "process_start_fingerprint",
   "lstart=",
   "add-trusted-cert",
+  "security find-certificate",
   "OPENSSL_PKCS12_COMPAT_ARGS",
   'rm -rf "$EVIDENCE"',
 ]);

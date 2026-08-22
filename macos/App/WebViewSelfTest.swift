@@ -76,6 +76,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     private var terminationDocumentEpoch: UInt64?
     private var recoveredDocumentEpoch: UInt64?
     private var terminationRequestDigest: String?
+    private var recoveredDocumentVerificationStarted = false
 
     private init(receiptName: String?, networkProbeURL: URL?, runNonce: String?) {
         self.receiptName = receiptName
@@ -329,7 +330,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             return failReceipt("the packaged document-recovery authority contract did not hold; \(diagnostic)", state: state)
         }
 
-        let message = "persistent isolated Blob storage, AppKit-issued document authority, real native broker import, exact saved state, induced WebContent recovery, stale-generation rejection, rehydrated media, page-world WebRTC capability lockdown, and a fresh native command all held"
+        let message = "persistent isolated Blob storage, AppKit-issued document authority, real native broker import, exact saved state, induced WebContent recovery, stale-generation rejection, rehydrated media, page-world WebRTC capability lockdown, and fresh non-mutating host dispatch authority all held"
         writeReceipt(ok: true, message: message, state: state)
         print("Drift WebView self-test passed: \(message).")
         return 0
@@ -1547,6 +1548,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         in webView: WKWebView,
         document: NativeDocumentTicket
     ) {
+        guard !recoveredDocumentVerificationStarted else { return }
         guard let bridge,
               bridge.isCurrentDocument(document),
               let staleDocumentNonce else {
@@ -1554,28 +1556,33 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             finished = true
             return
         }
+        recoveredDocumentVerificationStarted = true
         webView.callAsyncJavaScript(
             """
             const entries = Array.from(document.querySelectorAll('.asset-list li'));
             const stale = await window.webkit.messageHandlers.driftNative.postMessage({
-              command: 'client-state',
-              payload: { exportInProgress: false, projectBusy: false, saveState: 'saved', lastNotice: null },
+              command: 'drift-recovery-authority-probe',
+              payload: {},
               documentNonce: staleNonce
             });
-            const fresh = await window.__driftNativeCall('client-state', {
-              exportInProgress: false,
-              projectBusy: false,
-              saveState: 'saved',
-              lastNotice: null
-            });
+            let freshRejectedAsUnsupported = false;
+            try {
+              await window.__driftNativeCall('drift-recovery-authority-probe', {});
+            } catch (error) {
+              freshRejectedAsUnsupported = error?.name === 'NotSupportedError'
+                && error?.message === 'Unknown native command: drift-recovery-authority-probe';
+            }
             return {
               count: entries.length,
               found: entries.some((entry) => entry.textContent?.includes(assetName)),
               staleRejected: stale?.ok === false && stale?.error?.name === 'SecurityError',
-              freshAccepted: fresh?.accepted === true
+              freshAuthorized: freshRejectedAsUnsupported
             };
             """,
-            arguments: ["staleNonce": staleDocumentNonce, "assetName": probeAssetName],
+            arguments: [
+                "staleNonce": staleDocumentNonce,
+                "assetName": probeAssetName,
+            ],
             in: nil,
             in: .page,
             completionHandler: { [weak self, weak bridge] result in
@@ -1588,7 +1595,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                     self.persistedAssetVerified = values["count"] as? Int == 1
                         && values["found"] as? Bool == true
                     self.staleDocumentRejected = values["staleRejected"] as? Bool == true
-                    self.recoveredCommandVerified = values["freshAccepted"] as? Bool == true
+                    self.recoveredCommandVerified = values["freshAuthorized"] as? Bool == true
                     guard self.persistedAssetVerified,
                           self.staleDocumentRejected,
                           self.recoveredCommandVerified else {
@@ -1596,15 +1603,62 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                         self.finished = true
                         return
                     }
-                    self.recoveredDocumentEpoch = document.epoch
-                    self.phase = .complete
-                    self.finished = true
+                    self.pollRecoveredFinalState(
+                        document: document,
+                        stableSavedObservationsRemaining: 20,
+                        attemptsRemaining: 80
+                    )
                 case .failure(let error):
                     self.failure = "recovered document verification failed: \(error.localizedDescription)"
                     self.finished = true
                 }
             }
         )
+    }
+
+    private func pollRecoveredFinalState(
+        document: NativeDocumentTicket,
+        stableSavedObservationsRemaining: Int,
+        attemptsRemaining: Int
+    ) {
+        guard let bridge, bridge.isCurrentDocument(document), phase == .recoveringDocument else {
+            failure = "document authority expired before recovered state settled"
+            finished = true
+            return
+        }
+        let state = bridge.clientState
+        let savedAndIdle = state.saveState == "saved"
+            && !state.projectBusy
+            && !state.exportInProgress
+        lastProbe = "recovered state settlement: saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), stableSavedObservationsRemaining=\(stableSavedObservationsRemaining)"
+
+        if savedAndIdle, stableSavedObservationsRemaining <= 1 {
+            recoveredDocumentEpoch = document.epoch
+            phase = .complete
+            finished = true
+            return
+        }
+        if ["failed", "recovery"].contains(state.saveState) {
+            failure = "the recovered React project entered \(state.saveState) before final settlement"
+            finished = true
+            return
+        }
+        guard attemptsRemaining > 0 else {
+            failure = "the recovered React project never held a stable saved and idle final state: \(lastProbe)"
+            finished = true
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self, !self.finished else { return }
+            self.pollRecoveredFinalState(
+                document: document,
+                stableSavedObservationsRemaining: savedAndIdle
+                    ? stableSavedObservationsRemaining - 1
+                    : 20,
+                attemptsRemaining: attemptsRemaining - 1
+            )
+        }
     }
 
     private static let bootDiagnosticSource = """

@@ -23,6 +23,9 @@ __pycache__/
 # Local master renders and QA evidence are deliberately retained off-repo.
 artifacts/qa/
 
+# Downloaded CI evidence can contain large app bundles and diagnostic logs.
+artifacts/ci-*/
+
 # Private construction handovers may contain workspace or unreleased context.
 # Keep them local unless a maintainer explicitly curates a public version.
 Handover/

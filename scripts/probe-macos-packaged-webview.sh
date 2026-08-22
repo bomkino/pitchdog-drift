@@ -9,10 +9,47 @@ TIMEOUT_SECONDS="${DRIFT_WEBVIEW_MATRIX_TIMEOUT:-75}"
 LOG_TIMEOUT_SECONDS="${DRIFT_WEBVIEW_LOG_TIMEOUT:-18}"
 COMMAND_TIMEOUT_SECONDS="${DRIFT_WEBVIEW_COMMAND_TIMEOUT:-20}"
 TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/drift-webview-matrix.XXXXXX")"
-KEYCHAIN="$TEMP_ROOT/DriftCIRuntime.keychain-db"
+KEYCHAIN="$(cd "$TEMP_ROOT" && pwd -P)/DriftCIRuntime.keychain-db"
 KEYCHAIN_PASSWORD="drift-ci-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+KEYCHAIN_REGISTRATION_EVIDENCE="$TEMP_ROOT/user-keychain-registration.json"
 
 cleanup() {
+  python3 - "$KEYCHAIN" <<'PY' >/dev/null 2>&1 || true
+import fcntl
+import os
+import shlex
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+keychain_real = os.path.realpath(sys.argv[1])
+lock_path = Path(tempfile.gettempdir()) / f"pitchdog-drift-keychain-list-{os.getuid()}.lock"
+with lock_path.open("a+") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        listed = subprocess.run(
+            ["security", "list-keychains", "-d", "user"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout
+        current = shlex.split(listed)
+        retained = [
+            value for value in current if os.path.realpath(value) != keychain_real
+        ]
+        if retained != current:
+            subprocess.run(
+                ["security", "list-keychains", "-d", "user", "-s", *retained],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+PY
   security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
   rm -rf "$TEMP_ROOT"
 }
@@ -1088,7 +1125,7 @@ if receipt is not None:
         "the replacement document did not advance AppKit's authority generation",
     )
     expect(receipt.get("staleDocumentRejected") is True, "the replaced document authority was not rejected after recovery")
-    expect(receipt.get("recoveredCommandVerified") is True, "the replacement document did not complete a fresh native command")
+    expect(receipt.get("recoveredCommandVerified") is True, "the replacement document did not reach a fresh non-mutating host authority probe")
     expect(receipt.get("persistedAssetVerified") is True, "the native-imported asset did not survive WebContent recovery")
     expect(receipt.get("webKitFileInputVerified") is True, "typed native file ingestion was not verified")
     expect(receipt.get("nativeImportCompletionVerified") is True, "AppKit import completion preceded durable React persistence")
@@ -1444,28 +1481,99 @@ if [[ $CERT_STATUS -eq 0 ]]; then
     -S apple-tool:,apple:,codesign: \
     -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" \
     >>"$EVIDENCE/variants/self-signed-security-import.txt" 2>&1
-  IDENTITY="$(bounded "$COMMAND_TIMEOUT_SECONDS" security find-certificate \
-    -a -Z -c "Drift CI Runtime" "$KEYCHAIN" \
-    | awk '/SHA-1 hash:/ {print $3; exit}')"
+  CERT_STATUS=$?
+fi
+if [[ $CERT_STATUS -eq 0 ]]; then
+  bounded "$COMMAND_TIMEOUT_SECONDS" python3 - \
+    "$KEYCHAIN" "$KEYCHAIN_REGISTRATION_EVIDENCE" \
+    >>"$EVIDENCE/variants/self-signed-security-import.txt" 2>&1 <<'PY'
+import fcntl
+import json
+import os
+import shlex
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+keychain = str(Path(sys.argv[1]).resolve(strict=True))
+evidence = Path(sys.argv[2])
+keychain_real = os.path.realpath(keychain)
+lock_path = Path(tempfile.gettempdir()) / f"pitchdog-drift-keychain-list-{os.getuid()}.lock"
+with lock_path.open("a+") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    listed = subprocess.run(
+        ["security", "list-keychains", "-d", "user"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    existing = shlex.split(listed)
+    registered = [keychain, *(
+        value for value in existing if os.path.realpath(value) != keychain_real
+    )]
+    subprocess.run(
+        ["security", "list-keychains", "-d", "user", "-s", *registered],
+        check=True,
+    )
+registration = {
+    "originalUserKeychains": existing,
+    "registeredUserKeychains": registered,
+    "cleanupPolicy": "compositionally-remove-only-this-probe-keychain",
+}
+evidence.write_text(json.dumps(registration, sort_keys=True) + "\n", encoding="utf-8")
+print(json.dumps(registration, sort_keys=True))
+PY
+  CERT_STATUS=$?
+fi
+if [[ $CERT_STATUS -eq 0 ]]; then
+  bounded "$COMMAND_TIMEOUT_SECONDS" security find-key \
+    -t private -s "$KEYCHAIN" \
+    >>"$EVIDENCE/variants/self-signed-security-import.txt" 2>&1
+  CERT_STATUS=$?
+fi
+IDENTITY=""
+if [[ $CERT_STATUS -eq 0 ]]; then
+  bounded "$COMMAND_TIMEOUT_SECONDS" openssl x509 \
+    -in "$TEMP_ROOT/certificate.pem" \
+    -noout -fingerprint -sha1 \
+    >"$EVIDENCE/variants/self-signed-certificate-fingerprint.txt" 2>&1
+  CERT_STATUS=$?
+fi
+if [[ $CERT_STATUS -eq 0 ]]; then
+  IDENTITY="$(python3 - \
+    "$EVIDENCE/variants/self-signed-certificate-fingerprint.txt" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+match = re.fullmatch(r"[^=\n]+\s*=\s*((?:[0-9A-Fa-f]{2}:){19}[0-9A-Fa-f]{2})\s*", text)
+if match is None:
+    raise SystemExit(1)
+print(match.group(1).replace(":", "").upper())
+PY
+)"
+  CERT_STATUS=$?
   if [[ ! "$IDENTITY" =~ ^[0-9A-F]{40}$ ]]; then
     IDENTITY=""
-  fi
-  if [[ -n "$IDENTITY" ]]; then
-    bounded "$COMMAND_TIMEOUT_SECONDS" codesign \
-      --keychain "$KEYCHAIN" \
-      --force \
-      --options runtime \
-      --entitlements "$ROOT/macos/Drift.entitlements" \
-      --sign "$IDENTITY" \
-      --timestamp=none \
-      "$SELF_SIGNED" \
-      >"$EVIDENCE/variants/self-signed-codesign.txt" 2>&1
-    CERT_STATUS=$?
-  else
-    echo "No code-signing identity was discovered in the temporary keychain." \
-      >"$EVIDENCE/variants/self-signed-codesign.txt"
     CERT_STATUS=1
   fi
+fi
+if [[ $CERT_STATUS -eq 0 ]]; then
+  bounded "$COMMAND_TIMEOUT_SECONDS" codesign \
+    --keychain "$KEYCHAIN" \
+    --force \
+    --options runtime \
+    --entitlements "$ROOT/macos/Drift.entitlements" \
+    --sign "$IDENTITY" \
+    --timestamp=none \
+    "$SELF_SIGNED" \
+    >"$EVIDENCE/variants/self-signed-codesign.txt" 2>&1
+  CERT_STATUS=$?
+else
+  echo "No usable code-signing identity was discovered in the temporary keychain." \
+    >"$EVIDENCE/variants/self-signed-codesign.txt"
 fi
 set -e
 

@@ -349,6 +349,13 @@ export function App() {
     settingsRef.current = projectedSettings;
     assetsRef.current = slides;
     presenterRef.current = nextPresenter;
+    // This exact tuple came from a verified snapshot. Loading it must not look
+    // like a fresh edit to the dependency-driven autosave effect that follows.
+    directPersistenceSnapshotRef.current = {
+      settings: projectedSettings,
+      assets: slides,
+      presenter: nextPresenter,
+    };
     setSettings(projectedSettings);
     setAssets(slides);
     setPresenter(nextPresenter);

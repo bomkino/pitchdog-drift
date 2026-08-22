@@ -82,6 +82,11 @@ requireMarkers("e2e/native-menu-import.e2e.ts", [
   "await page.reload()",
   'Dismiss native file error',
 ]);
+requireMarkers("e2e/studio-projects.e2e.ts", [
+  "reopening a verified local project performs no phantom IndexedDB rewrite",
+  "__driftHydrationWrites",
+  "await page.waitForTimeout(1_800)",
+]);
 forbidMarkers("e2e/native-menu-import.e2e.ts", [
   "const decodablePng",
   "initialCount + 1",
