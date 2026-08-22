@@ -1,0 +1,551 @@
+schema_version: 1
+ledger_state: phase-0-scaffold
+updated: "2026-08-22"
+
+authority:
+  source_manifest: docs/mega-main/SOURCE_MANIFEST.yaml
+  curated_plan: Handover/DRIFT_V2_CURATED_DONOR_INTEGRATION_PLAN_2026-08-22.md
+  donor_source_review_performed: false
+  source_files_studied: []
+  scope_note: >-
+    This scaffold records pinned identities and planned dispositions from the two
+    authority documents above. It does not claim that any donor source file was
+    inspected, any capability was ported, or any parity evidence exists.
+
+status_contract:
+  allowed_current_status: frozen-not-ported
+  meaning: >-
+    Exact donor identity is frozen in the source manifest. Donor implementation
+    remains unstudied and no V2 product behavior is attributed to it yet.
+  graduation_requirements:
+    - Record exact donor source files studied.
+    - Re-author accepted semantics behind Project V4 and canonical V2 interfaces.
+    - Record tests ported or re-authored.
+    - Attach visual, listening, browser, or native parity evidence as applicable.
+    - Record intentional differences and rejected debris.
+    - Never merge or cherry-pick a whole creative donor branch.
+
+global_rejections:
+  - Whole donor branches, application shells, renderers, exporters, or project models.
+  - Temporary transport pull requests and encoded payload fragments.
+  - Self-mutating or source-generating workflows.
+  - Branch-repair machinery when only its output is relevant evidence.
+  - Generated builds and evidence artifacts as product source.
+  - Competing clocks, render graphs, event spines, output transforms, or native authorities.
+
+donors:
+  - pr: 9
+    head: "3012ea983de80106933f2cde788ce932128390d1"
+    domain: editorial-cadence
+    manifest_role: canonical editorial cadence and delivery donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Timing and cut semantics.
+      - Six cadence phases and invertible visible-distance mapping.
+      - Rhythm map, delivery receipt, Close at cut tempo, and pause truth.
+      - Endpoint, seam, and preview/export timestamp tests.
+    rejected_debris:
+      - Donor-owned legacy settings model.
+      - Donor App.tsx, renderer, or exporter wholesale.
+      - Any private timing path outside canonical FrameEvaluation.
+    planned_destinations:
+      - "Phase 1: Project V4 delivery receipts and commands"
+      - "Phase 2: explicit preview/export time interfaces"
+      - "Phase 3: src/core/timeline/** and src/core/events/**"
+    evidence:
+      state: pending
+      required:
+        - Unit proof for cadence, endpoints, seams, and repair ownership.
+        - Browser proof for preview/export timestamp parity.
+        - Visual rhythm review on dense real-deck fixtures.
+      artifacts: []
+    known_intentional_differences:
+      - Re-author against Project V4 and canonical FrameEvaluation; no donor runtime shell.
+
+  - pr: 12
+    head: "b66ed101ebc69b7a980ab5b1c0312f38029b0b75"
+    domain: space-and-matter
+    manifest_role: canonical paths, material, shell and preview-physics donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Ten mathematical paths with tangent orientation.
+      - Bounded preview response and analytic export motion characters.
+      - Card, Paper, Silk, and Gel material behavior.
+      - Shared shell geometry, derivative normals, and related tests.
+    rejected_debris:
+      - Source-generating scripts.
+      - General-purpose physics engines, rigid-body dependencies, or stateful export cloth.
+      - Donor renderer or settings authority.
+    planned_destinations:
+      - "Phase 2: canonical renderer inputs and interaction boundary"
+      - "Phase 4: src/core/spatial/**, src/core/recipes/**, and modular src/engine/**"
+    evidence:
+      state: pending
+      required:
+        - Unit proof for finite paths, tangent banking, rebasing, and honest zero states.
+        - Browser pixel proof for four materially distinct surfaces.
+        - Packaged WebGL2 performance and resource-lifecycle proof.
+      artifacts: []
+    known_intentional_differences:
+      - Stateless analytical export replaces donor-owned simulation or application state.
+
+  - pr: 14
+    head: "771a94e2a1b1f889c44b6ab4e31a402f88ce04d4"
+    domain: cinematic-lighting
+    manifest_role: canonical cinematic-lighting and analytical-shadow donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - One analytical light and shadow model.
+      - Deformed-surface response, cast/contact shadow, and environmental spill.
+      - Artwork, hero, and presenter protection controls.
+      - Attachment, pause, reduced-motion, and seamless closure rules.
+      - Candidate light rigs subject to individual taste gates.
+    rejected_debris:
+      - Three.js shadow maps for the slide pool.
+      - Extra light renders or unbounded scene growth.
+      - Publishing every candidate rig without fixture and taste review.
+    planned_destinations:
+      - "Phase 5: modular lighting/shadow render passes under src/engine/**"
+      - "Phase 5: authored lighting recipes under src/core/recipes/**"
+    evidence:
+      state: pending
+      required:
+        - Shader and unit proof for attachment, elevation, protection, closure, and bypass.
+        - Visual parity and taste review across ratios and fixture decks.
+        - Packaged performance proof with no shadow-map or pool growth.
+      artifacts: []
+    known_intentional_differences:
+      - Only individually approved rigs graduate to public UI.
+
+  - pr: 8
+    head: "ff83b2303fa21be114dfeb25d1da165b839e0fcd"
+    domain: background-atlas
+    manifest_role: canonical background-atlas corpus donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Five atmosphere families and forty structural compositions.
+      - Authored palettes and treatments.
+      - Deterministic seed, recut, transparency, closure, and test semantics.
+    rejected_debris:
+      - Palette-only duplicates.
+      - Remote textures, framebuffer feedback, or unbounded noise work.
+      - One endless inspector containing the full library.
+    planned_destinations:
+      - "Phase 6: one full-stage atmosphere pass under src/engine/**"
+      - "Phase 6: atmosphere recipes and search metadata under src/core/recipes/**"
+      - "Phase 6: progressive-disclosure library UI under src/components/**"
+    evidence:
+      state: pending
+      required:
+        - Packaged compilation and render proof for all forty compositions.
+        - Aspect, alpha, reduced-motion, seed, and loop-closure tests.
+        - Visual proof that structures differ and remain subordinate to slides.
+      artifacts: []
+    known_intentional_differences:
+      - Shader organization remains undecided until monolithic and family variants are profiled.
+
+  - pr: 17
+    head: "9ada43913ed797e64e9d0c24229e850cebd33e67"
+    domain: director-journey
+    manifest_role: canonical scene-lens and directing-journey donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Slides, World, Direct, and Master journey.
+      - Preflight, A/B comparison, command concepts, and strongest World semantics.
+      - Scene and lens concepts that survive canonical-domain review.
+    rejected_debris:
+      - Whole donor application shell.
+      - Competing project, renderer, exporter, or navigation authority.
+      - Any World behavior that silently changes protected project domains.
+    planned_destinations:
+      - "Phase 7: canonical global-lens pipeline"
+      - "Phase 9: Project V4 commands, receipts, Worlds, and src/components/** journey"
+    evidence:
+      state: pending
+      required:
+        - Command ownership, lock, A/B, undo, and non-compounding tests.
+        - First-use browser and accessibility journey proof.
+        - Real-deck visual approval for accepted World semantics.
+      artifacts: []
+    known_intentional_differences:
+      - V2 keeps its own shell and one Project V4 truth.
+
+  - pr: 3
+    head: "2d6378ba034e7e51646f505e5dd71a076e43e4d0"
+    domain: optics-worlds-recovery-supplement
+    manifest_role: supplemental global-optics, worlds, stress and recovery donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Global-optics semantics not resolved by PR 17.
+      - Undo and history concepts.
+      - World, stress-case, and recovery ideas not resolved by canonical donors.
+    rejected_debris:
+      - Any duplicate of PR 17 semantics without a distinct proven benefit.
+      - Competing project model, renderer, lens graph, or recovery authority.
+      - Whole donor application shell.
+    planned_destinations:
+      - "Phase 1: Project V4 transaction, undo, and recovery contracts"
+      - "Phase 7: deduplicated global-lens semantics"
+      - "Phase 9: deduplicated World semantics"
+    evidence:
+      state: pending
+      required:
+        - Source-level comparison against PR 17 before acceptance.
+        - Transaction, hostile-state, recovery, and optical bypass tests.
+        - Visual proof for any retained optical distinction.
+      artifacts: []
+    known_intentional_differences:
+      - Supplemental ideas survive only when canonical donors leave a documented gap.
+
+  - pr: 4
+    head: "3af9836da5cf2b815ea4d95850780b45662cafba"
+    domain: local-finish-world-library-supplement
+    manifest_role: local finish, paths and world-library donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Local finish concepts.
+      - Preflight and director-session ideas.
+      - Path and World-library ideas that remain distinct after canonical review.
+    rejected_debris:
+      - Local effects that duplicate or leak into global lens ownership.
+      - Duplicate paths or Worlds without structural distinction.
+      - Whole donor UI, project model, or render path.
+    planned_destinations:
+      - "Phase 4: local material/finish modules"
+      - "Phase 9: deduplicated preflight, director-session, and World-library modules"
+    evidence:
+      state: pending
+      required:
+        - Source-level deduplication against PRs 12, 17, and 3.
+        - Clean-zero, alpha, ownership, and non-compounding tests.
+        - Visual proof for each retained finish, path, or World distinction.
+      artifacts: []
+    known_intentional_differences:
+      - Local finish stays clipped to slide material and separate from global lens.
+
+  - pr: 5
+    head: "dbac0c296a34c78b71b5eafa115fd178aa282f9b"
+    domain: intent-first-directing-supplement
+    manifest_role: intent-first journey, optics and atmosphere donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Non-compounding recipe application.
+      - Domain locks, transactions, and change receipts.
+      - Creator-language controls that preserve expert truth.
+    rejected_debris:
+      - Competing project model or hidden creative authority.
+      - Recut derived from the previous recut instead of World baseline.
+      - Generic control dumps or a second directing journey.
+    planned_destinations:
+      - "Phase 1: Project V4 domain commands, locks, transactions, and receipts"
+      - "Phase 9: creator-language controls in src/components/**"
+    evidence:
+      state: pending
+      required:
+        - Determinism, lock ownership, rollback, and non-compounding tests.
+        - Browser proof that receipts match exact changed and preserved fields.
+        - UX review for plain-language control truth.
+      artifacts: []
+    known_intentional_differences:
+      - Concepts enter one canonical V2 journey and Project V4 model.
+
+  - pr: 19
+    head: "d29c79c1cfcd284055725dd9bf921578a4801082"
+    domain: recorded-sound-foundation
+    manifest_role: canonical recorded sound, provenance and mixed-master donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - CC0 recording corpus, provenance, treatment ledger, and exact source identity.
+      - Deterministic event/sample planning.
+      - One mixed master for presenter and Foley.
+      - Established native AAC boundary and sound tests.
+    rejected_debris:
+      - Unverified assets, licences, hashes, or treatments.
+      - Runtime third-party requests.
+      - Parallel export masters or donor-owned application architecture.
+    planned_destinations:
+      - "Phase 8: canonical semantic planner, sound graph, preview, and offline mix modules"
+      - "Phase 8: existing native AAC boundary and export orchestration"
+      - "Release: auditable third-party notices and sound provenance"
+    evidence:
+      state: pending
+      required:
+        - Exact asset, licence, filename, hash, and treatment audit.
+        - Unit/browser/native proof for deterministic planning and one mixed master.
+        - Listening parity with presenter speech and silence.
+      artifacts: []
+    known_intentional_differences:
+      - Recorded sound remains preferred; sound remains disabled by default.
+
+  - pr: 28
+    head: "db912237b681de3c148df5a343bd356d7f930db8"
+    domain: editorial-micro-foley
+    manifest_role: editorial micro-Foley grammar donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Causal micro-gesture semantics.
+      - Editorial sound-recipe semantics that remain distinct after PR 29 comparison.
+    rejected_debris:
+      - Vox assets, branding, music, or signature sequences.
+      - Duplicated grammar already owned by PR 29.
+      - Sound events tied to every delivery frame rather than semantic causes.
+    planned_destinations:
+      - "Phase 8: editorial recipes layered onto canonical PR 29 grammar"
+      - "Phase 8: canonical semantic event planner"
+    evidence:
+      state: pending
+      required:
+        - Source and listening comparison against PR 29.
+        - Deterministic event, seam, cancellation, and under-voice tests.
+        - Listening proof that every retained recipe is materially distinct.
+      artifacts: []
+    known_intentional_differences:
+      - Only semantics with distinct value survive; no referenced brand identity is imitated.
+
+  - pr: 29
+    head: "c4b0d93ca11f652b159c589b7fe6003b5701d6ec"
+    domain: organic-sonic-grammar
+    manifest_role: organic sonic grammar donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Canonical body, air, contact, and optional landing grammar.
+      - Shared graph, layering, dynamics, speed response, and orchestration.
+      - Dialogue restraint and silence-first behavior.
+    rejected_debris:
+      - A second planner, graph, or export-audio authority.
+      - Always-on density or sound without explicit unlock.
+      - Interface cues entering exported masters.
+    planned_destinations:
+      - "Phase 8: canonical sound grammar, graph, dynamics, and orchestration modules"
+      - "Phase 8: one presenter-plus-Foley mixed-master path"
+    evidence:
+      state: pending
+      required:
+        - Deterministic graph, dynamics, seam, and mixed-master tests.
+        - Browser/native audio lifecycle and cancellation proof.
+        - Listening proof for body, air, contact, landing, speed, and dialogue restraint.
+      artifacts: []
+    known_intentional_differences:
+      - Recorded PR 19 corpus supplies canonical assets; PR 29 supplies grammar.
+
+  - pr: 10
+    head: "3a0e8b4c7cacf01248cd8eef4a062e25bc7e8f10"
+    domain: procedural-foley
+    manifest_role: procedural Foley source-provider donor
+    status: frozen-not-ported
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Research and fallback-provider concepts only.
+    rejected_debris:
+      - Default public sound source without a defined-use listening win over recorded sound.
+      - Source-generating workflow as product authority.
+      - A second sound planner, graph, or mix path.
+    planned_destinations:
+      - "Phase 8: internal procedural fallback research behind canonical sound interfaces"
+    evidence:
+      state: pending
+      required:
+        - Exact defined-use A/B against recorded sound.
+        - Listening evidence that proves a material win before any graduation.
+        - Determinism, licence, and offline-only checks for any retained fallback.
+      artifacts: []
+    known_intentional_differences:
+      - Procedural output is excluded from default public sound unless listening evidence changes disposition.
+
+  - pr: 13
+    head: "6b346364a2a797c8424ccb9b803dad150090c3cd"
+    domain: native-chassis
+    manifest_role: native sandbox, bridge, broker, AAC, packaging and lifecycle chassis
+    status: frozen-not-ported
+    v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Native sandbox and established bridge boundary.
+      - Security-scoped broker, native AAC, packaging, and lifecycle invariants.
+    rejected_debris:
+      - Re-merging the donor during V2.
+      - Moving creative truth or renderer ownership into AppKit.
+      - Changing sandbox, bridge, signing, or lifecycle behavior without explicit native review.
+    planned_destinations:
+      - "All phases: preserve established macos/** and packaging-script boundaries"
+      - "Phase 8: extend only through existing native AAC contract"
+      - "Phase 10: exact-artifact native regression gauntlet"
+    evidence:
+      state: pending
+      required:
+        - Source comparison proving V2 changes preserve inherited authority.
+        - Packaged sandbox, broker, AAC, signing, lifecycle, and cancellation tests.
+        - Exact-artifact native readback.
+      artifacts: []
+    known_intentional_differences:
+      - V2 extends inherited chassis through existing interfaces; it does not port donor source anew.
+
+  - pr: 21
+    head: "269e45da313b4fe90342704b08690783bdd621f2"
+    domain: native-help-about-diagnostics
+    manifest_role: native Help, About, diagnostics and product-fit donor
+    status: frozen-not-ported
+    v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Native Help, About, diagnostics, and product-fit invariants.
+    rejected_debris:
+      - Re-merging the donor during V2.
+      - Stale product claims, developer identity leakage, or diagnostics that expose private data.
+      - A competing help or diagnostics authority in Web UI.
+    planned_destinations:
+      - "Phase 10: existing native Help, About, and diagnostics boundary"
+    evidence:
+      state: pending
+      required:
+        - Packaged menu, Help, About, diagnostics, privacy, and identity checks.
+        - Accessibility and exact-build receipt readback.
+      artifacts: []
+    known_intentional_differences:
+      - Copy and identity may change for V2 only after product truth is implemented and verified.
+
+  - pr: 22
+    head: "d1ee628c10b491884a331276a06f2fdd0fb93ab6"
+    domain: native-dock-export-presence
+    manifest_role: Dock export-presence donor
+    status: frozen-not-ported
+    v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Native Dock export-presence invariant.
+    rejected_debris:
+      - Re-merging the donor during V2.
+      - Progress UI detached from real export state.
+      - Native export state becoming a second creative or timing authority.
+    planned_destinations:
+      - "Phase 2 and Phase 10: existing native export-presence boundary"
+    evidence:
+      state: pending
+      required:
+        - Packaged Dock progress, completion, failure, cancellation, and recovery checks.
+        - Proof that native state mirrors canonical export state.
+      artifacts: []
+    known_intentional_differences:
+      - No new native timing semantics; V2 reports canonical exporter state.
+
+  - pr: 24
+    head: "e2eca77b227dca20d501715b2d3d25e00ef8e326"
+    domain: native-finder-reveal-sequence-rollback
+    manifest_role: Finder reveal and PNG-sequence rollback truth donor
+    status: frozen-not-ported
+    v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Finder reveal truth.
+      - PNG-sequence rollback and partial-output safety invariants.
+    rejected_debris:
+      - Re-merging the donor during V2.
+      - Success claims before destination readback.
+      - Leaving partial sequence artifacts after failure or cancellation.
+    planned_destinations:
+      - "Phase 2 and Phase 10: existing native save/reveal and rollback boundary"
+    evidence:
+      state: pending
+      required:
+        - Packaged success, overwrite, failure, cancellation, rollback, and Finder-reveal checks.
+        - Destination artifact readback.
+      artifacts: []
+    known_intentional_differences:
+      - V2 render content may change; save/reveal/rollback truth may not weaken.
+
+  - pr: 25
+    head: "75a6265c6495d81b86219251000df0a0314a3ff2"
+    domain: native-document-generation-authority
+    manifest_role: native-issued document-generation authority donor
+    status: frozen-not-ported
+    v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Native-issued document-generation authority.
+    rejected_debris:
+      - Re-merging the donor during V2.
+      - Browser-side generation claims that outrun native document authority.
+      - Split ownership for Save, Save As, replacement, or generation identity.
+    planned_destinations:
+      - "Phase 1 and Phase 10: established native document-generation boundary"
+    evidence:
+      state: pending
+      required:
+        - Packaged Save, Save As, replacement, failure, and document-generation tests.
+        - Exact destination and generation readback.
+      artifacts: []
+    known_intentional_differences:
+      - Project V4 changes payload contract only; native document authority remains singular.
+
+  - pr: 27
+    head: "d7cc6bc1072365ac55de4a1f6c86248ef5337279"
+    domain: native-pitched-document-identity
+    manifest_role: .pitched Finder document-identity donor
+    status: frozen-not-ported
+    v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
+    source_study:
+      state: not-started
+      files: []
+    accepted_semantics:
+      - Finder .pitched document identity and ownership invariant.
+    rejected_debris:
+      - Re-merging the donor during V2.
+      - V2 development app claiming production .pitched ownership.
+      - Changing LaunchServices identity before compatibility and release approval.
+    planned_destinations:
+      - "Phase 1: migration contract without V2 Dev Finder ownership"
+      - "Phase 10: approved release-candidate document identity and LaunchServices checks"
+    evidence:
+      state: pending
+      required:
+        - V1/V2 coexistence and Finder ownership proof.
+        - Packaged open/save/migration/LaunchServices regression checks.
+        - Explicit release approval before any production identity change.
+      artifacts: []
+    known_intentional_differences:
+      - V2 Dev remains unable to own or open real .pitched documents.
