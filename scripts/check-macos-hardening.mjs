@@ -47,6 +47,18 @@ const broker = requireMarkers("macos/App/NativeFileBroker.swift", [
   "restoreQuarantinedEntryName(",
   "expectedDestinationIdentity",
   "requireStableDirectoryAccess(",
+  "func registerSavePanelFile(",
+  "case savePanelFile",
+  "case selectedFile",
+  "replacementAnchor = destinationURL",
+  "requireSameVolumeReplacementDirectory(",
+  "rollbackSavePanelSwap(",
+  "rollbackFirstSave(",
+  "cleanupExpectedStagingIdentity",
+  "committedDisplacedIdentity",
+  "preserveReplacementDirectory",
+  "copyStableFileContents(",
+  "Darwin.pread(",
   "directory.committedEntries[session.destinationURL.lastPathComponent] = committedReadAccess.admittedIdentity",
   "Existing PNG sequence files are never overwritten.",
   "Drift only removes numbered frames committed by this export. An unowned file was preserved.",
@@ -72,6 +84,35 @@ const commitBody = broker.slice(commitStart, quarantineStart);
 if (commitStart < 0 || !commitBody.includes("renameStagingExclusively") || !commitBody.includes("expectedDestinationIdentity")) {
   fail("staged commits lost conditional, anchored destination admission");
 }
+if (
+  !commitBody.includes("driftRenameSwapFlag")
+  || !commitBody.includes("driftRenameExclusiveFlag")
+  || !commitBody.includes("requireSelectedFileWriteAccess")
+  || !commitBody.includes("stagedOutputIdentity")
+) {
+  fail("save-panel commits lost exact-file atomic swap, exclusive create, or identity rollback");
+}
+const savePanelRegisterStart = broker.indexOf("func registerSavePanelFile(");
+const privateRegisterStart = broker.indexOf("private func registerFile(", savePanelRegisterStart);
+const savePanelRegisterBody = broker.slice(savePanelRegisterStart, privateRegisterStart);
+if (
+  savePanelRegisterStart < 0
+  || !savePanelRegisterBody.includes("writeAuthorityRequest: .savePanelFile")
+  || savePanelRegisterBody.includes("openStableDirectoryAccess")
+) {
+  fail("NSSavePanel admission must select exact-file authority without opening its parent directory");
+}
+const savePanelAuthorityStart = broker.indexOf("case .savePanelFile:", privateRegisterStart);
+const savePanelAuthorityEnd = broker.indexOf("\n                }\n            }\n        } else", savePanelAuthorityStart);
+const savePanelAuthorityBody = broker.slice(savePanelAuthorityStart, savePanelAuthorityEnd);
+if (
+  savePanelAuthorityStart < 0
+  || savePanelAuthorityEnd < 0
+  || savePanelAuthorityBody.includes("openStableDirectoryAccess")
+  || !savePanelAuthorityBody.includes("admittedParentIdentity: try directoryIdentity(at: parent)")
+) {
+  fail("exact-file write authority widened into parent-directory read authority");
+}
 const removeStart = broker.indexOf("func removeDirectoryEntry(");
 const abortStart = broker.indexOf("func abortAll()", removeStart);
 const removeBody = broker.slice(removeStart, abortStart);
@@ -82,6 +123,7 @@ forbidMarkers("macos/App/NativeFileBroker.swift", [
   "if !exists && create && !fileManager.createFile(atPath: fileURL.path",
   "return try registerFile(fileURL, mode: .readWrite)\n    }\n\n    func removeDirectoryEntry",
   "try fileManager.removeItem(at: fileURL)\n        fileGrants = fileGrants.filter",
+  "fileManager.copyItem(at: destinationURL, to: stagingURL)",
 ]);
 
 const host = requireMarkers("macos/App/NativeBridgeHost.swift", [
@@ -119,6 +161,7 @@ const host = requireMarkers("macos/App/NativeBridgeHost.swift", [
   "func shutdown()",
   "failPendingRepliesForTeardown()",
   "static func runReplyLifecycleSelfTest() throws",
+  "broker.registerSavePanelFile(",
 ]);
 forbidMarkers("macos/App/NativeBridgeHost.swift", [
   "let descriptors = try urls.map { try self.broker.registerFile($0, mode: .readOnly) }",

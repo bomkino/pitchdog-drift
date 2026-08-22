@@ -862,7 +862,10 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                 }
                 do {
                     let suppliedMime = stringArray(payload, "mimeTypes", maximum: 24).first
-                    let descriptor = try self.broker.registerFile(url, mode: .readWrite, suppliedMimeType: suppliedMime)
+                    let descriptor = try self.broker.registerSavePanelFile(
+                        url,
+                        suppliedMimeType: suppliedMime
+                    )
                     var value = descriptor
                     value["cancelled"] = false
                     DispatchQueue.main.async {

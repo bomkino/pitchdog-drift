@@ -494,7 +494,7 @@ enum NativeGauntlet {
                 try existingSaveIntruder.write(to: destinationURL)
             }
         )
-        let existingSaveGrant = try existingSaveBroker.registerFile(existingSaveURL, mode: .readWrite)
+        let existingSaveGrant = try existingSaveBroker.registerSavePanelFile(existingSaveURL)
         let existingSaveToken = try token(from: existingSaveGrant)
         let existingSaveSession = try stagedWriteSession(
             broker: existingSaveBroker,
@@ -520,7 +520,7 @@ enum NativeGauntlet {
                 try absentSaveIntruder.write(to: destinationURL)
             }
         )
-        let absentSaveGrant = try absentSaveBroker.registerFile(absentSaveURL, mode: .readWrite)
+        let absentSaveGrant = try absentSaveBroker.registerSavePanelFile(absentSaveURL)
         let absentSaveToken = try token(from: absentSaveGrant)
         let absentSaveSession = try stagedWriteSession(
             broker: absentSaveBroker,
@@ -549,7 +549,7 @@ enum NativeGauntlet {
                 try manager.createDirectory(at: redirectedParentURL, withIntermediateDirectories: false)
             }
         )
-        let redirectedSaveGrant = try redirectedSaveBroker.registerFile(redirectedSaveURL, mode: .readWrite)
+        let redirectedSaveGrant = try redirectedSaveBroker.registerSavePanelFile(redirectedSaveURL)
         let redirectedSaveToken = try token(from: redirectedSaveGrant)
         let redirectedSaveSession = try stagedWriteSession(
             broker: redirectedSaveBroker,
