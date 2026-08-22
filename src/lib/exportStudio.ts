@@ -269,6 +269,7 @@ type CommonPngOptions = Readonly<{
 }>;
 
 export type PngStillOptions = CommonPngOptions & Readonly<{
+  /** Defaults to the master midpoint. Pass zero explicitly to capture frame zero. */
   time?: number;
 }>;
 
@@ -408,6 +409,18 @@ export function buildExportFramePlan(settings: ExportSettings): readonly ExportF
     time: getExportFrameTime(index, settings.fps),
     duration: frameDuration,
   }));
+}
+
+/** Keeps a generic still useful even when frame zero belongs to an authored entry. */
+export function resolvePngStillTime(duration: number, requestedTime?: number): number {
+  const time = requestedTime ?? duration / 2;
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw invalidSettings("Still duration must be a finite number above zero.", { duration });
+  }
+  if (!Number.isFinite(time) || time < 0 || time > duration) {
+    throw invalidSettings("Still time must fall inside the export duration.", { time });
+  }
+  return time;
 }
 
 export function makePngFrameFilename(
@@ -1452,10 +1465,7 @@ export async function verifyMp4Artifact(
 export async function exportPngStill(options: PngStillOptions): Promise<PngStillResult> {
   validateCommonOptions(options);
   const settings = validateExportSettings(options.settings);
-  const time = options.time ?? 0;
-  if (!Number.isFinite(time) || time < 0 || time > settings.duration) {
-    throw invalidSettings("Still time must fall inside the export duration.", { time });
-  }
+  const time = resolvePngStillTime(settings.duration, options.time);
   if (!supportsCanvasPngEncoding()) {
     throw new ExportStudioError(
       "CANVAS_EXPORT_UNSUPPORTED",

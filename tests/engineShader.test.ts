@@ -12,6 +12,7 @@ import {
 import { DEFAULT_SETTINGS, cloneSettings, type StudioAsset } from "../src/model";
 import { evaluateSlide, getLogicalSlotCount, getSlideGeometry, isPotentiallyVisible } from "../src/engine/evaluate";
 import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader } from "../src/engine/shaders";
+import { createPerformanceLifecycle } from "../src/core/timeline/performanceLifecycle";
 
 const LIMITS = {
   maxTextureSize: 8_192,
@@ -149,16 +150,25 @@ describe("deterministic export frame identity", () => {
   });
 
   it("uses explicit export identity for grain without reconstructing it from floating-point time", () => {
-    expect(resolveGrainFrame(0.000_001, 30, true, false, 287)).toBe(287);
-    expect(resolveGrainFrame(9_999.999, 30, true, false, 287)).toBe(287);
-    expect(resolveGrainFrame(17 / 30, 30, true, false)).toBe(17);
+    expect(resolveGrainFrame(0.000_001, 30, true, false, 287)).toBe(114);
+    expect(resolveGrainFrame(9_999.999, 30, true, false, 287)).toBe(114);
+    expect(resolveGrainFrame(17 / 30, 30, true, false)).toBe(6);
     expect(resolveGrainFrame(17 / 30, 30, true, true, 17)).toBe(0);
+  });
+
+  it("holds deterministic grain plates at a handcrafted 12 fps cadence", () => {
+    expect(Array.from({ length: 10 }, (_, frame) => resolveGrainFrame(frame / 30, 30, true, false, frame)))
+      .toEqual([0, 0, 0, 1, 1, 2, 2, 2, 3, 3]);
+    expect(resolveGrainFrame(23 / 24, 24, true, false, 23)).toBe(11);
+    expect(resolveGrainFrame(59 / 60, 60, true, false, 59)).toBe(11);
   });
 
   it("preserves the explicit frame identity through asynchronous texture preparation", async () => {
     const renderAt = vi.fn();
+    const settings = cloneSettings(DEFAULT_SETTINGS);
     const fakeEngine = {
-      settings: cloneSettings(DEFAULT_SETTINGS),
+      settings,
+      performanceTimeline: createPerformanceLifecycle(settings.performance),
       assets: [],
       pool: [],
       presenterAsset: null,

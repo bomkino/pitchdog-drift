@@ -39,7 +39,7 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   await waitForStudio(page);
   await page.getByLabel("Stage width").fill("256");
   await page.getByLabel("Stage height").fill("256");
-  await page.getByRole("slider", { name: "Duration" }).fill("3");
+  await page.locator("#range-duration").fill("3");
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
   await expect(page.locator(".stage-hud")).toContainText("256 × 256");
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
@@ -56,12 +56,23 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
 
   await page.getByRole("button", { name: "Pause preview" }).click();
   await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
+  // Cancellation needs a controlled in-flight encoder. At this tiny fixture
+  // size an unconstrained sequence can legitimately finish before the pointer
+  // reaches the button, which tests machine speed rather than cancellation.
+  await page.evaluate(() => {
+    const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function delayedToBlob(callback, type, quality) {
+      return originalToBlob.call(this, (blob) => {
+        window.setTimeout(() => callback(blob), 1_000);
+      }, type, quality);
+    };
+  });
   await page.getByRole("button", { name: "Export PNG sequence" }).click();
   await expect(page.locator(".export-overlay")).toBeVisible();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("Space");
   await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
-  await page.getByRole("button", { name: "Cancel export" }).click();
+  await page.getByRole("button", { name: "Cancel export" }).click({ force: true });
   await expect(page.locator(".export-overlay")).toBeHidden();
   await expect(page.getByRole("button", { name: "Play preview" })).toBeEnabled();
   await page.getByRole("button", { name: "Play preview" }).click();
@@ -166,7 +177,7 @@ test("transparent PNG stores straight-alpha colour without dark fringes", async 
         bitmap.close();
         const alpha = pixel[3]! / 255;
         const overWhite = pixel.slice(0, 3).map((channel) => Math.round(channel! * alpha + 255 * (1 - alpha)));
-        return { pixel, overWhite };
+        return { pixel, overWhite, time: result.time };
       } finally {
         surface.restore();
       }
@@ -177,6 +188,7 @@ test("transparent PNG stores straight-alpha colour without dark fringes", async 
     }
   }, halfAlphaGreyPng);
 
+  expect(receipt.time).toBe(1.5);
   expect(receipt.pixel[3]).toBeGreaterThanOrEqual(126);
   expect(receipt.pixel[3]).toBeLessThanOrEqual(129);
   for (const channel of receipt.pixel.slice(0, 3)) {

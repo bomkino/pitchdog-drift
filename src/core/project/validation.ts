@@ -13,6 +13,10 @@ import {
   type PresenterSettingsV4,
   type ProjectDomain,
 } from "./schema";
+import {
+  createPerformanceLifecycle,
+  type PerformanceLifecycleAuthoring,
+} from "../timeline/performanceLifecycle";
 
 const HEX_COLOUR = /^#[a-f0-9]{6}$/iu;
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -53,6 +57,20 @@ function object(value: unknown, path: string, fields: readonly string[]): Unknow
   const unknown = Object.keys(output).find((key) => !fields.includes(key));
   if (unknown) fail(path, `contains unknown field ${unknown}`);
   for (const field of fields) if (!(field in output)) fail(`${path}.${field}`, "is required");
+  return output;
+}
+
+function objectWithOptional(
+  value: unknown,
+  path: string,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): UnknownRecord {
+  const output = dictionary(value, path);
+  const allowed = [...required, ...optional];
+  const unknown = Object.keys(output).find((key) => !allowed.includes(key));
+  if (unknown) fail(path, `contains unknown field ${unknown}`);
+  for (const field of required) if (!(field in output)) fail(`${path}.${field}`, "is required");
   return output;
 }
 
@@ -463,6 +481,55 @@ function presenterV3Compatibility(value: PresenterSettingsV4): PresenterSettings
   };
 }
 
+function validatePerformanceV4(value: unknown): PerformanceLifecycleAuthoring {
+  const path = "project.performance";
+  const root = objectWithOptional(
+    value,
+    path,
+    ["entry", "body", "exit", "repeat", "reducedMotion"],
+    ["transitionPreset"],
+  );
+
+  const validateTransitionShape = (candidate: unknown, transitionPath: string): void => {
+    const transition = dictionary(candidate, transitionPath);
+    if (transition.enabled === false) {
+      object(transition, transitionPath, ["enabled"]);
+      return;
+    }
+    const enabled = objectWithOptional(transition, transitionPath, [
+      "enabled", "durationSeconds", "treatment", "curve", "background", "slides", "includePresenter",
+    ], ["presenter"]);
+    object(enabled.background, `${transitionPath}.background`, ["lead", "span"]);
+    object(enabled.slides, `${transitionPath}.slides`, ["lead", "span", "stagger", "order"]);
+    if (enabled.presenter !== undefined) {
+      object(enabled.presenter, `${transitionPath}.presenter`, ["lead", "span"]);
+    }
+  };
+
+  validateTransitionShape(root.entry, `${path}.entry`);
+  validateTransitionShape(root.exit, `${path}.exit`);
+  const body = object(root.body, `${path}.body`, ["durationSeconds", "tempo"]);
+  const tempo = dictionary(body.tempo, `${path}.body.tempo`);
+  if (tempo.kind === "preset") {
+    object(tempo, `${path}.body.tempo`, ["kind", "preset"]);
+  } else if (tempo.kind === "custom") {
+    const custom = object(tempo, `${path}.body.tempo`, ["kind", "envelope"]);
+    object(custom.envelope, `${path}.body.tempo.envelope`, ["start", "middle", "finish"]);
+  } else {
+    fail(`${path}.body.tempo.kind`, "must be preset or custom");
+  }
+  const repeat = dictionary(root.repeat, `${path}.repeat`);
+  if (repeat.mode === "off") object(repeat, `${path}.repeat`, ["mode"]);
+  else object(repeat, `${path}.repeat`, ["mode", "count"]);
+
+  try {
+    return createPerformanceLifecycle(value as PerformanceLifecycleAuthoring).authoring;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "is malformed";
+    fail(path, message);
+  }
+}
+
 export function validateDriftProjectV3(value: unknown): DriftProjectV3 {
   const project = object(value, "project", [
     "schema", "formatVersion", "projectId", "projectSeed", "createdAt", "updatedAt",
@@ -638,7 +705,7 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
   const fields = [
     "schema", "formatVersion", "renderContract", "migration", "projectId", "projectSeed", "createdAt", "updatedAt",
     "composition", "media", "slides", "motion", "card", "material", "lighting",
-    "atmosphere", "lens", "sound", "presenter", "master", "provenance", "extensions",
+    "atmosphere", "lens", "sound", "presenter", "performance", "master", "provenance", "extensions",
   ] as const;
   const project = plainDataObject(value, "project");
   const unknown = Object.keys(project).find((key) => !fields.includes(key as (typeof fields)[number]));
@@ -655,6 +722,8 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
   const migration = migrationV4(project.migration);
   const extensions = canonicalExtensions(project.extensions);
   const presenter = validatePresenterV4(project.presenter);
+  assertPlainDataTree(project.performance, "project.performance", { nodes: 0, active: new WeakSet() });
+  const performance = validatePerformanceV4(project.performance);
   const v3Candidate = {
     schema: project.schema,
     formatVersion: DRIFT_PROJECT_VERSION,
@@ -678,6 +747,10 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
   };
   assertPlainDataTree(v3Candidate, "project", { nodes: 0, active: new WeakSet() });
   const v3 = validateDriftProjectV3(v3Candidate);
+  const lifecycle = createPerformanceLifecycle(performance);
+  if (Math.abs(lifecycle.totalDuration - v3.master.duration) > 1e-9) {
+    fail("project.performance", "derived total duration must equal project.master.duration");
+  }
 
   const pinnedAssetId = presenter.assetId;
   const pinnedAsset = pinnedAssetId === null ? null : v3.media.assets[pinnedAssetId];
@@ -723,6 +796,7 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
     lens: v3.lens,
     sound: v3.sound,
     presenter,
+    performance,
     master: v3.master,
     provenance: v3.provenance,
     extensions,

@@ -8,6 +8,7 @@ import {
   type DriftProjectV4,
 } from "../src/core/project/schema";
 import { ProjectValidationError, validateDriftProjectV3, validateDriftProjectV4 } from "../src/core/project/validation";
+import { createPerformanceLifecycle } from "../src/core/timeline/performanceLifecycle";
 
 const NOW = "2026-08-22T00:00:00.000Z";
 
@@ -16,6 +17,7 @@ function asV3(project: DriftProjectV4): DriftProjectV3 {
     renderContract: _renderContract,
     migration: _migration,
     extensions: _extensions,
+    performance: _performance,
     presenter: presenterV4,
     ...v4
   } = project;
@@ -65,6 +67,14 @@ describe("Project V4", () => {
     const { presenter: _v4Presenter, ...v4Rest } = asV3(v4);
     expect(v4Rest).toEqual(v3Rest);
     expect(v4.presenter).toMatchObject({ x: 1, y: 1, width: 0.32, radius: 28 });
+    expect(v4.performance).toMatchObject({
+      entry: { enabled: true, durationSeconds: 0.72, includePresenter: false },
+      body: { durationSeconds: 6.72, tempo: { kind: "preset", preset: "fast-slow-fast" } },
+      exit: { enabled: true, durationSeconds: 0.56, includePresenter: false },
+      repeat: { mode: "off" },
+      reducedMotion: false,
+    });
+    expect(createPerformanceLifecycle(v4.performance).totalDuration).toBe(8);
     expect(validateDriftProjectV3(v3)).toEqual(v3);
   });
 
@@ -100,6 +110,14 @@ describe("Project V4", () => {
       shadowOffsetX: 12,
       shadowOffsetY: 18,
       matteOpacity: 1,
+    });
+    expect(migrated.performance).toEqual({
+      transitionPreset: "quiet-lift",
+      entry: { enabled: false },
+      body: { durationSeconds: 8, tempo: { kind: "preset", preset: "even" } },
+      exit: { enabled: false },
+      repeat: { mode: "off" },
+      reducedMotion: false,
     });
   });
 
@@ -163,6 +181,24 @@ describe("Project V4", () => {
       migrator: DRIFT_PROJECT_V4_MIGRATOR,
     }))).toThrow(ProjectValidationError);
     expect(() => validateDriftProjectV3(project)).toThrow(/unknown field renderContract/u);
+    expect(() => validateDriftProjectV4({
+      ...project,
+      performance: { ...project.performance, surprise: true },
+    })).toThrow(/project\.performance.*unknown field surprise/u);
+    expect(() => validateDriftProjectV4({
+      ...project,
+      performance: {
+        ...project.performance,
+        body: { ...project.performance.body, tempo: { kind: "preset", preset: "not-real" } },
+      },
+    })).toThrow(/project\.performance/u);
+    expect(() => validateDriftProjectV4({
+      ...project,
+      performance: {
+        ...project.performance,
+        body: { ...project.performance.body, durationSeconds: 5 },
+      },
+    })).toThrow(/derived total duration must equal project\.master\.duration/u);
   });
 
   it("requires export audio to come from the active unmuted pinned video", () => {

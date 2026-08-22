@@ -1,5 +1,7 @@
 import {
+  createCompatibilityPerformanceLifecycle,
   ENGINE_VERSION,
+  fitPerformanceLifecycleToDuration,
   SCHEMA_VERSION,
   SHADER_VERSION,
   type StudioSettings,
@@ -9,6 +11,7 @@ export const STUDIO_SETTINGS_LIMITS = Object.freeze({
   stageDimension: Object.freeze({ min: 256, max: 8_192 }),
   aspectComponent: Object.freeze({ min: 1, max: 64 }),
   outputDurationSeconds: Object.freeze({ min: 3, max: 30 }),
+  slideShadowSoftness: Object.freeze({ min: 4, max: 160 }),
   videoBitrate: 16_000_000,
   audioBitrate: 192_000,
   presenterGain: 1,
@@ -180,6 +183,11 @@ function validateStudioSettingsWithVersions(
   if (outputWidth !== stageWidth || outputHeight !== stageHeight) {
     invalid("settings.output", "dimensions must match the stage dimensions");
   }
+  const outputDuration = number(
+    output.duration,
+    "settings.output.duration",
+    STUDIO_SETTINGS_LIMITS.outputDurationSeconds,
+  );
   const stageTransparent = boolean(stage.transparent, "settings.stage.transparent");
   const backgroundStyle = oneOf(background.style, "settings.background.style", BACKGROUNDS);
   if (stageTransparent !== (backgroundStyle === "transparent")) {
@@ -189,6 +197,27 @@ function validateStudioSettingsWithVersions(
   const presenterAssetId = assetId(presenter.assetId, "settings.presenter.assetId");
   if (presenterEnabled && presenterAssetId === null) {
     invalid("settings.presenter.enabled", "requires selected pinned media");
+  }
+  const reducedMotionOutput = boolean(
+    motion.reducedMotionOutput,
+    "settings.motion.reducedMotionOutput",
+  );
+  let performance: StudioSettings["performance"];
+  if (legacyPresenterDirection || source.performance === undefined) {
+    performance = createCompatibilityPerformanceLifecycle(outputDuration, reducedMotionOutput);
+  } else {
+    try {
+      performance = fitPerformanceLifecycleToDuration(
+        source.performance as StudioSettings["performance"],
+        outputDuration,
+        reducedMotionOutput,
+      );
+    } catch (error) {
+      invalid(
+        "settings.performance",
+        error instanceof Error ? error.message : "must be valid lifecycle authoring",
+      );
+    }
   }
 
   return {
@@ -221,7 +250,7 @@ function validateStudioSettingsWithVersions(
         max: 6,
         integer: true,
       }),
-      reducedMotionOutput: boolean(motion.reducedMotionOutput, "settings.motion.reducedMotionOutput"),
+      reducedMotionOutput,
     },
     slide: {
       aspectWidth: number(slide.aspectWidth, "settings.slide.aspectWidth", STUDIO_SETTINGS_LIMITS.aspectComponent),
@@ -236,7 +265,11 @@ function validateStudioSettingsWithVersions(
       borderColor: hexColour(slide.borderColor, "settings.slide.borderColor"),
       borderOpacity: number(slide.borderOpacity, "settings.slide.borderOpacity", { min: 0, max: 1 }),
       shadowOpacity: number(slide.shadowOpacity, "settings.slide.shadowOpacity", { min: 0, max: 0.8 }),
-      shadowSoftness: number(slide.shadowSoftness, "settings.slide.shadowSoftness", { min: 4, max: 96 }),
+      shadowSoftness: number(
+        slide.shadowSoftness,
+        "settings.slide.shadowSoftness",
+        STUDIO_SETTINGS_LIMITS.slideShadowSoftness,
+      ),
     },
     background: {
       style: backgroundStyle,
@@ -310,11 +343,12 @@ function validateStudioSettingsWithVersions(
         STUDIO_SETTINGS_LIMITS.presenterStartAt,
       ),
     },
+    performance,
     output: {
       width: outputWidth,
       height: outputHeight,
       fps: oneOf(output.fps, "settings.output.fps", OUTPUT_FPS),
-      duration: number(output.duration, "settings.output.duration", STUDIO_SETTINGS_LIMITS.outputDurationSeconds),
+      duration: outputDuration,
       videoBitrate: literal(
         output.videoBitrate,
         "settings.output.videoBitrate",

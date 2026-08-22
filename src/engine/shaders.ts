@@ -187,6 +187,7 @@ export const backgroundFragmentShader = /* glsl */ `
   uniform float uVignette;
   uniform float uPhase;
   uniform float uSeed;
+  uniform float uOpacity;
 
   float hash12(vec2 p) {
     // uSeed arrives folded into a small, exactly representable float range.
@@ -244,9 +245,23 @@ export const backgroundFragmentShader = /* glsl */ `
       color = mix(uColorA, uColorB, a * 0.72 * uIntensity);
       color = mix(color, uAccent, b * 0.48 * uIntensity);
     } else if (uMode < 3.5) {
-      float fibers = sin((p.y + sin(p.x * 19.0) * 0.015) * 620.0) * 0.5 + 0.5;
-      color = mix(uColorA, uColorB, smoothstep(-0.45, 0.65, p.y));
-      color *= 1.0 + (fibers - 0.5) * 0.06 * uIntensity;
+      // Long fibres belong to the room, so they stay seeded and spatially
+      // stable. Only the broad exposure breath moves; grain remains a separate
+      // finishing plate. This avoids moire and crawling-paper cosplay.
+      float longFiber = valueNoise(vec2(p.x * 3.2, p.y * 118.0) + 17.0, 0.0);
+      float crossTooth = valueNoise(vec2(p.x * 46.0, p.y * 7.0) + 53.0, 0.0);
+      float paperCloud = valueNoise(p * 3.4 + 91.0, 0.0);
+      float exposure = smoothstep(-0.58, 0.72, p.y + p.x * 0.08);
+      float breathingWash = softBlob(
+        p,
+        vec2(-0.22 + cos(uPhase) * 0.06, 0.16 + sin(uPhase * 0.73) * 0.04),
+        0.82
+      );
+      color = mix(uColorA, uColorB, exposure * 0.54 + paperCloud * 0.08 * uIntensity);
+      color = mix(color, uAccent, breathingWash * 0.035 * uIntensity);
+      color *= 1.0
+        + (longFiber - 0.5) * 0.024 * uIntensity
+        + (crossTooth - 0.5) * 0.009 * uIntensity;
     } else {
       float slit = exp(-abs(p.x + sin(p.y * 2.4 + uPhase) * 0.08) * 8.0);
       float pulse = 0.82 + 0.18 * sin(uPhase);
@@ -269,5 +284,7 @@ export const backgroundFragmentShader = /* glsl */ `
     float grainResponse = mix(1.0, 1.0 - sqrt(clamp(displayLuminance, 0.0, 1.0)), 0.75);
     float grain = filmGrain(vUv * uResolution, uGrainFrame) * grainAmount * grainResponse * grainToe;
     gl_FragColor.rgb = clamp(gl_FragColor.rgb + vec3(grain), 0.0, 1.0);
+    gl_FragColor.a = clamp(uOpacity, 0.0, 1.0);
+    if (gl_FragColor.a <= 0.001) discard;
   }
 `;

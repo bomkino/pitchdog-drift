@@ -41,9 +41,9 @@ export const THEMES: ThemePreset[] = [
     "Long breath · warm paper",
     "Measured vertical rhythm. Slides arrive like pages held under low lamplight.",
     {
-      motion: { axis: "vertical", direction: -1, speed: 0.34, flow: "ribbon", curvature: 0.36, depth: 0.18, tilt: 4.5 },
-      slide: { scale: 0.78, radius: 36, smoothing: 0.6, borderWidth: 0, borderOpacity: 0 },
-      background: { style: "aura", colorA: "#120f0c", colorB: "#2c1516", accent: "#c26d3f", motion: 0.34, grain: 0.06 },
+      motion: { axis: "vertical", direction: -1, speed: 0.34, flow: "ribbon", gap: 0.3, curvature: 0.3, depth: 0.14, tilt: 3.5, distortion: 0.18, focusScale: 0.075, edgeFade: 0.3 },
+      slide: { scale: 0.76, fit: "cover", radius: 32, smoothing: 0.6, borderWidth: 0, borderOpacity: 0, shadowOpacity: 0.24, shadowSoftness: 112 },
+      background: { style: "paper", colorA: "#0d0d0c", colorB: "#332e29", accent: "#e7dcc9", intensity: 0.38, motion: 0.06, grain: 0.053, vignette: 0.22, seed: 17 },
     },
   ),
   makeTheme(
@@ -120,6 +120,14 @@ export function applyTheme(current: StudioSettings, theme: ThemePreset): StudioS
       transparent: theme.settings.background.style === "transparent",
     },
     output: { ...current.output },
+    motion: {
+      ...theme.settings.motion,
+      reducedMotionOutput: current.motion.reducedMotionOutput,
+    },
     presenter: { ...current.presenter },
+    performance: {
+      ...structuredClone(current.performance),
+      reducedMotion: current.motion.reducedMotionOutput,
+    },
   };
 }

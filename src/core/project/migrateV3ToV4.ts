@@ -7,6 +7,7 @@ import {
   type PresenterSettingsV4,
 } from "./schema";
 import { validateDriftProjectV3, validateDriftProjectV4 } from "./validation";
+import { createCompatibilityPerformanceLifecycle } from "../../model";
 
 export interface DriftProjectV4MigrationOverrides {
   presenter?: PresenterSettingsV4;
@@ -60,6 +61,7 @@ export function migrateDriftProjectV3ToV4(
     },
     ...project,
     presenter: overrides.presenter ?? legacyCompatiblePresenter(validated),
+    performance: createCompatibilityPerformanceLifecycle(master.duration, master.reducedMotion),
     master: overrides.masterAudioEnabled === undefined
       ? master
       : { ...master, audio: { ...master.audio, enabled: overrides.masterAudioEnabled } },

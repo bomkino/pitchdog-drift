@@ -8,6 +8,7 @@ import {
   type DriftProjectV4,
   type RecipeProvenance,
 } from "./schema";
+import { createDefaultPerformanceLifecycle } from "../../model";
 
 export function createEmptyRecipeProvenance(): RecipeProvenance {
   return {
@@ -257,6 +258,7 @@ export function createDefaultDriftProjectV4(
       matteColor: "#000000",
       matteOpacity: 0,
     },
+    performance: createDefaultPerformanceLifecycle(project.master.reducedMotion),
     extensions: {},
   };
 }

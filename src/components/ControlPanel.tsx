@@ -1,8 +1,88 @@
 import type { CSSProperties } from "react";
 import { driftBuildIdentity } from "../lib/buildIdentity";
-import type { StudioSettings, ThemeId } from "../model";
+import {
+  fitPerformanceLifecycleToDuration,
+  type StudioSettings,
+  type ThemeId,
+} from "../model";
+import {
+  createPerformanceLifecycle,
+  TRANSITION_PRESET_ORDER,
+  TRANSITION_PRESETS,
+  type PerformanceLifecycleAuthoring,
+  type TransitionPresetId,
+} from "../core/timeline/performanceLifecycle";
+import {
+  TEMPO_CURVE_PRESET_ORDER,
+  TEMPO_CURVE_PRESETS,
+  type TempoCurvePresetId,
+} from "../core/timeline/tempoCurve";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
+
+const MIN_OUTPUT_DURATION = 3;
+const MAX_OUTPUT_DURATION = 30;
+const MIN_BODY_DURATION = 0.25;
+const MAX_TRANSITION_DURATION = 2;
+const MAX_REPEAT_COUNT = 6;
+
+type TempoSelection = TempoCurvePresetId | "custom";
+
+const TRANSITION_OPTIONS: Array<{ value: TransitionPresetId; label: string }> =
+  TRANSITION_PRESET_ORDER.map((id) => ({ value: id, label: TRANSITION_PRESETS[id].label }));
+
+const TEMPO_OPTIONS: Array<{ value: TempoSelection; label: string }> = [
+  ...TEMPO_CURVE_PRESET_ORDER.map((id) => ({ value: id, label: TEMPO_CURVE_PRESETS[id].label })),
+  { value: "custom", label: "Custom" },
+];
+
+function transitionPresetFor(performance: PerformanceLifecycleAuthoring): TransitionPresetId {
+  if (performance.transitionPreset) return performance.transitionPreset;
+  const transition = performance.entry.enabled
+    ? performance.entry
+    : performance.exit.enabled
+      ? performance.exit
+      : null;
+  if (!transition) return "quiet-lift";
+  return TRANSITION_PRESET_ORDER.find((id) => {
+    const candidate = TRANSITION_PRESETS[id].entry;
+    return candidate.enabled && candidate.treatment === transition.treatment;
+  }) ?? "quiet-lift";
+}
+
+function bodyDurationForTotal(
+  performance: PerformanceLifecycleAuthoring,
+  totalDuration: number,
+): number {
+  const entryDuration = performance.entry.enabled ? performance.entry.durationSeconds : 0;
+  const exitDuration = performance.exit.enabled ? performance.exit.durationSeconds : 0;
+  switch (performance.repeat.mode) {
+    case "off":
+      return totalDuration - entryDuration - exitDuration;
+    case "body":
+      return (totalDuration - entryDuration - exitDuration) / performance.repeat.count;
+    case "full-scene":
+      return totalDuration / performance.repeat.count - entryDuration - exitDuration;
+  }
+}
+
+function minimumTotalDuration(performance: PerformanceLifecycleAuthoring): number {
+  const entryDuration = performance.entry.enabled ? performance.entry.durationSeconds : 0;
+  const exitDuration = performance.exit.enabled ? performance.exit.durationSeconds : 0;
+  let authoredMinimum: number;
+  switch (performance.repeat.mode) {
+    case "off":
+      authoredMinimum = entryDuration + MIN_BODY_DURATION + exitDuration;
+      break;
+    case "body":
+      authoredMinimum = entryDuration + MIN_BODY_DURATION * performance.repeat.count + exitDuration;
+      break;
+    case "full-scene":
+      authoredMinimum = (entryDuration + MIN_BODY_DURATION + exitDuration) * performance.repeat.count;
+      break;
+  }
+  return Math.ceil(Math.max(MIN_OUTPUT_DURATION, authoredMinimum) * 10) / 10;
+}
 
 interface ControlPanelProps {
   settings: StudioSettings;
@@ -35,6 +115,37 @@ export function ControlPanel({
       [key]: { ...(settings[key] as object), ...values },
     } as StudioSettings);
   };
+  const commitPerformance = (
+    candidate: PerformanceLifecycleAuthoring,
+    requestedTotal?: number,
+    reducedMotionOutput = settings.motion.reducedMotionOutput,
+  ) => {
+    let timeline = createPerformanceLifecycle({
+      ...candidate,
+      reducedMotion: reducedMotionOutput,
+    });
+    const minimum = Math.min(MAX_OUTPUT_DURATION, minimumTotalDuration(timeline.authoring));
+    const targetTotal = Math.min(
+      MAX_OUTPUT_DURATION,
+      Math.max(minimum, requestedTotal ?? timeline.totalDuration),
+    );
+    if (Math.abs(targetTotal - timeline.totalDuration) > 1e-9) {
+      const fitted = fitPerformanceLifecycleToDuration(
+        timeline.authoring,
+        targetTotal,
+        reducedMotionOutput,
+      );
+      timeline = createPerformanceLifecycle(fitted);
+    }
+    onSettings({
+      ...settings,
+      motion: settings.motion.reducedMotionOutput === reducedMotionOutput
+        ? settings.motion
+        : { ...settings.motion, reducedMotionOutput },
+      performance: timeline.authoring,
+      output: { ...settings.output, duration: timeline.totalDuration },
+    });
+  };
   const setStagePreset = (width: number, height: number) => {
     onSettings({
       ...settings,
@@ -43,6 +154,33 @@ export function ControlPanel({
     });
   };
   const stageLabel = `${settings.stage.width}:${settings.stage.height}`;
+  const performanceTimeline = createPerformanceLifecycle(settings.performance);
+  const performance = performanceTimeline.authoring;
+  const entryTransition = performance.entry;
+  const exitTransition = performance.exit;
+  const bodyTempo = performance.body.tempo;
+  const customTempo = bodyTempo.kind === "custom" ? bodyTempo : null;
+  const customTempoFallsBackToEven = customTempo !== null
+    && customTempo.envelope.start === 0
+    && customTempo.envelope.middle === 0
+    && customTempo.envelope.finish === 0;
+  const repeat = performance.repeat;
+  const transitionPresetId = transitionPresetFor(performance);
+  const tempoSelection: TempoSelection = bodyTempo.kind === "custom"
+    ? "custom"
+    : bodyTempo.preset;
+  const bodyDurationMinimum = Math.max(
+    MIN_BODY_DURATION,
+    bodyDurationForTotal(performance, MIN_OUTPUT_DURATION),
+  );
+  const bodyDurationMaximum = Math.max(
+    bodyDurationMinimum,
+    bodyDurationForTotal(performance, MAX_OUTPUT_DURATION),
+  );
+  const outputDurationMinimum = Math.min(
+    MAX_OUTPUT_DURATION,
+    minimumTotalDuration(performance),
+  );
 
   return (
     <aside className="inspector" aria-label="Director controls" aria-busy={exporting} inert={exporting}>
@@ -161,7 +299,16 @@ export function ControlPanel({
         <RangeField label="Focus lift" value={settings.motion.focusScale * 100} min={0} max={24} step={1} unit="%" onChange={(value) => patch("motion", { focusScale: value / 100 })} />
         <SwitchField label="Seamless export lock" checked={settings.motion.seamless} hint="Forces whole loops across master duration." onChange={(seamless) => patch("motion", { seamless })} />
         {settings.motion.seamless ? <RangeField label="Loops per master" value={settings.motion.seamlessLoops} min={1} max={6} step={1} onChange={(seamlessLoops) => patch("motion", { seamlessLoops })} /> : null}
-        <SwitchField label="Reduced-motion master" checked={settings.motion.reducedMotionOutput} hint="Independent from your OS preview preference." onChange={(reducedMotionOutput) => patch("motion", { reducedMotionOutput })} />
+        <SwitchField
+          label="Reduced-motion master"
+          checked={settings.motion.reducedMotionOutput}
+          hint="Independent from your OS preview preference. Keeps transition timing, but removes spatial travel and stagger."
+          onChange={(reducedMotionOutput) => commitPerformance(
+            { ...performanceTimeline.authoring, reducedMotion: reducedMotionOutput },
+            performanceTimeline.totalDuration,
+            reducedMotionOutput,
+          )}
+        />
       </InspectorGroup>
 
       <InspectorGroup title="Surface" eyebrow={`${Math.round(settings.slide.smoothing * 100)}% smoothing`}>
@@ -174,7 +321,7 @@ export function ControlPanel({
         <ColorField label="Border colour" value={settings.slide.borderColor} onChange={(borderColor) => patch("slide", { borderColor })} />
         <RangeField label="Border presence" value={settings.slide.borderOpacity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { borderOpacity: value / 100 })} />
         <RangeField label="Shadow" value={settings.slide.shadowOpacity * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("slide", { shadowOpacity: value / 100 })} />
-        <RangeField label="Shadow softness" value={settings.slide.shadowSoftness} min={4} max={96} step={1} unit=" px" onChange={(shadowSoftness) => patch("slide", { shadowSoftness })} />
+        <RangeField label="Shadow softness" value={settings.slide.shadowSoftness} min={4} max={160} step={1} unit=" px" onChange={(shadowSoftness) => patch("slide", { shadowSoftness })} />
       </InspectorGroup>
 
       <InspectorGroup title="Atmosphere" eyebrow={settings.background.style}>
@@ -282,8 +429,256 @@ export function ControlPanel({
         <SwitchField label="Mute presenter in export" checked={settings.presenter.muted} onChange={(muted) => patch("presenter", { muted })} />
       </InspectorGroup>
 
+      <InspectorGroup title="Performance" eyebrow={`${performanceTimeline.totalDuration.toFixed(2)} s total`} open>
+        <SelectField
+          label="Transition style"
+          value={transitionPresetId}
+          options={TRANSITION_OPTIONS}
+          onChange={(presetId) => {
+            const preset = TRANSITION_PRESETS[presetId];
+            const current = performanceTimeline.authoring;
+            commitPerformance({
+              ...current,
+              transitionPreset: presetId,
+              entry: current.entry.enabled && preset.entry.enabled
+                ? { ...preset.entry, includePresenter: current.entry.includePresenter === true }
+                : { enabled: false },
+              exit: current.exit.enabled && preset.exit.enabled
+                ? { ...preset.exit, includePresenter: current.exit.includePresenter === true }
+                : { enabled: false },
+            });
+          }}
+        />
+        <SwitchField
+          label="Opening animation"
+          checked={entryTransition.enabled}
+          hint="Brings the background and slides in before the carousel begins."
+          onChange={(enabled) => {
+            const preset = TRANSITION_PRESETS[transitionPresetId];
+            commitPerformance({
+              ...performanceTimeline.authoring,
+              entry: enabled && preset.entry.enabled
+                ? { ...preset.entry, includePresenter: false }
+                : { enabled: false },
+            });
+          }}
+        />
+        {entryTransition.enabled ? (
+          <>
+            <RangeField
+              label="Opening duration"
+              value={entryTransition.durationSeconds}
+              min={0.12}
+              max={MAX_TRANSITION_DURATION}
+              step={0.04}
+              decimals={2}
+              unit=" s"
+              onChange={(durationSeconds) => commitPerformance({
+                ...performance,
+                entry: { ...entryTransition, durationSeconds },
+              })}
+            />
+            <SwitchField
+              label="Pinned frame joins opening"
+              checked={entryTransition.includePresenter === true}
+              hint="Off keeps the pinned frame protected at its resting pose."
+              onChange={(includePresenter) => commitPerformance({
+                ...performance,
+                entry: { ...entryTransition, includePresenter },
+              })}
+            />
+          </>
+        ) : null}
+        <SwitchField
+          label="Ending animation"
+          checked={exitTransition.enabled}
+          hint="Closes the background and slides after the final carousel pass."
+          onChange={(enabled) => {
+            const preset = TRANSITION_PRESETS[transitionPresetId];
+            commitPerformance({
+              ...performanceTimeline.authoring,
+              exit: enabled && preset.exit.enabled
+                ? { ...preset.exit, includePresenter: false }
+                : { enabled: false },
+            });
+          }}
+        />
+        {exitTransition.enabled ? (
+          <>
+            <RangeField
+              label="Ending duration"
+              value={exitTransition.durationSeconds}
+              min={0.12}
+              max={MAX_TRANSITION_DURATION}
+              step={0.04}
+              decimals={2}
+              unit=" s"
+              onChange={(durationSeconds) => commitPerformance({
+                ...performance,
+                exit: { ...exitTransition, durationSeconds },
+              })}
+            />
+            <SwitchField
+              label="Pinned frame joins ending"
+              checked={exitTransition.includePresenter === true}
+              hint="Off keeps the pinned frame protected until the scene is gone."
+              onChange={(includePresenter) => commitPerformance({
+                ...performance,
+                exit: { ...exitTransition, includePresenter },
+              })}
+            />
+          </>
+        ) : null}
+        <RangeField
+          label="Body duration"
+          value={performance.body.durationSeconds}
+          min={bodyDurationMinimum}
+          max={bodyDurationMaximum}
+          step={0.01}
+          decimals={2}
+          unit=" s"
+          hint="Length of one carousel pass. Repeats extend the master around it."
+          onChange={(durationSeconds) => commitPerformance({
+            ...performance,
+            body: { ...performance.body, durationSeconds },
+          })}
+        />
+        <SelectField
+          label="Tempo"
+          value={tempoSelection}
+          options={TEMPO_OPTIONS}
+          onChange={(tempo) => commitPerformance({
+            ...performance,
+            body: {
+              ...performance.body,
+              tempo: tempo === "custom"
+                ? {
+                    kind: "custom",
+                    envelope: { ...performanceTimeline.tempoCurve.authoredEnvelope },
+                  }
+                : { kind: "preset", preset: tempo },
+            },
+          })}
+        />
+        {customTempo ? (
+          <>
+            <RangeField
+              label="Start speed"
+              value={customTempo.envelope.start}
+              min={0}
+              max={3}
+              step={0.05}
+              decimals={2}
+              unit="×"
+              hint="Relative pace. Drift normalizes the complete pass, so it still lands exactly."
+              onChange={(start) => commitPerformance({
+                ...performance,
+                body: {
+                  ...performance.body,
+                  tempo: {
+                    kind: "custom",
+                    envelope: { ...customTempo.envelope, start },
+                  },
+                },
+              })}
+            />
+            <RangeField
+              label="Middle speed"
+              value={customTempo.envelope.middle}
+              min={0}
+              max={3}
+              step={0.05}
+              decimals={2}
+              unit="×"
+              onChange={(middle) => commitPerformance({
+                ...performance,
+                body: {
+                  ...performance.body,
+                  tempo: {
+                    kind: "custom",
+                    envelope: { ...customTempo.envelope, middle },
+                  },
+                },
+              })}
+            />
+            <RangeField
+              label="Finish speed"
+              value={customTempo.envelope.finish}
+              min={0}
+              max={3}
+              step={0.05}
+              decimals={2}
+              unit="×"
+              onChange={(finish) => commitPerformance({
+                ...performance,
+                body: {
+                  ...performance.body,
+                  tempo: {
+                    kind: "custom",
+                    envelope: { ...customTempo.envelope, finish },
+                  },
+                },
+              })}
+            />
+            {customTempoFallsBackToEven ? (
+              <div className="performance-note" role="status">
+                All three speeds are zero. Drift uses an even pace so the pass remains playable.
+              </div>
+            ) : null}
+          </>
+        ) : null}
+        <Segmented
+          label="Loop"
+          value={repeat.mode}
+          options={[
+            { value: "off", label: "Off" },
+            { value: "body", label: "Body" },
+            { value: "full-scene", label: "Full scene" },
+          ]}
+          onChange={(mode) => commitPerformance({
+            ...performance,
+            repeat: mode === "off"
+              ? { mode: "off" }
+              : {
+                  mode,
+                  count: repeat.mode === "off"
+                    ? 2
+                    : repeat.count,
+                },
+          })}
+        />
+        {repeat.mode !== "off" ? (
+          <RangeField
+            label={repeat.mode === "body" ? "Body plays" : "Scene plays"}
+            value={repeat.count}
+            min={2}
+            max={MAX_REPEAT_COUNT}
+            step={1}
+            hint={repeat.mode === "body"
+              ? "Opening and ending play once; only the carousel body repeats."
+              : "Opening, carousel, and ending repeat together as one complete scene."}
+            onChange={(count) => commitPerformance({
+              ...performance,
+              repeat: { ...repeat, count },
+            })}
+          />
+        ) : null}
+      </InspectorGroup>
+
       <InspectorGroup title="Output" eyebrow={`${settings.output.width} × ${settings.output.height}`} open>
-        <RangeField label="Duration" value={settings.output.duration} min={3} max={30} step={1} unit=" s" onChange={(duration) => patch("output", { duration })} />
+        <RangeField
+          label="Duration"
+          value={performanceTimeline.totalDuration}
+          min={outputDurationMinimum}
+          max={MAX_OUTPUT_DURATION}
+          step={0.01}
+          decimals={2}
+          unit=" s"
+          hint={outputDurationMinimum > MIN_OUTPUT_DURATION
+            ? `This repeat pattern needs at least ${outputDurationMinimum.toFixed(1)} seconds.`
+            : "Adjusts the carousel body while preserving your opening, ending, and loop pattern."}
+          onChange={(duration) => commitPerformance(performance, duration)}
+        />
         <Segmented
           label="Frame rate"
           value={settings.output.fps}

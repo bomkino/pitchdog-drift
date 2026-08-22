@@ -1,3 +1,5 @@
+import type { PerformanceLifecycleAuthoring } from "../timeline/performanceLifecycle";
+
 export const DRIFT_PROJECT_SCHEMA = "dog.pitch.drift/project" as const;
 export const DRIFT_PROJECT_VERSION = 3 as const;
 export const DRIFT_PROJECT_V4_VERSION = 4 as const;
@@ -330,6 +332,7 @@ export interface DriftProjectV4 extends Omit<DriftProjectV3, "formatVersion" | "
   renderContract: typeof DRIFT_V1_COMPAT_RENDER_CONTRACT;
   migration: DriftProjectMigrationV4 | null;
   presenter: PresenterSettingsV4;
+  performance: PerformanceLifecycleAuthoring;
   extensions: Record<string, DriftJsonValue>;
 }
 

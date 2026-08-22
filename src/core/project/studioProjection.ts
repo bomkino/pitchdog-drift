@@ -1,5 +1,7 @@
 import {
+  createCompatibilityPerformanceLifecycle,
   ENGINE_VERSION,
+  fitPerformanceLifecycleToDuration,
   SCHEMA_VERSION,
   SHADER_VERSION,
   THEME_VERSION,
@@ -17,6 +19,8 @@ import {
   type DriftProjectV4,
   type SlideDirective,
 } from "./schema";
+import { recipeFingerprint } from "../recipes/fingerprint";
+import { WORLD_RECIPE_DOMAINS } from "../worlds/worldRegistry";
 
 type CompatibleDriftProject = DriftProjectV3 | DriftProjectV4;
 
@@ -195,6 +199,9 @@ export function studioSettingsFromDriftProject(projectInput: CompatibleDriftProj
       trimStart: project.presenter.trimStart,
       startAt: project.presenter.startAt,
     },
+    performance: project.formatVersion === 4
+      ? structuredClone(project.performance)
+      : createCompatibilityPerformanceLifecycle(project.master.duration, project.master.reducedMotion),
     output: {
       width: project.composition.width,
       height: project.composition.height,
@@ -208,6 +215,29 @@ export function studioSettingsFromDriftProject(projectInput: CompatibleDriftProj
 
 function copyAsset(asset: AssetDescriptor): AssetDescriptor {
   return { ...asset };
+}
+
+/**
+ * A recipe reference may survive only while its resolved domain still hashes
+ * to the authored value. Unrelated project-owned edits keep truthful per-domain
+ * provenance; any recipe drift dissolves the aggregate World into Custom.
+ */
+function invalidateDriftedWorldRecipes(project: CompatibleDriftProject): void {
+  let drifted = false;
+  for (const domain of WORLD_RECIPE_DOMAINS) {
+    const reference = project.provenance.recipes[domain];
+    if (
+      reference
+      && recipeFingerprint(reference.id, reference.version, project[domain]) !== reference.fingerprint
+    ) {
+      project.provenance.recipes[domain] = null;
+      drifted = true;
+    }
+  }
+  if (drifted) {
+    project.provenance.world = null;
+    project.provenance.worldVariant = "custom";
+  }
 }
 
 function directiveFor(
@@ -260,6 +290,11 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
     : cloneDriftProject(validateDriftProjectV3(input.project));
   const previouslyProjected = studioSettingsFromDriftProject(next);
   const { settings } = input;
+  const performance = fitPerformanceLifecycleToDuration(
+    settings.performance,
+    settings.output.duration,
+    settings.motion.reducedMotionOutput,
+  );
   const presenter = input.presenterAsset ?? null;
   const allAssets = [...input.slideAssets, ...(presenter ? [presenter] : [])];
   const assets = Object.fromEntries(allAssets.map((asset) => [asset.id, copyAsset(asset)]));
@@ -376,6 +411,7 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
       matteColor: settings.presenter.matteColor,
       matteOpacity: settings.presenter.matteOpacity,
     };
+    next.performance = performance;
   } else {
     next.presenter = presenterBase;
   }
@@ -394,6 +430,8 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
       bitrate: settings.output.audioBitrate,
     },
   };
+
+  invalidateDriftedWorldRecipes(next);
 
   if (LEGACY_THEMES.includes(settings.themeId) && settings.themeId !== previouslyProjected.themeId) {
     next.provenance.world = {

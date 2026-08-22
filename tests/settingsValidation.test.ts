@@ -89,9 +89,43 @@ describe("validateStudioSettings", () => {
     expect(result).not.toBe(source);
     expect(result.motion).not.toBe(source.motion);
     expect(result.slide).not.toBe(source.slide);
+    expect(result.performance).not.toBe(source.performance);
 
     result.motion.speed = 0;
     expect(source.motion.speed).toBe(DEFAULT_SETTINGS.motion.speed);
+  });
+
+  it("promotes settings without lifecycle authoring to exact legacy-compatible timing", () => {
+    const source = settings();
+    source.output.duration = 12;
+    source.motion.reducedMotionOutput = true;
+    delete source.performance;
+
+    expect(validateStudioSettings(source).performance).toEqual({
+      transitionPreset: "quiet-lift",
+      entry: { enabled: false },
+      body: { durationSeconds: 12, tempo: { kind: "preset", preset: "even" } },
+      exit: { enabled: false },
+      repeat: { mode: "off" },
+      reducedMotion: true,
+    });
+  });
+
+  it("fits body and full-scene repeats to output duration without changing repeat meaning", () => {
+    const bodyRepeat = settings();
+    bodyRepeat.output.duration = 14;
+    bodyRepeat.performance.repeat = { mode: "body", count: 2 };
+    expect(validateStudioSettings(bodyRepeat).performance.body.durationSeconds).toBeCloseTo(6.36, 12);
+
+    const sceneRepeat = settings();
+    sceneRepeat.output.duration = 16;
+    sceneRepeat.performance.repeat = { mode: "full-scene", count: 2 };
+    expect(validateStudioSettings(sceneRepeat).performance.body.durationSeconds).toBeCloseTo(6.72, 12);
+
+    const impossible = settings();
+    impossible.output.duration = 3;
+    impossible.performance.repeat = { mode: "full-scene", count: 6 };
+    expectInvalid(impossible, "performance");
   });
 
   it("accepts all six current film-world themes", () => {
@@ -204,7 +238,14 @@ describe("validateStudioSettings", () => {
       startAt: STUDIO_SETTINGS_LIMITS.presenterStartAt,
     });
 
-    expect(validateStudioSettings(source)).toEqual(source);
+    const validated = validateStudioSettings(source);
+    expect(validated).toEqual({
+      ...source,
+      performance: {
+        ...source.performance,
+        body: { ...source.performance.body, durationSeconds: 3 - 0.72 - 0.56 },
+      },
+    });
   });
 
   it("accepts every upper UI and safety boundary", () => {
@@ -241,7 +282,7 @@ describe("validateStudioSettings", () => {
       borderWidth: 16,
       borderOpacity: 1,
       shadowOpacity: 0.8,
-      shadowSoftness: 96,
+      shadowSoftness: STUDIO_SETTINGS_LIMITS.slideShadowSoftness.max,
     });
     Object.assign(source.background, {
       intensity: 1,
@@ -273,7 +314,14 @@ describe("validateStudioSettings", () => {
       startAt: STUDIO_SETTINGS_LIMITS.presenterStartAt,
     });
 
-    expect(validateStudioSettings(source)).toEqual(source);
+    const validated = validateStudioSettings(source);
+    expect(validated).toEqual({
+      ...source,
+      performance: {
+        ...source.performance,
+        body: { ...source.performance.body, durationSeconds: 30 - 0.72 - 0.56 },
+      },
+    });
   });
 
   it("rejects unsupported schema, engine, and shader versions", () => {
@@ -360,6 +408,7 @@ describe("validateStudioSettings", () => {
       ["slide.borderOpacity", -0.001],
       ["slide.shadowOpacity", 0.801],
       ["slide.shadowSoftness", 3.999],
+      ["slide.shadowSoftness", STUDIO_SETTINGS_LIMITS.slideShadowSoftness.max + 0.001],
       ["background.intensity", 1.001],
       ["background.motion", -0.001],
       ["background.grain", 0.601],

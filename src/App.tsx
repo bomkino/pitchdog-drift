@@ -15,6 +15,8 @@ import {
   studioSettingsFromDriftProject,
 } from "./core/project/studioProjection";
 import type { AssetDescriptor, DriftProjectV4 } from "./core/project/schema";
+import { createPerformanceLifecycle } from "./core/timeline/performanceLifecycle";
+import { defaultPerformanceStillTime } from "./core/timeline/renderTravel";
 import { CinematicCarousel } from "./engine/CinematicCarousel";
 import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
 import { driftBuildIdentity } from "./lib/buildIdentity";
@@ -71,6 +73,7 @@ import {
   type ThemeId,
 } from "./model";
 import { applyTheme, getTheme } from "./themes";
+import { resolveFirstPinComposition } from "./core/presenter/activation";
 
 const MAX_SLIDES = 200;
 const AUTOSAVE_DELAY_MS = 1_200;
@@ -788,7 +791,14 @@ export function App() {
         ...settingsRef.current,
         presenter: selectedSlideStillExists
           ? currentPin
-          : { ...currentPin, enabled: true, assetId: next.id },
+          : {
+              ...currentPin,
+              ...(currentPin.assetId === null
+                ? resolveFirstPinComposition(settingsRef.current.stage, next)
+                : {}),
+              enabled: true,
+              assetId: next.id,
+            },
       };
       if (options.persistBeforeReply) {
         directPersistenceSnapshotRef.current = {
@@ -845,12 +855,16 @@ export function App() {
   }, [markProjectDirty]);
 
   const pin = useCallback((asset: StudioAsset | null) => {
+    const current = settingsRef.current;
     const nextSettings: StudioSettings = {
-      ...settingsRef.current,
+      ...current,
       presenter: {
-        ...settingsRef.current.presenter,
+        ...current.presenter,
+        ...(asset && current.presenter.assetId === null
+          ? resolveFirstPinComposition(current.stage, asset)
+          : {}),
         enabled: Boolean(asset),
-        assetId: asset?.id ?? settingsRef.current.presenter.assetId,
+        assetId: asset?.id ?? current.presenter.assetId,
       },
     };
     markProjectDirty();
@@ -968,6 +982,9 @@ export function App() {
       session = beginExport();
       const pinnedVideo = settingsRef.current.presenter.enabled && pinnedAsset?.kind === "video" ? pinnedAsset : null;
       const { exportPngStill } = await import("./lib/exportStudio");
+      const stillTime = defaultPerformanceStillTime(
+        createPerformanceLifecycle(settingsRef.current.performance),
+      );
       const result = await exportPngStill({
         canvas: session.engine.canvas,
         renderAt: renderForExport,
@@ -978,6 +995,7 @@ export function App() {
           duration: session.output.duration,
         },
         presenter: pinnedVideo?.blob,
+        time: stillTime,
         signal: session.controller.signal,
         requireAlpha: true,
         requireTransparentPixels: settingsRef.current.stage.transparent || settingsRef.current.background.style === "transparent",

@@ -9,6 +9,8 @@ describe("theme application", () => {
     current.background.style = "transparent";
     current.output.duration = 13;
     current.presenter.enabled = true;
+    current.motion.reducedMotionOutput = true;
+    current.performance = { ...current.performance, reducedMotion: true };
 
     const themed = applyTheme(current, getTheme("road-memory"));
 
@@ -17,5 +19,7 @@ describe("theme application", () => {
     expect(themed.stage).toEqual({ width: 1200, height: 1500, transparent: false });
     expect(themed.output.duration).toBe(13);
     expect(themed.presenter.enabled).toBe(true);
+    expect(themed.motion.reducedMotionOutput).toBe(true);
+    expect(themed.performance.reducedMotion).toBe(true);
   });
 });

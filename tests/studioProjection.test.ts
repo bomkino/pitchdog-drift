@@ -6,11 +6,13 @@ import {
   type LegacyAssetDescriptor,
 } from "../src/core/project/migrateLegacy";
 import { migrateDriftProjectV3ToV4 } from "../src/core/project/migrateV3ToV4";
+import { createDefaultDriftProjectV4 } from "../src/core/project/defaults";
 import {
   reconcileStudioProject,
   studioSettingsFromDriftProject,
 } from "../src/core/project/studioProjection";
 import type { AssetDescriptor } from "../src/core/project/schema";
+import { applyEditorialDriftFoundation } from "../src/core/worlds";
 
 const slideA: LegacyAssetDescriptor = {
   id: "slide-a",
@@ -107,7 +109,35 @@ describe("Project V3/V4 studio projection", () => {
       migration: { sourceFormat: "project-v3", migrator: "drift-project-v4/1" },
       extensions: { "dog.pitch.test": { note: "preserve me" } },
       motion: { transport: { slidesPerSecond: 0.52 } },
+      performance: {
+        entry: { enabled: true },
+        body: { durationSeconds: 12 - 0.72 - 0.56, tempo: { kind: "preset", preset: "fast-slow-fast" } },
+        exit: { enabled: true },
+      },
     });
+  });
+
+  it("round-trips authored V4 lifecycle while V3 projection stays compatibility-only", () => {
+    const { project } = legacyProject();
+    expect(studioSettingsFromDriftProject(project).performance).toMatchObject({
+      entry: { enabled: false },
+      body: { durationSeconds: 12, tempo: { kind: "preset", preset: "even" } },
+      exit: { enabled: false },
+    });
+
+    const v4 = migrateDriftProjectV3ToV4(project);
+    const settings = studioSettingsFromDriftProject(v4);
+    settings.performance = structuredClone(DEFAULT_SETTINGS.performance);
+    settings.output.duration = 8;
+    const reconciled = reconcileStudioProject({
+      project: v4,
+      settings,
+      slideAssets: [v4.media.assets["slide-a"]!],
+      updatedAt: "2026-08-21T00:45:00.000Z",
+    });
+    expect(reconciled.performance).toEqual(DEFAULT_SETTINGS.performance);
+    expect(reconciled.master.duration).toBe(8);
+    expect(studioSettingsFromDriftProject(reconciled).performance).toEqual(DEFAULT_SETTINGS.performance);
   });
 
   it("round-trips every legacy-rendered field without reapplying a mutable world", () => {
@@ -295,6 +325,29 @@ describe("Project V3/V4 studio projection", () => {
     expect(replaced.motion.path.id).toBe("ribbon");
     expect(replaced.atmosphere.family).toBe("paper");
     expect(replaced.provenance.world?.id).toBe("tender-light");
+  });
+
+  it("dissolves drifted World provenance while retaining truthful untouched recipes", () => {
+    const world = applyEditorialDriftFoundation(
+      createDefaultDriftProjectV4("world-custom", "2026-08-21T02:30:00.000Z"),
+      "9:16",
+      "2026-08-21T02:30:00.000Z",
+    );
+    const settings = studioSettingsFromDriftProject(world);
+    settings.motion.speed += 0.07;
+
+    const reconciled = reconcileStudioProject({
+      project: world,
+      settings,
+      slideAssets: [],
+      updatedAt: "2026-08-21T02:31:00.000Z",
+    });
+
+    expect(world.provenance.recipes.motion).not.toBeNull();
+    expect(reconciled.provenance.recipes.motion).toBeNull();
+    expect(reconciled.provenance.recipes.card).toEqual(world.provenance.recipes.card);
+    expect(reconciled.provenance.world).toBeNull();
+    expect(reconciled.provenance.worldVariant).toBe("custom");
   });
 
   it("keeps an ordered image pinned when a separate presenter video also exists", () => {

@@ -18,6 +18,7 @@ import {
   inspectPngHeader,
   inspectRgbaAlpha,
   makePngFrameFilename,
+  resolvePngStillTime,
   resolvePresenterAudioEnabled,
   validateExportSettings,
   verifyPngZipEntries,
@@ -77,6 +78,12 @@ describe("deterministic export timeline", () => {
     expect(makePngFrameFilename(239, 240, "horror-cut")).toBe("horror-cut_000240.png");
     expectExportCode(() => makePngFrameFilename(240, 240), "INVALID_SETTINGS");
     expectExportCode(() => makePngFrameFilename(0, 1, "../escape"), "INVALID_SETTINGS");
+  });
+
+  it("defaults stills to the master midpoint while preserving explicit frame zero", () => {
+    expect(resolvePngStillTime(3)).toBe(1.5);
+    expect(resolvePngStillTime(3, 0)).toBe(0);
+    expectExportCode(() => resolvePngStillTime(3, 3.01), "INVALID_SETTINGS");
   });
 });
 

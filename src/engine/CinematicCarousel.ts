@@ -1,15 +1,27 @@
 import * as THREE from "three";
 import { resolvePresenterOverlayLayout } from "../core/presenter/layout";
+import { resolvePinLaneComposition } from "../core/presenter/lane";
+import {
+  createPerformanceLifecycle,
+  type LifecycleLayerSample,
+  type PerformanceLifecycleSample,
+  type PerformanceLifecycleTimeline,
+  type TransitionTreatment,
+} from "../core/timeline/performanceLifecycle";
+import {
+  evaluatePerformanceTravel,
+  loopPerformanceTime,
+} from "../core/timeline/renderTravel";
 import type { StudioAsset, StudioSettings } from "../model";
 import {
-  distanceAtTime,
   evaluateSlide,
   getLogicalSlotCount,
   getSlideGeometry,
   isPotentiallyVisible,
-  velocityAtTime,
   type EvaluatedSlide,
 } from "./evaluate";
+import { resolveBackgroundPhase } from "./backgroundPhase";
+import { resolveLifecycleLayerPresentation } from "./lifecyclePresentation";
 import {
   backgroundFragmentShader,
   backgroundVertexShader,
@@ -25,6 +37,7 @@ const PREVIEW_TEXTURE_EDGE = 2048;
 const CAMERA_FOV = 35;
 const SHADOW_ALPHA_CUTOFF = 0.001;
 const GRAIN_SEED_MODULUS = 4093;
+const GRAIN_CADENCE_FPS = 12;
 
 /**
  * Give the Gaussian enough geometry to reach the shader's discard threshold.
@@ -75,9 +88,11 @@ export function resolveGrainFrame(
 ): number {
   if (reducedMotion) return 0;
   const explicitFrameIndex = resolveExportFrameIndex(exportFrameIndex);
-  if (exportMode && explicitFrameIndex !== null) return explicitFrameIndex;
-  const rate = exportMode ? fps : Math.min(30, fps);
-  return exportMode ? Math.round(time * rate) : Math.floor(time * rate);
+  const cadence = Math.min(GRAIN_CADENCE_FPS, fps);
+  if (exportMode && explicitFrameIndex !== null) {
+    return Math.floor(explicitFrameIndex * cadence / fps);
+  }
+  return Math.floor(Math.max(0, time) * cadence);
 }
 
 interface EngineCallbacks {
@@ -284,6 +299,8 @@ export class CinematicCarousel {
   private readonly callbacks: EngineCallbacks;
 
   private settings: StudioSettings;
+  private performanceTimeline: PerformanceLifecycleTimeline;
+  private reducedPerformanceTimeline: PerformanceLifecycleTimeline;
   private assets: StudioAsset[] = [];
   private presenterAsset: StudioAsset | null = null;
   private presenterGroup: THREE.Group;
@@ -329,6 +346,14 @@ export class CinematicCarousel {
   constructor(canvas: HTMLCanvasElement, settings: StudioSettings, callbacks: EngineCallbacks = {}) {
     this.canvas = canvas;
     this.settings = settings;
+    this.performanceTimeline = createPerformanceLifecycle({
+      ...settings.performance,
+      reducedMotion: settings.motion.reducedMotionOutput,
+    });
+    this.reducedPerformanceTimeline = createPerformanceLifecycle({
+      ...settings.performance,
+      reducedMotion: true,
+    });
     this.callbacks = callbacks;
 
     const context = canvas.getContext("webgl2", {
@@ -365,6 +390,7 @@ export class CinematicCarousel {
     this.backgroundMaterial = new THREE.ShaderMaterial({
       vertexShader: backgroundVertexShader,
       fragmentShader: backgroundFragmentShader,
+      transparent: true,
       depthTest: false,
       depthWrite: false,
       uniforms: {
@@ -380,6 +406,7 @@ export class CinematicCarousel {
         uVignette: { value: settings.background.vignette },
         uPhase: { value: 0 },
         uSeed: { value: normalizeGrainSeed(settings.background.seed) },
+        uOpacity: { value: 1 },
       },
     });
     this.backgroundMesh = new THREE.Mesh(this.backgroundGeometry, this.backgroundMaterial);
@@ -450,6 +477,14 @@ export class CinematicCarousel {
 
   setSettings(settings: StudioSettings): void {
     this.settings = settings;
+    this.performanceTimeline = createPerformanceLifecycle({
+      ...settings.performance,
+      reducedMotion: settings.motion.reducedMotionOutput,
+    });
+    this.reducedPerformanceTimeline = createPerformanceLifecycle({
+      ...settings.performance,
+      reducedMotion: true,
+    });
     this.updateCamera();
     this.updateSettingsUniforms();
     this.updatePresenterGeometry();
@@ -683,10 +718,18 @@ export class CinematicCarousel {
   renderAt(time: number, frameIndex: number | null = null): void {
     const exportFrameIndex = resolveExportFrameIndex(frameIndex);
     const geometry = getSlideGeometry(this.settings);
-    const slotCount = getLogicalSlotCount(this.movingTrackAssets().length, geometry);
-    const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
-    const velocity = velocityAtTime(this.settings, slotCount, geometry.stride, true);
-    this.renderInternal(time, distance, velocity, true, exportFrameIndex);
+    const movingAssets = this.movingTrackAssets();
+    const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
+    const travel = evaluatePerformanceTravel(this.performanceTimeline, time, {
+      direction: this.settings.motion.direction,
+      slidesPerSecond: this.settings.motion.speed,
+      stride: geometry.stride,
+      slotCount,
+      slideLayerCount: this.assets.length,
+      seamless: this.settings.motion.seamless,
+      seamlessLoops: Math.max(1, Math.round(this.settings.motion.seamlessLoops)),
+    });
+    this.renderInternal(time, travel.distance, travel.velocity, true, exportFrameIndex, travel.lifecycle);
   }
 
   async renderAtAsync(time: number, frameIndex: number | null = null): Promise<void> {
@@ -694,7 +737,16 @@ export class CinematicCarousel {
     const geometry = getSlideGeometry(this.settings);
     const movingAssets = this.movingTrackAssets();
     const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
-    const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
+    const travel = evaluatePerformanceTravel(this.performanceTimeline, time, {
+      direction: this.settings.motion.direction,
+      slidesPerSecond: this.settings.motion.speed,
+      stride: geometry.stride,
+      slotCount,
+      slideLayerCount: this.assets.length,
+      seamless: this.settings.motion.seamless,
+      seamlessLoops: Math.max(1, Math.round(this.settings.motion.seamlessLoops)),
+    });
+    const distance = travel.distance;
     const visible: VisibleItem[] = [];
     for (let logicalIndex = 0; logicalIndex < slotCount; logicalIndex += 1) {
       const moving = movingAssets[logicalIndex % Math.max(1, movingAssets.length)];
@@ -752,7 +804,7 @@ export class CinematicCarousel {
       if (this.exportActive || this.contextLost || document.hidden) return;
       const delta = Math.min(0.05, Math.max(0, (now - this.lastFrameTime) / 1000));
       this.lastFrameTime = now;
-      if (!this.paused && !this.reducedMotionPreview) this.elapsed += delta;
+      if (!this.paused) this.elapsed += delta;
       this.advanceMotion(delta);
       this.renderPreview();
       this.sampleFps(now);
@@ -766,23 +818,43 @@ export class CinematicCarousel {
   }
 
   private advanceMotion(delta: number): void {
-    if (this.paused || this.reducedMotionPreview) {
+    if (this.paused) {
       this.motionVelocity = 0;
       return;
     }
-    const geometry = getSlideGeometry(this.settings);
-    const autoplay = this.settings.motion.autoplay;
-    const desiredVelocity = autoplay ? this.settings.motion.direction * this.settings.motion.speed * geometry.stride : 0;
     if (!this.dragging) {
-      const response = 1 - Math.exp(-delta * (autoplay ? 4.8 : 7.5));
-      this.motionVelocity += (desiredVelocity - this.motionVelocity) * response;
       this.motionPosition += this.motionVelocity * delta;
+      this.motionVelocity *= Math.exp(-delta * 7.5);
+      if (Math.abs(this.motionVelocity) < 0.01) this.motionVelocity = 0;
     }
   }
 
   private renderPreview(): void {
     if (this.contextLost || this.disposed || this.exportActive) return;
-    this.renderInternal(this.elapsed, this.motionPosition, this.motionVelocity, false);
+    const timeline = this.reducedMotionPreview
+      ? this.reducedPerformanceTimeline
+      : this.performanceTimeline;
+    const performanceTime = loopPerformanceTime(this.elapsed, timeline.totalDuration);
+    const geometry = getSlideGeometry(this.settings);
+    const movingAssets = this.movingTrackAssets();
+    const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
+    const travel = evaluatePerformanceTravel(timeline, performanceTime, {
+      direction: this.settings.motion.direction,
+      slidesPerSecond: this.settings.motion.autoplay ? this.settings.motion.speed : 0,
+      stride: geometry.stride,
+      slotCount,
+      slideLayerCount: this.assets.length,
+      seamless: this.settings.motion.seamless,
+      seamlessLoops: Math.max(1, Math.round(this.settings.motion.seamlessLoops)),
+    });
+    this.renderInternal(
+      performanceTime,
+      travel.distance + this.motionPosition,
+      travel.velocity + this.motionVelocity,
+      false,
+      null,
+      travel.lifecycle,
+    );
   }
 
   private renderInternal(
@@ -791,6 +863,7 @@ export class CinematicCarousel {
     velocity: number,
     exportMode: boolean,
     exportFrameIndex: number | null = null,
+    lifecycle?: PerformanceLifecycleSample,
   ): void {
     const geometry = getSlideGeometry(this.settings);
     const movingAssets = this.movingTrackAssets();
@@ -834,10 +907,19 @@ export class CinematicCarousel {
         continue;
       }
       keepTextureKeys.add(this.textureKey(visibleItem.asset));
-      this.updatePoolItem(item, visibleItem, geometry.width, geometry.height, normalizedVelocity);
+      this.updatePoolItem(
+        item,
+        visibleItem,
+        geometry.width,
+        geometry.height,
+        normalizedVelocity,
+        lifecycle?.layers.slides[visibleItem.sourceIndex],
+        this.lifecycleTreatment(lifecycle),
+      );
     }
 
-    this.updatePresenterGeometry();
+    this.updatePresenterGeometry(lifecycle?.layers.presenter, this.lifecycleTreatment(lifecycle));
+    this.backgroundMaterial.uniforms.uOpacity!.value = lifecycle?.layers.background.visibility ?? 1;
     this.updateBackground(time, exportMode, exportFrameIndex);
     if (this.renderCounter % 90 === 0) this.evictTextures(keepTextureKeys);
     this.renderCounter += 1;
@@ -862,15 +944,43 @@ export class CinematicCarousel {
     width: number,
     height: number,
     velocity: number,
+    lifecycleLayer?: LifecycleLayerSample,
+    treatment: TransitionTreatment | null = null,
   ): void {
     const { evaluated, asset, logicalIndex } = visible;
     item.group.visible = true;
-    if (this.settings.motion.axis === "horizontal") item.group.position.set(evaluated.primary, evaluated.cross, evaluated.z);
-    else item.group.position.set(evaluated.cross, -evaluated.primary, evaluated.z);
+    const transition = resolveLifecycleLayerPresentation(
+      lifecycleLayer ?? { visibility: 1, progress: 1, motionProgress: 1, active: false },
+      treatment,
+      Math.min(48, Math.min(this.settings.stage.width, this.settings.stage.height) * 0.035),
+    );
+    const pinLane = resolvePinLaneComposition({
+      enabled: this.settings.presenter.enabled,
+      safeOverlay: this.settings.presenter.layoutMode === "safe-overlay",
+      stage: this.settings.stage,
+      axis: this.settings.motion.axis,
+      pinX: this.settings.presenter.x,
+      pinY: this.settings.presenter.y,
+      pinWidth: this.settings.presenter.width,
+    });
+    if (this.settings.motion.axis === "horizontal") {
+      item.group.position.set(
+        evaluated.primary + pinLane.offsetX,
+        evaluated.cross + pinLane.offsetY - transition.translateY,
+        evaluated.z,
+      );
+    } else {
+      item.group.position.set(
+        evaluated.cross + pinLane.offsetX,
+        -evaluated.primary + pinLane.offsetY - transition.translateY,
+        evaluated.z,
+      );
+    }
     item.group.rotation.set(evaluated.rotationX, evaluated.rotationY, evaluated.rotationZ);
-    item.group.scale.setScalar(evaluated.scale);
+    item.group.scale.setScalar(evaluated.scale * transition.scale * pinLane.scale);
     item.slide.scale.set(width, height, 1);
-    const shadowOpacity = this.settings.slide.shadowOpacity * evaluated.opacity;
+    const renderedOpacity = evaluated.opacity * transition.opacity;
+    const shadowOpacity = this.settings.slide.shadowOpacity * renderedOpacity;
     const shadowMargin = getShadowSupportMargin(this.settings.slide.shadowSoftness, shadowOpacity);
     item.shadow.scale.set(width + shadowMargin * 2, height + shadowMargin * 2, 1);
     item.shadow.position.set(10, -14, -8);
@@ -885,7 +995,7 @@ export class CinematicCarousel {
     uniforms.uBorderPx!.value = this.settings.slide.borderWidth;
     uniforms.uBorderColor!.value.set(this.settings.slide.borderColor);
     uniforms.uBorderOpacity!.value = this.settings.slide.borderOpacity;
-    uniforms.uOpacity!.value = evaluated.opacity;
+    uniforms.uOpacity!.value = renderedOpacity;
     uniforms.uVelocity!.value = velocity;
     uniforms.uDistortion!.value = this.settings.motion.distortion;
     uniforms.uAxis!.value = this.settings.motion.axis === "horizontal" ? 0 : 1;
@@ -929,10 +1039,18 @@ export class CinematicCarousel {
     }
   }
 
-  private updatePresenterGeometry(): void {
+  private updatePresenterGeometry(
+    lifecycleLayer?: LifecycleLayerSample,
+    treatment: TransitionTreatment | null = null,
+  ): void {
     const settings = this.settings.presenter;
     const shouldShow = settings.enabled && Boolean(this.presenterAsset) && Boolean(this.presenterMaterial.uniforms.uMap!.value);
-    this.presenterGroup.visible = shouldShow;
+    const transition = resolveLifecycleLayerPresentation(
+      lifecycleLayer ?? { visibility: 1, progress: 1, motionProgress: 1, active: false },
+      treatment,
+      Math.min(48, Math.min(this.settings.stage.width, this.settings.stage.height) * 0.035),
+    );
+    this.presenterGroup.visible = shouldShow && transition.opacity > 0.001;
     if (!shouldShow) return;
     const safeOverlay = settings.layoutMode === "safe-overlay";
     const desiredParent = safeOverlay ? this.presenterScene : this.scene;
@@ -971,16 +1089,16 @@ export class CinematicCarousel {
       shadowMargin *= layout.fitScale;
       shadowOffsetX *= layout.fitScale;
       shadowOffsetY *= layout.fitScale;
-      this.presenterGroup.position.set(layout.centerStage.x, layout.centerStage.y, 0);
+      this.presenterGroup.position.set(layout.centerStage.x, layout.centerStage.y - transition.translateY, 0);
     } else {
       width = stage.width * THREE.MathUtils.clamp(settings.width, 0.12, 0.9);
       height = width / (settings.aspectWidth / Math.max(0.01, settings.aspectHeight));
       const x = (settings.x - 0.5) * stage.width;
       const y = (0.5 - settings.y) * stage.height;
-      this.presenterGroup.position.set(x, y, 180);
+      this.presenterGroup.position.set(x, y - transition.translateY, 180);
     }
     this.presenterGroup.rotation.set(0, 0, 0);
-    this.presenterGroup.scale.setScalar(1);
+    this.presenterGroup.scale.setScalar(transition.scale);
     this.presenterSlide.scale.set(width, height, 1);
     this.presenterShadow.scale.set(width + shadowMargin * 2, height + shadowMargin * 2, 1);
     this.presenterShadow.position.set(shadowOffsetX, -shadowOffsetY, safeOverlay ? -1 : -10);
@@ -998,7 +1116,7 @@ export class CinematicCarousel {
     uniforms.uLegacyContainMatte!.value = safeOverlay ? 0 : 1;
     uniforms.uMatteColor!.value.set(settings.matteColor);
     uniforms.uMatteOpacity!.value = settings.matteOpacity;
-    uniforms.uOpacity!.value = 1;
+    uniforms.uOpacity!.value = transition.opacity;
     uniforms.uVelocity!.value = 0;
     uniforms.uDistortion!.value = 0;
     uniforms.uAxis!.value = 0;
@@ -1009,7 +1127,18 @@ export class CinematicCarousel {
     shadowUniforms.uRadiusPx!.value = settings.radius;
     shadowUniforms.uSmoothing!.value = settings.smoothing;
     shadowUniforms.uSoftnessPx!.value = shadowSoftness;
-    shadowUniforms.uOpacity!.value = settings.shadowOpacity;
+    shadowUniforms.uOpacity!.value = settings.shadowOpacity * transition.opacity;
+  }
+
+  private lifecycleTreatment(sample?: PerformanceLifecycleSample): TransitionTreatment | null {
+    if (!sample) return null;
+    if (sample.phase === "entry" && this.performanceTimeline.authoring.entry.enabled) {
+      return this.performanceTimeline.authoring.entry.treatment;
+    }
+    if (sample.phase === "exit" && this.performanceTimeline.authoring.exit.enabled) {
+      return this.performanceTimeline.authoring.exit.treatment;
+    }
+    return null;
   }
 
   private updateSettingsUniforms(): void {
@@ -1027,14 +1156,17 @@ export class CinematicCarousel {
 
   private updateBackground(time: number, exportMode: boolean, exportFrameIndex: number | null = null): void {
     const reduced = exportMode ? this.settings.motion.reducedMotionOutput : this.reducedMotionPreview;
-    let phase = reduced ? 0 : time * this.settings.background.motion * 0.72;
-    if (exportMode && this.settings.motion.seamless && !reduced) {
-      phase = (time / Math.max(0.001, this.settings.output.duration)) * Math.PI * 2 * Math.max(1, Math.round(this.settings.motion.seamlessLoops));
-    }
-    this.backgroundMaterial.uniforms.uPhase!.value = phase;
+    this.backgroundMaterial.uniforms.uPhase!.value = resolveBackgroundPhase(time, {
+      durationSeconds: this.settings.output.duration,
+      motion: this.settings.background.motion,
+      seamless: this.settings.motion.seamless,
+      seamlessLoops: this.settings.motion.seamlessLoops,
+      reducedMotion: reduced,
+    });
     // Grain cadence is deliberately independent from the room's slow breath.
-    // Export gets one deterministic plate per exact output frame. Preview caps
-    // at 30 Hz for a quiet cinema cadence and freezes with Pause/reduced motion.
+    // Exact output-frame identity selects a held 12 fps grain plate. The lower
+    // cadence reads as handled film rather than high-frequency television snow,
+    // and freezes with Pause or reduced motion.
     this.backgroundMaterial.uniforms.uGrainFrame!.value = resolveGrainFrame(
       time,
       this.settings.output.fps,

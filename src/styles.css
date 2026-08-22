@@ -975,6 +975,16 @@ a:focus-visible {
   line-height: 1.45;
 }
 
+.performance-note {
+  margin: 2px 0 9px;
+  padding: 9px 11px;
+  border-left: 2px solid var(--rust);
+  color: var(--muted);
+  background: rgba(166, 96, 66, 0.08);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .segmented-field legend {
   width: 100%;
   margin-bottom: 7px;
