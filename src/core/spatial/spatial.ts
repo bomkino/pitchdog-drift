@@ -1,5 +1,5 @@
 import type { ProjectCommand } from "../commands/projectCommand";
-import type { DriftCreativeState, DriftProjectV3, MotionSettings } from "../project/schema";
+import type { DriftCreativeState, DriftProjectV3, DriftProjectV4, MotionSettings } from "../project/schema";
 import { refreshMotionRecipeProvenance } from "../recipes/motion";
 import type { EvaluatedFrameSlide, FrameEvaluation } from "../timeline/FrameEvaluation";
 import type { SpatialEvaluationContext } from "../timeline/evaluateFrame";
@@ -166,7 +166,7 @@ export function pathRecipe(id: string): PathRecipe {
   return recipe;
 }
 
-export function applyPathRecipe(project: DriftProjectV3, id: string): DriftProjectV3 {
+export function applyPathRecipe<T extends DriftProjectV3 | DriftProjectV4>(project: T, id: string): T {
   const recipe = pathRecipe(id);
   project.motion.path = { id: recipe.id, ...recipe.path };
   return refreshMotionRecipeProvenance(project);

@@ -1,5 +1,5 @@
 import type { ProjectCommand } from "../commands/projectCommand";
-import type { DriftProjectV3, LightingSettings } from "../project/schema";
+import type { DriftProjectV3, DriftProjectV4, LightingSettings } from "../project/schema";
 import { recipeReference } from "./fingerprint";
 
 export const LIGHTING_RECIPE_VERSION = 1 as const;
@@ -272,7 +272,9 @@ function lightingRecipeValues(settings: LightingSettings): Omit<LightingSettings
   return values;
 }
 
-export function applyLightingRecipe(project: DriftProjectV3, id: string): DriftProjectV3 {
+type LightingRecipeProject = DriftProjectV3 | DriftProjectV4;
+
+export function applyLightingRecipe<T extends LightingRecipeProject>(project: T, id: string): T {
   const recipe = lightingRecipe(id);
   const enabled = project.lighting.enabled;
   project.lighting = {
@@ -288,7 +290,7 @@ export function applyLightingRecipe(project: DriftProjectV3, id: string): DriftP
   return project;
 }
 
-export function detectLightingRecipe(project: DriftProjectV3): LightingRecipe | null {
+export function detectLightingRecipe(project: LightingRecipeProject): LightingRecipe | null {
   const values = lightingRecipeValues(project.lighting);
   return LIGHTING_RECIPES.find((recipe) => (
     project.lighting.presetId === recipe.id
@@ -296,7 +298,7 @@ export function detectLightingRecipe(project: DriftProjectV3): LightingRecipe | 
   )) ?? null;
 }
 
-export function refreshLightingProvenance(project: DriftProjectV3): DriftProjectV3 {
+export function refreshLightingProvenance<T extends LightingRecipeProject>(project: T): T {
   const detected = detectLightingRecipe(project);
   project.provenance.recipes.lighting = detected
     ? recipeReference(`lighting/${detected.id}`, detected.version, detected.lighting)

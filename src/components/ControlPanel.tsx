@@ -13,6 +13,37 @@ import {
   withBackgroundVariation,
   type OpaqueBackgroundStyle,
 } from "../backgrounds";
+import type {
+  DriftProjectV4,
+  MotionCharacterId,
+  PoseCadence,
+} from "../core/project/schema";
+import {
+  EDITORIAL_CUTS,
+  HANDCRAFTED_MOTION_PRESETS,
+  MOTION_CHARACTERS,
+  PERFORMANCE_RECIPES,
+  applyEditorialCut,
+  applyHandcraftedMotionPreset,
+  applyMotionCharacter,
+  applyPerformanceRecipe,
+  detectEditorialCut,
+  detectPerformanceRecipe,
+} from "../core/recipes/motion";
+import {
+  FINISH_RECIPES,
+  MATERIAL_RECIPES,
+  applyFinishRecipe,
+  applyMaterialRecipe,
+  detectFinishRecipe,
+  detectMaterialRecipe,
+} from "../core/recipes/material";
+import {
+  LIGHTING_RECIPES,
+  applyLightingRecipe,
+  detectLightingRecipe,
+} from "../core/recipes/lighting";
+import { PATH_RECIPES, applyPathRecipe } from "../core/spatial/spatial";
 import { driftBuildIdentity } from "../lib/buildIdentity";
 import {
   fitPerformanceLifecycleToDuration,
@@ -105,8 +136,10 @@ function minimumTotalDuration(performance: PerformanceLifecycleAuthoring): numbe
 
 interface ControlPanelProps {
   settings: StudioSettings;
+  project: DriftProjectV4;
   v2Active: boolean;
   onSettings: (settings: StudioSettings) => void;
+  onV2Project: (project: DriftProjectV4, message: string) => void;
   onTheme: (id: ThemeId) => void;
   onResetPinnedFrame: () => void;
   onExportStill: () => void;
@@ -120,8 +153,10 @@ interface ControlPanelProps {
 
 export function ControlPanel({
   settings,
+  project,
   v2Active,
   onSettings,
+  onV2Project,
   onTheme,
   onResetPinnedFrame,
   onExportStill,
@@ -137,6 +172,11 @@ export function ControlPanel({
       ...settings,
       [key]: { ...(settings[key] as object), ...values },
     } as StudioSettings);
+  };
+  const directProject = (message: string, mutate: (next: DriftProjectV4) => void) => {
+    const next = structuredClone(project);
+    mutate(next);
+    onV2Project(next, message);
   };
   const commitPerformance = (
     candidate: PerformanceLifecycleAuthoring,
@@ -211,6 +251,17 @@ export function ControlPanel({
   const backgroundStudy = opaqueBackground ? matchingBackgroundStudy(settings.background) : null;
   const backgroundPalette = opaqueBackground ? matchingBackgroundPalette(settings.background) : null;
   const backgroundComposition = backgroundCompositionIndex(settings.background.seed);
+  const editorialCut = detectEditorialCut(project);
+  const performanceRecipe = detectPerformanceRecipe(project);
+  const materialRecipe = detectMaterialRecipe(project);
+  const finishRecipe = detectFinishRecipe(project);
+  const lightingRecipe = detectLightingRecipe(project);
+  const handcraftedMotion = HANDCRAFTED_MOTION_PRESETS.find((preset) => (
+    preset.cutId === project.motion.cadence.cutId
+    && preset.performanceId === project.motion.performance.id
+    && preset.characterId === project.motion.character.id
+    && preset.poseCadence === project.motion.cadence.poseCadence
+  )) ?? null;
 
   return (
     <aside className="inspector" aria-label="Director controls" aria-busy={exporting} inert={exporting}>
@@ -311,21 +362,108 @@ export function ControlPanel({
         <RangeField label="Spacing" value={settings.motion.gap * 100} min={0} max={120} step={1} unit="%" onChange={(value) => patch("motion", { gap: value / 100 })} />
       </InspectorGroup>
 
+      {v2Active ? (
+        <InspectorGroup title="Editorial rhythm" eyebrow={performanceRecipe?.name ?? "Custom"} open>
+          <SelectField
+            label="Handcrafted direction"
+            value={handcraftedMotion?.id ?? "custom"}
+            options={[
+              { value: "custom", label: "Custom stack" },
+              ...HANDCRAFTED_MOTION_PRESETS.map((preset) => ({ value: preset.id, label: preset.name })),
+            ]}
+            onChange={(presetId) => {
+              if (presetId === "custom") return;
+              directProject(
+                `${HANDCRAFTED_MOTION_PRESETS.find((entry) => entry.id === presetId)?.name ?? "Motion direction"} applied.`,
+                (next) => { applyHandcraftedMotionPreset(next, presetId); },
+              );
+            }}
+          />
+          <SelectField
+            label="Editorial cut"
+            value={editorialCut?.id ?? "custom"}
+            options={[
+              { value: "custom", label: "Custom cadence" },
+              ...EDITORIAL_CUTS.map((cut) => ({ value: cut.id, label: cut.name })),
+            ]}
+            onChange={(cutId) => {
+              if (cutId === "custom") return;
+              const cut = EDITORIAL_CUTS.find((entry) => entry.id === cutId);
+              directProject(`${cut?.name ?? "Editorial cut"} applied.`, (next) => { applyEditorialCut(next, cutId); });
+            }}
+          />
+          <SelectField
+            label="Performance"
+            value={performanceRecipe?.id ?? "custom"}
+            options={[
+              { value: "custom", label: "Custom performance" },
+              ...PERFORMANCE_RECIPES.map((recipe) => ({ value: recipe.id, label: recipe.name })),
+            ]}
+            onChange={(performanceId) => {
+              if (performanceId === "custom") return;
+              const recipe = PERFORMANCE_RECIPES.find((entry) => entry.id === performanceId);
+              directProject(`${recipe?.name ?? "Performance"} applied.`, (next) => { applyPerformanceRecipe(next, performanceId); });
+            }}
+          />
+          <Segmented
+            label="Motion character"
+            value={project.motion.character.id}
+            options={MOTION_CHARACTERS.map((character) => ({ value: character.id, label: character.name }))}
+            onChange={(characterId: MotionCharacterId) => {
+              const character = MOTION_CHARACTERS.find((entry) => entry.id === characterId);
+              directProject(`${character?.name ?? "Motion character"} applied.`, (next) => { applyMotionCharacter(next, characterId); });
+            }}
+          />
+          <Segmented
+            label="Pose cadence"
+            value={project.motion.cadence.poseCadence}
+            options={[
+              { value: "continuous" as PoseCadence, label: "Fluid" },
+              { value: "24fps" as PoseCadence, label: "24" },
+              { value: "18fps" as PoseCadence, label: "18" },
+              { value: "12fps" as PoseCadence, label: "12" },
+            ]}
+            onChange={(poseCadence) => directProject(
+              `Pose cadence set to ${poseCadence === "continuous" ? "fluid" : poseCadence}.`,
+              (next) => { next.motion.cadence.poseCadence = poseCadence; },
+            )}
+          />
+          <RangeField label="Read" value={project.motion.cadence.read * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Read beat directed.", (next) => { next.motion.cadence.read = value / 100; next.motion.cadence.cutId = "custom"; })} />
+          <RangeField label="Anticipate" value={project.motion.cadence.anticipation * 100} min={0} max={50} step={1} unit="%" onChange={(value) => directProject("Anticipation directed.", (next) => { next.motion.cadence.anticipation = value / 100; next.motion.cadence.cutId = "custom"; })} />
+          <RangeField label="Carry" value={project.motion.cadence.carry * 100} min={1} max={100} step={1} unit="%" onChange={(value) => directProject("Carry beat directed.", (next) => { next.motion.cadence.carry = value / 100; next.motion.cadence.cutId = "custom"; })} />
+          <RangeField label="Impact" value={project.motion.cadence.impact * 100} min={0} max={50} step={1} unit="%" onChange={(value) => directProject("Impact directed.", (next) => { next.motion.cadence.impact = value / 100; next.motion.cadence.cutId = "custom"; })} />
+          <RangeField label="Settle" value={project.motion.cadence.settle * 100} min={0} max={50} step={1} unit="%" onChange={(value) => directProject("Settle directed.", (next) => { next.motion.cadence.settle = value / 100; next.motion.cadence.cutId = "custom"; })} />
+          <RangeField label="Land" value={project.motion.cadence.land * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Landing beat directed.", (next) => { next.motion.cadence.land = value / 100; next.motion.cadence.cutId = "custom"; })} />
+        </InspectorGroup>
+      ) : null}
+
       <InspectorGroup title="Motion" eyebrow={`${settings.motion.speed.toFixed(2)} slides/s`} open>
         <Segmented label="Flow axis" value={settings.motion.axis} options={[{ value: "horizontal", label: "Horizontal" }, { value: "vertical", label: "Vertical" }]} onChange={(axis) => patch("motion", { axis })} />
         <Segmented label="Direction" value={settings.motion.direction} options={[{ value: -1 as const, label: "Reverse" }, { value: 1 as const, label: "Forward" }]} onChange={(direction) => patch("motion", { direction })} />
-        <SelectField
-          label="Path"
-          value={settings.motion.flow}
-          options={[
-            { value: "straight", label: "Straight" },
-            { value: "arc", label: "Arc" },
-            { value: "ribbon", label: "Ribbon" },
-            { value: "cylinder", label: "Cylinder" },
-            { value: "tunnel", label: "Tunnel" },
-          ]}
-          onChange={(flow) => patch("motion", { flow })}
-        />
+        {v2Active ? (
+          <SelectField
+            label="Path · all 10"
+            value={project.motion.path.id}
+            options={PATH_RECIPES.map((path) => ({ value: path.id, label: path.name }))}
+            onChange={(pathId) => directProject(
+              `${PATH_RECIPES.find((entry) => entry.id === pathId)?.name ?? "Path"} applied.`,
+              (next) => { applyPathRecipe(next, pathId); },
+            )}
+          />
+        ) : (
+          <SelectField
+            label="Path"
+            value={settings.motion.flow}
+            options={[
+              { value: "straight", label: "Straight" },
+              { value: "arc", label: "Arc" },
+              { value: "ribbon", label: "Ribbon" },
+              { value: "cylinder", label: "Cylinder" },
+              { value: "tunnel", label: "Tunnel" },
+            ]}
+            onChange={(flow) => patch("motion", { flow })}
+          />
+        )}
         <RangeField label="Speed" value={settings.motion.speed} min={0} max={1.5} step={0.01} decimals={2} unit="×" onChange={(speed) => patch("motion", { speed })} />
         <RangeField label="Curve" value={settings.motion.curvature * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("motion", { curvature: value / 100 })} />
         <RangeField label="Depth" value={settings.motion.depth * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("motion", { depth: value / 100 })} />
@@ -359,6 +497,72 @@ export function ControlPanel({
         <RangeField label="Shadow" value={settings.slide.shadowOpacity * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("slide", { shadowOpacity: value / 100 })} />
         <RangeField label="Shadow softness" value={settings.slide.shadowSoftness} min={4} max={160} step={1} unit=" px" onChange={(shadowSoftness) => patch("slide", { shadowSoftness })} />
       </InspectorGroup>
+
+      {v2Active ? (
+        <InspectorGroup title="Material" eyebrow={materialRecipe?.name ?? project.material.surface}>
+          <SelectField
+            label="Surface"
+            value={materialRecipe?.id ?? project.material.surface}
+            options={MATERIAL_RECIPES.map((recipe) => ({ value: recipe.id, label: recipe.name }))}
+            onChange={(surfaceId) => directProject(
+              `${MATERIAL_RECIPES.find((entry) => entry.id === surfaceId)?.name ?? "Material"} applied.`,
+              (next) => { applyMaterialRecipe(next, surfaceId); },
+            )}
+          />
+          <SelectField
+            label="Local finish"
+            value={finishRecipe?.id ?? "custom"}
+            options={[
+              { value: "custom", label: "Custom finish" },
+              ...FINISH_RECIPES.map((recipe) => ({ value: recipe.id, label: recipe.name })),
+            ]}
+            onChange={(finishId) => {
+              if (finishId === "custom") return;
+              directProject(
+                `${FINISH_RECIPES.find((entry) => entry.id === finishId)?.name ?? "Finish"} applied.`,
+                (next) => { applyFinishRecipe(next, finishId); },
+              );
+            }}
+          />
+          <RangeField label="Flex" value={project.material.flex * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Material flex directed.", (next) => { next.material.flex = value / 100; })} />
+          <RangeField label="Thickness" value={project.material.thickness * 100} min={0} max={20} step={0.5} decimals={1} unit="%" onChange={(value) => directProject("Material thickness directed.", (next) => { next.material.thickness = value / 100; })} />
+          <RangeField label="Roughness" value={project.material.roughness * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Material roughness directed.", (next) => { next.material.roughness = value / 100; })} />
+          <RangeField label="Sheen" value={project.material.sheen * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Material sheen directed.", (next) => { next.material.sheen = value / 100; })} />
+          <RangeField label="Microtexture" value={project.material.finish.microtexture * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Material texture directed.", (next) => { next.material.finish.microtexture = value / 100; next.material.finish.id = "custom"; })} />
+        </InspectorGroup>
+      ) : null}
+
+      {v2Active ? (
+        <InspectorGroup title="Light" eyebrow={project.lighting.enabled ? lightingRecipe?.name ?? "Custom" : "Off"}>
+          <SwitchField label="Light the scene" checked={project.lighting.enabled} onChange={(enabled) => directProject(enabled ? "Scene light on." : "Scene light bypassed.", (next) => { next.lighting.enabled = enabled; })} />
+          <SelectField
+            label="Rig · all 12"
+            value={lightingRecipe?.id ?? "custom"}
+            options={[
+              { value: "custom", label: "Custom rig" },
+              ...LIGHTING_RECIPES.map((recipe) => ({ value: recipe.id, label: recipe.name })),
+            ]}
+            onChange={(rigId) => {
+              if (rigId === "custom") return;
+              directProject(
+                `${LIGHTING_RECIPES.find((entry) => entry.id === rigId)?.name ?? "Lighting rig"} applied.`,
+                (next) => { applyLightingRecipe(next, rigId); next.lighting.enabled = true; },
+              );
+            }}
+          />
+          <Segmented label="Light space" value={project.lighting.space} options={[{ value: "stage", label: "Stage" }, { value: "card", label: "Card" }]} onChange={(space) => directProject("Light attachment changed.", (next) => { next.lighting.space = space; next.lighting.presetId = "custom"; })} />
+          <ColorField label="Key colour" value={project.lighting.keyColor} onChange={(keyColor) => directProject("Key colour directed.", (next) => { next.lighting.keyColor = keyColor; next.lighting.presetId = "custom"; })} />
+          <ColorField label="Fill colour" value={project.lighting.fillColor} onChange={(fillColor) => directProject("Fill colour directed.", (next) => { next.lighting.fillColor = fillColor; next.lighting.presetId = "custom"; })} />
+          <ColorField label="Shadow colour" value={project.lighting.shadowColor} onChange={(shadowColor) => directProject("Shadow colour directed.", (next) => { next.lighting.shadowColor = shadowColor; next.lighting.presetId = "custom"; })} />
+          <RangeField label="Key" value={project.lighting.keyIntensity * 100} min={0} max={160} step={1} unit="%" onChange={(value) => directProject("Key level directed.", (next) => { next.lighting.keyIntensity = value / 100; next.lighting.presetId = "custom"; })} />
+          <RangeField label="Fill" value={project.lighting.fillIntensity * 100} min={0} max={120} step={1} unit="%" onChange={(value) => directProject("Fill level directed.", (next) => { next.lighting.fillIntensity = value / 100; next.lighting.presetId = "custom"; })} />
+          <RangeField label="Rim" value={project.lighting.rimIntensity * 100} min={0} max={120} step={1} unit="%" onChange={(value) => directProject("Rim level directed.", (next) => { next.lighting.rimIntensity = value / 100; next.lighting.presetId = "custom"; })} />
+          <RangeField label="Artwork protection" value={project.lighting.artworkProtection * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Artwork protection directed.", (next) => { next.lighting.artworkProtection = value / 100; next.lighting.presetId = "custom"; })} />
+          <RangeField label="Shadow reach" value={project.lighting.shadowDistance} min={0} max={220} step={1} unit=" px" onChange={(shadowDistance) => directProject("Shadow reach directed.", (next) => { next.lighting.shadowDistance = shadowDistance; next.lighting.presetId = "custom"; })} />
+          <RangeField label="Contact" value={project.lighting.contactStrength * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Contact shadow directed.", (next) => { next.lighting.contactStrength = value / 100; next.lighting.presetId = "custom"; })} />
+          <RangeField label="Stage spill" value={project.lighting.backgroundSpill * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Stage spill directed.", (next) => { next.lighting.backgroundSpill = value / 100; next.lighting.presetId = "custom"; })} />
+        </InspectorGroup>
+      ) : null}
 
       <InspectorGroup title="Atmosphere" eyebrow={settings.background.style}>
         <SelectField

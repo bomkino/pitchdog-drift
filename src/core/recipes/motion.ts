@@ -1,6 +1,7 @@
 import type { ProjectCommand } from "../commands/projectCommand";
 import type {
   DriftProjectV3,
+  DriftProjectV4,
   MotionCharacterId,
   MotionSettings,
   PoseCadence,
@@ -185,6 +186,27 @@ export const MOTION_CHARACTERS: readonly MotionCharacterRecipe[] = [
   { id: "drift", version: 1, name: "Drift", description: "A broad release and the longest quiet coast.", bestFor: "Photography, travel, atmosphere, memory.", amount: 0.72 },
 ] as const;
 
+export interface HandcraftedMotionPreset {
+  id: string;
+  name: string;
+  eyebrow: string;
+  description: string;
+  cutId: EditorialCutRecipe["id"];
+  performanceId: PerformanceRecipe["id"];
+  characterId: MotionCharacterId;
+  poseCadence: PoseCadence;
+}
+
+/** Six materially distinct combinations; these are direction, not aliases. */
+export const HANDCRAFTED_MOTION_PRESETS: readonly HandcraftedMotionPreset[] = [
+  { id: "twelve-frame-hand", name: "Twelve-Frame Hand", eyebrow: "HELD PAPER", description: "Patient page transfer with deliberately exposed twelve-frame poses.", cutId: "paper-argument", performanceId: "twelve-frame-hand", characterId: "weighted", poseCadence: "12fps" },
+  { id: "paper-cutout", name: "Paper Cutout", eyebrow: "CRISP HINGE", description: "Short, graphic holds with a bounded spring and a visible handmade edge.", cutId: "explainer-cut", performanceId: "cut-on-breath", characterId: "spring", poseCadence: "12fps" },
+  { id: "contact-print", name: "Contact Print", eyebrow: "SILVER PROOF", description: "Exact evidence rhythm, disciplined transfer and clean twenty-four-frame registration.", cutId: "clean-data", performanceId: "cut-on-breath", characterId: "direct", poseCadence: "24fps" },
+  { id: "collage-hand", name: "Collage Hand", eyebrow: "LAYERED PLAY", description: "Longer overlap, lively recovery and irregular twelve-frame phrasing for assembled imagery.", cutId: "paper-argument", performanceId: "twelve-frame-hand", characterId: "spring", poseCadence: "12fps" },
+  { id: "archive-crank", name: "Archive Crank", eyebrow: "HAND-WOUND", description: "Patient documentary movement sampled at eighteen frames with restrained mechanical weight.", cutId: "documentary-glide", performanceId: "held-nerve", characterId: "weighted", poseCadence: "18fps" },
+  { id: "handmade-rush", name: "Handmade Rush", eyebrow: "FAST CUT", description: "Propulsive claim-to-claim movement whose held poses keep the rush tactile instead of slick.", cutId: "explainer-cut", performanceId: "forward-rush", characterId: "spring", poseCadence: "12fps" },
+] as const;
+
 function cutById(id: string): EditorialCutRecipe {
   const recipe = EDITORIAL_CUTS.find((entry) => entry.id === id);
   if (!recipe) throw new Error(`Unknown editorial cut: ${id}`);
@@ -203,7 +225,9 @@ function characterById(id: MotionCharacterId): MotionCharacterRecipe {
   return recipe;
 }
 
-function motionReference(project: DriftProjectV3): RecipeReference {
+type MotionRecipeProject = DriftProjectV3 | DriftProjectV4;
+
+function motionReference(project: MotionRecipeProject): RecipeReference {
   return recipeReference("motion-stack", MOTION_RECIPE_VERSION, {
     cut: project.motion.cadence.cutId,
     performance: project.motion.performance.id,
@@ -217,12 +241,12 @@ function motionReference(project: DriftProjectV3): RecipeReference {
   });
 }
 
-function withMotionProvenance(project: DriftProjectV3): DriftProjectV3 {
+function withMotionProvenance<T extends MotionRecipeProject>(project: T): T {
   project.provenance.recipes.motion = motionReference(project);
   return project;
 }
 
-export function applyEditorialCut(project: DriftProjectV3, id: string): DriftProjectV3 {
+export function applyEditorialCut<T extends MotionRecipeProject>(project: T, id: string): T {
   const recipe = cutById(id);
   project.motion.transport = { ...recipe.transport };
   project.motion.cadence = {
@@ -233,7 +257,7 @@ export function applyEditorialCut(project: DriftProjectV3, id: string): DriftPro
   return withMotionProvenance(project);
 }
 
-export function applyPerformanceRecipe(project: DriftProjectV3, id: string): DriftProjectV3 {
+export function applyPerformanceRecipe<T extends MotionRecipeProject>(project: T, id: string): T {
   const recipe = performanceById(id);
   project.motion.cadence.poseCadence = recipe.poseCadence;
   project.motion.performance = {
@@ -244,13 +268,23 @@ export function applyPerformanceRecipe(project: DriftProjectV3, id: string): Dri
   return withMotionProvenance(project);
 }
 
-export function applyMotionCharacter(project: DriftProjectV3, id: MotionCharacterId): DriftProjectV3 {
+export function applyMotionCharacter<T extends MotionRecipeProject>(project: T, id: MotionCharacterId): T {
   const recipe = characterById(id);
   project.motion.character = { id: recipe.id, amount: recipe.amount };
   return withMotionProvenance(project);
 }
 
-export function detectEditorialCut(project: DriftProjectV3): EditorialCutRecipe | null {
+export function applyHandcraftedMotionPreset<T extends MotionRecipeProject>(project: T, id: string): T {
+  const preset = HANDCRAFTED_MOTION_PRESETS.find((entry) => entry.id === id);
+  if (!preset) throw new Error(`Unknown handcrafted motion preset: ${id}`);
+  applyEditorialCut(project, preset.cutId);
+  applyPerformanceRecipe(project, preset.performanceId);
+  applyMotionCharacter(project, preset.characterId);
+  project.motion.cadence.poseCadence = preset.poseCadence;
+  return withMotionProvenance(project);
+}
+
+export function detectEditorialCut(project: MotionRecipeProject): EditorialCutRecipe | null {
   const current = project.motion;
   return EDITORIAL_CUTS.find((recipe) => (
     current.cadence.cutId === recipe.id
@@ -266,7 +300,7 @@ export function detectEditorialCut(project: DriftProjectV3): EditorialCutRecipe 
   )) ?? null;
 }
 
-export function detectPerformanceRecipe(project: DriftProjectV3): PerformanceRecipe | null {
+export function detectPerformanceRecipe(project: MotionRecipeProject): PerformanceRecipe | null {
   const current = project.motion;
   return PERFORMANCE_RECIPES.find((recipe) => (
     current.performance.id === recipe.id
@@ -309,6 +343,6 @@ export function applyMotionCharacterCommand(id: MotionCharacterId): ProjectComma
   };
 }
 
-export function refreshMotionRecipeProvenance(project: DriftProjectV3): DriftProjectV3 {
+export function refreshMotionRecipeProvenance<T extends MotionRecipeProject>(project: T): T {
   return withMotionProvenance(project);
 }

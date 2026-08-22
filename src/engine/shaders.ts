@@ -1,11 +1,20 @@
 export const slideVertexShader = /* glsl */ `
+  precision highp float;
   varying vec2 vUv;
   varying float vWarp;
+  varying float vSurfaceEnergy;
+  varying vec3 vViewPosition;
 
+  uniform vec2 uSizePx;
   uniform float uVelocity;
+  uniform float uAcceleration;
   uniform float uDistortion;
   uniform float uAxis;
   uniform float uPhase;
+  uniform float uSurface;
+  uniform float uSlideSeed;
+  uniform float uTravelPhase;
+  uniform float uPathBend;
 
   void main() {
     vUv = uv;
@@ -13,18 +22,61 @@ export const slideVertexShader = /* glsl */ `
     float along = uAxis < 0.5 ? uv.x - 0.5 : uv.y - 0.5;
     float across = uAxis < 0.5 ? uv.y - 0.5 : uv.x - 0.5;
     float velocity = clamp(uVelocity, -1.0, 1.0);
+    float acceleration = clamp(uAcceleration, -1.0, 1.0);
+    float direction = abs(acceleration) > 0.025 ? sign(acceleration) : sign(velocity + 0.0001);
     float envelope = sin(uv.x * 3.14159265) * sin(uv.y * 3.14159265);
-    float warp = sin(along * 3.14159265 + uPhase * 0.15) * envelope * velocity * uDistortion;
-    transformed.z += warp * 72.0;
-    transformed.z += across * velocity * uDistortion * 18.0;
+    float phase = uTravelPhase + fract(uSlideSeed) * 6.28318530718 + uPhase * 0.0001;
+    float materialScale = clamp(min(uSizePx.x, uSizePx.y), 96.0, 4096.0);
+    float energy = clamp(abs(velocity) * 0.34 + abs(acceleration) * 0.78 + clamp(uPathBend, 0.0, 1.0) * 0.26, 0.0, 1.0) * clamp(uDistortion, 0.0, 1.0);
+    float warp = 0.0;
+    float shear = 0.0;
+
+    if (uSurface < 0.5) {
+      float cardEnergy = energy * (0.16 + abs(acceleration) * 0.42);
+      warp = ((1.0 - across * across * 4.0) * (1.0 - along * along * 3.4) * 0.027
+        + across * along * direction * 0.046) * materialScale * cardEnergy;
+      shear = across * direction * cardEnergy * 0.0035;
+    } else if (uSurface < 1.5) {
+      float curl = direction * along * abs(along) * (0.08 + abs(acceleration) * 0.072) * materialScale;
+      float buckle = sin(along * 7.2 + phase + across * 1.6) * envelope * materialScale * 0.038;
+      float pathCurl = along * along * clamp(uPathBend, 0.0, 1.0) * materialScale * 0.059;
+      warp = (curl + buckle + pathCurl) * energy * (0.7 + sin(uv.y * 3.14159265) * 0.3);
+      shear = sin(across * 4.0 + phase) * envelope * energy * 0.006;
+    } else if (uSurface < 2.5) {
+      float foldA = sin(along * 8.8 - phase + across * 2.4);
+      float foldB = sin(along * 4.1 + phase * 1.7 - across * 6.4) * 0.46;
+      float diagonal = sin((along + across) * 5.2 - phase * 0.62) * 0.24;
+      warp = (foldA + foldB + diagonal) * envelope * energy * materialScale * 0.103;
+      shear = (foldB + diagonal) * envelope * energy * 0.011;
+    } else {
+      vec2 gelPoint = vec2(along - direction * abs(acceleration) * 0.08, across);
+      float radius = length(vec2(gelPoint.x * 1.16, gelPoint.y));
+      float bulge = cos(radius * 7.0 - phase) * (1.0 - smoothstep(0.0, 0.72, radius));
+      float lag = (acceleration * along * 0.072 + velocity * along * 0.025) * materialScale;
+      warp = (bulge * materialScale * 0.089 + lag + clamp(uPathBend, 0.0, 1.0) * materialScale * 0.034) * energy * envelope;
+      shear = (acceleration * across * 0.009 + velocity * across * 0.004) * energy;
+    }
+
+    float edgeConstraint = smoothstep(0.0, 0.18, sin(uv.x * 3.14159265))
+      * smoothstep(0.0, 0.18, sin(uv.y * 3.14159265));
+    warp *= edgeConstraint;
+    shear *= edgeConstraint;
+    if (uAxis > 0.5) transformed.x += shear;
+    else transformed.y += shear;
+    transformed.z += warp;
     vWarp = warp;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+    vSurfaceEnergy = energy;
+    vec4 viewPosition = modelViewMatrix * vec4(transformed, 1.0);
+    vViewPosition = viewPosition.xyz;
+    gl_Position = projectionMatrix * viewPosition;
   }
 `;
 
 export const slideFragmentShader = /* glsl */ `
   varying vec2 vUv;
   varying float vWarp;
+  varying float vSurfaceEnergy;
+  varying vec3 vViewPosition;
 
   uniform sampler2D uMap;
   uniform float uTextureAspect;
@@ -44,6 +96,25 @@ export const slideFragmentShader = /* glsl */ `
   uniform float uVelocity;
   uniform float uDistortion;
   uniform float uAxis;
+  uniform float uSurface;
+  uniform float uSlideSeed;
+  uniform float uRoughness;
+  uniform float uSheen;
+  uniform float uMicrotexture;
+  uniform float uLightingEnabled;
+  uniform vec3 uKeyColor;
+  uniform vec3 uFillColor;
+  uniform vec3 uLightDirection;
+  uniform float uKeyIntensity;
+  uniform float uFillIntensity;
+  uniform float uRimIntensity;
+  uniform float uArtworkProtection;
+
+  float materialHash(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031 + uSlideSeed * 0.013);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+  }
 
   float roundedSuperellipseDistance(vec2 p, vec2 halfSize, float radius, float smoothing) {
     if (radius < 0.5) {
@@ -111,6 +182,20 @@ export const slideFragmentShader = /* glsl */ `
     // Imported artwork stays proof-safe. Motion may bend its geometry, but
     // atmospheric texture belongs to the surrounding world, never its pixels.
     sampled.rgb += abs(vWarp) * 0.025;
+    vec3 faceNormal = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
+    if (!gl_FrontFacing) faceNormal *= -1.0;
+    vec3 lightDirection = normalize(uLightDirection);
+    float key = max(0.0, dot(faceNormal, lightDirection));
+    float fill = 0.42 + 0.58 * max(0.0, dot(faceNormal, -lightDirection));
+    float rim = pow(1.0 - max(0.0, dot(faceNormal, vec3(0.0, 0.0, 1.0))), mix(5.0, 1.6, clamp(uSheen, 0.0, 1.0)));
+    vec3 lit = sampled.rgb
+      * (vec3(0.72) + uFillColor * fill * uFillIntensity * 0.28)
+      + uKeyColor * key * uKeyIntensity * (0.05 + uSheen * 0.12)
+      + uKeyColor * rim * uRimIntensity * (0.025 + (1.0 - uRoughness) * 0.08);
+    float lightAuthority = uLightingEnabled * (1.0 - clamp(uArtworkProtection, 0.0, 1.0));
+    sampled.rgb = mix(sampled.rgb, lit, lightAuthority);
+    float tooth = materialHash(floor(vUv * uSizePx / mix(5.0, 1.5, uSurface / 3.0))) - 0.5;
+    sampled.rgb += tooth * uMicrotexture * 0.022 * (0.35 + vSurfaceEnergy * 0.65);
     float borderAlpha = borderMask * uBorderOpacity;
     float combinedAlpha = borderAlpha + sampled.a * (1.0 - borderAlpha);
     vec3 combinedPremultiplied = uBorderColor * borderAlpha + sampled.rgb * sampled.a * (1.0 - borderAlpha);
@@ -140,6 +225,7 @@ export const shadowFragmentShader = /* glsl */ `
   uniform float uSmoothing;
   uniform float uSoftnessPx;
   uniform float uOpacity;
+  uniform vec3 uColor;
 
   float shapeDistance(vec2 p, vec2 halfSize, float radius, float smoothing) {
     radius = max(0.5, min(radius, min(halfSize.x, halfSize.y)));
@@ -159,7 +245,7 @@ export const shadowFragmentShader = /* glsl */ `
     float outside = max(0.0, distanceToEdge);
     float alpha = exp(-0.5 * outside * outside / (sigma * sigma)) * uOpacity;
     if (alpha <= 0.001) discard;
-    gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
+    gl_FragColor = vec4(uColor, alpha);
     #include <colorspace_fragment>
   }
 `;

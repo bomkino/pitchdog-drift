@@ -302,6 +302,7 @@ interface VisibleItem {
   asset: StudioAsset;
   evaluated: EvaluatedSlide;
   directive?: SlideDirective;
+  pathBend?: number;
 }
 
 export interface MovingTrackAsset {
@@ -405,6 +406,16 @@ function backgroundMode(style: string): number {
   }
 }
 
+function surfaceMode(surface: string): number {
+  switch (surface) {
+    case "paper": return 1;
+    case "silk": return 2;
+    case "gel": return 3;
+    case "card":
+    default: return 0;
+  }
+}
+
 function createSlideMaterial(placeholder: THREE.Texture, depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: slideVertexShader,
@@ -430,9 +441,25 @@ function createSlideMaterial(placeholder: THREE.Texture, depthTest = true): THRE
       uMatteOpacity: { value: 1 },
       uOpacity: { value: 1 },
       uVelocity: { value: 0 },
+      uAcceleration: { value: 0 },
       uDistortion: { value: 0 },
       uAxis: { value: 0 },
       uPhase: { value: 0 },
+      uSurface: { value: 0 },
+      uSlideSeed: { value: 0 },
+      uTravelPhase: { value: 0 },
+      uPathBend: { value: 0 },
+      uRoughness: { value: 0.76 },
+      uSheen: { value: 0.06 },
+      uMicrotexture: { value: 0.035 },
+      uLightingEnabled: { value: 0 },
+      uKeyColor: { value: new THREE.Color("#ffffff") },
+      uFillColor: { value: new THREE.Color("#ffffff") },
+      uLightDirection: { value: new THREE.Vector3(0.4, 0.5, 0.75).normalize() },
+      uKeyIntensity: { value: 0 },
+      uFillIntensity: { value: 1 },
+      uRimIntensity: { value: 0 },
+      uArtworkProtection: { value: 1 },
     },
   });
 }
@@ -451,6 +478,7 @@ function createShadowMaterial(depthTest = true): THREE.ShaderMaterial {
       uSmoothing: { value: 0.6 },
       uSoftnessPx: { value: 32 },
       uOpacity: { value: 0.35 },
+      uColor: { value: new THREE.Color("#000000") },
     },
   });
 }
@@ -1314,6 +1342,8 @@ export class CinematicCarousel {
       width: geometry.width,
       height: geometry.height,
       normalizedVelocity,
+      normalizedAcceleration: 0,
+      travelPhase: 0,
     });
   }
 
@@ -1329,7 +1359,7 @@ export class CinematicCarousel {
         layerIndex: item.evaluated.sourceIndex,
         asset: item.asset,
         directive: item.directive,
-        evaluated: {
+          evaluated: {
           primary,
           cross: item.evaluated.cross,
           z: item.evaluated.z,
@@ -1338,8 +1368,9 @@ export class CinematicCarousel {
           rotationZ: item.evaluated.rotationZ,
           scale: item.evaluated.scale,
           opacity: item.evaluated.opacity,
-          normalized: primary / Math.max(1, evaluation.geometry.visibleRadius),
-        },
+            normalized: primary / Math.max(1, evaluation.geometry.visibleRadius),
+          },
+          pathBend: item.evaluated.pathBend,
       };
     });
     const interactionVelocity = exportMode
@@ -1348,6 +1379,9 @@ export class CinematicCarousel {
     const normalizedVelocity = this.reducedMotionPreview && !exportMode
       ? 0
       : THREE.MathUtils.clamp(evaluation.frame.track.velocity + interactionVelocity, -1, 1);
+    const normalizedAcceleration = this.reducedMotionPreview && !exportMode
+      ? 0
+      : THREE.MathUtils.clamp(evaluation.frame.track.acceleration, -1, 1);
     const renderable = selectRenderableItems(visible, this.pool.length);
     this.renderVisibleItems({
       time: evaluation.frame.time,
@@ -1359,6 +1393,8 @@ export class CinematicCarousel {
       width: evaluation.geometry.width,
       height: evaluation.geometry.height,
       normalizedVelocity,
+      normalizedAcceleration,
+      travelPhase: evaluation.frame.phases.material,
     });
   }
 
@@ -1372,6 +1408,8 @@ export class CinematicCarousel {
     width: number;
     height: number;
     normalizedVelocity: number;
+    normalizedAcceleration: number;
+    travelPhase: number;
   }): void {
     const {
       time,
@@ -1383,6 +1421,8 @@ export class CinematicCarousel {
       width,
       height,
       normalizedVelocity,
+      normalizedAcceleration,
+      travelPhase,
     } = input;
 
     if (!exportMode) {
@@ -1415,6 +1455,8 @@ export class CinematicCarousel {
         width,
         height,
         normalizedVelocity,
+        normalizedAcceleration,
+        travelPhase,
         lifecycle?.layers.slides[visibleItem.layerIndex],
         this.lifecycleTreatment(lifecycle),
         presenterLayout,
@@ -1446,6 +1488,8 @@ export class CinematicCarousel {
     width: number,
     height: number,
     velocity: number,
+    acceleration: number,
+    travelPhase: number,
     lifecycleLayer?: LifecycleLayerSample,
     treatment: TransitionTreatment | null = null,
     presenterLayout: PresenterOverlayLayout | null = null,
@@ -1526,9 +1570,44 @@ export class CinematicCarousel {
     uniforms.uBorderOpacity!.value = this.drawState.slide.borderOpacity;
     uniforms.uOpacity!.value = renderedOpacity;
     uniforms.uVelocity!.value = velocity;
+    uniforms.uAcceleration!.value = acceleration;
     uniforms.uDistortion!.value = this.drawState.motion.distortion;
     uniforms.uAxis!.value = this.drawState.motion.axis === "horizontal" ? 0 : 1;
     uniforms.uPhase!.value = logicalIndex;
+    const material = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT
+      ? this.project.material
+      : null;
+    const lighting = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT
+      ? this.project.lighting
+      : null;
+    uniforms.uSurface!.value = surfaceMode(material?.surface ?? "card");
+    uniforms.uSlideSeed!.value = (visible.sourceIndex + 1) * 0.61803398875;
+    uniforms.uTravelPhase!.value = travelPhase;
+    uniforms.uPathBend!.value = visible.pathBend ?? 0;
+    uniforms.uRoughness!.value = material?.roughness ?? 0.76;
+    uniforms.uSheen!.value = material?.sheen ?? 0.06;
+    uniforms.uMicrotexture!.value = material?.finish.microtexture ?? 0;
+    uniforms.uLightingEnabled!.value = lighting?.enabled ? 1 : 0;
+    uniforms.uKeyColor!.value.set(lighting?.keyColor ?? "#ffffff");
+    uniforms.uFillColor!.value.set(lighting?.fillColor ?? "#ffffff");
+    let lightAzimuth = THREE.MathUtils.degToRad(lighting?.azimuth ?? 42);
+    const lightElevation = THREE.MathUtils.degToRad(lighting?.elevation ?? 56);
+    if (lighting?.motionMode === "orbit") lightAzimuth += travelPhase;
+    else if (lighting?.motionMode === "sweep") lightAzimuth += Math.sin(travelPhase) * 0.42;
+    const lightPulse = lighting?.motionMode === "flicker"
+      ? 0.91 + 0.09 * Math.sin(travelPhase * 3 + visible.sourceIndex * 1.71)
+      : lighting?.motionMode === "breathe"
+        ? 0.96 + 0.04 * Math.sin(travelPhase)
+        : 1;
+    uniforms.uLightDirection!.value.set(
+      Math.cos(lightElevation) * Math.cos(lightAzimuth),
+      Math.sin(lightElevation),
+      Math.cos(lightElevation) * Math.sin(lightAzimuth),
+    ).normalize();
+    uniforms.uKeyIntensity!.value = (lighting?.keyIntensity ?? 0) * lightPulse;
+    uniforms.uFillIntensity!.value = lighting?.fillIntensity ?? 1;
+    uniforms.uRimIntensity!.value = lighting?.rimIntensity ?? 0;
+    uniforms.uArtworkProtection!.value = lighting?.artworkProtection ?? 1;
 
     const shadowUniforms = item.shadowMaterial.uniforms;
     shadowUniforms.uCanvasSizePx!.value.set(width + shadowMargin * 2, height + shadowMargin * 2);
@@ -1536,7 +1615,18 @@ export class CinematicCarousel {
     shadowUniforms.uRadiusPx!.value = this.drawState.slide.radius;
     shadowUniforms.uSmoothing!.value = this.drawState.slide.smoothing;
     shadowUniforms.uSoftnessPx!.value = this.drawState.slide.shadowSoftness;
-    shadowUniforms.uOpacity!.value = shadowOpacity;
+    shadowUniforms.uOpacity!.value = shadowOpacity * (lighting?.contactStrength ?? 1);
+    shadowUniforms.uColor!.value.set(lighting?.shadowColor ?? "#000000");
+    if (lighting?.enabled) {
+      const cast = lighting.shadowDistance * 0.16;
+      item.shadow.position.set(
+        -Math.cos(lightAzimuth) * cast,
+        Math.sin(lightAzimuth) * cast,
+        -8,
+      );
+    } else {
+      item.shadow.position.set(10, -14, -8);
+    }
 
     const assetKey = this.textureKey(asset);
     if (item.assetKey !== assetKey) {

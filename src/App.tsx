@@ -30,6 +30,7 @@ import {
   type AssetDescriptor,
   type DriftProjectV4,
 } from "./core/project/schema";
+import { validateDriftProjectV4 } from "./core/project/validation";
 import {
   applyEditorialDriftFoundation,
   canRecutEditorialDrift,
@@ -1429,6 +1430,16 @@ export function App() {
     setSettings(nextSettings);
   }, [announce, markProjectDirty, publishLiveProject, reconcileLiveProject, settingsForCurrentAuthority]);
 
+  const updateV2Project = useCallback((candidate: DriftProjectV4, message: string) => {
+    const next = validateDriftProjectV4(candidate);
+    const projected = studioSettingsFromDriftProject(next);
+    publishLiveProject(next);
+    markProjectDirty();
+    settingsRef.current = projected;
+    setSettings(projected);
+    announce(message);
+  }, [announce, markProjectDirty, publishLiveProject]);
+
   const exportInProgress = Boolean(exportProgress);
 
   nativeCommandRef.current = (command: NativeMacCommand) => {
@@ -1617,8 +1628,10 @@ export function App() {
         />
         <ControlPanel
           settings={settings}
+          project={liveProject}
           v2Active={v2Active}
           onSettings={updateSettings}
+          onV2Project={updateV2Project}
           onTheme={onTheme}
           onResetPinnedFrame={resetPinnedFrame}
           onExportStill={exportStill}
