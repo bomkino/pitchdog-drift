@@ -8,6 +8,8 @@ Committed working base: `c5e3bc6d34983c886df9d9bcdaa726ec862f5941`
 
 Frozen public V1 base: `5fd145207235884790ba071c5d84bc3876ff4989`
 
+Latest exact package, installation, and GitHub evidence: [23 August installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-23.md), implementation source `dac20dd900c6d630340de727dba341a4d2351797`.
+
 ## Outcome in the pre-package candidate
 
 The candidate source contains the first live **Editorial Drift `drift-v2/1` renderer slice**. It is deliberately enabled by default only under the isolated V2 development identity. Release/V1 startup remains on `drift-v1-compat/1`, and an imported compatibility project stays there until Editorial Drift is explicitly applied in V2 Dev.
@@ -79,7 +81,9 @@ This table records the state immediately before the candidate implementation com
 | Merged to `main` | No |
 | Developer ID signed, notarised, stapled, released, or published | No |
 
-## Older installed checkpoint
+## Installed-checkpoint history
+
+The [23 August installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-23.md) proves exact source `dac20dd900c6d630340de727dba341a4d2351797` through source, browser, package, `/Applications` installation, and branch-selected GitHub CI gates. It separately records the locked-screen limit and the product breadth still outside this slice.
 
 The [installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-22.md) remains valid only for source `b7bb5a520a23755306bf2f07656f604fd90b7b65`. At this pre-package snapshot, `/Applications/Drift V2 Dev.app` represented that older isolated checkpoint. Its package and installed matrices cannot evidence the candidate renderer, pin, stage, edge, or alpha changes described above.
 

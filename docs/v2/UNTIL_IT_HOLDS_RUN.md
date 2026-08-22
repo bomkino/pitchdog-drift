@@ -4,6 +4,8 @@ Started: 22 August 2026
 
 Method: capped builder–critic rounds for each material gate; failures repair the causal contract, not merely the assertion.
 
+Historical boundary: this receipt closes at implementation source `b7bb5a520a23755306bf2f07656f604fd90b7b65`. The later canonical Editorial renderer slice, 280/280 source suite, 31/31 browser suite, exact package, installation, push, and exact-head CI evidence are recorded in [`INSTALLED_CHECKPOINT_2026-08-23.md`](INSTALLED_CHECKPOINT_2026-08-23.md). Do not treat the older counts or open-gate list below as the latest checkpoint.
+
 ## Outcome
 
 Produce an honest, beautiful, deterministic Editorial Performance vertical slice as an isolated Mac development app. Preserve public and installed V1. Do not mislabel registry foundations, compatibility rendering, local packaging, or a checkpoint branch as complete donor-plan V2.
@@ -102,7 +104,7 @@ Produce an honest, beautiful, deterministic Editorial Performance vertical slice
 - Preserved the previous V2 installation at `/Applications/.drift-v2-backups/20260822-202409/Drift V2 Dev.app`.
 - Verdict: HOLD for exact packaging, installation, and coexistence. Normal-UI export and post-fix visual checks remain separate open gates.
 
-## Current evidence
+## Evidence at the `b7bb5a5` checkpoint
 
 - Exact installed implementation source: `b7bb5a520a23755306bf2f07656f604fd90b7b65`.
 - Unit suite: `245/245` passing.
@@ -121,7 +123,7 @@ Produce an honest, beautiful, deterministic Editorial Performance vertical slice
 - Normal-UI installed transparent PNG and short MP4: pending Mac unlock.
 - Push, merge, release, notarisation, publication: not performed.
 
-## Whole-artifact gate still open
+## Whole-artifact gates open at that checkpoint
 
 1. Unlock the Mac and visually inspect the `15fdd78` first-use pin repair in installed V2, including source aspect and protected composition in both axes.
 2. Save one transparent PNG and one short MP4 through the ordinary installed Save panels.
