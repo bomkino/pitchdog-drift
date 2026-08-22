@@ -51,7 +51,11 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     private var webKitFileInputVerified = false
     private var nativeImportCompletionVerified = false
     private var nativeDocumentActiveAtCompletion = false
-    private var terminationInduced = false
+    private var recoveryDelegateSeamSimulated = false
+    private var recoveryDelegateSeamInvocationCount = 0
+    private let externalProcessKilled = false
+    private let publicAPIOwnershipClaimed = false
+    private let processTerminationClaimed = false
     private var staleDocumentRejected = false
     private var recoveredCommandVerified = false
     private var persistedAssetVerified = false
@@ -170,6 +174,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             throw BridgeFailure("DataError", "Termination-request canonical digest or run-nonce validation changed.")
         }
         var acknowledgementObject: [String: Any] = [
+            "schemaVersion": 2,
             "receiptName": binding.receiptName,
             "runNonce": binding.runNonce,
             "bundleIdentifier": binding.bundleIdentifier,
@@ -185,31 +190,21 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             "authorityGenerationDigest": binding.authorityGenerationDigest,
             "networkPolicyIdentifier": binding.networkPolicyIdentifier,
             "requestDigest": binding.requestDigest,
+            "recoveryMode": "simulated-public-delegate-seam",
+            "externalProcessKilled": false,
+            "signalSentToWebContent": false,
+            "publicAPIOwnershipClaimed": false,
+            "processTerminationClaimed": false,
         ]
-        guard Self.acknowledgement(acknowledgementObject, exactlyEchoes: binding) else {
-            throw BridgeFailure("DataError", "An exact termination acknowledgement was rejected.")
+        guard Self.simulatedRecoveryAcknowledgement(acknowledgementObject, exactlyEchoes: binding) else {
+            throw BridgeFailure("DataError", "An exact simulated-recovery acknowledgement was rejected.")
         }
         acknowledgementObject["sequence"] = 2
-        guard !Self.acknowledgement(acknowledgementObject, exactlyEchoes: binding) else {
-            throw BridgeFailure("DataError", "A tampered termination acknowledgement was accepted.")
-        }
-        var exactAssociation: [String: Any] = [
-            "method": "controlled-harness-unique-new-exact-executable",
-            "controlledHarnessUniqueNewExactExecutable": true,
-            "publicAPIOwnershipClaimed": false,
-            "candidateCount": 1,
-            "lastPreSignalCandidateCount": 1,
-            "lastPreSignalCandidateSetExact": true,
-        ]
-        guard isExactControlledHarnessAssociation(exactAssociation) else {
-            throw BridgeFailure("DataError", "An exact controlled-harness association was rejected.")
-        }
-        exactAssociation["lastPreSignalCandidateCount"] = 2
-        guard !isExactControlledHarnessAssociation(exactAssociation) else {
-            throw BridgeFailure("DataError", "A stale pre-signal uniqueness claim was accepted.")
+        guard !Self.simulatedRecoveryAcknowledgement(acknowledgementObject, exactlyEchoes: binding) else {
+            throw BridgeFailure("DataError", "A tampered simulated-recovery acknowledgement was accepted.")
         }
         _ = try currentProcessStartIdentity()
-        print("Drift termination-protocol self-test passed: canonical digests, exact acknowledgement echoes, final pre-signal uniqueness, nonce validation, and public libproc start identity.")
+        print("Drift recovery-protocol self-test passed: canonical digests, exact acknowledgement echoes, no external process signal or PID claim, nonce validation, and public libproc app identity.")
     }
 
     private func execute() -> Int32 {
@@ -314,9 +309,13 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             return failReceipt("the packaged WebKit native-file round-trip never completed; \(diagnostic)", state: state)
         }
         guard nativeImportCompletionVerified,
-              terminationInduced,
               terminationAcknowledgementValidated,
-              contentProcessTerminationCount == 1,
+              recoveryDelegateSeamSimulated,
+              recoveryDelegateSeamInvocationCount == 1,
+              contentProcessTerminationCount == 0,
+              !externalProcessKilled,
+              !publicAPIOwnershipClaimed,
+              !processTerminationClaimed,
               staleDocumentRejected,
               recoveredCommandVerified,
               persistedAssetVerified,
@@ -330,7 +329,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             return failReceipt("the packaged document-recovery authority contract did not hold; \(diagnostic)", state: state)
         }
 
-        let message = "persistent isolated Blob storage, AppKit-issued document authority, real native broker import, exact saved state, induced WebContent recovery, stale-generation rejection, rehydrated media, page-world WebRTC capability lockdown, and fresh non-mutating host dispatch authority all held"
+        let message = "persistent isolated Blob storage, AppKit-issued document authority, real native broker import, exact saved state, simulated public delegate-seam recovery with no external process signal, stale-generation rejection, rehydrated media, page-world WebRTC capability lockdown, and fresh non-mutating host dispatch authority all held"
         writeReceipt(ok: true, message: message, state: state)
         print("Drift WebView self-test passed: \(message).")
         return 0
@@ -363,7 +362,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     }
 
     private func diagnosticMessage(webView: WKWebView, state: ClientState) -> String {
-        "phase=\(phase.rawValue), started=\(startedNavigation), committed=\(committedNavigation), finishedNavigation=\(finishedNavigation), documentAuthorityDelivered=\(documentAuthorityDelivered), nativeDocumentActive=\(nativeDocumentActiveAtCompletion || bridge?.hasActiveDocument == true), networkPolicyInstalled=\(networkPolicyInstalled), outboundProbeAttempted=\(outboundProbeAttempted), outboundProbeCompleted=\(outboundProbeCompleted), webRTCCapabilityLockdownVerified=\(webRTCCapabilityLockdownVerified), webRTCProbeToken=\(webRTCProbeToken ?? "none"), outboundProbeResult=\(outboundProbeResult), contentProcessTerminations=\(contentProcessTerminationCount), terminationInduced=\(terminationInduced), staleDocumentRejected=\(staleDocumentRejected), recoveredCommandVerified=\(recoveredCommandVerified), persistedAssetVerified=\(persistedAssetVerified), webKitFileInputVerified=\(webKitFileInputVerified), nativeImportCompletionVerified=\(nativeImportCompletionVerified), isLoading=\(webView.isLoading), url=\(webView.url?.absoluteString ?? "nil"), saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), bootDiagnostics=\(bootDiagnostics), lastProbe=\(lastProbe)"
+        "phase=\(phase.rawValue), started=\(startedNavigation), committed=\(committedNavigation), finishedNavigation=\(finishedNavigation), documentAuthorityDelivered=\(documentAuthorityDelivered), nativeDocumentActive=\(nativeDocumentActiveAtCompletion || bridge?.hasActiveDocument == true), networkPolicyInstalled=\(networkPolicyInstalled), outboundProbeAttempted=\(outboundProbeAttempted), outboundProbeCompleted=\(outboundProbeCompleted), webRTCCapabilityLockdownVerified=\(webRTCCapabilityLockdownVerified), webRTCProbeToken=\(webRTCProbeToken ?? "none"), outboundProbeResult=\(outboundProbeResult), actualContentProcessTerminations=\(contentProcessTerminationCount), recoveryDelegateSeamSimulated=\(recoveryDelegateSeamSimulated), staleDocumentRejected=\(staleDocumentRejected), recoveredCommandVerified=\(recoveredCommandVerified), persistedAssetVerified=\(persistedAssetVerified), webKitFileInputVerified=\(webKitFileInputVerified), nativeImportCompletionVerified=\(nativeImportCompletionVerified), isLoading=\(webView.isLoading), url=\(webView.url?.absoluteString ?? "nil"), saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), bootDiagnostics=\(bootDiagnostics), lastProbe=\(lastProbe)"
     }
 
     private func failReceipt(_ message: String, state: ClientState = ClientState()) -> Int32 {
@@ -411,7 +410,14 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 "nativeNetworkClientSurface": "none-shipped",
                 "networkBoundary": "app-entitled-webkit-blocked",
                 "contentProcessTerminationCount": contentProcessTerminationCount,
-                "terminationInduced": terminationInduced,
+                "terminationInduced": false,
+                "recoveryMode": "simulated-public-delegate-seam",
+                "recoveryDelegateSeamSimulated": recoveryDelegateSeamSimulated,
+                "recoveryDelegateSeamInvocationCount": recoveryDelegateSeamInvocationCount,
+                "externalProcessKilled": externalProcessKilled,
+                "signalSentToWebContent": false,
+                "publicAPIOwnershipClaimed": publicAPIOwnershipClaimed,
+                "processTerminationClaimed": processTerminationClaimed,
                 "staleDocumentRejected": staleDocumentRejected,
                 "recoveredCommandVerified": recoveredCommandVerified,
                 "persistedAssetVerified": persistedAssetVerified,
@@ -591,43 +597,53 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         contentProcessTerminationCount += 1
+        handleRecoveryDelegateSeam(webView, simulated: false)
+    }
+
+    private func handleRecoveryDelegateSeam(_ webView: WKWebView, simulated: Bool) {
+        guard webView === self.webView else {
+            failure = "the recovery seam received an unknown WKWebView"
+            finished = true
+            return
+        }
+        recoveryDelegateSeamInvocationCount += 1
         navigationIdentity.invalidate()
         bridge?.invalidateDocument()
         activeDocumentTicket = nil
         documentAuthorityDelivered = false
-        guard phase == .recoveringDocument else {
-            failure = "the WebContent process terminated before the gauntlet induced recovery"
+        guard simulated else {
+            failure = "the WebContent process terminated unexpectedly; the safe packaged gauntlet never externally signals WebContent"
             finished = true
             return
         }
-        guard contentProcessTerminationCount == 1 else {
-            failure = "the WebKit content process terminated twice during the packaged-runtime test"
+        guard phase == .recoveringDocument else {
+            failure = "the simulated public delegate seam ran outside the recovery phase"
+            finished = true
+            return
+        }
+        guard recoveryDelegateSeamInvocationCount == 1,
+              terminationAcknowledgementValidated else {
+            failure = "the run-bound simulated public delegate seam was not authorized exactly once"
             finished = true
             return
         }
 
-        verifyExternalTerminationAcknowledgement { [weak self, weak webView] verified in
-            guard let self, !self.finished, let webView else { return }
-            guard verified else {
-                self.failure = "WebContent terminated, but the external probe supplied no valid PID-bounded SIGKILL receipt"
-                self.finished = true
-                return
-            }
-            self.terminationInduced = true
-            // Exercise the same one-attempt recovery policy used by the app.
-            var policy = WebContentRecoveryPolicy()
-            guard policy.consumeAttempt(), !policy.consumeAttempt() else {
-                self.failure = "the shared WebContent recovery policy did not enforce one attempt"
-                self.finished = true
-                return
-            }
-            self.startedNavigation = false
-            self.committedNavigation = false
-            self.finishedNavigation = false
-            self.lastProbe = "externally bound WebContent PID terminated once; testing reload recovery"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                webView.reload()
-            }
+        recoveryDelegateSeamSimulated = true
+        // Exercise the same one-attempt recovery policy and document teardown
+        // used by the public WKNavigationDelegate callback, without claiming or
+        // externally signaling a system WebContent process.
+        var policy = WebContentRecoveryPolicy()
+        guard policy.consumeAttempt(), !policy.consumeAttempt() else {
+            failure = "the shared WebContent recovery policy did not enforce one attempt"
+            finished = true
+            return
+        }
+        startedNavigation = false
+        committedNavigation = false
+        finishedNavigation = false
+        lastProbe = "run-bound simulated public delegate seam; testing reload recovery"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            webView.reload()
         }
     }
 
@@ -1333,7 +1349,24 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             terminationDocumentEpoch = document.epoch
             terminationRequestDigest = binding.requestDigest
             try data.write(to: urls.control, options: .atomic)
-            lastProbe = "native import saved and released; awaiting one run-bound, exact-identity WebContent SIGKILL"
+            lastProbe = "native import saved and released; awaiting run-bound simulated delegate-seam acknowledgement"
+            verifyExternalTerminationAcknowledgement { [weak self, weak webView] verified in
+                guard let self, !self.finished, let webView else { return }
+                guard verified else {
+                    self.failure = "the safe recovery coordinator supplied no valid simulated delegate-seam acknowledgement"
+                    self.finished = true
+                    return
+                }
+                guard self.phase == .recoveringDocument,
+                      self.terminationDocumentEpoch == document.epoch,
+                      self.activeDocumentTicket == document,
+                      self.bridge?.isCurrentDocument(document) == true else {
+                    self.failure = "the run-bound recovery acknowledgement arrived after its document authority changed"
+                    self.finished = true
+                    return
+                }
+                self.handleRecoveryDelegateSeam(webView, simulated: true)
+            }
         } catch {
             pendingTerminationBinding = nil
             terminationDocumentEpoch = nil
@@ -1348,7 +1381,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
               receiptName.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"#, options: .regularExpression) != nil else {
             throw BridgeFailure(
                 "InvalidStateError",
-                "A safe report name is required for externally bounded WebContent termination."
+                "A safe report name is required for run-bound recovery coordination."
             )
         }
         let directory = try selfTestDirectory()
@@ -1378,20 +1411,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             while Date() < deadline, !verified {
                 if let data = try? Data(contentsOf: expected.acknowledgement),
                    let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   object["schemaVersion"] as? Int == 2,
-                   Self.acknowledgement(object, exactlyEchoes: binding),
-                   let targetPID = object["targetPID"] as? Int,
-                   targetPID > 1,
-                   targetPID != binding.appPID,
-                   object["signal"] as? Int == Int(SIGKILL),
-                   object["killSucceeded"] as? Bool == true,
-                   object["targetExitObserved"] as? Bool == true,
-                   object["targetExecutablePath"] as? String == Self.webContentExecutablePath,
-                   let targetStartSeconds = object["targetStartSeconds"] as? Int,
-                   targetStartSeconds > 0,
-                   let targetStartMicroseconds = object["targetStartMicroseconds"] as? Int,
-                   (0..<1_000_000).contains(targetStartMicroseconds),
-                   Self.isExactControlledHarnessAssociation(object["association"]) {
+                   Self.simulatedRecoveryAcknowledgement(object, exactlyEchoes: binding) {
                     verified = true
                     break
                 }
@@ -1400,6 +1420,8 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             DispatchQueue.main.async {
                 if verified {
                     self.terminationAcknowledgementValidated = true
+                    self.pendingTerminationBinding = nil
+                    try? FileManager.default.removeItem(at: expected.acknowledgement)
                 }
                 completion(verified)
             }
@@ -1505,14 +1527,27 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             && object["requestDigest"] as? String == binding.requestDigest
     }
 
-    private static func isExactControlledHarnessAssociation(_ value: Any?) -> Bool {
-        guard let association = value as? [String: Any] else { return false }
-        return association["method"] as? String == "controlled-harness-unique-new-exact-executable"
-            && association["controlledHarnessUniqueNewExactExecutable"] as? Bool == true
-            && association["publicAPIOwnershipClaimed"] as? Bool == false
-            && association["candidateCount"] as? Int == 1
-            && association["lastPreSignalCandidateCount"] as? Int == 1
-            && association["lastPreSignalCandidateSetExact"] as? Bool == true
+    private static func simulatedRecoveryAcknowledgement(
+        _ object: [String: Any],
+        exactlyEchoes binding: ExternalTerminationBinding
+    ) -> Bool {
+        let exactKeys: Set<String> = [
+            "schemaVersion", "receiptName", "runNonce", "bundleIdentifier",
+            "bundleVersion", "sourceRevision", "appExecutablePath", "appPID",
+            "appStartSeconds", "appStartMicroseconds", "phase", "sequence",
+            "documentEpoch", "authorityGenerationDigest", "networkPolicyIdentifier",
+            "requestDigest", "recoveryMode", "externalProcessKilled",
+            "signalSentToWebContent", "publicAPIOwnershipClaimed",
+            "processTerminationClaimed",
+        ]
+        return Set(object.keys) == exactKeys
+            && object["schemaVersion"] as? Int == 2
+            && acknowledgement(object, exactlyEchoes: binding)
+            && object["recoveryMode"] as? String == "simulated-public-delegate-seam"
+            && object["externalProcessKilled"] as? Bool == false
+            && object["signalSentToWebContent"] as? Bool == false
+            && object["publicAPIOwnershipClaimed"] as? Bool == false
+            && object["processTerminationClaimed"] as? Bool == false
     }
 
     private static func jsonUInt64(_ value: Any?) -> UInt64? {
