@@ -43,8 +43,12 @@ import {
   applyLightingRecipe,
   detectLightingRecipe,
 } from "../core/recipes/lighting";
+import {
+  LENS_RECIPES,
+  applyLensRecipe,
+  detectLensRecipe,
+} from "../core/recipes/lens";
 import { PATH_RECIPES, applyPathRecipe } from "../core/spatial/spatial";
-import { driftBuildIdentity } from "../lib/buildIdentity";
 import {
   fitPerformanceLifecycleToDuration,
   type StudioSettings,
@@ -67,6 +71,13 @@ import {
   worldRatioForDimensions,
   type WorldRatioId,
 } from "../core/worlds";
+import {
+  AUTHORED_WORLDS,
+  applyAuthoredWorld,
+  currentAuthoredWorld,
+  currentPublicVariant,
+} from "../core/worlds/authoredWorlds";
+import type { PublicWorldVariant, WorldId } from "../core/worlds/worldRegistry";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
 
@@ -256,12 +267,31 @@ export function ControlPanel({
   const materialRecipe = detectMaterialRecipe(project);
   const finishRecipe = detectFinishRecipe(project);
   const lightingRecipe = detectLightingRecipe(project);
+  const lensRecipe = detectLensRecipe(project);
   const handcraftedMotion = HANDCRAFTED_MOTION_PRESETS.find((preset) => (
     preset.cutId === project.motion.cadence.cutId
     && preset.performanceId === project.motion.performance.id
     && preset.characterId === project.motion.character.id
     && preset.poseCadence === project.motion.cadence.poseCadence
   )) ?? null;
+  const authoredWorld = currentAuthoredWorld(project);
+  const worldVariant = currentPublicVariant(project);
+  const worldSceneExtension = project.extensions["dog.pitch.drift.world-scene"];
+  const worldSceneId = typeof worldSceneExtension === "object"
+    && worldSceneExtension !== null
+    && !Array.isArray(worldSceneExtension)
+    && typeof worldSceneExtension.sceneId === "string"
+    ? worldSceneExtension.sceneId
+    : null;
+  const worldRecut = typeof worldSceneExtension === "object"
+    && worldSceneExtension !== null
+    && !Array.isArray(worldSceneExtension)
+    && typeof worldSceneExtension.recut === "number"
+    ? worldSceneExtension.recut
+    : 0;
+  const portraitSceneIndex = authoredWorld
+    ? Math.max(0, authoredWorld.portraitScenes.findIndex((scene) => scene.id === worldSceneId))
+    : 0;
 
   return (
     <aside className="inspector" aria-label="Director controls" aria-busy={exporting} inert={exporting}>
@@ -275,15 +305,36 @@ export function ControlPanel({
 
       <section className="theme-section" aria-labelledby="themes-title">
         <div className="section-heading-row">
-          <h3 id="themes-title">{
-            driftBuildIdentity.isDevelopment
-              ? v2Active ? "Editorial Drift · V2 slice" : "V1 looks · compatibility"
-              : "Film worlds"
-          }</h3>
-          <span>{driftBuildIdentity.isDevelopment && v2Active ? "1 + 5 studies" : "6"}</span>
+          <h3 id="themes-title">{v2Active ? "Film Worlds" : "V1 looks · compatibility"}</h3>
+          <span>{v2Active ? "8 · 16 portrait scenes" : "6"}</span>
         </div>
         <div className="theme-grid">
-          {THEMES.map((theme) => (
+          {v2Active ? AUTHORED_WORLDS.map((world) => {
+            const study = BACKGROUND_STUDIES.find((entry) => entry.id === world.backgroundStudyId);
+            return (
+              <button
+                type="button"
+                className="theme-card"
+                data-active={authoredWorld?.id === world.id}
+                key={world.id}
+                onClick={() => directProject(`${world.name} · ${worldVariant} applied.`, (next) => {
+                  applyAuthoredWorld(
+                    next,
+                    world.id,
+                    worldVariant,
+                    stageRatio ?? (settings.stage.width < settings.stage.height ? "9:16" : "16:9"),
+                    0,
+                    0,
+                  );
+                })}
+                aria-pressed={authoredWorld?.id === world.id}
+                style={{ "--theme-a": study?.background.colorA ?? "#080808", "--theme-b": study?.background.accent ?? "#dddddd" } as CSSProperties}
+              >
+                <span className="theme-swatch" aria-hidden="true" />
+                <span><strong>{world.name}</strong><small>{world.eyebrow}</small></span>
+              </button>
+            );
+          }) : THEMES.map((theme) => (
             <button
               type="button"
               className="theme-card"
@@ -301,6 +352,55 @@ export function ControlPanel({
             </button>
           ))}
         </div>
+        {v2Active && authoredWorld ? (
+          <div className="world-director-strip">
+            <Segmented
+              label="Pressure"
+              value={worldVariant}
+              options={[
+                { value: "restrained" as PublicWorldVariant, label: "Restrained" },
+                { value: "directed" as PublicWorldVariant, label: "Directed" },
+                { value: "fever" as PublicWorldVariant, label: "Fever" },
+              ]}
+              onChange={(variant) => directProject(`${authoredWorld.name} pressure set to ${variant}.`, (next) => {
+                applyAuthoredWorld(
+                  next,
+                  authoredWorld.id as WorldId,
+                  variant,
+                  stageRatio ?? (settings.stage.width < settings.stage.height ? "9:16" : "16:9"),
+                  portraitSceneIndex,
+                  worldRecut,
+                );
+              })}
+            />
+            {stageRatio === "9:16" || stageRatio === "4:5" ? (
+              <SelectField
+                label="Portrait scene"
+                value={authoredWorld.portraitScenes[portraitSceneIndex]!.id}
+                options={authoredWorld.portraitScenes.map((scene) => ({ value: scene.id, label: scene.name }))}
+                onChange={(sceneId) => {
+                  const sceneIndex = authoredWorld.portraitScenes.findIndex((scene) => scene.id === sceneId);
+                  directProject(`${authoredWorld.portraitScenes[sceneIndex]?.name ?? "Portrait scene"} applied.`, (next) => {
+                    applyAuthoredWorld(next, authoredWorld.id, worldVariant, stageRatio, sceneIndex, worldRecut);
+                  });
+                }}
+              />
+            ) : null}
+            <div className="pin-reset-control">
+              <button type="button" onClick={() => directProject(`${authoredWorld.name} recut.`, (next) => {
+                applyAuthoredWorld(
+                  next,
+                  authoredWorld.id,
+                  worldVariant,
+                  stageRatio ?? (settings.stage.width < settings.stage.height ? "9:16" : "16:9"),
+                  portraitSceneIndex,
+                  worldRecut + 1,
+                );
+              })}>Recut World</button>
+              <small>Take {worldRecut + 1} · deterministic atmosphere and material imperfection.</small>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <InspectorGroup title="Composition" eyebrow={stageLabel} open>
@@ -638,6 +738,38 @@ export function ControlPanel({
         <RangeField label="Grain" value={settings.background.grain * 100} min={0} max={60} step={1} unit="%" onChange={(value) => patch("background", { grain: value / 100 })} />
         <RangeField label="Vignette" value={settings.background.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { vignette: value / 100 })} />
       </InspectorGroup>
+
+      {v2Active ? (
+        <InspectorGroup title="Lens" eyebrow={project.lens.enabled ? lensRecipe?.name ?? "Custom" : "Off"}>
+          <SwitchField label="Optical finish" checked={project.lens.enabled} onChange={(enabled) => directProject(enabled ? "Lens on." : "Lens bypassed.", (next) => { next.lens.enabled = enabled; })} />
+          <SelectField
+            label="Lens"
+            value={lensRecipe?.id ?? "custom"}
+            options={[
+              { value: "custom", label: "Custom lens" },
+              ...LENS_RECIPES.map((recipe) => ({ value: recipe.id, label: recipe.name })),
+            ]}
+            onChange={(lensId) => {
+              if (lensId === "custom") return;
+              directProject(
+                `${LENS_RECIPES.find((entry) => entry.id === lensId)?.name ?? "Lens"} applied.`,
+                (next) => { applyLensRecipe(next, lensId); },
+              );
+            }}
+          />
+          <Segmented label="Pinned frame" value={project.lens.presenterTreatment} options={[{ value: "protected", label: "Protected" }, { value: "through-lens", label: "Through lens" }]} onChange={(presenterTreatment) => directProject("Pinned optical treatment changed.", (next) => { next.lens.presenterTreatment = presenterTreatment; })} />
+          <RangeField label="Presence" value={project.lens.presence * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Lens presence directed.", (next) => { next.lens.presence = value / 100; next.lens.characterId = "custom"; })} />
+          <RangeField label="Focus" value={project.lens.focus * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Focus directed.", (next) => { next.lens.focus = value / 100; next.lens.characterId = "custom"; })} />
+          <RangeField label="Motion smear" value={project.lens.directionalSmear * 100} min={0} max={100} step={1} unit="%" hint="Velocity-linked; exact zero at rest." onChange={(value) => directProject("Motion smear directed.", (next) => { next.lens.directionalSmear = value / 100; next.lens.characterId = "custom"; })} />
+          <RangeField label="Colour separation" value={project.lens.chromaticSeparation * 100} min={0} max={100} step={1} unit="%" hint="Radial; exact zero at the optical centre." onChange={(value) => directProject("Colour separation directed.", (next) => { next.lens.chromaticSeparation = value / 100; next.lens.characterId = "custom"; })} />
+          <RangeField label="Bloom" value={project.lens.bloom * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Bloom directed.", (next) => { next.lens.bloom = value / 100; next.lens.characterId = "custom"; })} />
+          <RangeField label="Halation" value={project.lens.halation * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Halation directed.", (next) => { next.lens.halation = value / 100; next.lens.characterId = "custom"; })} />
+          <RangeField label="Flare" value={project.lens.flare * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Flare directed.", (next) => { next.lens.flare = value / 100; next.lens.characterId = "custom"; })} />
+          <RangeField label="Gate weave" value={project.lens.gateWeave * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Gate weave directed.", (next) => { next.lens.gateWeave = value / 100; next.lens.characterId = "custom"; })} />
+          <RangeField label="Camera grain" value={project.lens.cameraGrain * 100} min={0} max={60} step={1} unit="%" onChange={(value) => directProject("Camera grain directed.", (next) => { next.lens.cameraGrain = value / 100; next.lens.characterId = "custom"; })} />
+          <RangeField label="Lens vignette" value={project.lens.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Lens vignette directed.", (next) => { next.lens.vignette = value / 100; next.lens.characterId = "custom"; })} />
+        </InspectorGroup>
+      ) : null}
 
       <InspectorGroup title="Pinned frame" eyebrow={settings.presenter.enabled ? "ON" : "OFF"}>
         <SwitchField

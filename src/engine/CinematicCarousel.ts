@@ -45,6 +45,7 @@ import {
   slideFragmentShader,
   slideVertexShader,
 } from "./shaders";
+import { lensFragmentShader, lensVertexShader } from "./lensShader";
 
 const MAX_POOL_SIZE = 24;
 const TEXTURE_CACHE_LIMIT = 24;
@@ -490,14 +491,22 @@ export class CinematicCarousel {
   private readonly scene = new THREE.Scene();
   private readonly presenterScene = new THREE.Scene();
   private readonly backgroundScene = new THREE.Scene();
+  private readonly lensScene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(CAMERA_FOV, 9 / 16, 1, 50_000);
   private readonly presenterCamera = new THREE.OrthographicCamera(-540, 540, 960, -960, 0.1, 100);
   private readonly backgroundCamera = new THREE.Camera();
   private readonly track = new THREE.Group();
   private readonly geometry = new THREE.PlaneGeometry(1, 1, 32, 18);
   private readonly backgroundGeometry = new THREE.PlaneGeometry(2, 2);
+  private readonly lensGeometry = new THREE.PlaneGeometry(2, 2);
   private readonly backgroundMaterial: THREE.ShaderMaterial;
   private readonly backgroundMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private readonly lensMaterial: THREE.ShaderMaterial;
+  private readonly lensMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private readonly lensTarget = new THREE.WebGLRenderTarget(1, 1, {
+    depthBuffer: true,
+    stencilBuffer: false,
+  });
   private readonly placeholderTexture: THREE.DataTexture;
   private readonly pool: SlidePoolItem[] = [];
   private readonly textureCache = new Map<string, TextureRecord>();
@@ -649,6 +658,38 @@ export class CinematicCarousel {
     this.backgroundMesh = new THREE.Mesh(this.backgroundGeometry, this.backgroundMaterial);
     this.backgroundMesh.frustumCulled = false;
     this.backgroundScene.add(this.backgroundMesh);
+    this.lensTarget.texture.colorSpace = THREE.SRGBColorSpace;
+    this.lensTarget.texture.minFilter = THREE.LinearFilter;
+    this.lensTarget.texture.magFilter = THREE.LinearFilter;
+    this.lensMaterial = new THREE.ShaderMaterial({
+      vertexShader: lensVertexShader,
+      fragmentShader: lensFragmentShader,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      uniforms: {
+        uScene: { value: this.lensTarget.texture },
+        uResolution: { value: new THREE.Vector2(1, 1) },
+        uVelocity: { value: new THREE.Vector2(0, 0) },
+        uPresence: { value: 0 },
+        uFocus: { value: 0 },
+        uSmear: { value: 0 },
+        uChromatic: { value: 0 },
+        uBloom: { value: 0 },
+        uHalation: { value: 0 },
+        uFlare: { value: 0 },
+        uCurvature: { value: 0 },
+        uGateWeave: { value: 0 },
+        uCameraGrain: { value: 0 },
+        uVignette: { value: 0 },
+        uPhase: { value: 0 },
+        uGrainFrame: { value: 0 },
+        uSeed: { value: 0 },
+      },
+    });
+    this.lensMesh = new THREE.Mesh(this.lensGeometry, this.lensMaterial);
+    this.lensMesh.frustumCulled = false;
+    this.lensScene.add(this.lensMesh);
     this.scene.add(this.track);
 
     for (let index = 0; index < MAX_POOL_SIZE; index += 1) this.pool.push(this.createPoolItem(index));
@@ -1468,15 +1509,107 @@ export class CinematicCarousel {
     this.updateBackground(time, exportMode, exportFrameIndex);
     this.evictTextures(keepTextureKeys);
 
-    this.renderer.setClearColor(0x000000, resolveCanvasClearAlpha(this.project));
-    this.renderer.clear(true, true, true);
     const transparent = this.drawState.stage.transparent || this.drawState.background.style === "transparent";
-    if (!transparent) {
-      this.renderer.render(this.backgroundScene, this.backgroundCamera);
-      this.renderer.clearDepth();
+    this.renderComposedScene(
+      transparent,
+      normalizedVelocity,
+      time,
+      exportMode,
+      exportFrameIndex,
+    );
+  }
+
+  private syncLensTargetSize(): void {
+    this.renderer.getDrawingBufferSize(this.backgroundResolution);
+    const width = Math.max(1, Math.round(this.backgroundResolution.x));
+    const height = Math.max(1, Math.round(this.backgroundResolution.y));
+    if (this.lensTarget.width !== width || this.lensTarget.height !== height) {
+      this.lensTarget.setSize(width, height);
     }
-    this.renderer.render(this.scene, this.camera);
-    if (this.presenterGroup.visible && this.presenterGroup.parent === this.presenterScene) {
+    this.lensMaterial.uniforms.uResolution!.value.set(width, height);
+  }
+
+  private renderComposedScene(
+    transparent: boolean,
+    normalizedVelocity: number,
+    time: number,
+    exportMode: boolean,
+    exportFrameIndex: number | null,
+  ): void {
+    const project = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT
+      ? this.project
+      : null;
+    const lens = project?.lens;
+    const lensActive = Boolean(lens?.enabled && lens.presence > 0.0001);
+    const safePresenterVisible = this.presenterGroup.visible && this.presenterGroup.parent === this.presenterScene;
+    const presenterThroughLens = lensActive
+      && safePresenterVisible
+      && lens?.presenterTreatment === "through-lens";
+    const clearAlpha = resolveCanvasClearAlpha(this.project);
+
+    if (lensActive && lens && project) {
+      this.syncLensTargetSize();
+      this.renderer.setRenderTarget(this.lensTarget);
+      this.renderer.setClearColor(0x000000, clearAlpha);
+      this.renderer.clear(true, true, true);
+      if (!transparent) {
+        this.renderer.render(this.backgroundScene, this.backgroundCamera);
+        this.renderer.clearDepth();
+      }
+      this.renderer.render(this.scene, this.camera);
+      if (presenterThroughLens) {
+        this.renderer.clearDepth();
+        this.renderer.render(this.presenterScene, this.presenterCamera);
+      }
+
+      const uniforms = this.lensMaterial.uniforms;
+      uniforms.uVelocity!.value.set(
+        this.drawState.motion.axis === "horizontal" ? normalizedVelocity : 0,
+        this.drawState.motion.axis === "vertical" ? -normalizedVelocity : 0,
+      );
+      uniforms.uPresence!.value = lens.presence;
+      uniforms.uFocus!.value = lens.focus;
+      uniforms.uSmear!.value = lens.directionalSmear;
+      uniforms.uChromatic!.value = lens.chromaticSeparation;
+      uniforms.uBloom!.value = lens.bloom;
+      uniforms.uHalation!.value = lens.halation;
+      uniforms.uFlare!.value = lens.flare;
+      uniforms.uCurvature!.value = lens.curvature;
+      uniforms.uGateWeave!.value = lens.gateWeave;
+      uniforms.uCameraGrain!.value = lens.cameraGrain;
+      uniforms.uVignette!.value = lens.vignette;
+      uniforms.uPhase!.value = resolveBackgroundPhase(time, {
+        durationSeconds: this.drawState.output.duration,
+        motion: 1,
+        seamless: this.drawState.motion.seamless,
+        seamlessLoops: this.drawState.motion.seamlessLoops,
+        reducedMotion: false,
+      });
+      uniforms.uGrainFrame!.value = resolveGrainFrame(
+        time,
+        this.drawState.output.fps,
+        exportMode,
+        false,
+        exportFrameIndex,
+      );
+      uniforms.uSeed!.value = normalizeGrainSeed(project.projectSeed);
+
+      this.renderer.setRenderTarget(null);
+      this.renderer.setClearColor(0x000000, clearAlpha);
+      this.renderer.clear(true, true, true);
+      this.renderer.render(this.lensScene, this.backgroundCamera);
+    } else {
+      this.renderer.setRenderTarget(null);
+      this.renderer.setClearColor(0x000000, clearAlpha);
+      this.renderer.clear(true, true, true);
+      if (!transparent) {
+        this.renderer.render(this.backgroundScene, this.backgroundCamera);
+        this.renderer.clearDepth();
+      }
+      this.renderer.render(this.scene, this.camera);
+    }
+
+    if (safePresenterVisible && !presenterThroughLens) {
       this.renderer.clearDepth();
       this.renderer.render(this.presenterScene, this.presenterCamera);
     }
@@ -2167,6 +2300,7 @@ export class CinematicCarousel {
     this.syncPresenterPlayback();
     this.placeholderTexture.needsUpdate = true;
     this.backgroundMaterial.needsUpdate = true;
+    this.lensMaterial.needsUpdate = true;
     for (const record of this.textureCache.values()) record.texture.needsUpdate = true;
     this.presenterPreviewTexture && (this.presenterPreviewTexture.needsUpdate = true);
     this.callbacks.onContextState?.("restored");
@@ -2214,6 +2348,9 @@ export class CinematicCarousel {
     this.geometry.dispose();
     this.backgroundGeometry.dispose();
     this.backgroundMaterial.dispose();
+    this.lensGeometry.dispose();
+    this.lensMaterial.dispose();
+    this.lensTarget.dispose();
     this.renderer.dispose();
   }
 }
