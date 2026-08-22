@@ -10,6 +10,19 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 
 Drift is pre-1.0 and currently source-first. Read the [project status](docs/STATUS.md) for the exact boundary between public source, local candidates, verification, and release.
 
+## V2 development boundary
+
+The `codex/v2-directors-cut` branch is an isolated **Editorial Performance vertical slice**, not a finished donor-plan V2 or a release candidate. It adds a protected pinned-frame composition, deterministic opening/body/ending performance, body and full-scene repeats, authored tempo curves, reduced-motion output, held film grain, and an early registry for future Worlds. The registry is data and validation only: it does not mean eight rendered Worlds, forty live backgrounds, or the donor library has shipped.
+
+V2 runs as `Drift V2 Dev.app` with a separate bundle identifier, WebKit store, cache, IndexedDB database, and sandbox. It deliberately does not own, open, or save real `.pitched` documents yet; use the installed V1 `Drift.app` for production projects. See the [vertical-slice contract](docs/v2/VERTICAL_SLICE.md), [current V2 status](docs/v2/CURRENT_STATUS.md), and [donor ledger](docs/v2/DONOR_LEDGER.yaml).
+
+```bash
+npm run dev                  # browser V2 Dev on 127.0.0.1:4174
+npm run build:v2-dev         # isolated Web build
+npm run build:mac:v2-dev     # isolated Mac development app
+npm run verify:mac:v2-dev    # bundle and packaged-WKWebView verification
+```
+
 The repository now contains two first-class ways to run the same studio:
 
 - the original local browser application;

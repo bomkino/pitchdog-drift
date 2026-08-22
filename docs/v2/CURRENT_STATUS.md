@@ -4,41 +4,56 @@ Updated: 22 August 2026
 
 Branch: `codex/v2-directors-cut`
 
-Frozen V1 base: `5fd145207235884790ba071c5d84bc3876ff4989`
+Frozen public V1 base: `5fd145207235884790ba071c5d84bc3876ff4989`
 
-## Now
+## Outcome in this checkpoint
 
-The development-app identity boundary remains verified for source `8756aa872adae820faafd7d3f3ae29650648cd13`. `Drift V2 Dev.app` was built, passed its `3/3` packaged WKWebView matrix, installed in `/Applications`, and run normally beside the unchanged V1 process.
+The current source is an **Editorial Performance vertical slice**. It combines Project V4 compatibility, protected pinned-frame composition, explicit-time lifecycle rendering, repeat modes, tempo curves, reduced motion, deterministic background phase, held grain, and restrained visual defaults inside the isolated V2 development identity.
 
-The normal installed run created the distinct V2 sandbox container, named WebKit store, and physical `pitchdog-drift-v2-dev` IndexedDB while V1 retained its default store and `pitchdog-drift` database. V2 declares no `.pitched` document type and refused a disposable Finder-open fixture. The exact evidence is frozen in [`qa/phase-00-identity.md`](qa/phase-00-identity.md).
+This is not the complete curated-donor V2. The live renderer remains the compatibility `CinematicCarousel` path and Project V4 accepts only `drift-v1-compat/1`. The eight-World and forty-atmosphere code is a validated registry foundation, not a live renderer or user library. The donor ledger records no donor source review or port.
 
-Project V4 hardening is committed at `843ee934f025f2b6c298e9d8872924d70fdd064a`. New projects, local persistence, and portable saves use V4; accepted V3 and frozen Studio V1 payloads migrate in memory; unsupported portable candidates are fully validated and decoded before the open project is saved or replaced; and dormant path, atmosphere, and World direction survives unrelated visible edits. The complete source check passed (`25` test files, `166` tests, typecheck, Mac source contracts, and production build), followed by the focused seven-test browser project gauntlet in `3.6` minutes. That gauntlet invoked both native import commands while recovery was locked, instrumented IndexedDB `put` and `clear`, and observed zero writes.
+The [vertical-slice contract](VERTICAL_SLICE.md) states exactly what is live. The [donor ledger](DONOR_LEDGER.yaml) is the authority for what has not been studied or ported.
 
-The installed V2 app still contains the earlier identity source, not Project V4. Canonical V2 render authority, authored V2 Worlds, installed-V4 Mac verification, and V2 visual approval remain open gates. Exact Project V4 rules and limits are recorded in [`V2_PROJECT_MIGRATION.md`](V2_PROJECT_MIGRATION.md).
+## Source evidence
+
+- Implementation checkpoint: `fb1773c` (`feat: author the V2 performance vertical slice`).
+- Unit suite: `245/245` passing after the provenance repair.
+- TypeScript: passing.
+- Mac source, bridge, file-authority, hardening, and package-script contracts: passing.
+- V2 Web build: passing.
+- Lifecycle/render critic: HOLD after exit continuity and shared background-phase repair.
+- Director-control critic: HOLD after persistence, reduced-motion, zero-tempo fallback, and duration-fit checks.
+- Visual critic: HOLD for the repaired pin in vertical and horizontal flow. Portrait-source owner approval remains a separate visual check.
+- Full uninterrupted browser suite: running as the final code-candidate gate; do not infer green from focused passes.
 
 ## Honest state table
 
 | Gate | State |
 | --- | --- |
-| Exact V1 source frozen and public on `main` | verified |
-| Installed V1 unchanged and running beside V2 | verified; PID `75493` |
-| V2 browser identity and isolated database | verified locally |
-| Identity source checks, unit tests, typecheck, and Web build | passing locally |
-| Installed V2 build source | `8756aa872adae820faafd7d3f3ae29650648cd13` |
-| V2 packaged Mac app | verified; packaged matrix `3/3` passed |
-| V1/V2 simultaneous Mac run | verified; V1 PID `75493`, V2 PID `84575` |
-| V2 installed in `/Applications` | verified at `/Applications/Drift V2 Dev.app` |
-| Physical V1/V2 container, WebKit-store, and IndexedDB separation | verified |
-| V2 `.pitched` declarations | absent |
-| Disposable `.pitched` Finder-open rejection | verified in normal installed V2 run |
-| Project V4 source | hardening committed at `843ee934f025f2b6c298e9d8872924d70fdd064a`; local source and focused browser gauntlets passed |
-| Project V4 in installed Mac app | no; installed V2 remains the Phase 00 identity build |
-| Rejected future portable candidate leaves open storage untouched | verified in browser; zero observed IndexedDB writes |
-| Canonical V2 render authority | not implemented; explicit export frame identity currently governs grain only |
-| First authored V2 World | not implemented |
-| V2 visual approval | not granted |
+| Exact V1 source public on `main` | verified at frozen base |
+| Installed V1 | preserved; not modified by V2 work |
+| V2 bundle/storage identity | verified in prior Phase 00 package |
+| Project V4 save/migration authority | implemented in current source |
+| Rejected portable candidate leaves open storage untouched | previously verified in focused browser gauntlet |
+| Protected pin behavior | implemented; fresh visual critic HOLD in both axes |
+| Entry/body/exit, repeat, tempo, reduced motion | implemented and deterministic in current source |
+| Preview/export lifecycle authority | shared explicit-time path in current compatibility renderer |
+| Default PNG still | lifecycle-aware in App; generic API defaults to master midpoint |
+| Grain | deterministic frame-owned held plates; visual default approved in browser slice |
+| Recipe provenance after visible edits | drifted World-owned recipe refs clear; aggregate World becomes Custom |
+| Canonical modular V2 renderer / `drift-v2` contract | not implemented |
+| Eight live authored Worlds | not implemented; registry-only |
+| Forty live backgrounds | not implemented; metadata foundation only |
+| Curated donor integration | not started; all donors remain frozen-not-ported |
+| Current exact-SHA V2 Mac package | pending after final browser gate |
+| Current V2 installed in `/Applications` | no; existing installation is stale Phase 00 source |
+| V2 real `.pitched` Open/Save/Finder ownership | deliberately disabled |
 | V2 pushed | no |
 | V2 merged to `main` | no |
-| V2 released, Developer ID signed, notarised, stapled, or published | no; installed build is ad-hoc signed |
+| Developer ID signed, notarised, stapled, released, or published | no |
 
-The installed V2 build is a local development artifact, not a distributable release candidate. Its exact source SHA is embedded in `BuildReceipt.txt`; future Project V4 and renderer work must produce new receipts rather than inheriting Phase 00 approval.
+## Safe user boundary
+
+Keep using `/Applications/Drift.app` for real projects. The V2 app is an isolated visual/export beta with its own disposable local database. A successful local installation will live at `/Applications/Drift V2 Dev.app` and must leave V1 usable beside it.
+
+Do not merge this checkpoint to public `main` as “V2 complete.” A checkpoint branch may be pushed only after exact-source browser, package, installation, and documentation gates hold. Production identity, public release, signing, notarisation, publication, and the Codex for Open Source application remain separate authorized actions.

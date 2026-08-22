@@ -14,9 +14,16 @@ import {
 test("large valid project seeds retain deterministic grain entropy", async ({ page }) => {
   await page.goto("/");
   const receipt = await page.evaluate(async () => {
-    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+    const [
+      { CinematicCarousel },
+      { DEFAULT_SETTINGS },
+      { createPerformanceLifecycle },
+      { defaultPerformanceStillTime },
+    ] = await Promise.all([
       import("/src/engine/CinematicCarousel.ts"),
       import("/src/model.ts"),
+      import("/src/core/timeline/performanceLifecycle.ts"),
+      import("/src/core/timeline/renderTravel.ts"),
     ]);
     const settings = structuredClone(DEFAULT_SETTINGS);
     settings.stage = { width: 256, height: 256, transparent: false };
@@ -59,11 +66,12 @@ test("large valid project seeds retain deterministic grain entropy", async ({ pa
     };
 
     try {
-      const first = await engine.captureStill(256, 256, 0);
-      const repeated = await engine.captureStill(256, 256, 0);
+      const visibleBodyTime = defaultPerformanceStillTime(createPerformanceLifecycle(settings.performance));
+      const first = await engine.captureStill(256, 256, visibleBodyTime);
+      const repeated = await engine.captureStill(256, 256, visibleBodyTime);
       settings.background.seed = 10_000_000;
       engine.setSettings(structuredClone(settings));
-      const otherSeed = await engine.captureStill(256, 256, 0);
+      const otherSeed = await engine.captureStill(256, 256, visibleBodyTime);
       return {
         firstHash: await hashBlob(first),
         repeatedHash: await hashBlob(repeated),
@@ -85,9 +93,16 @@ test("large valid project seeds retain deterministic grain entropy", async ({ pa
 test("renderer pool and media replacement always preserve latest visual intent", async ({ page }) => {
   await page.goto("/");
   const receipt = await page.evaluate(async () => {
-    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+    const [
+      { CinematicCarousel },
+      { DEFAULT_SETTINGS },
+      { createPerformanceLifecycle },
+      { defaultPerformanceStillTime },
+    ] = await Promise.all([
       import("/src/engine/CinematicCarousel.ts"),
       import("/src/model.ts"),
+      import("/src/core/timeline/performanceLifecycle.ts"),
+      import("/src/core/timeline/renderTravel.ts"),
     ]);
 
     const makeSolidAsset = async (color: string, id: string, hash: string) => {
@@ -189,12 +204,13 @@ test("renderer pool and media replacement always preserve latest visual intent",
     document.body.append(canvas);
     const engine = new CinematicCarousel(canvas, settings);
     engine.stop();
+    const visibleBodyTime = defaultPerformanceStillTime(createPerformanceLifecycle(settings.performance));
 
     try {
       await engine.setAssets([red]);
-      const before = await sample(await engine.captureStill(256, 256, 0), 128, 128);
+      const before = await sample(await engine.captureStill(256, 256, visibleBodyTime), 128, 128);
       await engine.setAssets([blue]);
-      const after = await sample(await engine.captureStill(256, 256, 0), 128, 128);
+      const after = await sample(await engine.captureStill(256, 256, visibleBodyTime), 128, 128);
 
       const pressureSettings = structuredClone(settings);
       pressureSettings.stage = { width: 256, height: 456, transparent: true };
@@ -206,7 +222,7 @@ test("renderer pool and media replacement always preserve latest visual intent",
       pressureSettings.presenter.enabled = false;
       pressureSettings.presenter.assetId = null;
       engine.setSettings(pressureSettings);
-      const pressure = await sample(await engine.captureStill(256, 456, 0), 128, 228);
+      const pressure = await sample(await engine.captureStill(256, 456, visibleBodyTime), 128, 228);
 
       engine.setSettings(settings);
       await engine.setAssets([]);
@@ -231,12 +247,12 @@ test("renderer pool and media replacement always preserve latest visual intent",
       } finally {
         window.createImageBitmap = originalCreateImageBitmap;
       }
-      const presenter = await sample(await engine.captureStill(256, 256, 0), 128, 128);
-      const deterministicBefore = await hashBlob(await engine.captureStill(256, 256, 0));
+      const presenter = await sample(await engine.captureStill(256, 256, visibleBodyTime), 128, 128);
+      const deterministicBefore = await hashBlob(await engine.captureStill(256, 256, visibleBodyTime));
       engine.start();
       await new Promise((resolve) => window.setTimeout(resolve, 700));
       engine.stop();
-      const deterministicAfter = await hashBlob(await engine.captureStill(256, 256, 0));
+      const deterministicAfter = await hashBlob(await engine.captureStill(256, 256, visibleBodyTime));
 
       const raceSettings = structuredClone(settings);
       raceSettings.presenter.assetId = racePresenter.id;

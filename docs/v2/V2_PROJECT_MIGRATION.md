@@ -1,14 +1,14 @@
 # Project V4 migration contract
 
-Implementation status: **integrated in the current working tree; not yet release-live**
+Implementation status: **integrated in the V2 vertical-slice source; not release-live**
 
 Updated: 22 August 2026
 
-This document defines the Project V4 compatibility slice. The current App, payload parser, serializer, and V1 projection paths use V4: new in-memory projects start as V4; accepted V3 and frozen legacy payloads migrate to V4 in memory; and the next real save serializes V4 only. The V4 core, exact-candidate preservation, and recovery-lock hardening are committed. V4 is not yet a shipped, merged, installed, or release-approved contract until one exact revision passes every applicable acceptance gate at the end of this document.
+This document defines the Project V4 compatibility slice. The current App, payload parser, serializer, and V1 projection paths use V4: new in-memory projects start as V4; accepted V3 and frozen legacy payloads migrate to V4 in memory; and the next real save serializes V4 only. The V4 core, exact-candidate preservation, recovery-lock hardening, protected pin state, and performance lifecycle persistence are committed. V4 is not yet a shipped, merged, production-installed, or release-approved contract.
 
-Source evidence is pinned to exact commit `843ee934f025f2b6c298e9d8872924d70fdd064a`. `npm run check` passed on that commit: 25 test files containing 166 tests, TypeScript typecheck, Mac source contracts, and production web build. `npx playwright test e2e/studio-projects.e2e.ts` then passed 7/7 in 3.6 minutes. Its recovery case installs the exact native bridge harness, invokes both native slide and presenter import commands while recovery-locked, instruments `IDBObjectStore.put` and `IDBObjectStore.clear`, and observes zero writes. The full browser E2E suite beyond this project file, packaged WKWebView app, and installed application have not been rerun; no release artifact has been built or verified from this revision. This distinction is why implementation exists while release-live status remains blocked.
+The original Project V4 hardening evidence remains pinned to exact commit `843ee934f025f2b6c298e9d8872924d70fdd064a`: its complete source check passed, then `e2e/studio-projects.e2e.ts` passed `7/7` in 3.6 minutes. The recovery case invokes both native slide and presenter import commands while recovery-locked, instruments `IDBObjectStore.put` and `IDBObjectStore.clear`, and observes zero writes. The wider V2 vertical slice is committed at `fb1773c`; its source suite later passed `245/245`, typecheck, Mac source contracts, and the V2 Web build. Exact current browser, packaged-WKWebView, installed-app, and release evidence remains separately gated in [CURRENT_STATUS.md](CURRENT_STATUS.md).
 
-Project V4 does not turn on V2 rendering. Its job is narrower: identify the render contract explicitly, migrate accepted older projects without changing their current V1 appearance, and create a strict place for future namespaced data.
+Project V4 does not turn on V2 rendering. Its job is narrower: identify the render contract explicitly, migrate accepted older projects without changing their current V1 appearance, and create a strict place for future namespaced data. The V2 lifecycle and pin features still execute through the compatibility renderer; no `drift-v2` render contract is claimed.
 
 ## Non-negotiable result
 

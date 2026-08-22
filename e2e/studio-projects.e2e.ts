@@ -560,7 +560,8 @@ test("a slow older autosave cannot overwrite a newer imported project", async ({
     await expect(oldPage.locator(".stage-hud")).toContainText("1200 × 1920");
     await oldPage.waitForTimeout(1_800);
     await oldPage.reload();
-    await expect(oldPage.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
+    await expect(oldPage.locator(".stage-frame")).toHaveAttribute("data-context", /ready|restored/, { timeout: 30_000 });
+    await expect(oldPage.locator(".header-status")).toContainText("saved locally");
     await expect(oldPage.locator(".asset-list li")).toHaveCount(1);
     await expect(oldPage.locator(".asset-list li").first()).toContainText("slide.png");
     await expect(oldPage.locator(".stage-hud")).toContainText("1200 × 1920");
