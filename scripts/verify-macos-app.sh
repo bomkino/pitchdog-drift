@@ -35,6 +35,8 @@ for path in \
   "${RESOURCES}/Legal/ASSET-LICENSE.md" \
   "${RESOURCES}/Legal/THIRD_PARTY_NOTICES.md" \
   "${RESOURCES}/Legal/TRADEMARKS.md" \
+  "${RESOURCES}/Legal/ThirdPartyLicenses/MANIFEST.json" \
+  "${RESOURCES}/Legal/ThirdPartyLicenses/RUNTIME_COMPONENTS.md" \
   "${RESOURCES}/Documentation/MACOS_APP.md" \
   "${RESOURCES}/Documentation/MACOS_PRODUCT_CONTRACT.md" \
   "${RESOURCES}/Documentation/MACOS_USER_GUIDE.md" \
@@ -45,6 +47,8 @@ for path in \
   [[ -f "${path}" ]] || fail "missing app-bundle file ${path}."
 done
 [[ -x "${EXECUTABLE}" ]] || fail "the main executable is not executable."
+node "${ROOT_DIR}/scripts/stage-macos-runtime-licenses.mjs" verify \
+  "${RESOURCES}/Legal/ThirdPartyLicenses"
 
 plutil -lint "${INFO_PLIST}" >/dev/null
 [[ "$(plutil -extract CFBundleIdentifier raw -o - "${INFO_PLIST}")" == "dog.pitch.drift" ]] \

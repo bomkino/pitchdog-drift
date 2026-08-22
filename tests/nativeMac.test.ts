@@ -106,6 +106,26 @@ describe("native macOS app contract", () => {
     cleanup();
   });
 
+  it("delivers a native slide selection as one durable batch", async () => {
+    const importFile = vi.fn();
+    const importFiles = vi.fn(async () => undefined);
+    setWindow({
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
+      __driftNativeInstallAppBridge: vi.fn(() => () => undefined),
+    });
+    const cleanup = installNativeMacAppBridge({ command: vi.fn(), importFile, importFiles });
+    const files = [
+      new File(["first"], "first.png", { type: "image/png" }),
+      new File(["second"], "second.png", { type: "image/png" }),
+    ];
+
+    await expect(dispatchNativeMacFiles("slides", files)).resolves.toBe(true);
+    expect(importFiles).toHaveBeenCalledOnce();
+    expect(importFiles).toHaveBeenCalledWith("slides", files);
+    expect(importFile).not.toHaveBeenCalled();
+    cleanup();
+  });
+
   it("propagates a React project rejection to the native delivery caller", async () => {
     const rejection = new DOMException("Project verification failed.", "DataError");
     const importFile = vi.fn(async () => { throw rejection; });

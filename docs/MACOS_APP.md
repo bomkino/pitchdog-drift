@@ -29,6 +29,15 @@ build/macos/Drift.app
     │   ├── NativeBridge.js
     │   ├── Drift.icns
     │   ├── Legal/
+    │   │   ├── LICENSE
+    │   │   ├── NOTICE
+    │   │   ├── ASSET-LICENSE.md
+    │   │   ├── THIRD_PARTY_NOTICES.md
+    │   │   ├── TRADEMARKS.md
+    │   │   └── ThirdPartyLicenses/
+    │   │       ├── MANIFEST.json
+    │   │       ├── RUNTIME_COMPONENTS.md
+    │   │       └── exact dependency licence texts
     │   ├── BuildReceipt.txt
     │   └── BuildManifest.txt
     ├── _CodeSignature/

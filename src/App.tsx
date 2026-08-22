@@ -43,6 +43,12 @@ import {
   type ProjectSnapshot,
 } from "./lib/projectStore";
 import {
+  advanceLocalSaveRevision,
+  createLocalSaveRevisionAuthority,
+  matchesDirectPersistenceSnapshot,
+  ownsLocalSaveRevision,
+} from "./lib/localSaveAuthority";
+import {
   createDriftProjectPayload,
   parseStudioProjectPayload,
   type DriftProjectPayloadV3,
@@ -184,14 +190,22 @@ export function App() {
   const recoverySnapshotRef = useRef<ProjectSnapshot<StudioProjectPayload> | null>(null);
   const hydratedRef = useRef(false);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const saveRevisionRef = useRef(0);
+  const saveRevisionAuthorityRef = useRef(createLocalSaveRevisionAuthority());
+  const directPersistenceSnapshotRef = useRef<{
+    settings: StudioSettings;
+    assets: StudioAsset[];
+    presenter: StudioAsset | null;
+  } | null>(null);
   const projectQueueRef = useRef<Promise<void>>(Promise.resolve());
   const projectPendingRef = useRef(0);
   const assetsRef = useRef<StudioAsset[]>([]);
   const presenterRef = useRef<StudioAsset | null>(null);
   const settingsRef = useRef<StudioSettings>(cloneSettings(DEFAULT_SETTINGS));
   const nativeCommandRef = useRef<(command: NativeMacCommand) => boolean | void | Promise<boolean | void>>(() => false);
-  const nativeImportRef = useRef<(kind: NativeMacImportKind, file: File) => void | Promise<void>>(() => undefined);
+  const nativeImportRef = useRef<(
+    kind: NativeMacImportKind,
+    files: readonly File[],
+  ) => void | Promise<void>>(() => undefined);
 
   const [settings, setSettings] = useState<StudioSettings>(() => cloneSettings(DEFAULT_SETTINGS));
   const [assets, setAssets] = useState<StudioAsset[]>([]);
@@ -201,6 +215,7 @@ export function App() {
   const [fps, setFps] = useState(0);
   const [paused, setPaused] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  const [activeSlideIndex, setActiveSlideIndex] = useState(-1);
   const [activePanel, setActivePanel] = useState<"media" | "stage" | "director">("stage");
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [notice, setNotice] = useState<string | null>("Loading local studio…");
@@ -349,7 +364,7 @@ export function App() {
     nextPresenter = presenterRef.current,
     reservedRevision?: number,
   ) => {
-    const revision = reservedRevision ?? ++saveRevisionRef.current;
+    const revision = reservedRevision ?? advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
     setSaveState("saving");
     const updatedAt = new Date().toISOString();
     const baseProject = projectRef.current ?? createDefaultDriftProject(makeLocalProjectId(), updatedAt);
@@ -384,17 +399,23 @@ export function App() {
           projectId: snapshot.manifest.projectId,
           createdAt: snapshot.manifest.createdAt,
         };
-        if (revision === saveRevisionRef.current) setSaveState("saved");
+        if (ownsLocalSaveRevision(saveRevisionAuthorityRef.current, revision)) setSaveState("saved");
         return snapshot;
       });
 
     saveQueueRef.current = task.then(
       () => undefined,
       () => {
-        if (revision === saveRevisionRef.current) setSaveState("failed");
+        if (ownsLocalSaveRevision(saveRevisionAuthorityRef.current, revision)) setSaveState("failed");
       },
     );
     return task;
+  }, []);
+
+  const markProjectDirty = useCallback(() => {
+    if (!hydratedRef.current) return;
+    advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
+    setSaveState("saving");
   }, []);
 
   useEffect(() => {
@@ -451,6 +472,7 @@ export function App() {
         onError: (message) => announce(message, "error"),
         onContextState: setContextState,
         onFrame: setFps,
+        onActiveSlide: setActiveSlideIndex,
       });
       engineRef.current = engine;
       setWebglError(null);
@@ -481,12 +503,17 @@ export function App() {
 
   useEffect(() => {
     if (!hydratedRef.current) return;
-    const revision = ++saveRevisionRef.current;
+    const directSnapshot = directPersistenceSnapshotRef.current;
+    if (directSnapshot) {
+      directPersistenceSnapshotRef.current = null;
+      if (matchesDirectPersistenceSnapshot(directSnapshot, settings, assets, presenter)) return;
+    }
+    const revision = advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
     setSaveState("saving");
     const timer = window.setTimeout(() => {
-      if (revision !== saveRevisionRef.current) return;
+      if (!ownsLocalSaveRevision(saveRevisionAuthorityRef.current, revision)) return;
       void persist(settings, assets, presenter, revision).catch((error: unknown) => {
-        if (revision !== saveRevisionRef.current) return;
+        if (!ownsLocalSaveRevision(saveRevisionAuthorityRef.current, revision)) return;
         setSaveState("failed");
         announce(error instanceof Error ? `Local save failed: ${error.message}` : "Local save failed.", "error");
       });
@@ -519,6 +546,11 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && focusMode) {
+        event.preventDefault();
+        setFocusMode(false);
+        return;
+      }
       if (exportProgress || projectBusy || abortRef.current || projectPendingRef.current > 0 || saveState === "loading") return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, select, textarea, button, [contenteditable=true]")) return;
@@ -534,13 +566,11 @@ export function App() {
         engineRef.current?.stepSlides(1);
       } else if (event.key.toLowerCase() === "f") {
         setFocusMode((value) => !value);
-      } else if (event.key === "Escape") {
-        setFocusMode(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [exportProgress, paused, projectBusy, saveState]);
+  }, [exportProgress, focusMode, paused, projectBusy, saveState]);
 
   useEffect(() => () => {
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
@@ -548,19 +578,26 @@ export function App() {
     if (presenterRef.current) disposeAsset(presenterRef.current);
   }, []);
 
-  const addImagesNow = useCallback(async (files: File[]) => {
+  const addImagesNow = useCallback(async (
+    files: File[],
+    options: { persistBeforeReply?: boolean; propagateFailure?: boolean } = {},
+  ) => {
+    const rejectImport = (message: string) => {
+      announce(message, "error");
+      if (options.propagateFailure) throw new Error(message);
+    };
     const startingAssets = assetsRef.current;
     const replacingStartingDemos = startingAssets.length > 0 && startingAssets.every((asset) => asset.demo);
     const retainedStartingAssets = replacingStartingDemos ? [] : startingAssets;
     const startingRoom = Math.max(0, MAX_SLIDES - retainedStartingAssets.length);
     if (startingRoom === 0) {
-      announce(`This version supports up to ${MAX_SLIDES} moving slides.`, "error");
+      rejectImport(`This version supports up to ${MAX_SLIDES} moving slides.`);
       return;
     }
 
     const supportedImages = files.filter((file) => file.type.startsWith("image/"));
     if (!supportedImages.length) {
-      announce("No supported images were selected.", "error");
+      rejectImport("No supported images were selected.");
       return;
     }
     const existingMedia = [
@@ -579,14 +616,14 @@ export function App() {
         : selection.rejectedForBudget.length
           ? `Those slides exceed the ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} portable-project media budget. Remove or compress existing media first.`
           : `This version supports up to ${MAX_SLIDES} moving slides.`;
-      announce(message, "error");
+      rejectImport(message);
       return;
     }
 
     const decoded = await Promise.allSettled(candidates.map((file) => imageFileToAsset(file)));
     const decodedAssets = decoded.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     if (!decodedAssets.length) {
-      announce("None of those images could be decoded.", "error");
+      rejectImport("None of those images could be decoded.");
       return;
     }
     const current = assetsRef.current;
@@ -598,11 +635,21 @@ export function App() {
     overflow.forEach(disposeAsset);
     const rejected = files.length - accepted.length;
     if (!accepted.length) {
-      announce(`This version supports up to ${MAX_SLIDES} moving slides; ${rejected} selected file${rejected === 1 ? " was" : "s were"} rejected.`, "error");
+      rejectImport(`This version supports up to ${MAX_SLIDES} moving slides; ${rejected} selected file${rejected === 1 ? " was" : "s were"} rejected.`);
       return;
     }
     if (replacingDemos) current.forEach(disposeAsset);
     const next = [...retained, ...accepted];
+    const nextSettings = settingsRef.current;
+    const nextPresenter = presenterRef.current;
+    if (options.persistBeforeReply) {
+      directPersistenceSnapshotRef.current = {
+        settings: nextSettings,
+        assets: next,
+        presenter: nextPresenter,
+      };
+    }
+    markProjectDirty();
     assetsRef.current = next;
     setAssets(next);
     const usedBytes = projectAssetBytes([
@@ -613,13 +660,25 @@ export function App() {
       `${accepted.length} slide${accepted.length === 1 ? "" : "s"} added${rejected ? `; ${rejected} rejected by format, count, decode, or project-media budget` : ""}. ${formatProjectMiB(usedBytes)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
       rejected ? "quiet" : "good",
     );
-  }, [announce]);
+    if (options.persistBeforeReply) {
+      try {
+        await persist(nextSettings, next, nextPresenter);
+      } catch (error) {
+        const message = error instanceof Error ? `Local save failed: ${error.message}` : "Local save failed.";
+        announce(message, "error");
+        if (options.propagateFailure) throw error;
+      }
+    }
+  }, [announce, markProjectDirty, persist]);
 
   const addImages = useCallback((files: File[]) => {
     void enqueueProjectOperation(() => addImagesNow(files));
   }, [addImagesNow, enqueueProjectOperation]);
 
-  const addPresenterNow = useCallback(async (file: File) => {
+  const addPresenterNow = useCallback(async (
+    file: File,
+    options: { persistBeforeReply?: boolean; propagateFailure?: boolean } = {},
+  ) => {
     try {
       const existingSlideBytes = projectAssetBytes(assetsRef.current);
       const violation = projectMediaViolation(file.size, existingSlideBytes);
@@ -635,16 +694,28 @@ export function App() {
         ...settingsRef.current,
         presenter: { ...settingsRef.current.presenter, enabled: true, assetId: next.id },
       };
+      if (options.persistBeforeReply) {
+        directPersistenceSnapshotRef.current = {
+          settings: nextSettings,
+          assets: assetsRef.current,
+          presenter: next,
+        };
+      }
+      markProjectDirty();
       settingsRef.current = nextSettings;
       setSettings(nextSettings);
       announce(
         `Presenter video pinned. Audio will be checked—not silently dropped—at export. ${formatProjectMiB(existingSlideBytes + next.blob.size)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
         "good",
       );
+      if (options.persistBeforeReply) {
+        await persist(nextSettings, assetsRef.current, next);
+      }
     } catch (error) {
       announce(error instanceof Error ? error.message : "Presenter video could not be opened.", "error");
+      if (options.propagateFailure) throw error;
     }
-  }, [announce]);
+  }, [announce, markProjectDirty, persist]);
 
   const addPresenter = useCallback((file: File) => {
     void enqueueProjectOperation(() => addPresenterNow(file));
@@ -655,13 +726,14 @@ export function App() {
     const removed = current.find((asset) => asset.id === id);
     if (removed) disposeAsset(removed);
     const nextAssets = current.filter((asset) => asset.id !== id);
+    markProjectDirty();
     assetsRef.current = nextAssets;
     setAssets(nextAssets);
 
     const nextSettings = clearPinnedAssetIfRemoved(settingsRef.current, id);
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
-  }, []);
+  }, [markProjectDirty]);
 
   const reorder = useCallback((fromId: string, toId: string) => {
     const current = assetsRef.current;
@@ -671,18 +743,20 @@ export function App() {
     const next = [...current];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved!);
+    markProjectDirty();
     assetsRef.current = next;
     setAssets(next);
-  }, []);
+  }, [markProjectDirty]);
 
   const pin = useCallback((asset: StudioAsset | null) => {
     const nextSettings: StudioSettings = {
       ...settingsRef.current,
       presenter: { ...settingsRef.current.presenter, enabled: Boolean(asset), assetId: asset?.id ?? null },
     };
+    markProjectDirty();
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
-  }, []);
+  }, [markProjectDirty]);
 
   const removePresenter = useCallback(() => {
     const removedPresenter = presenterRef.current;
@@ -692,9 +766,10 @@ export function App() {
     setPresenter(null);
 
     const nextSettings = clearPinnedAssetIfRemoved(settingsRef.current, removedPresenterId);
+    markProjectDirty();
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
-  }, []);
+  }, [markProjectDirty]);
 
   const renderForExport = useCallback(async (time: number, frame?: { image: HTMLCanvasElement | OffscreenCanvas }) => {
     const engine = engineRef.current;
@@ -950,9 +1025,19 @@ export function App() {
   }, [paused]);
 
   const onTheme = useCallback((id: ThemeId) => {
-    setSettings((current) => applyTheme(current, getTheme(id)));
-    announce(`${getTheme(id).name} is now directing the scene.`);
-  }, [announce]);
+    const theme = getTheme(id);
+    const nextSettings = applyTheme(settingsRef.current, theme);
+    markProjectDirty();
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    announce(`${theme.name} is now directing the scene.`);
+  }, [announce, markProjectDirty]);
+
+  const updateSettings = useCallback((nextSettings: StudioSettings) => {
+    markProjectDirty();
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+  }, [markProjectDirty]);
 
   const exportInProgress = Boolean(exportProgress);
 
@@ -1003,14 +1088,25 @@ export function App() {
     }
   };
 
-  nativeImportRef.current = (kind: NativeMacImportKind, file: File) => {
+  nativeImportRef.current = (kind: NativeMacImportKind, files: readonly File[]) => {
     if (kind === "slides") {
-      addImages([file]);
-      return;
+      return enqueueProjectOperation(
+        () => addImagesNow([...files], { persistBeforeReply: true, propagateFailure: true }),
+        true,
+      );
     }
+    if (files.length !== 1 || !files[0]) {
+      throw new DOMException(
+        kind === "presenter" ? "Choose exactly one presenter video." : "Choose exactly one Drift project.",
+        "TypeMismatchError",
+      );
+    }
+    const file = files[0];
     if (kind === "presenter") {
-      addPresenter(file);
-      return;
+      return enqueueProjectOperation(
+        () => addPresenterNow(file, { persistBeforeReply: true, propagateFailure: true }),
+        true,
+      );
     }
     // Finder must not receive a success reply merely because React displayed
     // an error. Propagate native-open failures through the awaited bridge;
@@ -1020,7 +1116,8 @@ export function App() {
 
   useEffect(() => installNativeMacAppBridge({
     command: (command) => nativeCommandRef.current(command),
-    importFile: (kind, file) => nativeImportRef.current(kind, file),
+    importFile: (kind, file) => nativeImportRef.current(kind, [file]),
+    importFiles: (kind, files) => nativeImportRef.current(kind, files),
   }), []);
 
   useEffect(() => {
@@ -1090,6 +1187,7 @@ export function App() {
           fps={fps}
           paused={paused}
           focusMode={focusMode}
+          activeSlideIndex={activeSlideIndex}
           exportProgress={exportProgress}
           onTogglePause={togglePause}
           onStep={(amount) => engineRef.current?.stepSlides(amount)}
@@ -1100,7 +1198,7 @@ export function App() {
         />
         <ControlPanel
           settings={settings}
-          onSettings={setSettings}
+          onSettings={updateSettings}
           onTheme={onTheme}
           onExportStill={exportStill}
           onExportVideo={exportVideo}

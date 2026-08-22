@@ -2,6 +2,27 @@
 
 Drift is a local-first directing tool, not a shader gallery. Contributions should improve a real person’s ability to turn a deck into legible, authored motion and to recover safely when media, storage, GPU, codec, or filesystem behavior goes wrong.
 
+## Maintainer and decision authority
+
+Drift is currently a maintainer-led project. [`@bomkino`](https://github.com/bomkino) is the primary maintainer and final decision-maker for product scope, architecture, merge, security coordination, release, and use of the pitch.dog marks. A maintainer may delegate a review or decision, but that delegation should be explicit in the issue or pull request.
+
+Discussion and dissent are useful; hidden vetoes are not. When a material trade-off remains, the maintainer should record the decision and its reason in the pull request or an architecture document. Review, merge, signing, release, and publication are separate decisions. A merged contribution does not authorize a tag or binary release.
+
+Contributors keep copyright in their work while licensing accepted contributions under the project licence. Nobody should sink days into a speculative rewrite for free: discuss broad redesigns, new dependencies, schema changes, native authority, or release machinery before implementing them.
+
+## Low-risk first contributions
+
+Useful first changes do not require a private deck, signing certificate, or deep knowledge of the renderer. Good lanes include:
+
+- fixing a broken documentation link or clarifying a verified boundary;
+- reproducing a public bug with synthetic media and exact steps;
+- adding a focused regression test for an existing contract;
+- improving keyboard, focus, labels, or error copy without weakening behavior;
+- tightening a public fixture, type, or diagnostic that contains no user material;
+- identifying stale dependency, licence, notice, or accessibility evidence without silently changing policy.
+
+A small, self-contained fix may go straight to a pull request. Open an issue first when the change would alter the native bridge, file authority, portable-project schema, deterministic timeline, codecs, entitlements, dependency graph, signing, or release process.
+
 ## Before opening a change
 
 1. Read `docs/PRODUCT_CONTRACT.md` and `docs/ARCHITECTURE.md`.
@@ -42,6 +63,8 @@ A Mac PR is not complete because Swift parses. It must compile on macOS, preserv
 - Preview and deterministic export must evaluate the same state.
 - Add or update geometry, shader, browser, and decoded-output tests where the mechanism permits.
 - Document visual judgment as judgment. Do not turn taste into a fabricated invariant.
+- Never add procedural grain, tint, or finishing texture to imported slide or presenter pixels by default. Atmosphere belongs to the world unless a future explicit destructive-look control makes that contract unmistakable.
+- A shadow’s expanded mesh is falloff support, not the card mask. Test transparent artwork, zero-width borders, intentional opaque borders, Pause, Reduce Motion, and a delivery H.264 transcode after changing surface shaders.
 
 ## Project and export changes
 

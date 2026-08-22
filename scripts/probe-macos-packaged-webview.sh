@@ -1091,6 +1091,7 @@ if receipt is not None:
     expect(receipt.get("recoveredCommandVerified") is True, "the replacement document did not complete a fresh native command")
     expect(receipt.get("persistedAssetVerified") is True, "the native-imported asset did not survive WebContent recovery")
     expect(receipt.get("webKitFileInputVerified") is True, "typed native file ingestion was not verified")
+    expect(receipt.get("nativeImportCompletionVerified") is True, "AppKit import completion preceded durable React persistence")
     expect(receipt.get("isolatedDatabaseCleanupVerified") is True, "isolated packaged-test database was not deleted")
     expect(receipt.get("networkPolicyInstalled") is True, "the production WebKit outbound policy was not installed")
     expect(receipt.get("outboundProbeAttempted") is True, "the page did not issue the WebKit outbound falsification lanes")
@@ -1358,10 +1359,8 @@ OPENSSL_HELP_STATUS=0
 bounded "$COMMAND_TIMEOUT_SECONDS" openssl pkcs12 -help \
   >"$EVIDENCE/variants/self-signed-openssl-pkcs12-help.txt" 2>&1
 OPENSSL_HELP_STATUS=$?
-OPENSSL_PKCS12_COMPAT_ARGS=()
 OPENSSL_LEGACY_SUPPORTED=false
 if grep -q -- "-legacy" "$EVIDENCE/variants/self-signed-openssl-pkcs12-help.txt"; then
-  OPENSSL_PKCS12_COMPAT_ARGS=(-legacy)
   OPENSSL_LEGACY_SUPPORTED=true
 fi
 python3 - \
@@ -1414,13 +1413,21 @@ if [[ $CERT_STATUS -eq 0 ]]; then
   CERT_STATUS=$?
 fi
 if [[ $CERT_STATUS -eq 0 ]]; then
-  bounded "$COMMAND_TIMEOUT_SECONDS" openssl pkcs12 -export \
-    "${OPENSSL_PKCS12_COMPAT_ARGS[@]}" \
-    -inkey "$TEMP_ROOT/private-key.pem" \
-    -in "$TEMP_ROOT/certificate.pem" \
-    -out "$TEMP_ROOT/identity.p12" \
-    -passout "pass:$KEYCHAIN_PASSWORD" \
-    >>"$EVIDENCE/variants/self-signed-openssl.txt" 2>&1
+  if [[ "$OPENSSL_LEGACY_SUPPORTED" == true ]]; then
+    bounded "$COMMAND_TIMEOUT_SECONDS" openssl pkcs12 -export -legacy \
+      -inkey "$TEMP_ROOT/private-key.pem" \
+      -in "$TEMP_ROOT/certificate.pem" \
+      -out "$TEMP_ROOT/identity.p12" \
+      -passout "pass:$KEYCHAIN_PASSWORD" \
+      >>"$EVIDENCE/variants/self-signed-openssl.txt" 2>&1
+  else
+    bounded "$COMMAND_TIMEOUT_SECONDS" openssl pkcs12 -export \
+      -inkey "$TEMP_ROOT/private-key.pem" \
+      -in "$TEMP_ROOT/certificate.pem" \
+      -out "$TEMP_ROOT/identity.p12" \
+      -passout "pass:$KEYCHAIN_PASSWORD" \
+      >>"$EVIDENCE/variants/self-signed-openssl.txt" 2>&1
+  fi
   CERT_STATUS=$?
 fi
 if [[ $CERT_STATUS -eq 0 ]]; then

@@ -49,6 +49,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     private var documentAuthorityDelivered = false
     private var contentProcessTerminationCount = 0
     private var webKitFileInputVerified = false
+    private var nativeImportCompletionVerified = false
     private var nativeDocumentActiveAtCompletion = false
     private var terminationInduced = false
     private var staleDocumentRejected = false
@@ -311,7 +312,8 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         guard webKitFileInputVerified else {
             return failReceipt("the packaged WebKit native-file round-trip never completed; \(diagnostic)", state: state)
         }
-        guard terminationInduced,
+        guard nativeImportCompletionVerified,
+              terminationInduced,
               terminationAcknowledgementValidated,
               contentProcessTerminationCount == 1,
               staleDocumentRejected,
@@ -360,7 +362,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     }
 
     private func diagnosticMessage(webView: WKWebView, state: ClientState) -> String {
-        "phase=\(phase.rawValue), started=\(startedNavigation), committed=\(committedNavigation), finishedNavigation=\(finishedNavigation), documentAuthorityDelivered=\(documentAuthorityDelivered), nativeDocumentActive=\(nativeDocumentActiveAtCompletion || bridge?.hasActiveDocument == true), networkPolicyInstalled=\(networkPolicyInstalled), outboundProbeAttempted=\(outboundProbeAttempted), outboundProbeCompleted=\(outboundProbeCompleted), webRTCCapabilityLockdownVerified=\(webRTCCapabilityLockdownVerified), webRTCProbeToken=\(webRTCProbeToken ?? "none"), outboundProbeResult=\(outboundProbeResult), contentProcessTerminations=\(contentProcessTerminationCount), terminationInduced=\(terminationInduced), staleDocumentRejected=\(staleDocumentRejected), recoveredCommandVerified=\(recoveredCommandVerified), persistedAssetVerified=\(persistedAssetVerified), webKitFileInputVerified=\(webKitFileInputVerified), isLoading=\(webView.isLoading), url=\(webView.url?.absoluteString ?? "nil"), saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), bootDiagnostics=\(bootDiagnostics), lastProbe=\(lastProbe)"
+        "phase=\(phase.rawValue), started=\(startedNavigation), committed=\(committedNavigation), finishedNavigation=\(finishedNavigation), documentAuthorityDelivered=\(documentAuthorityDelivered), nativeDocumentActive=\(nativeDocumentActiveAtCompletion || bridge?.hasActiveDocument == true), networkPolicyInstalled=\(networkPolicyInstalled), outboundProbeAttempted=\(outboundProbeAttempted), outboundProbeCompleted=\(outboundProbeCompleted), webRTCCapabilityLockdownVerified=\(webRTCCapabilityLockdownVerified), webRTCProbeToken=\(webRTCProbeToken ?? "none"), outboundProbeResult=\(outboundProbeResult), contentProcessTerminations=\(contentProcessTerminationCount), terminationInduced=\(terminationInduced), staleDocumentRejected=\(staleDocumentRejected), recoveredCommandVerified=\(recoveredCommandVerified), persistedAssetVerified=\(persistedAssetVerified), webKitFileInputVerified=\(webKitFileInputVerified), nativeImportCompletionVerified=\(nativeImportCompletionVerified), isLoading=\(webView.isLoading), url=\(webView.url?.absoluteString ?? "nil"), saveState=\(state.saveState), projectBusy=\(state.projectBusy), exportInProgress=\(state.exportInProgress), bootDiagnostics=\(bootDiagnostics), lastProbe=\(lastProbe)"
     }
 
     private func failReceipt(_ message: String, state: ClientState = ClientState()) -> Int32 {
@@ -414,6 +416,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 "persistedAssetVerified": persistedAssetVerified,
                 "phase": phase.rawValue,
                 "webKitFileInputVerified": webKitFileInputVerified,
+                "nativeImportCompletionVerified": nativeImportCompletionVerified,
                 "isolatedDatabaseCleanupVerified": isolatedDatabaseCleanupVerified,
                 "saveState": state.saveState,
                 "projectBusy": state.projectBusy,
@@ -1131,8 +1134,17 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             try png.write(to: url, options: .atomic)
             probeAssetURL = url
             releaseCountBeforeImport = bridge.releasedFileGrantCount
+            nativeImportCompletionVerified = false
             phase = .importingNativeFile
-            bridge.importExternalFile(url, kind: .slides)
+            bridge.importExternalFile(url, kind: .slides) { [weak self] error in
+                guard let self, !self.finished, self.phase == .importingNativeFile else { return }
+                if let error {
+                    self.failure = "the native import completion rejected before persistence: \(error.localizedDescription)"
+                    self.finished = true
+                    return
+                }
+                self.nativeImportCompletionVerified = true
+            }
             pollNativeImportResult(in: webView, document: document, attemptsRemaining: 240)
         } catch {
             failure = "the real native import probe could not be prepared: \(error.localizedDescription)"
@@ -1173,13 +1185,13 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             let values = result as? [String: Any] ?? [:]
             let state = bridge.clientState
             let released = bridge.releasedFileGrantCount > self.releaseCountBeforeImport
-            self.lastProbe = "real native import: \(String(describing: values)); grantReleased=\(released); saveState=\(state.saveState); projectBusy=\(state.projectBusy)"
+            self.lastProbe = "real native import: \(String(describing: values)); grantReleased=\(released); completionVerified=\(self.nativeImportCompletionVerified); saveState=\(state.saveState); projectBusy=\(state.projectBusy)"
             let count = values["count"] as? Int ?? -1
             let found = values["found"] as? Bool == true
             let idleAndSaved = state.saveState == "saved"
                 && !state.projectBusy
                 && !state.exportInProgress
-            if count == 1, found, released, idleAndSaved {
+            if count == 1, found, released, self.nativeImportCompletionVerified, idleAndSaved {
                 self.webKitFileInputVerified = true
                 self.induceWebContentTermination(in: webView, document: document)
                 return

@@ -11,6 +11,7 @@ MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 WEB_DIR="${RESOURCES_DIR}/Web"
 LEGAL_DIR="${RESOURCES_DIR}/Legal"
+THIRD_PARTY_LICENSE_DIR="${LEGAL_DIR}/ThirdPartyLicenses"
 DOCS_DIR="${RESOURCES_DIR}/Documentation"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/drift-macos.XXXXXX")"
 MINIMUM_MACOS="${DRIFT_MACOS_DEPLOYMENT_TARGET:-13.3}"
@@ -124,7 +125,7 @@ if [[ -n "${codec_markers}" ]]; then
 fi
 
 rm -rf "${APP_BUNDLE}"
-mkdir -p "${MACOS_DIR}" "${WEB_DIR}" "${LEGAL_DIR}" "${DOCS_DIR}"
+mkdir -p "${MACOS_DIR}" "${WEB_DIR}" "${LEGAL_DIR}" "${THIRD_PARTY_LICENSE_DIR}" "${DOCS_DIR}"
 cp macos/Info.plist "${CONTENTS_DIR}/Info.plist"
 cp macos/NativeBridge.js "${RESOURCES_DIR}/NativeBridge.js"
 cp -R dist/. "${WEB_DIR}/"
@@ -135,6 +136,7 @@ cp \
   THIRD_PARTY_NOTICES.md \
   TRADEMARKS.md \
   "${LEGAL_DIR}/"
+node scripts/stage-macos-runtime-licenses.mjs stage "${THIRD_PARTY_LICENSE_DIR}"
 cp \
   docs/MACOS_APP.md \
   docs/MACOS_PRODUCT_CONTRACT.md \

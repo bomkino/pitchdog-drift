@@ -312,13 +312,15 @@ requireMarkers("tests/nativeFileInputBridge.test.ts", [
 ]);
 requireMarkers("e2e/native-menu-import.e2e.ts", [
   "A real 4 × 4 RGBA PNG",
-  "replaces the demo slate through one native picker",
+  "durably reloads one ordered native batch",
   "first real deck must replace those eight demos",
   "data-drift-native-file-input-bridge",
   "await state.appBridge.command(\"add-slides\")",
-  "toHaveCount(1)",
+  "toHaveCount(2)",
+  "menu-import-1.png",
+  "menu-import-2.png",
   "callCount: 1",
-  "releaseCount: 1",
+  "releaseCount: 2",
   "File-menu picker failure remains visible and operable",
   "Dismiss native file error",
   "Finder-style project delivery rejects malformed archives instead of acknowledging a false open",
@@ -338,7 +340,7 @@ requireMarkers("macos/App/WebViewSelfTest.swift", [
   "releaseCountBeforeImport = bridge.releasedFileGrantCount",
   "pollNativeImportResult(",
   "let count = values[\"count\"] as? Int ?? -1",
-  "count == 1, found, released, idleAndSaved",
+  "count == 1, found, released, self.nativeImportCompletionVerified, idleAndSaved",
   "real native import never reached one saved asset with a released grant",
   "termination-request.json",
   "runTerminationProtocolSelfTest()",
@@ -353,6 +355,7 @@ requireMarkers("macos/App/WebViewSelfTest.swift", [
   "arbitraryRendererCompromiseContainmentClaimed",
   "real native broker import",
   "\"webKitFileInputVerified\": webKitFileInputVerified",
+  "\"nativeImportCompletionVerified\": nativeImportCompletionVerified",
 ]);
 forbidMarkers("macos/App/WebViewSelfTest.swift", [
   "new DataTransfer()",

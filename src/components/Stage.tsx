@@ -11,6 +11,7 @@ interface StageProps {
   fps: number;
   paused: boolean;
   focusMode: boolean;
+  activeSlideIndex: number;
   exportProgress: ExportProgress | null;
   onTogglePause: () => void;
   onStep: (amount: number) => void;
@@ -30,6 +31,7 @@ export function Stage({
   fps,
   paused,
   focusMode,
+  activeSlideIndex,
   exportProgress,
   onTogglePause,
   onStep,
@@ -39,10 +41,16 @@ export function Stage({
   busy,
 }: StageProps) {
   const transparent = settings.stage.transparent || settings.background.style === "transparent";
+  const activeAsset = activeSlideIndex >= 0 ? assets[activeSlideIndex] : undefined;
+  const themeName = settings.themeId.replaceAll("-", " ");
+  const previewDescription = assets.length === 0
+    ? `Cinematic preview. No slides. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow. Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Drag or add images to begin.`
+    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow. Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
   return (
-    <section className="stage-column" aria-label="Cinematic preview" aria-busy={busy}>
+    <section className="stage-column" aria-label="Cinematic preview" aria-describedby="stage-preview-description" aria-busy={busy}>
+      <p id="stage-preview-description" className="visually-hidden">{previewDescription}</p>
       <div className="stage-topline">
-        <span>{settings.themeId.replaceAll("-", " ")}</span>
+        <span>{themeName}</span>
         <span>{settings.motion.axis} · {settings.motion.flow}</span>
       </div>
       <div className="stage-well">

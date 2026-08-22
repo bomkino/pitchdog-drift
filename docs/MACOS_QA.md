@@ -263,6 +263,20 @@ For every completed master, independently inspect:
 
 At 50/60 fps with presenter audio enabled, export must fail with the explicit 30 fps ceiling before a convincing silent master is returned. Muting must permit video-only output when H.264 remains supported.
 
+## Visual material journey
+
+Treat a pretty still as the beginning of visual QA, not its conclusion.
+
+1. Capture all six film worlds at the same viewport, media set, playback state, and timeline position.
+2. Inspect the studio at 960 × 640, 1024 × 768, and 1440 × 900, plus the supported 320/390 px panel shells.
+3. Test zero-width borders, Noir Contact’s intentional opaque 1 px keyline, transparent artwork, maximum corner smoothing, and the softest and hardest shadows.
+4. Confirm the shadow signed-distance field follows the original card, not the expanded blur mesh.
+5. Compare world-only frames N and N+1 at 256 px. At authored defaults, use adjacent-frame RMS 1.1–1.7/255, p99 3–5/255, and absolute signed mean drift below 0.1/255 as a diagnostic band—not a universal law. At 60% grain, require RMS at most 3.8/255, p99 at most 10/255, and fewer than 0.1% clipped channels.
+6. Prove that grain never changes imported slide or presenter pixels and becomes exactly still under Pause and Reduce Motion.
+7. Decode a 1080 × 1920 master, then make and watch a second-generation H.264 delivery transcode. Reject grain that becomes crawling blocks, bright sparks, banding, or codec mosquitoes.
+
+The measurements catch invisible, quantised, or explosive noise. Human review at normal size decides whether the texture has taste: the composition must arrive before the grain.
+
 ## Cancellation and replacement journey
 
 For MP4 and still output:

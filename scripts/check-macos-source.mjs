@@ -76,11 +76,13 @@ const webSources = [
   "macos/NativeBridge.js",
   "src/App.tsx",
   "src/components/MediaLibrary.tsx",
+  "src/lib/localSaveAuthority.ts",
   "src/lib/macosAacEncoder.ts",
   "src/lib/nativeMac.ts",
   "src/lib/projectMediaBudget.ts",
   "tests/macosAacEncoder.test.ts",
   "tests/macosExportProbe.ts",
+  "tests/localSaveAuthority.test.ts",
   "tests/nativeMac.test.ts",
   "tests/projectMediaBudget.test.ts",
 ];
@@ -215,6 +217,18 @@ requireMarkers("src/App.tsx", [
   "openPortableProjectFile = useCallback(async (file: File, propagateFailure = false)",
   "if (propagateFailure) throw error",
   "openPortableProjectFile(file, true)",
+  "advanceLocalSaveRevision(saveRevisionAuthorityRef.current)",
+  "ownsLocalSaveRevision(saveRevisionAuthorityRef.current, revision)",
+  "matchesDirectPersistenceSnapshot(directSnapshot, settings, assets, presenter)",
+]);
+requireMarkers("src/lib/localSaveAuthority.ts", [
+  "advanceLocalSaveRevision",
+  "ownsLocalSaveRevision",
+  "matchesDirectPersistenceSnapshot",
+]);
+requireMarkers("tests/localSaveAuthority.test.ts", [
+  "keeps exit protection active when an older save resolves after a newer mutation",
+  "suppresses autosave only for the exact directly persisted snapshot",
 ]);
 requireMarkers("src/components/MediaLibrary.tsx", ["imageInputRef: RefObject", "presenterInputRef: RefObject"]);
 requireMarkers("src/lib/nativeMac.ts", [
@@ -552,6 +566,7 @@ requireMarkers("macos/App/WebViewSelfTest.swift", [
   '"terminationInduced": terminationInduced',
   '"staleDocumentRejected": staleDocumentRejected',
   '"persistedAssetVerified": persistedAssetVerified',
+  '"nativeImportCompletionVerified": nativeImportCompletionVerified',
 ]);
 
 const packageJson = JSON.parse(read("package.json"));
@@ -599,6 +614,7 @@ requireMarkers("scripts/build-macos-app.sh", [
   "navigation_download_policy=remote-denied-before-destination",
   "native_network_client_surface=none-shipped",
   "network_boundary=app-entitled-webkit-blocked",
+  "stage-macos-runtime-licenses.mjs stage",
 ]);
 requireMarkers("scripts/verify-macos-app.sh", [
   "--smoke-test",
@@ -613,6 +629,14 @@ requireMarkers("scripts/verify-macos-app.sh", [
   "not-all-user-readable file",
   "not-all-user-traversable directory",
   "not readable and executable by every local account",
+  "stage-macos-runtime-licenses.mjs\" verify",
+]);
+requireMarkers("scripts/stage-macos-runtime-licenses.mjs", [
+  'boundary: "standalone-macos-runtime"',
+  'license: "MPL-2.0"',
+  'license: "MIT"',
+  "licenseSha256",
+  "runtime licence directory has an unexpected target set",
 ]);
 requireMarkers("scripts/package-macos-dmg.sh", [
   "umask 022",
@@ -732,7 +756,8 @@ requireMarkers("scripts/probe-macos-packaged-webview.sh", [
   "WebKit outbound policy accepted loopback TCP connections",
   "resolve_existing_executable_binding",
   '"requestAppExecutableBinding"',
-  'OPENSSL_PKCS12_COMPAT_ARGS=(-legacy)',
+  'if [[ "$OPENSSL_LEGACY_SUPPORTED" == true ]]; then',
+  "openssl pkcs12 -export -legacy",
   '"selectedCompatibilityMode"',
   "self-signed-openssl-capability.json",
   "security find-certificate",
@@ -749,6 +774,7 @@ forbidMarkers("scripts/probe-macos-packaged-webview.sh", [
   "process_start_fingerprint",
   "lstart=",
   "add-trusted-cert",
+  "OPENSSL_PKCS12_COMPAT_ARGS",
   'rm -rf "$EVIDENCE"',
 ]);
 

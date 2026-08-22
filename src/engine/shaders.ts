@@ -41,7 +41,6 @@ export const slideFragmentShader = /* glsl */ `
   uniform float uVelocity;
   uniform float uDistortion;
   uniform float uAxis;
-  uniform float uTime;
 
   float roundedSuperellipseDistance(vec2 p, vec2 halfSize, float radius, float smoothing) {
     if (radius < 0.5) {
@@ -80,12 +79,6 @@ export const slideFragmentShader = /* glsl */ `
     return (uv - origin) / max(scale, vec2(0.0001));
   }
 
-  float hash12(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-  }
-
   void main() {
     vec2 pixel = (vUv - 0.5) * uSizePx;
     float distanceToEdge = roundedSuperellipseDistance(pixel, uSizePx * 0.5, uRadiusPx, uSmoothing);
@@ -108,10 +101,14 @@ export const slideFragmentShader = /* glsl */ `
       sampled.a = 1.0;
     }
 
-    float grain = (hash12(gl_FragCoord.xy + fract(uTime) * 113.0) - 0.5) * 0.018;
-    sampled.rgb += grain + abs(vWarp) * 0.025;
-    vec3 color = mix(sampled.rgb, uBorderColor, borderMask * uBorderOpacity);
-    float alpha = outerMask * sampled.a * uOpacity;
+    // Imported artwork stays proof-safe. Motion may bend its geometry, but
+    // atmospheric texture belongs to the surrounding world, never its pixels.
+    sampled.rgb += abs(vWarp) * 0.025;
+    float borderAlpha = borderMask * uBorderOpacity;
+    float combinedAlpha = borderAlpha + sampled.a * (1.0 - borderAlpha);
+    vec3 combinedPremultiplied = uBorderColor * borderAlpha + sampled.rgb * sampled.a * (1.0 - borderAlpha);
+    vec3 color = combinedPremultiplied / max(combinedAlpha, 0.0001);
+    float alpha = outerMask * combinedAlpha * uOpacity;
     if (alpha <= 0.001) discard;
     gl_FragColor = vec4(color, alpha);
     // ShaderMaterial does not append Three's output transfer automatically.
@@ -130,7 +127,8 @@ export const shadowVertexShader = /* glsl */ `
 
 export const shadowFragmentShader = /* glsl */ `
   varying vec2 vUv;
-  uniform vec2 uSizePx;
+  uniform vec2 uCanvasSizePx;
+  uniform vec2 uCardSizePx;
   uniform float uRadiusPx;
   uniform float uSmoothing;
   uniform float uSoftnessPx;
@@ -146,10 +144,13 @@ export const shadowFragmentShader = /* glsl */ `
   }
 
   void main() {
-    vec2 pixel = (vUv - 0.5) * uSizePx;
-    float distanceToEdge = shapeDistance(pixel, uSizePx * 0.5, uRadiusPx, uSmoothing);
-    float blur = max(1.0, uSoftnessPx);
-    float alpha = (1.0 - smoothstep(-blur * 0.36, blur, distanceToEdge)) * uOpacity;
+    // The plane includes room for blur, but the caster is always the original
+    // card. Treating the expanded plane as the caster creates a dark glass box.
+    vec2 pixel = (vUv - 0.5) * uCanvasSizePx;
+    float distanceToEdge = shapeDistance(pixel, uCardSizePx * 0.5, uRadiusPx, uSmoothing);
+    float sigma = max(1.0, uSoftnessPx * 0.34);
+    float outside = max(0.0, distanceToEdge);
+    float alpha = exp(-0.5 * outside * outside / (sigma * sigma)) * uOpacity;
     if (alpha <= 0.001) discard;
     gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
     #include <colorspace_fragment>
@@ -175,14 +176,40 @@ export const backgroundFragmentShader = /* glsl */ `
   uniform float uIntensity;
   uniform float uMotion;
   uniform float uGrain;
+  uniform float uGrainFrame;
   uniform float uVignette;
   uniform float uPhase;
   uniform float uSeed;
 
   float hash12(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33 + uSeed);
+    // uSeed arrives folded into a small, exactly representable float range.
+    // Use it as a coordinate shift; adding a large seed inside the hash dot
+    // destroys fractional entropy under float32 precision.
+    vec2 seedShift = vec2(uSeed * 0.754877666, uSeed * 0.569840296);
+    vec2 seeded = p + seedShift;
+    vec3 p3 = fract(vec3(seeded.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
     return fract((p3.x + p3.y) * p3.z);
+  }
+
+  float valueNoise(vec2 p, float frame) {
+    vec2 cell = floor(p);
+    vec2 local = fract(p);
+    vec2 ease = local * local * (3.0 - 2.0 * local);
+    vec2 frameOffset = vec2(frame * 19.19, frame * 73.73);
+    float a = hash12(cell + frameOffset);
+    float b = hash12(cell + vec2(1.0, 0.0) + frameOffset);
+    float c = hash12(cell + vec2(0.0, 1.0) + frameOffset);
+    float d = hash12(cell + vec2(1.0, 1.0) + frameOffset);
+    return mix(mix(a, b, ease.x), mix(c, d, ease.x), ease.y);
+  }
+
+  float filmGrain(vec2 pixel, float frame) {
+    // Two restrained, monochrome scales avoid single-pixel TV static. The
+    // larger layer supplies organic clumps; the fine layer keeps the result crisp.
+    float fine = valueNoise(pixel / 1.35, frame);
+    float clump = valueNoise(pixel / 3.4 + 41.0, frame + 17.0);
+    return ((fine - 0.5) * 0.76 + (clump - 0.5) * 0.24) * 2.0;
   }
 
   float softBlob(vec2 uv, vec2 center, float radius) {
@@ -212,7 +239,7 @@ export const backgroundFragmentShader = /* glsl */ `
     } else if (uMode < 3.5) {
       float fibers = sin((p.y + sin(p.x * 19.0) * 0.015) * 620.0) * 0.5 + 0.5;
       color = mix(uColorA, uColorB, smoothstep(-0.45, 0.65, p.y));
-      color += (fibers - 0.5) * 0.018 * uIntensity;
+      color *= 1.0 + (fibers - 0.5) * 0.06 * uIntensity;
     } else {
       float slit = exp(-abs(p.x + sin(p.y * 2.4 + uPhase) * 0.08) * 8.0);
       float pulse = 0.82 + 0.18 * sin(uPhase);
@@ -222,9 +249,18 @@ export const backgroundFragmentShader = /* glsl */ `
 
     float vignette = smoothstep(0.88, 0.18, dot(p, p));
     color *= mix(1.0 - uVignette * 0.62, 1.0, vignette);
-    float grain = (hash12(gl_FragCoord.xy + vec2(cos(uPhase), sin(uPhase)) * 97.0) - 0.5) * uGrain * 0.16;
-    color += grain;
     gl_FragColor = vec4(color, 1.0);
     #include <colorspace_fragment>
+
+    // Calibrate the finishing plate in display space, where it survives 8-bit
+    // export even in Drift's dark worlds. The toe preserves true black; the
+    // saturating amount keeps a 60% control setting expressive, never snowy.
+    float displayLuminance = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    float grainControl = clamp(uGrain, 0.0, 0.6);
+    float grainAmount = 0.035 * (1.0 - exp(-8.0 * grainControl)) / (1.0 - exp(-4.8));
+    float grainToe = smoothstep(0.004, 0.040, displayLuminance);
+    float grainResponse = mix(1.0, 1.0 - sqrt(clamp(displayLuminance, 0.0, 1.0)), 0.75);
+    float grain = filmGrain(vUv * uResolution, uGrainFrame) * grainAmount * grainResponse * grainToe;
+    gl_FragColor.rgb = clamp(gl_FragColor.rgb + vec3(grain), 0.0, 1.0);
   }
 `;

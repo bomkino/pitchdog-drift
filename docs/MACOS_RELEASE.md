@@ -17,6 +17,17 @@ Drift’s normal development build is ad-hoc signed and suitable for local testi
 
 The release scripts create evidence. They do not publish a GitHub Release, push a tag, deploy a website, merge a branch, or email anyone.
 
+## Release policy
+
+Drift uses four separate gates. Do not compress them into one “release” claim.
+
+1. **Before merge:** freeze one reviewed source commit and pass the source, browser, local ad-hoc app/DMG, exact-head CI, packaged-app, and WKWebView runtime candidate gates. These lanes use no Developer ID or notarization secret.
+2. **Merge:** merge only the exact green, reviewed commit, preserving it as a commit reachable from public `main`. Merge proves source integration; it does not sign, notarize, tag, release, or publish anything.
+3. **After merge:** the Developer ID/notarization lane may accept that exact already-reviewed, 40-character commit only after it is reachable from `origin/main`. It signs, notarizes, staples, verifies, and records evidence without publishing a binary.
+4. **Publication:** a maintainer must separately authorize the exact source commit and tested artifact hashes. Uploading a binary, creating a tag or GitHub Release, or announcing availability is outside the evidence workflow.
+
+If source, resources, lockfile, merge identity, or artifact bytes change, the affected gates must run again. “Equivalent” source or a rebuilt binary is a new candidate.
+
 ## Why the release lane is separate
 
 The browser project includes `@mediabunny/aac-encoder` for deterministic presenter audio. That package embeds an FFmpeg-derived WebAssembly encoder and creates additional LGPL distribution obligations.
@@ -41,7 +52,7 @@ It also fails if the native bundle cannot prove:
 - a packaged React/WebKit/bridge self-test;
 - a Developer ID Application signature in release mode.
 
-This is a distribution boundary, not a claim that all obligations disappear. The app still carries the project licence, notices, third-party notices, asset terms, trademark terms, macOS documentation, and a CycloneDX source-dependency SBOM in `Drift.app/Contents/Resources/Legal/`.
+This is a distribution boundary, not a claim that all obligations disappear. The app still carries the project licence, notices, third-party notices, asset terms, trademark terms, macOS documentation, exact runtime-component licence texts with a hash-bound source manifest, and a CycloneDX source-dependency SBOM in `Drift.app/Contents/Resources/Legal/`.
 
 ## Prerequisites
 
@@ -51,7 +62,7 @@ This is a distribution boundary, not a claim that all obligations disappear. The
 - a **Developer ID Application** certificate installed in a usable keychain;
 - App Store Connect notarization credentials;
 - access to physical Apple Silicon and Intel Macs for the final run;
-- a clean checkout of the exact candidate commit.
+- for Developer ID/notarization, a clean checkout of the exact already-reviewed candidate commit reachable from `origin/main`.
 
 Find the signing identity:
 
@@ -92,7 +103,9 @@ export APPLE_NOTARY_ISSUER_ID='00000000-0000-0000-0000-000000000000'
 
 Never commit private keys, certificates, passwords, exported keychains, or notary profile material.
 
-## Create release-grade artifacts
+## Create signed, notarized evidence after merge
+
+Run this lane only after the exact commit has passed the pre-merge candidate gates and is reachable from `origin/main`. Signing and notarization are evidence about that source and those artifact bytes; they do not retroactively excuse a red candidate and do not authorize publication.
 
 ```bash
 scripts/release-macos-app.sh --notarize
@@ -131,9 +144,9 @@ build/release/notary-dmg.json
 
 `--skip-tests` exists for repeated local packaging after the exact source has already passed. Do not use it for a public candidate unless the same commit has a complete green workflow receipt and no resource has changed.
 
-## Runtime evidence before release packaging
+## Pre-merge candidate evidence
 
-The standalone app workflow and the WKWebView runtime workflow prove different things.
+Before merge, the standalone app workflow and the WKWebView runtime workflow prove different things about the same exact candidate. Both must be green, alongside the ordinary source and browser lanes. Their ad-hoc apps, DMGs, and CI artifacts are test inputs, not public downloads.
 
 ### Packaged application workflow
 
@@ -208,6 +221,8 @@ A successful build followed by failed detached verification is a failed release 
 
 `.github/workflows/macos-release.yml` is deliberately `workflow_dispatch` only. It never runs for an untrusted pull request and never creates a GitHub Release.
 
+The input is one exact 40-character commit already reviewed through the pre-merge gates. Before signing secrets are used, the workflow checks out trusted `main`, fetches `origin/main`, rejects a requested commit that is not its ancestor, and detaches at the exact accepted SHA. This is intentionally a post-merge evidence lane.
+
 Required repository secrets:
 
 ```text
@@ -219,7 +234,7 @@ APPLE_NOTARY_KEY_ID
 APPLE_NOTARY_ISSUER_ID
 ```
 
-The workflow imports the certificate into a temporary keychain, writes the API key into the runner’s temporary directory, executes the release lane, uploads publication-safe text receipts as an ordinary Actions artifact, and deletes key material in an `always()` cleanup step. The artifact is evidence, not a confidentiality boundary.
+The workflow imports the certificate into a temporary keychain, writes the API key into the runner’s temporary directory, executes the release lane, uploads publication-safe text receipts as an ordinary Actions artifact, and deletes key material and compiled binaries in an `always()` cleanup step. The artifact is evidence, not a confidentiality boundary or a binary distribution channel.
 
 Workflow artifacts are maintainership evidence. They are not automatically public binaries.
 
@@ -302,13 +317,13 @@ Record model, OS build, Drift commit, app checksum, DMG checksum, and every fail
 
 A maintainer may publish only after:
 
-- normal CI, standalone Mac CI, and WKWebView runtime CI pass on the exact release commit;
+- normal CI, standalone Mac CI, and WKWebView runtime CI passed on the exact reviewed commit before merge, and that commit is now reachable from `origin/main`;
 - the manual release workflow accepts and staples both artifacts;
-- detached verification passes on the downloaded workflow artifact;
+- the exact retained app and DMG intended for publication pass detached verification; the workflow's downloadable text receipts are evidence about its run, not substitute binaries;
 - physical-hardware, accessibility, and destructive-failure gauntlets have no unresolved release blocker;
 - release notes accurately state codec, presenter-audio, project, minimum-OS, and privacy boundaries;
 - the published checksums match the tested files;
 - complete corresponding source is available at the exact revision;
-- publication is explicitly authorized.
+- publication is explicitly authorized for the named source commit and tested artifact hashes.
 
-Do not rebuild between final testing and publication. A rebuild is a new candidate.
+Passing this list records release evidence; it still does not publish anything. Do not rebuild between final testing and an authorized publication. A rebuild is a new candidate.

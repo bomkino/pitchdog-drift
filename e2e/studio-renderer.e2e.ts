@@ -11,6 +11,77 @@ import {
   waitForStudio,
 } from "./studio.helpers";
 
+test("large valid project seeds retain deterministic grain entropy", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/model.ts"),
+    ]);
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.stage = { width: 256, height: 256, transparent: false };
+    settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
+    settings.background = {
+      ...settings.background,
+      style: "solid",
+      colorA: "#202020",
+      colorB: "#202020",
+      accent: "#202020",
+      intensity: 0,
+      motion: 0,
+      grain: 0.6,
+      vignette: 0,
+      seed: 4_294_967_295,
+    };
+    settings.motion = { ...settings.motion, autoplay: false, reducedMotionOutput: true };
+
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const engine = new CinematicCarousel(canvas, settings);
+    const hashBlob = async (blob: Blob): Promise<string> => Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+    const redStats = async (blob: Blob) => {
+      const bitmap = await createImageBitmap(blob, { premultiplyAlpha: "none" });
+      const decoded = document.createElement("canvas");
+      decoded.width = bitmap.width;
+      decoded.height = bitmap.height;
+      const context = decoded.getContext("2d", { willReadFrequently: true })!;
+      context.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const rgba = context.getImageData(0, 0, decoded.width, decoded.height).data;
+      const values: number[] = [];
+      for (let index = 0; index < rgba.length; index += 4) values.push(rgba[index]!);
+      const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+      return { standardDeviation: Math.sqrt(variance), uniqueValues: new Set(values).size };
+    };
+
+    try {
+      const first = await engine.captureStill(256, 256, 0);
+      const repeated = await engine.captureStill(256, 256, 0);
+      settings.background.seed = 10_000_000;
+      engine.setSettings(structuredClone(settings));
+      const otherSeed = await engine.captureStill(256, 256, 0);
+      return {
+        firstHash: await hashBlob(first),
+        repeatedHash: await hashBlob(repeated),
+        otherHash: await hashBlob(otherSeed),
+        stats: await redStats(first),
+      };
+    } finally {
+      engine.dispose();
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.repeatedHash).toBe(receipt.firstHash);
+  expect(receipt.otherHash).not.toBe(receipt.firstHash);
+  expect(receipt.stats.standardDeviation).toBeGreaterThan(1);
+  expect(receipt.stats.uniqueValues).toBeGreaterThan(8);
+});
+
 test("renderer pool and media replacement always preserve latest visual intent", async ({ page }) => {
   await page.goto("/");
   const receipt = await page.evaluate(async () => {

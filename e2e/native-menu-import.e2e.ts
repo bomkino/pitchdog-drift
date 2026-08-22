@@ -229,6 +229,7 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
       pickerCalls: [] as unknown[],
       releaseCount: 0,
       rejectMessage: null as string | null,
+      clientStates: [] as Array<{ saveState?: string }>,
     };
 
     Object.defineProperty(window, "__driftNativeTest", {
@@ -264,7 +265,7 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
     Object.defineProperty(window, "__driftNativeReportClientState", {
       configurable: false,
       writable: false,
-      value: () => undefined,
+      value: (clientState: { saveState?: string }) => { state.clientStates.push(clientState); },
     });
     Object.defineProperty(window, "__driftNativeSaveBlob", {
       configurable: false,
@@ -278,13 +279,15 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
         state.pickerCalls.push(options);
         if (state.rejectMessage) throw new Error(state.rejectMessage);
         const bytes = Uint8Array.from(atob(pngBase64), (character) => character.charCodeAt(0));
-        const file = new File([bytes], "menu-import.png", { type: "image/png", lastModified: 1_700_000_000_000 });
-        return [{
-          kind: "file",
-          name: file.name,
-          getFile: async () => file,
-          _release: async () => { state.releaseCount += 1; },
-        }];
+        return ["menu-import-1.png", "menu-import-2.png"].map((name, index) => {
+          const file = new File([bytes], name, { type: "image/png", lastModified: 1_700_000_000_000 + index });
+          return {
+            kind: "file",
+            name: file.name,
+            getFile: async () => file,
+            _release: async () => { state.releaseCount += 1; },
+          };
+        });
       },
     });
   }, { pngBase64: validPng });
@@ -295,7 +298,7 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
   await expect(page.locator(".asset-list li").first()).toBeVisible({ timeout: 30_000 });
 }
 
-test("File-menu Add Slides replaces the demo slate through one native picker and releases its grant", async ({ page }) => {
+test("File-menu Add Slides durably reloads one ordered native batch and releases every grant", async ({ page }) => {
   await bootSimulatedNativeRuntime(page);
   const initialCount = await page.locator(".asset-list li").count();
   expect(initialCount).toBeGreaterThan(1);
@@ -309,22 +312,39 @@ test("File-menu Add Slides replaces the demo slate through one native picker and
 
   // The authored study is a first-launch placeholder, not user media. The
   // first real deck must replace those eight demos rather than becoming slide 9.
-  await expect(page.locator(".asset-list li")).toHaveCount(1);
-  await expect(page.locator(".asset-list li").first()).toContainText("menu-import.png");
+  await expect(page.locator(".asset-list li")).toHaveCount(2);
+  await expect(page.locator(".asset-list li").nth(0)).toContainText("menu-import-1.png");
+  await expect(page.locator(".asset-list li").nth(1)).toContainText("menu-import-2.png");
   await expect(page.getByRole("alert")).toHaveCount(0);
 
   const receipt = await page.evaluate(() => {
     const state = (window as unknown as {
-      __driftNativeTest: { pickerCalls: Array<{ multiple?: boolean; types?: unknown[] }>; releaseCount: number };
+      __driftNativeTest: {
+        pickerCalls: Array<{ multiple?: boolean; types?: unknown[] }>;
+        releaseCount: number;
+        clientStates: Array<{ saveState?: string }>;
+      };
     }).__driftNativeTest;
     return {
       callCount: state.pickerCalls.length,
       multiple: state.pickerCalls[0]?.multiple,
       typeCount: state.pickerCalls[0]?.types?.length,
       releaseCount: state.releaseCount,
+      lastSaveState: state.clientStates.at(-1)?.saveState,
     };
   });
-  expect(receipt).toEqual({ callCount: 1, multiple: true, typeCount: 1, releaseCount: 1 });
+  expect(receipt).toEqual({
+    callCount: 1,
+    multiple: true,
+    typeCount: 1,
+    releaseCount: 2,
+    lastSaveState: "saved",
+  });
+
+  await page.reload();
+  await expect(page.locator(".asset-list li")).toHaveCount(2, { timeout: 30_000 });
+  await expect(page.locator(".asset-list li").nth(0)).toContainText("menu-import-1.png");
+  await expect(page.locator(".asset-list li").nth(1)).toContainText("menu-import-2.png");
 });
 
 test("File-menu picker failure remains visible and operable", async ({ page }) => {

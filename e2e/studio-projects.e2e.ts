@@ -78,6 +78,14 @@ test("presenter playback obeys pause and export while removal preserves an unrel
 
       engine.setPaused(false);
       await delay(180);
+      engine.setReducedMotionPreview(true);
+      const reducedMotionStart = video.currentTime;
+      await delay(250);
+      const reducedMotionDelta = video.currentTime - reducedMotionStart;
+      const reducedMotionPausedFlag = video.paused;
+
+      engine.setReducedMotionPreview(false);
+      await delay(180);
       surface = engine.beginExport(256, 256);
       const exportStart = video.currentTime;
       await delay(250);
@@ -89,7 +97,17 @@ test("presenter playback obeys pause and export while removal preserves an unrel
       const restoredStart = video.currentTime;
       await delay(250);
       const restoredDelta = video.currentTime - restoredStart;
-      return { playingDelta, pausedDelta, pausedFlag, exportDelta, exportPausedFlag, restoredDelta, restoredPausedFlag: video.paused };
+      return {
+        playingDelta,
+        pausedDelta,
+        pausedFlag,
+        reducedMotionDelta,
+        reducedMotionPausedFlag,
+        exportDelta,
+        exportPausedFlag,
+        restoredDelta,
+        restoredPausedFlag: video.paused,
+      };
     } finally {
       surface?.restore();
       engine.dispose();
@@ -101,6 +119,8 @@ test("presenter playback obeys pause and export while removal preserves an unrel
   expect(playback.playingDelta).toBeGreaterThan(0.1);
   expect(Math.abs(playback.pausedDelta)).toBeLessThan(0.05);
   expect(playback.pausedFlag).toBe(true);
+  expect(Math.abs(playback.reducedMotionDelta)).toBeLessThan(0.05);
+  expect(playback.reducedMotionPausedFlag).toBe(true);
   expect(Math.abs(playback.exportDelta)).toBeLessThan(0.05);
   expect(playback.exportPausedFlag).toBe(true);
   expect(playback.restoredDelta).toBeGreaterThan(0.1);

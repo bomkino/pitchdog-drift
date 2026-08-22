@@ -8,6 +8,8 @@ Drift turns still slides and one optional talking-head video into authored, Inst
 
 This is not a CSS carousel wearing a shader as jewellery. Preview and export share the same scene evaluator. Portable projects contain their source media. MP4 output is reopened, decoded, and checked before Drift calls it finished.
 
+Drift is pre-1.0 and currently source-first. Read the [project status](docs/STATUS.md) for the exact boundary between public source, local candidates, verification, and release.
+
 The repository now contains two first-class ways to run the same studio:
 
 - the original local browser application;
@@ -21,7 +23,7 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - Drag, wheel, keyboard, autoplay, pause, reverse, inertia, and seamless-output lock.
 - Custom stage, output, slide, and pinned-frame ratios.
 - Cover/contain fit, focal point, scale, spacing, depth, tilt, velocity bend, continuous corners, borders, and shadows.
-- Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL.
+- Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL, with restrained world-only film grain.
 - Six authored motion worlds: Editorial Drift, Road Memory, Dread, Noir Contact, Tender Light, and Chrome Dream.
 - One optional pinned image or presenter video, off by default.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
@@ -156,6 +158,8 @@ The release workflow is manual and uploads text-only Actions evidence suitable f
 Drift studies the pacing, spatial confidence, and material restraint of excellent film and WebGL work without cloning anyone’s composition. Siena Film Foundation was an art-direction reference; Codrops’ WebGL carousel work was a technical conversation starter. The implementation and demo artwork here are original.
 
 The default is authored on purpose. Controls can bend the scene, but presets are coherent parameter bundles rather than palette swaps. Distortion is bounded so a deck remains readable.
+
+Slides are borderless by default. Five worlds rely on silhouette, spacing, and a shadow cast from the true rounded-card mask; Noir Contact alone uses a deliberate opaque 1 px keyline. Grain belongs to the surrounding world, never to imported artwork or presenter pixels. Its plate advances deterministically with output frames, runs at a quieter capped cadence in preview, and freezes under Pause or Reduce Motion.
 
 ## Contributing
 

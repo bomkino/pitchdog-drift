@@ -61,6 +61,8 @@ The editor has three surfaces:
 
 Native menu equivalents exist for the important actions. They use the renderer’s reported state rather than guessing from the visible interface. Commands disable while Drift is hashing media, replacing a project, saving protected state, or exporting.
 
+Slides and the presenter are borderless by default. Add a border only when it belongs to the art direction; Noir Contact demonstrates a deliberate opaque keyline. The Shadow control follows the rounded card rather than drawing a second translucent rectangle. Grain textures the surrounding world only, so imported slides remain proof-safe. Pause and the macOS Reduce Motion preference freeze the animated grain plate in preview; the saved reduced-motion master switch independently controls export.
+
 App full-frame focus and macOS full screen are separate:
 
 - **F** hides studio chrome around the composition.

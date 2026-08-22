@@ -18,6 +18,17 @@ Send a minimal report to `hello@pitch.dog` with **DRIFT SECURITY** in the subjec
 
 The maintainers may ask for a private proof-of-concept after establishing a secure channel. Never send real client decks merely because they reproduce the bug.
 
+## Acknowledgement and triage
+
+For a report with enough information to identify the affected surface, the maintainers aim to:
+
+- acknowledge receipt within 5 business days;
+- provide an initial triage or a concrete request for missing evidence within 10 business days;
+- send an update at least every 14 days while a confirmed report remains active;
+- agree on disclosure timing after impact, affected revisions, and a safe fix path are understood.
+
+These are response targets, not guarantees or automatic disclosure deadlines. If no acknowledgement arrives after 5 business days, send one follow-up with the original subject and timestamp. Drift currently has no bug-bounty programme; do not incur costs expecting payment without a prior written agreement.
+
 ## Supported surfaces
 
 Security fixes target the current `main` branch and explicitly active construction or release branches. Public source can move faster than a notarized binary; always identify the exact commit or app build.
