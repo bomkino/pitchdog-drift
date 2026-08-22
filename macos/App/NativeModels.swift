@@ -30,6 +30,25 @@ struct BridgeFailure: Error {
         self.name = name
         self.message = message
     }
+
+    static func runEnvelopeSelfTest() throws {
+        let expected = BridgeFailure(
+            "SecurityError",
+            "That native message belongs to a stale Drift document."
+        )
+        let erased: Error = expected
+        let envelope = failureEnvelope(erased)
+        let error = envelope["error"] as? JSONDictionary
+        guard envelope["ok"] as? Bool == false,
+              error?["name"] as? String == expected.name,
+              error?["message"] as? String == expected.message else {
+            throw BridgeFailure(
+                "DataError",
+                "A typed native bridge failure lost its DOMException name after Error erasure."
+            )
+        }
+        print("Drift bridge-failure envelope self-test passed: typed DOMException names survive Error erasure.")
+    }
 }
 
 enum DriftImportKind: String {
@@ -230,6 +249,12 @@ func failureEnvelope(_ failure: BridgeFailure) -> JSONDictionary {
 }
 
 func failureEnvelope(_ error: Error) -> JSONDictionary {
+    // Swift catch clauses expose thrown values as `Error`. Preserve Drift's
+    // intentional DOMException contract before considering Foundation/POSIX
+    // translation; bridging BridgeFailure through NSError erases its name.
+    if let failure = error as? BridgeFailure {
+        return failureEnvelope(failure)
+    }
     let nsError = error as NSError
     return failureEnvelope(BridgeFailure(domErrorName(for: nsError), nsError.localizedDescription))
 }

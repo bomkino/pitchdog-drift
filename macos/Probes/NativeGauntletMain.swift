@@ -6,6 +6,9 @@ struct NativeGauntletMain {
     static func main() {
         var activePhase = "startup"
         do {
+            activePhase = "native bridge failure envelope"
+            try BridgeFailure.runEnvelopeSelfTest()
+
             activePhase = "main-frame navigation identity"
             try NavigationIdentityTracker.runSelfTest()
 

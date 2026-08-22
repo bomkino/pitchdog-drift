@@ -13,6 +13,7 @@ struct DriftMain {
         }
         if arguments.contains("--native-self-test") {
             do {
+                try BridgeFailure.runEnvelopeSelfTest()
                 try NavigationIdentityTracker.runSelfTest()
                 try TrustedWebRuntime.runSelfTest()
                 try TrustedNavigationPolicy.runSelfTest()

@@ -375,6 +375,10 @@ requireMarkers("scripts/probe-macos-packaged-webview.sh", [
   "probe_tcp_connections.append(connection_record)",
   "run_tcp_detector_self_test()",
   "networkProbeAcceptedConnections",
+  "resolve_existing_executable_binding",
+  '"requestAppExecutableBinding"',
+  '"harness-binding-failure"',
+  '"identity-setup-failure"',
 ]);
 forbidMarkers("scripts/probe-macos-packaged-webview.sh", [
   "pkill -x Drift",

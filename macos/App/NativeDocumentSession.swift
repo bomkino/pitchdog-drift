@@ -308,6 +308,23 @@ final class NativeDocumentSession {
         try expectFailure("SecurityError", "stale message") {
             _ = try session.validateMessage(rawNonce: first.nonceString)
         }
+        let staleMessageEnvelope: JSONDictionary
+        do {
+            _ = try session.validateMessage(rawNonce: first.nonceString)
+            throw BridgeFailure("DataError", "A stale document message unexpectedly validated.")
+        } catch {
+            // This is the exact existential-Error catch path used by the WebKit
+            // message handler before its reply crosses back into JavaScript.
+            staleMessageEnvelope = failureEnvelope(error)
+        }
+        let staleMessageError = staleMessageEnvelope["error"] as? JSONDictionary
+        guard staleMessageEnvelope["ok"] as? Bool == false,
+              staleMessageError?["name"] as? String == "SecurityError" else {
+            throw BridgeFailure(
+                "DataError",
+                "A rejected stale document nonce lost its SecurityError reply contract."
+            )
+        }
         let secondPanel = try session.beginPanel(for: second) { cancelledPanels += 1 }
         guard session.isCurrent(secondPanel), session.finishPanel(secondPanel) else {
             throw BridgeFailure("DataError", "The current panel did not finish authoritatively.")

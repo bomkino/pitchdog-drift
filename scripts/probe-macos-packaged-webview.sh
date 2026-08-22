@@ -25,7 +25,7 @@ fail() {
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "the packaged WKWebView matrix must run on macOS"
 [[ -d "$APP" ]] || fail "app bundle is missing: $APP"
-for command in codesign ditto log node open openssl plutil python3 security spctl uuidgen; do
+for command in codesign ditto grep log node open openssl plutil python3 security spctl uuidgen; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
 done
 
@@ -336,8 +336,19 @@ def canonical_request_digest(request: dict[str, object]) -> str:
     return hashlib.sha256(canonical_request_material(request).encode("utf-8")).hexdigest()
 
 
+def resolve_existing_executable_binding(value: object) -> Path | None:
+    if not isinstance(value, str) or not value.startswith("/"):
+        return None
+    try:
+        return Path(value).resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+
+
 expected_app_executable_snapshot = executable_snapshot(expected_app_executable)
 expected_web_content_executable_snapshot = executable_snapshot(expected_web_content_executable)
+if resolve_existing_executable_binding(str(expected_app_executable)) != expected_app_executable:
+    raise RuntimeError("the executable-binding canonicalizer failed its exact-path self-test")
 stopped_target_identity_guard: ProcessIdentity | None = None
 
 
@@ -529,6 +540,10 @@ target_exit_observed = False
 termination_requested = False
 termination_association: dict[str, object] | None = None
 termination_request_digest: str | None = None
+request_app_executable_raw: str | None = None
+request_app_executable_resolved: str | None = None
+request_app_executable_snapshot: ExecutableSnapshot | None = None
+request_app_executable_same_snapshot: bool | None = None
 coordination_failures: list[str] = []
 observed_web_content_identities: set[ProcessIdentity] = set()
 pre_kill_web_content_identities: set[ProcessIdentity] | None = None
@@ -635,14 +650,42 @@ while time.monotonic() < deadline:
         if request.get("runNonce") != run_nonce or re.fullmatch(r"[0-9a-f]{64}", run_nonce) is None:
             coordination_failures.append("termination request did not echo the launcher's 256-bit run nonce")
             break
+        exact_bundle_bindings = {
+            "bundleIdentifier": expected_bundle_id,
+            "bundleVersion": expected_bundle_version,
+            "sourceRevision": expected_source_revision,
+        }
+        mismatched_bundle_bindings = sorted(
+            field
+            for field, expected in exact_bundle_bindings.items()
+            if request.get(field) != expected
+        )
+        request_app_executable_raw = request["appExecutablePath"]
+        canonical_request_app_executable = resolve_existing_executable_binding(
+            request_app_executable_raw
+        )
+        if canonical_request_app_executable is not None:
+            try:
+                request_app_executable_snapshot = executable_snapshot(
+                    canonical_request_app_executable
+                )
+            except OSError:
+                request_app_executable_snapshot = None
+        request_app_executable_same_snapshot = (
+            request_app_executable_snapshot == expected_app_executable_snapshot
+        )
         if (
-            request.get("bundleIdentifier") != expected_bundle_id
-            or request.get("bundleVersion") != expected_bundle_version
-            or request.get("sourceRevision") != expected_source_revision
-            or request.get("appExecutablePath") != str(expected_app_executable)
+            canonical_request_app_executable != expected_app_executable
+            or not request_app_executable_same_snapshot
         ):
-            coordination_failures.append("termination request did not bind the exact bundle and source revision")
+            mismatched_bundle_bindings.append("appExecutablePath")
+        if mismatched_bundle_bindings:
+            coordination_failures.append(
+                "termination request did not bind the exact bundle fields: "
+                + ", ".join(mismatched_bundle_bindings)
+            )
             break
+        request_app_executable_resolved = str(canonical_request_app_executable)
         if (
             request.get("phase") != "awaiting-webcontent-termination"
             or request.get("sequence") != 1
@@ -661,7 +704,7 @@ while time.monotonic() < deadline:
             break
         request_app_identity = ProcessIdentity(
             pid=request["appPID"],
-            executablePath=request["appExecutablePath"],
+            executablePath=request_app_executable_resolved,
             startSeconds=request["appStartSeconds"],
             startMicroseconds=request["appStartMicroseconds"],
         )
@@ -883,6 +926,17 @@ launch: dict[str, object] = {
     "targetExitObservedAtMonotonicSeconds": target_exit_observed_at_monotonic,
     "terminationAssociation": termination_association,
     "terminationRequestDigest": termination_request_digest,
+    "requestAppExecutableBinding": {
+        "requestPath": request_app_executable_raw,
+        "requestResolvedPath": request_app_executable_resolved,
+        "expectedResolvedPath": str(expected_app_executable),
+        "requestSnapshot": (
+            asdict(request_app_executable_snapshot)
+            if request_app_executable_snapshot is not None else None
+        ),
+        "expectedSnapshot": asdict(expected_app_executable_snapshot),
+        "sameSnapshot": request_app_executable_same_snapshot,
+    },
     "replacementWebContentIdentity": (
         asdict(replacement_web_content_identity)
         if replacement_web_content_identity is not None else None
@@ -1220,17 +1274,60 @@ run_variant() {
   return "$status"
 }
 
+write_setup_failure() {
+  local variant="$1"
+  local failure_class="$2"
+  local setup_status="$3"
+  python3 - "$EVIDENCE/variants/$variant.json" "$variant" "$failure_class" "$setup_status" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+variant = sys.argv[2]
+failure_class = sys.argv[3]
+status = int(sys.argv[4])
+if failure_class not in {"diagnostic-setup-failure", "identity-setup-failure"}:
+    raise SystemExit(f"unknown setup failure class: {failure_class}")
+path.write_text(json.dumps({
+    "schemaVersion": 1,
+    "variant": variant,
+    "passed": False,
+    "failures": [f"{failure_class} with status {status}"],
+    "setupFailureClass": failure_class,
+}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+}
+
 SANDBOX_ADHOC_STATUS=0
 run_variant "sandbox-adhoc" "$APP" || SANDBOX_ADHOC_STATUS=$?
 
 UNSANDBOXED="$TEMP_ROOT/variants/Drift-unsandboxed-adhoc.app"
+UNSANDBOXED_SETUP_STATUS=0
+set +e
 bounded "$COMMAND_TIMEOUT_SECONDS" ditto "$APP" "$UNSANDBOXED"
-bounded "$COMMAND_TIMEOUT_SECONDS" codesign --force --options runtime --sign - --timestamp=none "$UNSANDBOXED"
-UNSANDBOXED_STATUS=0
-run_variant "unsandboxed-adhoc" "$UNSANDBOXED" || UNSANDBOXED_STATUS=$?
+UNSANDBOXED_SETUP_STATUS=$?
+if [[ $UNSANDBOXED_SETUP_STATUS -eq 0 ]]; then
+  bounded "$COMMAND_TIMEOUT_SECONDS" codesign \
+    --force --options runtime --sign - --timestamp=none "$UNSANDBOXED"
+  UNSANDBOXED_SETUP_STATUS=$?
+fi
+set -e
+if [[ $UNSANDBOXED_SETUP_STATUS -eq 0 ]]; then
+  UNSANDBOXED_STATUS=0
+  run_variant "unsandboxed-adhoc" "$UNSANDBOXED" || UNSANDBOXED_STATUS=$?
+else
+  UNSANDBOXED_STATUS=$UNSANDBOXED_SETUP_STATUS
+  write_setup_failure \
+    "unsandboxed-adhoc" "diagnostic-setup-failure" "$UNSANDBOXED_SETUP_STATUS"
+fi
 
 SELF_SIGNED="$TEMP_ROOT/variants/Drift-sandbox-self-signed.app"
+SELF_SIGNED_COPY_STATUS=0
+set +e
 bounded "$COMMAND_TIMEOUT_SECONDS" ditto "$APP" "$SELF_SIGNED"
+SELF_SIGNED_COPY_STATUS=$?
+set -e
 cat > "$TEMP_ROOT/certificate.cnf" <<'EOF'
 [req]
 prompt = no
@@ -1253,15 +1350,72 @@ EOF
 
 SELF_SIGNED_STATUS=125
 set +e
-bounded "$COMMAND_TIMEOUT_SECONDS" openssl req \
-  -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
-  -config "$TEMP_ROOT/certificate.cnf" \
-  -keyout "$TEMP_ROOT/private-key.pem" \
-  -out "$TEMP_ROOT/certificate.pem" \
-  >"$EVIDENCE/variants/self-signed-openssl.txt" 2>&1
-CERT_STATUS=$?
+OPENSSL_VERSION_STATUS=0
+bounded "$COMMAND_TIMEOUT_SECONDS" openssl version -a \
+  >"$EVIDENCE/variants/self-signed-openssl-version.txt" 2>&1
+OPENSSL_VERSION_STATUS=$?
+OPENSSL_HELP_STATUS=0
+bounded "$COMMAND_TIMEOUT_SECONDS" openssl pkcs12 -help \
+  >"$EVIDENCE/variants/self-signed-openssl-pkcs12-help.txt" 2>&1
+OPENSSL_HELP_STATUS=$?
+OPENSSL_PKCS12_COMPAT_ARGS=()
+OPENSSL_LEGACY_SUPPORTED=false
+if grep -q -- "-legacy" "$EVIDENCE/variants/self-signed-openssl-pkcs12-help.txt"; then
+  OPENSSL_PKCS12_COMPAT_ARGS=(-legacy)
+  OPENSSL_LEGACY_SUPPORTED=true
+fi
+python3 - \
+  "$EVIDENCE/variants/self-signed-openssl-version.txt" \
+  "$EVIDENCE/variants/self-signed-openssl-pkcs12-help.txt" \
+  "$EVIDENCE/variants/self-signed-openssl-capability.json" \
+  "$OPENSSL_VERSION_STATUS" \
+  "$OPENSSL_HELP_STATUS" \
+  "$OPENSSL_LEGACY_SUPPORTED" \
+  "$(command -v openssl)" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+version_path, help_path, output_path = map(Path, sys.argv[1:4])
+version_status = int(sys.argv[4])
+help_status = int(sys.argv[5])
+legacy_supported = sys.argv[6] == "true"
+command_path = sys.argv[7]
+version_text = version_path.read_text(encoding="utf-8", errors="replace")
+help_text = help_path.read_text(encoding="utf-8", errors="replace")
+output_path.write_text(json.dumps({
+    "schemaVersion": 1,
+    "commandPath": command_path,
+    "versionStatus": version_status,
+    "versionFirstLine": version_text.splitlines()[0] if version_text.splitlines() else None,
+    "pkcs12HelpStatus": help_status,
+    "legacyOptionAdvertised": legacy_supported,
+    "selectedCompatibilityMode": "legacy-option" if legacy_supported else "provider-default",
+    "pkcs12HelpCaptured": bool(help_text),
+}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+OPENSSL_CAPABILITY_STATUS=$?
+
+CERT_STATUS=0
+if [[ $SELF_SIGNED_COPY_STATUS -ne 0 ]]; then
+  CERT_STATUS=$SELF_SIGNED_COPY_STATUS
+elif [[ $OPENSSL_VERSION_STATUS -ne 0 || $OPENSSL_CAPABILITY_STATUS -ne 0 ]]; then
+  CERT_STATUS=1
+elif [[ $OPENSSL_HELP_STATUS -ne 0 && $OPENSSL_HELP_STATUS -ne 1 ]]; then
+  CERT_STATUS=$OPENSSL_HELP_STATUS
+fi
+if [[ $CERT_STATUS -eq 0 ]]; then
+  bounded "$COMMAND_TIMEOUT_SECONDS" openssl req \
+    -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
+    -config "$TEMP_ROOT/certificate.cnf" \
+    -keyout "$TEMP_ROOT/private-key.pem" \
+    -out "$TEMP_ROOT/certificate.pem" \
+    >"$EVIDENCE/variants/self-signed-openssl.txt" 2>&1
+  CERT_STATUS=$?
+fi
 if [[ $CERT_STATUS -eq 0 ]]; then
   bounded "$COMMAND_TIMEOUT_SECONDS" openssl pkcs12 -export \
+    "${OPENSSL_PKCS12_COMPAT_ARGS[@]}" \
     -inkey "$TEMP_ROOT/private-key.pem" \
     -in "$TEMP_ROOT/certificate.pem" \
     -out "$TEMP_ROOT/identity.p12" \
@@ -1283,7 +1437,12 @@ if [[ $CERT_STATUS -eq 0 ]]; then
     -S apple-tool:,apple:,codesign: \
     -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" \
     >>"$EVIDENCE/variants/self-signed-security-import.txt" 2>&1
-  IDENTITY="$(bounded "$COMMAND_TIMEOUT_SECONDS" security find-identity -v -p codesigning "$KEYCHAIN" | awk '/Drift CI Runtime/ {print $2; exit}')"
+  IDENTITY="$(bounded "$COMMAND_TIMEOUT_SECONDS" security find-certificate \
+    -a -Z -c "Drift CI Runtime" "$KEYCHAIN" \
+    | awk '/SHA-1 hash:/ {print $3; exit}')"
+  if [[ ! "$IDENTITY" =~ ^[0-9A-F]{40}$ ]]; then
+    IDENTITY=""
+  fi
   if [[ -n "$IDENTITY" ]]; then
     bounded "$COMMAND_TIMEOUT_SECONDS" codesign \
       --keychain "$KEYCHAIN" \
@@ -1307,19 +1466,8 @@ if [[ $CERT_STATUS -eq 0 ]]; then
   SELF_SIGNED_STATUS=0
   run_variant "sandbox-self-signed" "$SELF_SIGNED" || SELF_SIGNED_STATUS=$?
 else
-  python3 - "$EVIDENCE/variants/sandbox-self-signed.json" "$CERT_STATUS" <<'PY'
-import json
-import sys
-from pathlib import Path
-path = Path(sys.argv[1])
-status = int(sys.argv[2])
-path.write_text(json.dumps({
-    "schemaVersion": 1,
-    "variant": "sandbox-self-signed",
-    "passed": False,
-    "failures": [f"temporary signing identity setup failed with status {status}"],
-}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-PY
+  write_setup_failure \
+    "sandbox-self-signed" "identity-setup-failure" "$CERT_STATUS"
 fi
 
 python3 - \
@@ -1338,28 +1486,190 @@ def load(path: Path) -> dict:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception as error:  # noqa: BLE001 - evidence synthesis
-        return {"variant": path.stem, "passed": False, "failures": [f"unreadable result: {error}"]}
+        return {
+            "variant": path.stem,
+            "passed": False,
+            "failures": [f"unreadable result: {error}"],
+            "evidenceLoadError": f"{type(error).__name__}: {error}",
+        }
+
+
+def classify_variant(value: dict, expected_variant: str) -> dict[str, object]:
+    variant = str(value.get("variant") or expected_variant)
+    failures = value.get("failures")
+    failure_text = [str(item) for item in failures] if isinstance(failures, list) else []
+    envelope_is_valid = (
+        type(value.get("schemaVersion")) is int
+        and value.get("schemaVersion") == 1
+        and value.get("variant") == expected_variant
+        and type(value.get("passed")) is bool
+        and isinstance(failures, list)
+        and all(isinstance(item, str) for item in failures)
+    )
+    setup_failure_class = value.get("setupFailureClass")
+    if value.get("evidenceLoadError") is not None or not envelope_is_valid:
+        outcome_class = "missing-evidence"
+    elif setup_failure_class == "identity-setup-failure" or any(
+        text.startswith("temporary signing identity setup failed") for text in failure_text
+    ):
+        outcome_class = "identity-setup-failure"
+    elif setup_failure_class == "diagnostic-setup-failure":
+        outcome_class = "diagnostic-setup-failure"
+    else:
+        launch = value.get("launch")
+        if not isinstance(launch, dict):
+            outcome_class = "missing-evidence"
+        elif not isinstance(launch.get("coordinationFailures"), list) or type(launch.get("timedOut")) is not bool:
+            outcome_class = "missing-evidence"
+        elif launch["coordinationFailures"]:
+            outcome_class = "harness-binding-failure"
+        elif launch["timedOut"] is True:
+            outcome_class = "diagnostic-timeout"
+        elif (
+            not isinstance(value.get("receipt"), dict)
+            or value.get("receiptError") is not None
+            or type(value["receipt"].get("schemaVersion")) is not int
+            or value["receipt"].get("schemaVersion") != 2
+            or type(value["receipt"].get("ok")) is not bool
+        ):
+            outcome_class = "missing-evidence"
+        elif value["passed"] is True and value["receipt"]["ok"] is True and not failures:
+            outcome_class = "completed-product-pass"
+        elif value["passed"] is True:
+            outcome_class = "missing-evidence"
+        else:
+            outcome_class = "completed-product-failure"
+    return {
+        "variant": variant,
+        "class": outcome_class,
+        "completedComparableRuntime": outcome_class.startswith("completed-product-"),
+    }
+
+
+classifier_self_tests = [
+    (
+        {"schemaVersion": 1, "variant": "identity", "passed": False, "failures": ["temporary signing identity setup failed with status 1"]},
+        "identity",
+        "identity-setup-failure",
+    ),
+    (
+        {"schemaVersion": 1, "variant": "binding", "passed": False, "failures": [], "launch": {"coordinationFailures": ["binding"], "timedOut": True}},
+        "binding",
+        "harness-binding-failure",
+    ),
+    (
+        {"schemaVersion": 1, "variant": "timeout", "passed": False, "failures": [], "launch": {"coordinationFailures": [], "timedOut": True}},
+        "timeout",
+        "diagnostic-timeout",
+    ),
+    (
+        {"schemaVersion": 1, "variant": "missing", "passed": False, "failures": [], "launch": {"coordinationFailures": [], "timedOut": False}, "receipt": None},
+        "missing",
+        "missing-evidence",
+    ),
+    (
+        {"schemaVersion": 1, "variant": "product", "passed": False, "failures": ["product assertion"], "launch": {"coordinationFailures": [], "timedOut": False}, "receipt": {"schemaVersion": 2, "ok": False}, "receiptError": None},
+        "product",
+        "completed-product-failure",
+    ),
+    (
+        {"schemaVersion": 1, "variant": "truthy", "passed": "false", "failures": [], "launch": {"coordinationFailures": [], "timedOut": False}, "receipt": {"schemaVersion": 2, "ok": True}, "receiptError": None},
+        "truthy",
+        "missing-evidence",
+    ),
+    (
+        {"schemaVersion": 1, "variant": "wrong-lane", "passed": True, "failures": [], "launch": {"coordinationFailures": [], "timedOut": False}, "receipt": {"schemaVersion": 2, "ok": True}, "receiptError": None},
+        "expected-lane",
+        "missing-evidence",
+    ),
+    (
+        {"schemaVersion": 1, "variant": "inconsistent-pass", "passed": True, "failures": ["contradiction"], "launch": {"coordinationFailures": [], "timedOut": False}, "receipt": {"schemaVersion": 2, "ok": True}, "receiptError": None},
+        "inconsistent-pass",
+        "missing-evidence",
+    ),
+]
+for synthetic, expected_variant, expected_class in classifier_self_tests:
+    observed_class = classify_variant(synthetic, expected_variant)["class"]
+    if observed_class != expected_class:
+        raise RuntimeError(
+            f"variant outcome classifier self-test failed: expected {expected_class}, got {observed_class}"
+        )
 
 sandbox = load(sandbox_path)
 unsandboxed = load(unsandboxed_path)
 self_signed = load(self_signed_path)
+variants = [sandbox, unsandboxed, self_signed]
+expected_variants = ["sandbox-adhoc", "unsandboxed-adhoc", "sandbox-self-signed"]
+variant_outcomes = [
+    classify_variant(value, expected_variant)
+    for value, expected_variant in zip(variants, expected_variants, strict=True)
+]
+outcome_by_variant = {value["variant"]: value for value in variant_outcomes}
+production_outcome = outcome_by_variant.get("sandbox-adhoc", {})
+unsandboxed_outcome = outcome_by_variant.get("unsandboxed-adhoc", {})
+self_signed_outcome = outcome_by_variant.get("sandbox-self-signed", {})
+control_outcomes = [unsandboxed_outcome, self_signed_outcome]
+controls_comparable = all(
+    value.get("completedComparableRuntime") is True for value in control_outcomes
+)
+matrix_comparable = (
+    production_outcome.get("completedComparableRuntime") is True
+    and controls_comparable
+)
 
-if sandbox.get("passed"):
-    diagnosis = "The production sandboxed app survived its packaged WKWebView lifecycle."
-elif self_signed.get("passed"):
-    diagnosis = "WebKit accepts the sandboxed app with a real signing identity but rejects the ad-hoc signature."
-elif unsandboxed.get("passed"):
-    diagnosis = "The packaged runtime works without App Sandbox; the failure is isolated to the sandbox/signing boundary."
+
+def inconclusive_controls() -> str:
+    return ", ".join(
+        f"{value.get('variant', 'unknown')}={value.get('class', 'missing-evidence')}"
+        for value in control_outcomes
+        if value.get("completedComparableRuntime") is not True
+    )
+
+
+def control_outcome_summary() -> str:
+    return ", ".join(
+        f"{value.get('variant', 'unknown')}={value.get('class', 'missing-evidence')}"
+        for value in control_outcomes
+    )
+
+
+if production_outcome.get("class") == "completed-product-pass":
+    diagnosis = (
+        "The production sandboxed app survived its packaged WKWebView lifecycle. "
+        f"Diagnostic control outcomes: {control_outcome_summary()}."
+    )
+elif production_outcome.get("class") != "completed-product-failure":
+    diagnosis = (
+        "The production variant did not produce comparable product evidence "
+        f"({production_outcome.get('class', 'missing-evidence')}); causal diagnosis is inconclusive."
+    )
+elif not controls_comparable:
+    diagnosis = (
+        "The production sandboxed variant completed with a product failure, but causal diagnosis "
+        f"is inconclusive because {inconclusive_controls()}."
+    )
+elif self_signed_outcome.get("class") == "completed-product-pass" and controls_comparable:
+    diagnosis = "The sandboxed temporary non-ad-hoc control passed while the production ad-hoc variant failed; the observed difference is isolated to their signing boundary."
+elif unsandboxed_outcome.get("class") == "completed-product-pass" and controls_comparable:
+    diagnosis = "The unsandboxed ad-hoc control passed while both sandboxed variants completed with product failures; the observed difference is isolated to their App Sandbox boundary."
 else:
-    diagnosis = "All packaged variants failed; the defect is inside the packaged runtime or hosted WindowServer lifecycle, not only App Sandbox."
+    diagnosis = "No successful diagnostic control isolates the production failure; causal diagnosis remains inconclusive. Inspect each completed variant's failures independently."
 
+production_variant_passed = (
+    sandbox.get("passed") is True
+    and production_outcome.get("class") == "completed-product-pass"
+)
 summary = {
     "schemaVersion": 1,
-    "productionVariantPassed": bool(sandbox.get("passed")),
+    "productionVariantPassed": production_variant_passed,
+    "productionOutcomeClass": production_outcome.get("class", "missing-evidence"),
+    "controlsComparable": controls_comparable,
+    "matrixComparable": matrix_comparable,
     "diagnosis": diagnosis,
-    "variants": [sandbox, unsandboxed, self_signed],
+    "variantOutcomes": variant_outcomes,
+    "variants": variants,
 }
 output_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 print(json.dumps(summary, indent=2, sort_keys=True))
-raise SystemExit(0 if summary["productionVariantPassed"] else 1)
+raise SystemExit(0 if production_variant_passed is True else 1)
 PY
