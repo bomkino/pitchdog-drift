@@ -24,7 +24,7 @@ The [vertical-slice contract](VERTICAL_SLICE.md) states exactly what is live. Th
 - Lifecycle/render critic: HOLD after exit continuity and shared background-phase repair.
 - Director-control critic: HOLD after persistence, reduced-motion, zero-tempo fallback, and duration-fit checks.
 - Visual critic: HOLD for the repaired pin in vertical and horizontal flow. Portrait-source owner approval remains a separate visual check.
-- Full uninterrupted browser suite: running as the final code-candidate gate; do not infer green from focused passes.
+- Full uninterrupted browser suite: `28/28` passing in 8.9 minutes on the clean candidate.
 
 ## Honest state table
 
@@ -41,6 +41,7 @@ The [vertical-slice contract](VERTICAL_SLICE.md) states exactly what is live. Th
 | Default PNG still | lifecycle-aware in App; generic API defaults to master midpoint |
 | Grain | deterministic frame-owned held plates; visual default approved in browser slice |
 | Recipe provenance after visible edits | drifted World-owned recipe refs clear; aggregate World becomes Custom |
+| Real-browser gauntlet | `28/28` passed uninterrupted on the clean candidate |
 | Canonical modular V2 renderer / `drift-v2` contract | not implemented |
 | Eight live authored Worlds | not implemented; registry-only |
 | Forty live backgrounds | not implemented; metadata foundation only |

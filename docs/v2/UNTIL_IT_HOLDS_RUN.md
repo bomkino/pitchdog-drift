@@ -80,7 +80,7 @@ Produce an honest, beautiful, deterministic Editorial Performance vertical slice
 - Made cancellation testing use a deliberately throttled fixture encoder, so it proves cancellation rather than machine speed; passed three consecutive races.
 - Repaired older renderer probes that sampled the intentionally blank first entry frame; they now sample deterministic body time.
 - Replaced one transient reopen-notice assertion with durable readback of saved state, asset identity, dimensions, and ready renderer state.
-- Focused repaired journeys pass. One final uninterrupted full browser run remains required after edits stop.
+- Focused repaired journeys passed, followed by one uninterrupted `28/28` full browser run in 8.9 minutes after edits stopped.
 
 ## Current evidence
 
@@ -92,15 +92,13 @@ Produce an honest, beautiful, deterministic Editorial Performance vertical slice
 - Pin visual critic: HOLD.
 - Lifecycle critic: HOLD.
 - Director-control critic: HOLD.
-- Full browser suite: not yet accepted; interrupted diagnostic runs found and repaired stale entry-frame and race assumptions. Final coherent rerun pending.
+- Full browser suite: `28/28` passed uninterrupted in 8.9 minutes on the clean candidate.
 - Current exact-SHA Mac package/install: pending.
 - Push, merge, release, notarisation, publication: not performed.
 
 ## Whole-artifact gate still open
 
-1. Commit the repaired test and documentation slice.
-2. Run one uninterrupted `28/28` browser suite on the clean candidate.
-3. Build and verify exact-SHA `Drift V2 Dev.app` including packaged `3/3` WKWebView evidence.
-4. Install it in `/Applications` without touching V1; compare candidate and installed bundle.
-5. Launch both apps and smoke the installed V2 lifecycle, pin, persistence, PNG, and short MP4 paths.
-6. Read the installed receipt and identity back, then report package/install/push/merge/release states separately.
+1. Build and verify exact-SHA `Drift V2 Dev.app` including packaged `3/3` WKWebView evidence.
+2. Install it in `/Applications` without touching V1; compare candidate and installed bundle.
+3. Launch both apps and smoke the installed V2 lifecycle, pin, persistence, PNG, and short MP4 paths.
+4. Read the installed receipt and identity back, then report package/install/push/merge/release states separately.
