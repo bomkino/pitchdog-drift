@@ -16,17 +16,20 @@ function sourceIndex(sequence: number, sourceCount: number): number | null {
   return ((sequence % sourceCount) + sourceCount) % sourceCount;
 }
 
-function rawDistanceAtTime(project: DriftProjectV3, time: number): number {
+function defaultRawDistanceAtTime(project: DriftProjectV3, time: number): number {
   return evaluateTrack(project, time, { samplePose: false }).rawSlides;
 }
 
-function timeForRawDistance(project: DriftProjectV3, target: number): number {
-  const duration = project.master.duration;
+function timeForRawDistance(
+  duration: number,
+  rawDistanceAtTime: (time: number) => number,
+  target: number,
+): number {
   let lower = 0;
   let upper = duration;
   for (let iteration = 0; iteration < 56; iteration += 1) {
     const midpoint = (lower + upper) * 0.5;
-    if (rawDistanceAtTime(project, midpoint) < target) lower = midpoint;
+    if (rawDistanceAtTime(midpoint) < target) lower = midpoint;
     else upper = midpoint;
   }
   return (lower + upper) * 0.5;
@@ -59,12 +62,24 @@ function event(
   };
 }
 
-export function planSemanticEvents(
+export interface SemanticEventRawTimeline {
+  readonly duration: number;
+  /** Monotonic unsigned authored slide distance at exact time. */
+  rawDistanceAtTime(time: number): number;
+}
+
+/**
+ * Plans the one semantic event spine from a caller-owned authored timeline.
+ * V1 compatibility and V2 lifecycle timing share this threshold logic while
+ * retaining their own pure distance evaluators.
+ */
+export function planSemanticEventsFromRawTimeline(
   project: DriftProjectV3,
   fromTime: number,
   toTime: number,
+  timeline: SemanticEventRawTimeline,
 ): SemanticEvent[] {
-  const duration = project.master.duration;
+  const duration = timeline.duration;
   const startTime = Math.max(0, Math.min(duration, fromTime));
   const endTime = Math.max(0, Math.min(duration, toTime));
   // Backward scrubbing is direct manipulation, not automatic authored playback.
@@ -76,8 +91,8 @@ export function planSemanticEvents(
     events.push(event(project, "master-start", 0, 0, 0));
   }
 
-  const startDistance = rawDistanceAtTime(project, startTime);
-  const endDistance = rawDistanceAtTime(project, endTime);
+  const startDistance = timeline.rawDistanceAtTime(startTime);
+  const endDistance = timeline.rawDistanceAtTime(endTime);
   const schedule = cadenceSchedule(project);
   const thresholds: PlannedThreshold[] = [
     { type: "slide-approach", phase: schedule.readEnd, intensity: 0.22 },
@@ -93,7 +108,7 @@ export function planSemanticEvents(
     for (const threshold of thresholds) {
       const target = cycle + threshold.phase;
       if (target <= startDistance + TIMELINE_EPSILON || target > endDistance + TIMELINE_EPSILON) continue;
-      const rawTime = timeForRawDistance(project, target);
+      const rawTime = timeForRawDistance(duration, timeline.rawDistanceAtTime, target);
       const planned = event(project, threshold.type, rawTime, cycle + 1, threshold.intensity);
       if (planned.time > startTime + TIMELINE_EPSILON && planned.time <= endTime + TIMELINE_EPSILON) events.push(planned);
     }
@@ -105,7 +120,7 @@ export function planSemanticEvents(
     const finalBoundary = Math.floor((endDistance + TIMELINE_EPSILON) / sourceCount);
     for (let boundary = firstBoundary; boundary <= finalBoundary; boundary += 1) {
       const target = boundary * sourceCount;
-      const rawTime = timeForRawDistance(project, target);
+      const rawTime = timeForRawDistance(duration, timeline.rawDistanceAtTime, target);
       const planned = event(project, "loop-boundary", rawTime, target, 0);
       if (planned.time > startTime + TIMELINE_EPSILON && planned.time <= endTime + TIMELINE_EPSILON) events.push(planned);
     }
@@ -117,4 +132,15 @@ export function planSemanticEvents(
 
   const unique = new Map(events.map((entry) => [entry.id, entry]));
   return [...unique.values()].sort((a, b) => a.time - b.time || a.type.localeCompare(b.type));
+}
+
+export function planSemanticEvents(
+  project: DriftProjectV3,
+  fromTime: number,
+  toTime: number,
+): SemanticEvent[] {
+  return planSemanticEventsFromRawTimeline(project, fromTime, toTime, {
+    duration: project.master.duration,
+    rawDistanceAtTime: (time) => defaultRawDistanceAtTime(project, time),
+  });
 }

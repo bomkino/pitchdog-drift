@@ -35,6 +35,27 @@ export const WORLD_RATIO_DIMENSIONS = deepFreeze({
   "16:9": { width: 1920, height: 1080 },
 } as const satisfies Readonly<Record<WorldRatioId, { readonly width: number; readonly height: number }>>);
 
+export function worldRatioForDimensions(width: number, height: number): WorldRatioId | null {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  for (const ratio of WORLD_RATIO_IDS) {
+    const authored = WORLD_RATIO_DIMENSIONS[ratio];
+    if (width * authored.height === height * authored.width) return ratio;
+  }
+  return null;
+}
+
+export function nearestWorldRatioForDimensions(width: number, height: number): WorldRatioId {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return "9:16";
+  const requested = width / height;
+  return WORLD_RATIO_IDS.reduce((nearest, candidate) => {
+    const nearestSize = WORLD_RATIO_DIMENSIONS[nearest];
+    const candidateSize = WORLD_RATIO_DIMENSIONS[candidate];
+    const nearestDistance = Math.abs(Math.log(requested / (nearestSize.width / nearestSize.height)));
+    const candidateDistance = Math.abs(Math.log(requested / (candidateSize.width / candidateSize.height)));
+    return candidateDistance < nearestDistance ? candidate : nearest;
+  }, "9:16" as WorldRatioId);
+}
+
 export const PUBLIC_WORLD_VARIANTS = deepFreeze(["restrained", "directed", "fever"] as const);
 export type PublicWorldVariant = Exclude<WorldVariant, "custom">;
 
@@ -306,9 +327,11 @@ export const WORLD_IDENTITIES = deepFreeze([
 ] as const satisfies readonly WorldIdentity[]);
 
 /**
- * Schema-shaped Editorial Drift foundation under V1 compatibility. 9:16 is
- * authored as source composition, not landscape crop. This does not claim an
- * implemented World renderer, UI, or approved visual contract.
+ * Schema-shaped Editorial Drift foundation. Applying it is the explicit
+ * drift-v2/1 upgrade boundary; imported V1/V3 projects otherwise remain on
+ * compatibility rendering. 9:16 is authored as a source composition, never a
+ * landscape crop. The recipe alone does not claim the complete World library
+ * or an approved V2 visual contract.
  */
 export const EDITORIAL_DRIFT_9_16_RECIPE: FrozenWorldRecipe = deepFreeze({
   motion: {

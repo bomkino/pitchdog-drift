@@ -188,7 +188,7 @@ describe("Project V3/V4 studio projection", () => {
     });
   });
 
-  it("updates supported studio domains while preserving richer hidden direction", () => {
+  it("applies visible deck-wide direction while preserving richer hidden values", () => {
     const { settings, project } = legacyProject();
     project.lens = {
       ...project.lens,
@@ -241,9 +241,9 @@ describe("Project V3/V4 studio projection", () => {
     expect(Object.keys(reconciled.media.assets).sort()).toEqual(["presenter", "slide-a", "slide-b"]);
 
     expect(reconciled.slides["slide-a"]).toMatchObject({
-      fit: "contain",
-      focalX: 0.23,
-      focalY: 0.71,
+      fit: "cover",
+      focalX: 0.82,
+      focalY: 0.15,
       scaleOffset: 0.18,
     });
     expect(reconciled.slides["slide-b"]).toMatchObject({
@@ -282,6 +282,31 @@ describe("Project V3/V4 studio projection", () => {
       id: "road-memory",
       fingerprint: "legacy-theme:road-memory",
     });
+  });
+
+  it("preserves distinct per-slide direction when the deck-wide controls did not change", () => {
+    const { project } = legacyProject();
+    project.media.order.push(slideB.id);
+    project.media.assets[slideB.id] = slideB;
+    project.slides[slideB.id] = {
+      assetId: slideB.id,
+      fit: "cover",
+      focalX: 0.91,
+      focalY: 0.12,
+      scaleOffset: -0.08,
+    };
+    const settings = studioSettingsFromDriftProject(project);
+    settings.motion.speed = 0.48;
+
+    const reconciled = reconcileStudioProject({
+      project,
+      settings,
+      slideAssets: [project.media.assets[slideA.id]!, slideB],
+      updatedAt: "2026-08-21T01:10:00.000Z",
+    });
+
+    expect(reconciled.slides[slideA.id]).toEqual(project.slides[slideA.id]);
+    expect(reconciled.slides[slideB.id]).toEqual(project.slides[slideB.id]);
   });
 
   it("falls back visibly without overwriting dormant future direction on an unrelated edit", () => {
@@ -348,6 +373,106 @@ describe("Project V3/V4 studio projection", () => {
     expect(reconciled.provenance.recipes.card).toEqual(world.provenance.recipes.card);
     expect(reconciled.provenance.world).toBeNull();
     expect(reconciled.provenance.worldVariant).toBe("custom");
+  });
+
+  it("preserves authored World identity through a no-op studio projection", () => {
+    const world = applyEditorialDriftFoundation(
+      createDefaultDriftProjectV4("world-round-trip", "2026-08-21T02:40:00.000Z"),
+      "9:16",
+      "2026-08-21T02:40:00.000Z",
+    );
+    const reconciled = reconcileStudioProject({
+      project: world,
+      settings: studioSettingsFromDriftProject(world),
+      slideAssets: [],
+      updatedAt: world.updatedAt,
+    });
+
+    expect(reconciled.provenance.world).toEqual(world.provenance.world);
+    expect(reconciled.provenance.worldVariant).toBe("restrained");
+    expect(reconciled.provenance.recipes).toEqual(world.provenance.recipes);
+    expect(reconciled.material.finish.localSmear).toBe(0.04);
+  });
+
+  it("makes an unchanged hydrated V4 tuple lossless even when visible controls hide authored values", () => {
+    const project = createDefaultDriftProjectV4(
+      "lossless-hydration",
+      "2026-08-21T02:50:00.000Z",
+    );
+    project.media = {
+      order: [slideB.id],
+      presenterAssetId: presenter.id,
+      assets: {
+        [slideB.id]: slideB,
+        [presenter.id]: presenter,
+      },
+    };
+    project.slides[slideB.id] = {
+      assetId: slideB.id,
+      fit: "contain",
+      focalX: 0.37,
+      focalY: 0.61,
+      scaleOffset: 0.08,
+    };
+    project.card.defaultFit = "cover";
+    project.composition.alphaMode = "opaque";
+    project.atmosphere.enabled = false;
+    project.atmosphere.family = "void";
+    project.lighting.enabled = false;
+    project.lighting.shadowOpacity = 0.73;
+    project.presenter = {
+      ...project.presenter,
+      enabled: false,
+      assetId: presenter.id,
+      aspectMode: "source",
+      aspectWidth: 7,
+      aspectHeight: 3,
+    };
+
+    const projected = studioSettingsFromDriftProject(project);
+    expect(projected).toMatchObject({
+      stage: { transparent: false },
+      slide: { fit: "contain", shadowOpacity: 0 },
+      background: { style: "transparent" },
+      presenter: { aspectWidth: 9, aspectHeight: 16 },
+    });
+
+    const updatedAt = "2026-08-21T02:51:00.000Z";
+    const reconciled = reconcileStudioProject({
+      project,
+      settings: projected,
+      slideAssets: [slideB],
+      presenterAsset: presenter,
+      updatedAt,
+    });
+    const expected = structuredClone(project);
+    expected.updatedAt = updatedAt;
+    expect(reconciled).toEqual(expected);
+
+    const addedSlide: AssetDescriptor = {
+      ...slideB,
+      id: "slide-c",
+      name: "C.png",
+      hash: "d".repeat(64),
+    };
+    const mediaOnly = reconcileStudioProject({
+      project,
+      settings: projected,
+      slideAssets: [slideB, addedSlide],
+      presenterAsset: presenter,
+      updatedAt: "2026-08-21T02:52:00.000Z",
+    });
+    expect(mediaOnly.media.order).toEqual([slideB.id, addedSlide.id]);
+    expect(mediaOnly.slides[addedSlide.id]).toMatchObject({ fit: "contain" });
+    expect(mediaOnly.composition.alphaMode).toBe("opaque");
+    expect(mediaOnly.atmosphere).toMatchObject({ enabled: false, family: "void" });
+    expect(mediaOnly.card.defaultFit).toBe("cover");
+    expect(mediaOnly.lighting).toMatchObject({ enabled: false, shadowOpacity: 0.73 });
+    expect(mediaOnly.presenter).toMatchObject({
+      aspectMode: "source",
+      aspectWidth: 7,
+      aspectHeight: 3,
+    });
   });
 
   it("keeps an ordered image pinned when a separate presenter video also exists", () => {

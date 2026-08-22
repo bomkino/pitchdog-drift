@@ -56,6 +56,7 @@ const scripts = [
   "scripts/verify-macos-v2-dev.sh",
   "scripts/verify-macos-dmg.sh",
   "scripts/verify-macos-release.sh",
+  "scripts/verify-macos-user-guide.mjs",
 ];
 const docs = [
   "README.md",
@@ -68,6 +69,7 @@ const docs = [
   "docs/MACOS_THREAT_MODEL.md",
   "docs/MACOS_RELEASE.md",
   "docs/MACOS_RELEASE_CHECKLIST.md",
+  "docs/v2/MACOS_V2_DEV_USER_GUIDE.md",
 ];
 const workflows = [
   ".github/workflows/macos.yml",
@@ -644,6 +646,10 @@ requireMarkers("scripts/build-macos-app.sh", [
   'APP_VARIANT="${DRIFT_MACOS_APP_VARIANT:-release}"',
   'BUNDLE_IDENTIFIER="dog.pitch.drift.v2.dev"',
   'STORAGE_NAMESPACE="pitchdog-drift-v2-dev"',
+  'USER_GUIDE_SOURCE="${ROOT_DIR}/docs/MACOS_USER_GUIDE.md"',
+  'USER_GUIDE_SOURCE="${ROOT_DIR}/docs/v2/MACOS_V2_DEV_USER_GUIDE.md"',
+  'verify-macos-user-guide.mjs "${BUILD_CHANNEL}"',
+  "user_guide_profile=${APP_VARIANT}",
 ]);
 requireMarkers("scripts/build-macos-v2-dev.sh", [
   'DRIFT_MACOS_APP_VARIANT="v2-dev"',
@@ -667,6 +673,37 @@ requireMarkers("scripts/verify-macos-app.sh", [
   "not-all-user-traversable directory",
   "not readable and executable by every local account",
   "stage-macos-runtime-licenses.mjs\" verify",
+  'verify-macos-user-guide.mjs"',
+  '"user_guide_profile": str(info.get("DriftBuildChannel", ""))',
+]);
+requireMarkers("scripts/verify-macos-user-guide.mjs", [
+  'buildChannel === "release"',
+  "Drift V2 Dev does **not** open, save, register, or own `.pitched` documents.",
+  "Use **File → Save Portable Project…**",
+  "Portable-project Open and Save commands stay disabled.",
+  "guide contains forbidden",
+]);
+requireMarkers("docs/v2/MACOS_V2_DEV_USER_GUIDE.md", [
+  "# Drift V2 Dev for macOS — user guide",
+  "Drift V2 Dev does **not** open, save, register, or own `.pitched` documents.",
+  "Use `/Applications/Drift.app` for real projects and portable `.pitched` backups.",
+  "Portable-project Open and Save commands stay disabled.",
+  "Help → View Complete Source",
+]);
+forbidMarkers("docs/v2/MACOS_V2_DEV_USER_GUIDE.md", [
+  "Use **File → Save Portable Project…**",
+  "Use **File → Open Project…**",
+  "Open With Drift",
+]);
+requireMarkers("macos/App/DriftAppDelegate.swift", [
+  "func driftCompleteSourceURL(for sourceRevision: String?) -> URL",
+  "sourceRevision.utf8.count == 40",
+  '.appendingPathComponent("tree", isDirectory: true)',
+  'Bundle.main.object(forInfoDictionaryKey: "DriftSourceRevision") as? String',
+]);
+requireMarkers("macos/App/NativeGauntlet.swift", [
+  "complete-source Help URL did not bind to the exact recorded revision",
+  "malformed source revision escaped the repository-root fallback",
 ]);
 requireMarkers("scripts/stage-macos-runtime-licenses.mjs", [
   'boundary: "standalone-macos-runtime"',

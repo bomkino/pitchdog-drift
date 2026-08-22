@@ -6,6 +6,7 @@ on:
     paths:
       - "macos/**"
       - "scripts/build-macos-app.sh"
+      - "scripts/build-macos-v2-dev.sh"
       - "scripts/build-macos-web.mjs"
       - "scripts/check-macos-hardening.mjs"
       - "scripts/check-macos-matrix-budget.mjs"
@@ -16,11 +17,14 @@ on:
       - "scripts/probe-macos-packaged-webview.sh"
       - "scripts/release-macos-app.sh"
       - "scripts/verify-macos-app.sh"
+      - "scripts/verify-macos-user-guide.mjs"
+      - "scripts/verify-macos-v2-dev.sh"
       - "scripts/verify-macos-dmg.sh"
       - "scripts/verify-macos-release.sh"
       - "src/**"
       - "tests/**"
       - "docs/MACOS_*.md"
+      - "docs/v2/MACOS_V2_DEV_USER_GUIDE.md"
       - "docs/mega-main/**"
       - "package.json"
       - "package-lock.json"
@@ -32,6 +36,7 @@ on:
     paths:
       - "macos/**"
       - "scripts/build-macos-app.sh"
+      - "scripts/build-macos-v2-dev.sh"
       - "scripts/build-macos-web.mjs"
       - "scripts/check-macos-hardening.mjs"
       - "scripts/check-macos-matrix-budget.mjs"
@@ -42,11 +47,14 @@ on:
       - "scripts/probe-macos-packaged-webview.sh"
       - "scripts/release-macos-app.sh"
       - "scripts/verify-macos-app.sh"
+      - "scripts/verify-macos-user-guide.mjs"
+      - "scripts/verify-macos-v2-dev.sh"
       - "scripts/verify-macos-dmg.sh"
       - "scripts/verify-macos-release.sh"
       - "src/**"
       - "tests/**"
       - "docs/MACOS_*.md"
+      - "docs/v2/MACOS_V2_DEV_USER_GUIDE.md"
       - "docs/mega-main/**"
       - "package.json"
       - "package-lock.json"
@@ -265,3 +273,153 @@ jobs:
             exit 1
           fi
           test ! -e build/release/Drift-macOS.dmg
+
+  v2-development-app:
+    name: Build and verify isolated V2 app
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out the event commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Establish V2 tested-source identity
+        env:
+          DRIFT_EVENT_SHA: ${{ github.sha }}
+          DRIFT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          DRIFT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/ci-v2
+          TESTED_COMMIT_SHA="$(git rev-parse HEAD)"
+          TREE_SHA="$(git rev-parse 'HEAD^{tree}')"
+          [[ "$TESTED_COMMIT_SHA" == "$DRIFT_EVENT_SHA" ]] || {
+            echo "The checkout differs from the immutable event commit." >&2
+            exit 1
+          }
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            [[ "$GITHUB_REF" == refs/pull/*/merge ]] || {
+              echo "The pull-request lane expected GitHub's synthetic merge ref." >&2
+              exit 1
+            }
+            [[ "$DRIFT_PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "The pull-request source head is unavailable." >&2
+              exit 1
+            }
+            CLAIM_SCOPE="pr-merge-ref"
+            SOURCE_HEAD_SHA="$DRIFT_PR_HEAD_SHA"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            [[ "$GITHUB_REF_TYPE" == "branch" ]] || {
+              echo "Manual V2 candidates must be dispatched from a branch head." >&2
+              exit 1
+            }
+            CLAIM_SCOPE="workflow-dispatch-exact-head"
+            SOURCE_HEAD_SHA="$TESTED_COMMIT_SHA"
+          else
+            echo "Unsupported event for the V2 development lane: $GITHUB_EVENT_NAME" >&2
+            exit 1
+          fi
+          {
+            echo "event=$GITHUB_EVENT_NAME"
+            echo "event_sha=$DRIFT_EVENT_SHA"
+            echo "claim_scope=$CLAIM_SCOPE"
+            echo "ref=$GITHUB_REF"
+            echo "head_ref=$GITHUB_HEAD_REF"
+            echo "base_ref=$GITHUB_BASE_REF"
+            echo "source_head_sha=$SOURCE_HEAD_SHA"
+            echo "tested_commit_sha=$TESTED_COMMIT_SHA"
+            echo "base_sha=$DRIFT_PR_BASE_SHA"
+            echo "tree_sha=$TREE_SHA"
+            echo "workflow_run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > build/ci-v2/CheckoutIdentity.txt
+          cat build/ci-v2/CheckoutIdentity.txt
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build the V2 browser application
+        run: npm run build:v2-dev
+
+      - name: Build the isolated universal V2 development app
+        env:
+          DRIFT_BUILD_NUMBER: ${{ github.run_number }}
+          DRIFT_EXPECT_ARCHS: "arm64 x86_64"
+          DRIFT_MACOS_ARCHS: "arm64 x86_64"
+          DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST: "1"
+          DRIFT_SOURCE_REVISION: ${{ github.sha }}
+        run: npm run build:mac:v2-dev
+
+      - name: Verify the exact V2 bundle and packaged WKWebView
+        env:
+          DRIFT_EXPECT_ARCHS: "arm64 x86_64"
+          DRIFT_WEBVIEW_COMMAND_TIMEOUT: "20"
+          DRIFT_WEBVIEW_LOG_TIMEOUT: "18"
+          DRIFT_WEBVIEW_MATRIX_TIMEOUT: "75"
+        run: npm run verify:mac:v2-dev
+
+      - name: Freeze the verified V2 app and artifact identity
+        run: |
+          set -euo pipefail
+          APP_BUNDLE="build/macos/v2-dev/Drift V2 Dev.app"
+          INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
+          TESTED_COMMIT_SHA="$(git rev-parse HEAD)"
+          APP_SOURCE_REVISION="$(plutil -extract DriftSourceRevision raw -o - "$INFO_PLIST")"
+          [[ "$APP_SOURCE_REVISION" == "$TESTED_COMMIT_SHA" ]] || {
+            echo "The verified V2 app names a different source commit." >&2
+            exit 1
+          }
+          ARCHIVE="build/ci-v2/Drift-V2-Dev-${TESTED_COMMIT_SHA}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$ARCHIVE"
+          ARCHIVE_SHA256="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+          MATRIX="build/macos/v2-dev/verify-packaged-webview/matrix-summary.json"
+          [[ -f "$MATRIX" ]] || {
+            echo "The packaged WKWebView matrix receipt is missing." >&2
+            exit 1
+          }
+          MATRIX_SHA256="$(shasum -a 256 "$MATRIX" | awk '{print $1}')"
+          {
+            cat build/ci-v2/CheckoutIdentity.txt
+            echo "artifact_role=isolated-development-checkpoint"
+            echo "artifact_name=$(basename "$ARCHIVE")"
+            echo "artifact_sha256=$ARCHIVE_SHA256"
+            echo "artifact_source_revision=$APP_SOURCE_REVISION"
+            echo "bundle_identifier=$(plutil -extract CFBundleIdentifier raw -o - "$INFO_PLIST")"
+            echo "build_channel=$(plutil -extract DriftBuildChannel raw -o - "$INFO_PLIST")"
+            echo "packaged_webview_matrix_sha256=$MATRIX_SHA256"
+            echo "developer_id_signed=no"
+            echo "notarised=no"
+            echo "github_release_created=no"
+          } > build/ci-v2/ArtifactIdentity.txt
+          cat build/ci-v2/ArtifactIdentity.txt
+
+      - name: Upload the verified V2 development artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-v2-dev-${{ github.sha }}
+          path: |
+            build/ci-v2/ArtifactIdentity.txt
+            build/ci-v2/CheckoutIdentity.txt
+            build/ci-v2/Drift-V2-Dev-${{ github.sha }}.zip
+            build/macos/v2-dev/verify-packaged-webview/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Preserve V2 failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-v2-dev-failure-${{ github.run_id }}
+          path: |
+            build/ci-v2/CheckoutIdentity.txt
+            build/macos/v2-dev/verify-packaged-webview/
+          if-no-files-found: warn
+          retention-days: 7

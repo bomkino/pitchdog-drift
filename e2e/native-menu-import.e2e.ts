@@ -414,7 +414,7 @@ test("Finder-style project delivery rejects when an export wins the admission ra
   });
   await page.getByLabel("Stage width").fill("256");
   await page.getByLabel("Stage height").fill("256");
-  await page.locator("#range-duration").fill("3");
+  await page.getByLabel("Duration", { exact: true }).fill("3");
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
   const exportButton = page.getByRole("button", { name: "Export PNG sequence" });
   await expect(exportButton).toBeEnabled({ timeout: 30_000 });

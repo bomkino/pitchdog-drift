@@ -1,22 +1,46 @@
 schema_version: 1
-ledger_state: phase-0-scaffold
+ledger_state: phase-0-source-review-partial
 updated: "2026-08-22"
 
 authority:
   source_manifest: docs/mega-main/SOURCE_MANIFEST.yaml
-  curated_plan: Handover/DRIFT_V2_CURATED_DONOR_INTEGRATION_PLAN_2026-08-22.md
-  donor_source_review_performed: false
-  source_files_studied: []
+  public_scope_contract: docs/v2/V2_REQUIREMENT_PHASE_MATRIX.md
+  maintainer_local_plan_reviewed: true
+  maintainer_local_policy: >-
+    Construction handovers are ignored private inputs, not public links or
+    runtime dependencies. Contributor-facing requirements must be restated in
+    the tracked public scope contract before they become acceptance gates.
+  donor_source_review_performed: true
+  source_files_studied:
+    - 3012ea983de80106933f2cde788ce932128390d1:src/engine/editorialCadence.ts
+    - 3012ea983de80106933f2cde788ce932128390d1:src/engine/evaluate.ts
+    - 3012ea983de80106933f2cde788ce932128390d1:tests/editorialCadence.test.ts
+    - b66ed101ebc69b7a980ab5b1c0312f38029b0b75:src/engine/evaluate.ts
+    - b66ed101ebc69b7a980ab5b1c0312f38029b0b75:src/engine/spatialDynamics.ts
+    - b66ed101ebc69b7a980ab5b1c0312f38029b0b75:src/engine/exportMotion.ts
+    - b66ed101ebc69b7a980ab5b1c0312f38029b0b75:src/engine/slideShell.ts
+    - 771a94e2a1b1f889c44b6ab4e31a402f88ce04d4:src/lighting.ts
+    - 771a94e2a1b1f889c44b6ab4e31a402f88ce04d4:tests/lighting.test.ts
+    - ff83b2303fa21be114dfeb25d1da165b839e0fcd:src/backgrounds.ts
+    - ff83b2303fa21be114dfeb25d1da165b839e0fcd:src/backgroundDirectorModel.ts
+    - ff83b2303fa21be114dfeb25d1da165b839e0fcd:src/engine/backgroundShader.ts
+    - 9ada43913ed797e64e9d0c24229e850cebd33e67:src/optics.ts
+    - 9ada43913ed797e64e9d0c24229e850cebd33e67:src/direction.ts
+    - 9ada43913ed797e64e9d0c24229e850cebd33e67:src/lib/directorCommands.ts
+    - 9ada43913ed797e64e9d0c24229e850cebd33e67:tests/optics.test.ts
+    - 9ada43913ed797e64e9d0c24229e850cebd33e67:tests/directorCommands.test.ts
+    - 2d6378ba034e7e51646f505e5dd71a076e43e4d0:src/settingsHistory.ts
   scope_note: >-
-    This scaffold records pinned identities and planned dispositions from the two
-    authority documents above. It does not claim that any donor source file was
-    inspected, any capability was ported, or any parity evidence exists.
+    Partial exact-SHA source study was performed with git show for the files
+    listed above. Unlisted donor files remain unstudied. No capability is claimed
+    ported, integrated, visually or sonically equivalent, or at parity.
 
 status_contract:
   allowed_current_status: frozen-not-ported
   meaning: >-
-    Exact donor identity is frozen in the source manifest. Donor implementation
-    remains unstudied and no V2 product behavior is attributed to it yet.
+    Exact donor identity is frozen in the source manifest. Selected source files
+    may be studied, but no V2 product behavior is attributed to a donor until
+    re-authoring, tests, artifact evidence, and any required taste review exist.
   graduation_requirements:
     - Record exact donor source files studied.
     - Re-author accepted semantics behind Project V4 and canonical V2 interfaces.
@@ -40,8 +64,14 @@ donors:
     manifest_role: canonical editorial cadence and delivery donor
     status: frozen-not-ported
     source_study:
-      state: not-started
-      files: []
+      state: selected-files-reviewed
+      files:
+        - src/engine/editorialCadence.ts
+        - src/engine/evaluate.ts
+        - tests/editorialCadence.test.ts
+      note: >-
+        Review covered cadence math, distance remapping, direct slide evaluation,
+        and cadence tests. Delivery-receipt, UI, renderer, and exporter files remain unreviewed.
     accepted_semantics:
       - Timing and cut semantics.
       - Six cadence phases and invertible visible-distance mapping.
@@ -71,8 +101,15 @@ donors:
     manifest_role: canonical paths, material, shell and preview-physics donor
     status: frozen-not-ported
     source_study:
-      state: not-started
-      files: []
+      state: selected-files-reviewed
+      files:
+        - src/engine/evaluate.ts
+        - src/engine/spatialDynamics.ts
+        - src/engine/exportMotion.ts
+        - src/engine/slideShell.ts
+      note: >-
+        Review covered paths, preview dynamics, analytical export characters,
+        and shell geometry. Material shader branches and browser parity remain unreviewed.
     accepted_semantics:
       - Ten mathematical paths with tangent orientation.
       - Bounded preview response and analytic export motion characters.
@@ -101,8 +138,13 @@ donors:
     manifest_role: canonical cinematic-lighting and analytical-shadow donor
     status: frozen-not-ported
     source_study:
-      state: not-started
-      files: []
+      state: selected-files-reviewed
+      files:
+        - src/lighting.ts
+        - tests/lighting.test.ts
+      note: >-
+        Review covered authored rigs, deterministic frame resolution, and direct
+        tests. Lighting shader integration and rendered parity remain unreviewed.
     accepted_semantics:
       - One analytical light and shadow model.
       - Deformed-surface response, cast/contact shadow, and environmental spill.
@@ -132,8 +174,14 @@ donors:
     manifest_role: canonical background-atlas corpus donor
     status: frozen-not-ported
     source_study:
-      state: not-started
-      files: []
+      state: selected-files-reviewed
+      files:
+        - src/backgrounds.ts
+        - src/backgroundDirectorModel.ts
+        - src/engine/backgroundShader.ts
+      note: >-
+        Review covered atlas records, directing metadata, and shader composition.
+        Family shader branches, tests, packaged compilation, and taste parity remain unreviewed.
     accepted_semantics:
       - Five atmosphere families and forty structural compositions.
       - Authored palettes and treatments.
@@ -162,8 +210,16 @@ donors:
     manifest_role: canonical scene-lens and directing-journey donor
     status: frozen-not-ported
     source_study:
-      state: not-started
-      files: []
+      state: selected-files-reviewed
+      files:
+        - src/optics.ts
+        - src/direction.ts
+        - src/lib/directorCommands.ts
+        - tests/optics.test.ts
+        - tests/directorCommands.test.ts
+      note: >-
+        Review covered numeric lens profiles, direction levels, command surface,
+        and direct tests. Preflight, A/B, full World semantics, and app shell remain unreviewed.
     accepted_semantics:
       - Slides, World, Direct, and Master journey.
       - Preflight, A/B comparison, command concepts, and strongest World semantics.
@@ -191,8 +247,12 @@ donors:
     manifest_role: supplemental global-optics, worlds, stress and recovery donor
     status: frozen-not-ported
     source_study:
-      state: not-started
-      files: []
+      state: partial-selected-file-review
+      files:
+        - src/settingsHistory.ts
+      note: >-
+        Only bounded undo and continuous-change history semantics were studied.
+        Other optics, World, stress, and recovery material remains unreviewed.
     accepted_semantics:
       - Global-optics semantics not resolved by PR 17.
       - Undo and history concepts.

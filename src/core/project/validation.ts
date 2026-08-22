@@ -1,6 +1,7 @@
 import {
   DRIFT_PROJECT_V4_MIGRATOR,
   DRIFT_PROJECT_V4_VERSION,
+  DRIFT_RENDER_CONTRACTS,
   DRIFT_PROJECT_SCHEMA,
   DRIFT_PROJECT_VERSION,
   DRIFT_V1_COMPAT_RENDER_CONTRACT,
@@ -715,9 +716,7 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
   if (project.formatVersion !== DRIFT_PROJECT_V4_VERSION) {
     fail("project.formatVersion", `must be ${DRIFT_PROJECT_V4_VERSION}`);
   }
-  if (project.renderContract !== DRIFT_V1_COMPAT_RENDER_CONTRACT) {
-    fail("project.renderContract", `must be ${DRIFT_V1_COMPAT_RENDER_CONTRACT}`);
-  }
+  const renderContract = oneOf(project.renderContract, DRIFT_RENDER_CONTRACTS, "project.renderContract");
 
   const migration = migrationV4(project.migration);
   const extensions = canonicalExtensions(project.extensions);
@@ -779,7 +778,7 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
   return {
     schema: v3.schema,
     formatVersion: DRIFT_PROJECT_V4_VERSION,
-    renderContract: DRIFT_V1_COMPAT_RENDER_CONTRACT,
+    renderContract,
     migration,
     projectId: v3.projectId,
     projectSeed: v3.projectSeed,

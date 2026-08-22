@@ -7,6 +7,8 @@ import {
   WORLD_IDENTITIES,
   WORLD_RATIO_DIMENSIONS,
   WORLD_RATIO_IDS,
+  nearestWorldRatioForDimensions,
+  worldRatioForDimensions,
   WORLD_REGISTRY_IMPLEMENTATION_STATUS,
   applyWorldRecipeOverride,
   assertWorldRegistryIntegrity,
@@ -74,7 +76,7 @@ describe("V2 World registry foundation", () => {
     }
   });
 
-  it("defines an exact schema-shaped Editorial Drift foundation under V1 compatibility", () => {
+  it("defines an exact schema-shaped Editorial Drift foundation", () => {
     expect(EDITORIAL_DRIFT_9_16_RECIPE).toMatchObject({
       motion: {
         transport: { axis: "vertical", direction: -1, slidesPerSecond: 0.34 },
@@ -158,6 +160,17 @@ describe("V2 World registry foundation", () => {
     });
     expect(Object.isFrozen(WORLD_RATIO_DIMENSIONS)).toBe(true);
     expect(Object.values(WORLD_RATIO_DIMENSIONS).every((dimensions) => Object.isFrozen(dimensions))).toBe(true);
+  });
+
+  it("recognises scaled authored ratios without treating arbitrary output as authored", () => {
+    expect(worldRatioForDimensions(1080, 1920)).toBe("9:16");
+    expect(worldRatioForDimensions(2160, 3840)).toBe("9:16");
+    expect(worldRatioForDimensions(1600, 2000)).toBe("4:5");
+    expect(worldRatioForDimensions(2048, 2048)).toBe("1:1");
+    expect(worldRatioForDimensions(3840, 2160)).toBe("16:9");
+    expect(worldRatioForDimensions(1200, 1700)).toBeNull();
+    expect(nearestWorldRatioForDimensions(1200, 1700)).toBe("4:5");
+    expect(nearestWorldRatioForDimensions(Number.NaN, 1700)).toBe("9:16");
   });
 
   it("merges single nested motion and material fields without erasing siblings or sharing aliases", () => {

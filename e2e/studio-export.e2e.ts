@@ -39,7 +39,7 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   await waitForStudio(page);
   await page.getByLabel("Stage width").fill("256");
   await page.getByLabel("Stage height").fill("256");
-  await page.locator("#range-duration").fill("3");
+  await page.getByLabel("Duration", { exact: true }).fill("3");
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
   await expect(page.locator(".stage-hud")).toContainText("256 × 256");
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();

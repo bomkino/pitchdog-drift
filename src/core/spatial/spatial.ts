@@ -439,6 +439,15 @@ function renderOrder(slides: EvaluatedFrameSlide[]): EvaluatedFrameSlide[] {
 
 export function evaluateSpatialSlides(context: SpatialEvaluationContext): EvaluatedFrameSlide[] {
   const { project, sourceCount, frame } = context;
+  return evaluateSpatialFrame(project, sourceCount, frame);
+}
+
+/** Pure spatial draw-plan boundary shared by canonical timeline evaluators. */
+export function evaluateSpatialFrame(
+  project: DriftProjectV3,
+  sourceCount: number,
+  frame: Omit<FrameEvaluation, "slides">,
+): EvaluatedFrameSlide[] {
   if (sourceCount <= 0) return [];
   const geometry = deriveSlideGeometry(project, sourceCount);
   const slides = Array.from(

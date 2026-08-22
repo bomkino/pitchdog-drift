@@ -11,6 +11,197 @@ import {
   waitForStudio,
 } from "./studio.helpers";
 
+test("compatibility Project V4 state remains live renderer authority", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [
+      { CinematicCarousel },
+      { createDefaultDriftProjectV4 },
+      { defaultPerformanceStillTime },
+      { createPerformanceLifecycle },
+      { studioSettingsFromDriftProject },
+    ] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/core/project/defaults.ts"),
+      import("/src/core/timeline/renderTravel.ts"),
+      import("/src/core/timeline/performanceLifecycle.ts"),
+      import("/src/core/project/studioProjection.ts"),
+    ]);
+    const makeProject = (colour: string) => {
+      const project = createDefaultDriftProjectV4(`compat-${colour.slice(1)}`);
+      project.composition = { ...project.composition, width: 256, height: 256, alphaMode: "opaque" };
+      project.atmosphere = {
+        ...project.atmosphere,
+        enabled: true,
+        family: "solid",
+        intensity: 0,
+        motion: 0,
+        grain: 0,
+        vignette: 0,
+        colourA: colour,
+        colourB: colour,
+        accent: colour,
+      };
+      return project;
+    };
+    const red = makeProject("#8a1717");
+    const blue = makeProject("#173d8a");
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const engine = new CinematicCarousel(canvas, studioSettingsFromDriftProject(red));
+    engine.stop();
+    const sampleCenter = async (blob: Blob) => {
+      const bitmap = await createImageBitmap(blob, { premultiplyAlpha: "none" });
+      const decoded = document.createElement("canvas");
+      decoded.width = bitmap.width;
+      decoded.height = bitmap.height;
+      const context = decoded.getContext("2d", { willReadFrequently: true })!;
+      context.drawImage(bitmap, 0, 0);
+      const pixel = Array.from(context.getImageData(128, 128, 1, 1).data);
+      bitmap.close();
+      return pixel;
+    };
+
+    try {
+      await engine.setProjectState(red, []);
+      const redTime = defaultPerformanceStillTime(createPerformanceLifecycle(
+        studioSettingsFromDriftProject(red).performance,
+      ));
+      const before = await sampleCenter(await engine.captureStill(256, 256, redTime));
+      await engine.setProjectState(blue, []);
+      const blueTime = defaultPerformanceStillTime(createPerformanceLifecycle(
+        studioSettingsFromDriftProject(blue).performance,
+      ));
+      const after = await sampleCenter(await engine.captureStill(256, 256, blueTime));
+      return { before, after };
+    } finally {
+      engine.dispose();
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.before[0]).toBeGreaterThan(receipt.before[2]! * 2);
+  expect(receipt.after[2]).toBeGreaterThan(receipt.after[0]! * 2);
+});
+
+test("V2 repeated slide interaction wraps through the canonical curved renderer", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [
+      { CinematicCarousel },
+      { createDefaultDriftProjectV4 },
+      { applyEditorialDriftFoundation },
+      { deriveSlideGeometry },
+    ] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/core/project/defaults.ts"),
+      import("/src/core/worlds/applyWorldFoundation.ts"),
+      import("/src/core/spatial/spatial.ts"),
+    ]);
+    const assets = await Promise.all(Array.from({ length: 4 }, async (_, index) => {
+      const source = document.createElement("canvas");
+      source.width = 320;
+      source.height = 180;
+      const context = source.getContext("2d")!;
+      context.fillStyle = ["#eadac1", "#b23c2f", "#304943", "#18223e"][index]!;
+      context.fillRect(0, 0, source.width, source.height);
+      context.fillStyle = "#f8f1e4";
+      context.font = "700 72px sans-serif";
+      context.fillText(String(index + 1), 32, 112);
+      const blob = await new Promise<Blob>((resolve, reject) => source.toBlob(
+        (value) => value ? resolve(value) : reject(new Error("fixture encode failed")),
+        "image/png",
+      ));
+      const id = `interaction-${index}`;
+      return {
+        id,
+        name: `${id}.png`,
+        kind: "image" as const,
+        blob,
+        mimeType: "image/png",
+        width: source.width,
+        height: source.height,
+        hash: (index + 1).toString(16).repeat(64),
+        objectUrl: URL.createObjectURL(blob),
+      };
+    }));
+    let project = createDefaultDriftProjectV4("interaction-wrap");
+    project.composition = { ...project.composition, width: 360, height: 640 };
+    project.media.order = assets.map((asset) => asset.id);
+    project.media.assets = Object.fromEntries(assets.map((asset) => [asset.id, {
+      id: asset.id,
+      name: asset.name,
+      kind: asset.kind,
+      mimeType: asset.mimeType,
+      hash: asset.hash,
+      byteLength: asset.blob.size,
+      width: asset.width,
+      height: asset.height,
+    }]));
+    project.slides = Object.fromEntries(assets.map((asset) => [asset.id, {
+      assetId: asset.id,
+      fit: "cover" as const,
+      focalX: 0.5,
+      focalY: 0.5,
+      scaleOffset: 0,
+    }]));
+    project = applyEditorialDriftFoundation(project, "9:16");
+
+    const canvas = document.createElement("canvas");
+    canvas.style.width = "360px";
+    canvas.style.height = "640px";
+    document.body.append(canvas);
+    const engine = new CinematicCarousel(canvas, structuredClone((await import("/src/core/project/studioProjection.ts")).studioSettingsFromDriftProject(project)));
+    const internal = engine as unknown as {
+      elapsed: number;
+      motionPosition: number;
+      renderPreview(): void;
+    };
+    const hashCanvas = async () => {
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+        (value) => value ? resolve(value) : reject(new Error("render encode failed")),
+        "image/png",
+      ));
+      return Array.from(
+        new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())),
+        (byte) => byte.toString(16).padStart(2, "0"),
+      ).join("");
+    };
+
+    try {
+      engine.stop();
+      engine.setPaused(true);
+      await engine.setProjectState(project, assets);
+      engine.resize(360, 640);
+      internal.elapsed = 2.35;
+      internal.renderPreview();
+      engine.stepSlides(3);
+      const shortHash = await hashCanvas();
+      const geometry = deriveSlideGeometry(project, assets.length);
+      const loopLength = geometry.virtualSlotCount * geometry.stride;
+      engine.stepSlides(geometry.virtualSlotCount * 127);
+      const forwardHash = await hashCanvas();
+      engine.stepSlides(-geometry.virtualSlotCount * 131);
+      const reverseHash = await hashCanvas();
+      return {
+        shortHash,
+        forwardHash,
+        reverseHash,
+        interactionPosition: internal.motionPosition,
+        loopLength,
+      };
+    } finally {
+      engine.dispose();
+      assets.forEach((asset) => URL.revokeObjectURL(asset.objectUrl));
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.forwardHash).toBe(receipt.shortHash);
+  expect(receipt.reverseHash).toBe(receipt.shortHash);
+  expect(Math.abs(receipt.interactionPosition)).toBeLessThanOrEqual(receipt.loopLength / 2);
+});
+
 test("large valid project seeds retain deterministic grain entropy", async ({ page }) => {
   await page.goto("/");
   const receipt = await page.evaluate(async () => {

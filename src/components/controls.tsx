@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 
 interface RangeFieldProps {
   label: string;
@@ -13,15 +13,17 @@ interface RangeFieldProps {
 }
 
 export function RangeField({ label, value, min, max, step, unit = "", decimals = 0, hint, onChange }: RangeFieldProps) {
-  const id = `range-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const id = useId();
+  const hintId = `${id}-hint`;
   return (
-    <label className="control-field range-field" htmlFor={id}>
+    <div className="control-field range-field">
       <span className="control-label">
-        <span>{label}</span>
+        <label htmlFor={id}>{label}</label>
         <output htmlFor={id}>{value.toFixed(decimals)}{unit}</output>
       </span>
       <input
         id={id}
+        aria-describedby={hint ? hintId : undefined}
         type="range"
         min={min}
         max={max}
@@ -29,8 +31,8 @@ export function RangeField({ label, value, min, max, step, unit = "", decimals =
         value={value}
         onChange={(event) => onChange(Number(event.currentTarget.value))}
       />
-      {hint ? <small>{hint}</small> : null}
-    </label>
+      {hint ? <small id={hintId}>{hint}</small> : null}
+    </div>
   );
 }
 
@@ -46,7 +48,10 @@ interface NumberFieldProps {
 }
 
 export function NumberField({ label, value, min, max, step = 1, unit = "", hint, onChange }: NumberFieldProps) {
-  const id = `number-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const id = useId();
+  const unitId = `${id}-unit`;
+  const hintId = `${id}-hint`;
+  const describedBy = [unit ? unitId : null, hint ? hintId : null].filter(Boolean).join(" ") || undefined;
   const [draft, setDraft] = useState(String(value));
 
   useEffect(() => setDraft(String(value)), [value]);
@@ -64,11 +69,12 @@ export function NumberField({ label, value, min, max, step = 1, unit = "", hint,
   };
 
   return (
-    <label className="control-field number-field" htmlFor={id}>
-      <span>{label}</span>
+    <div className="control-field number-field">
+      <label className="control-field-label" htmlFor={id}>{label}</label>
       <span className="number-input-wrap">
         <input
           id={id}
+          aria-describedby={describedBy}
           type="number"
           inputMode="numeric"
           min={min}
@@ -95,10 +101,10 @@ export function NumberField({ label, value, min, max, step = 1, unit = "", hint,
             }
           }}
         />
-        {unit ? <small>{unit}</small> : null}
+        {unit ? <small id={unitId}>{unit}</small> : null}
       </span>
-      {hint ? <small>{hint}</small> : null}
-    </label>
+      {hint ? <small id={hintId}>{hint}</small> : null}
+    </div>
   );
 }
 
@@ -139,16 +145,17 @@ interface SelectFieldProps<T extends string | number> {
 }
 
 export function SelectField<T extends string | number>({ label, value, options, onChange }: SelectFieldProps<T>) {
+  const id = useId();
   return (
-    <label className="control-field select-field">
-      <span>{label}</span>
-      <select value={String(value)} onChange={(event) => {
+    <div className="control-field select-field">
+      <label className="control-field-label" htmlFor={id}>{label}</label>
+      <select id={id} value={String(value)} onChange={(event) => {
         const option = options.find((entry) => String(entry.value) === event.currentTarget.value);
         if (option) onChange(option.value);
       }}>
         {options.map((option) => <option key={String(option.value)} value={String(option.value)}>{option.label}</option>)}
       </select>
-    </label>
+    </div>
   );
 }
 
@@ -161,14 +168,16 @@ interface SwitchFieldProps {
 }
 
 export function SwitchField({ label, checked, disabled = false, hint, onChange }: SwitchFieldProps) {
+  const id = useId();
+  const hintId = `${id}-hint`;
   return (
-    <label className="control-field switch-field">
+    <div className="control-field switch-field">
       <span>
-        <span>{label}</span>
-        {hint ? <small>{hint}</small> : null}
+        <label className="control-field-label" htmlFor={id}>{label}</label>
+        {hint ? <small id={hintId}>{hint}</small> : null}
       </span>
-      <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(event) => onChange(event.currentTarget.checked)} />
-    </label>
+      <input id={id} aria-describedby={hint ? hintId : undefined} type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(event) => onChange(event.currentTarget.checked)} />
+    </div>
   );
 }
 
@@ -179,14 +188,15 @@ interface ColorFieldProps {
 }
 
 export function ColorField({ label, value, onChange }: ColorFieldProps) {
+  const id = useId();
   return (
-    <label className="control-field color-field">
-      <span>{label}</span>
+    <div className="control-field color-field">
+      <label className="control-field-label" htmlFor={id}>{label}</label>
       <span className="color-input-wrap">
-        <input type="color" value={value} onChange={(event) => onChange(event.currentTarget.value)} />
+        <input id={id} type="color" value={value} onChange={(event) => onChange(event.currentTarget.value)} />
         <code>{value.toUpperCase()}</code>
       </span>
-    </label>
+    </div>
   );
 }
 

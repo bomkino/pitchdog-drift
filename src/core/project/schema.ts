@@ -4,6 +4,12 @@ export const DRIFT_PROJECT_SCHEMA = "dog.pitch.drift/project" as const;
 export const DRIFT_PROJECT_VERSION = 3 as const;
 export const DRIFT_PROJECT_V4_VERSION = 4 as const;
 export const DRIFT_V1_COMPAT_RENDER_CONTRACT = "drift-v1-compat/1" as const;
+export const DRIFT_V2_RENDER_CONTRACT = "drift-v2/1" as const;
+export const DRIFT_RENDER_CONTRACTS = [
+  DRIFT_V1_COMPAT_RENDER_CONTRACT,
+  DRIFT_V2_RENDER_CONTRACT,
+] as const;
+export type DriftRenderContract = (typeof DRIFT_RENDER_CONTRACTS)[number];
 export const DRIFT_PROJECT_V4_MIGRATOR = "drift-project-v4/1" as const;
 
 export const PROJECT_DOMAINS = [
@@ -329,7 +335,7 @@ export interface DriftProjectMigrationV4 {
 
 export interface DriftProjectV4 extends Omit<DriftProjectV3, "formatVersion" | "presenter"> {
   formatVersion: typeof DRIFT_PROJECT_V4_VERSION;
-  renderContract: typeof DRIFT_V1_COMPAT_RENDER_CONTRACT;
+  renderContract: DriftRenderContract;
   migration: DriftProjectMigrationV4 | null;
   presenter: PresenterSettingsV4;
   performance: PerformanceLifecycleAuthoring;

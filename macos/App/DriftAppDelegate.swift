@@ -50,6 +50,21 @@ struct NativeWebViewGenerationTracker {
     }
 }
 
+private let driftSourceRepositoryRootURL = URL(string: "https://github.com/bomkino/pitchdog-drift")!
+
+func driftCompleteSourceURL(for sourceRevision: String?) -> URL {
+    guard let sourceRevision,
+          sourceRevision.utf8.count == 40,
+          sourceRevision.utf8.allSatisfy({ byte in
+              (48...57).contains(byte) || (97...102).contains(byte)
+          }) else {
+        return driftSourceRepositoryRootURL
+    }
+    return driftSourceRepositoryRootURL
+        .appendingPathComponent("tree", isDirectory: true)
+        .appendingPathComponent(sourceRevision, isDirectory: false)
+}
+
 /// AppDelegate retains this token from Finder admission through React's final
 /// import acknowledgement. Teardown may fail it first; any late native/WebKit
 /// completion then becomes a no-op instead of replying twice.
@@ -1006,8 +1021,8 @@ final class DriftAppDelegate: NSObject,
     }
 
     @objc private func openSource(_ sender: Any?) {
-        guard let url = URL(string: "https://github.com/bomkino/pitchdog-drift") else { return }
-        NSWorkspace.shared.open(url)
+        let sourceRevision = Bundle.main.object(forInfoDictionaryKey: "DriftSourceRevision") as? String
+        NSWorkspace.shared.open(driftCompleteSourceURL(for: sourceRevision))
     }
 
     @objc private func copyDiagnostics(_ sender: Any?) {

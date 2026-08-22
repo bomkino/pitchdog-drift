@@ -97,6 +97,9 @@ for path in \
   [[ -f "${path}" ]] || fail "missing app-bundle file ${path}."
 done
 [[ -x "${EXECUTABLE}" ]] || fail "the main executable is not executable."
+node "${ROOT_DIR}/scripts/verify-macos-user-guide.mjs" \
+  "${BUILD_CHANNEL}" \
+  "${RESOURCES}/Documentation/MACOS_USER_GUIDE.md"
 node "${ROOT_DIR}/scripts/stage-macos-runtime-licenses.mjs" verify \
   "${RESOURCES}/Legal/ThirdPartyLicenses"
 
@@ -217,6 +220,7 @@ expected = {
     "storage_namespace": str(info.get("DriftStorageNamespace", "")),
     "website_data_store_identifier": str(info.get("DriftWebsiteDataStoreIdentifier", "")),
     "portable_project_ownership": "registered" if info.get("DriftOwnsPortableProjects") is True else "absent",
+    "user_guide_profile": str(info.get("DriftBuildChannel", "")),
     "version": str(info.get("CFBundleShortVersionString", "")),
     "build_number": str(info.get("CFBundleVersion", "")),
     "source_revision": str(info.get("DriftSourceRevision", "")),

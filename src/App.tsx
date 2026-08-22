@@ -14,7 +14,18 @@ import {
   reconcileStudioProject,
   studioSettingsFromDriftProject,
 } from "./core/project/studioProjection";
-import type { AssetDescriptor, DriftProjectV4 } from "./core/project/schema";
+import {
+  DRIFT_V2_RENDER_CONTRACT,
+  type AssetDescriptor,
+  type DriftProjectV4,
+} from "./core/project/schema";
+import {
+  applyEditorialDriftFoundation,
+  canRecutEditorialDrift,
+  detachEditorialDriftRatioProvenance,
+  nearestWorldRatioForDimensions,
+  worldRatioForDimensions,
+} from "./core/worlds";
 import { createPerformanceLifecycle } from "./core/timeline/performanceLifecycle";
 import { defaultPerformanceStillTime } from "./core/timeline/renderTravel";
 import { CinematicCarousel } from "./engine/CinematicCarousel";
@@ -108,6 +119,13 @@ function isAbortError(error: unknown): boolean {
 function makeLocalProjectId(): string {
   if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
   return `project-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function createInitialProject(projectId: string, now: string): DriftProjectV4 {
+  const project = createDefaultDriftProjectV4(projectId, now);
+  return driftBuildIdentity.isDevelopment
+    ? applyEditorialDriftFoundation(project, "9:16", now)
+    : project;
 }
 
 function describeProjectAsset(asset: StudioAsset): AssetDescriptor {
@@ -204,8 +222,15 @@ export function App() {
   const projectRef = useRef<DriftProjectV4 | null>(null);
   if (projectRef.current === null) {
     const now = new Date().toISOString();
-    projectRef.current = createDefaultDriftProjectV4(makeLocalProjectId(), now);
+    projectRef.current = createInitialProject(makeLocalProjectId(), now);
   }
+  // V1/release startup must retain the exact frozen studio defaults. The raw
+  // Project V4 compatibility scaffold deliberately contains dormant richer
+  // domains whose projection is not pixel-equivalent to V1. V2 Dev alone
+  // starts from its explicitly applied Editorial Drift V2 recipe.
+  const initialSettings = driftBuildIdentity.isDevelopment
+    ? studioSettingsFromDriftProject(projectRef.current)
+    : cloneSettings(DEFAULT_SETTINGS);
   const identityRef = useRef<ProjectIdentity | null>(null);
   const recoverySnapshotRef = useRef<ProjectSnapshot<StudioProjectPayload> | null>(null);
   const hydratedRef = useRef(false);
@@ -220,14 +245,15 @@ export function App() {
   const projectPendingRef = useRef(0);
   const assetsRef = useRef<StudioAsset[]>([]);
   const presenterRef = useRef<StudioAsset | null>(null);
-  const settingsRef = useRef<StudioSettings>(cloneSettings(DEFAULT_SETTINGS));
+  const settingsRef = useRef<StudioSettings>(cloneSettings(initialSettings));
   const nativeCommandRef = useRef<(command: NativeMacCommand) => boolean | void | Promise<boolean | void>>(() => false);
   const nativeImportRef = useRef<(
     kind: NativeMacImportKind,
     files: readonly File[],
   ) => void | Promise<void>>(() => undefined);
 
-  const [settings, setSettings] = useState<StudioSettings>(() => cloneSettings(DEFAULT_SETTINGS));
+  const [settings, setSettings] = useState<StudioSettings>(() => cloneSettings(initialSettings));
+  const [renderContract, setRenderContract] = useState(projectRef.current.renderContract);
   const [assets, setAssets] = useState<StudioAsset[]>([]);
   const [presenter, setPresenter] = useState<StudioAsset | null>(null);
   const [webglError, setWebglError] = useState<string | null>(null);
@@ -375,6 +401,7 @@ export function App() {
     assetsRef.current.forEach(disposeAsset);
     if (presenterRef.current) disposeAsset(presenterRef.current);
     projectRef.current = prepared.project;
+    setRenderContract(prepared.project.renderContract);
     settingsRef.current = prepared.settings;
     assetsRef.current = prepared.slides;
     presenterRef.current = prepared.presenter;
@@ -413,7 +440,7 @@ export function App() {
     const revision = reservedRevision ?? advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
     setSaveState("saving");
     const updatedAt = new Date().toISOString();
-    const baseProject = projectRef.current ?? createDefaultDriftProjectV4(makeLocalProjectId(), updatedAt);
+    const baseProject = projectRef.current ?? createInitialProject(makeLocalProjectId(), updatedAt);
     const nextProject = reconcileStudioProject({
       project: baseProject,
       settings: nextSettings,
@@ -584,8 +611,24 @@ export function App() {
     };
   }, [announce]);
 
-  useEffect(() => { engineRef.current?.setSettings(settings); }, [settings]);
-  useEffect(() => { void engineRef.current?.setAssets(assets); }, [assets]);
+  useEffect(() => {
+    const engine = engineRef.current;
+    const baseProject = projectRef.current;
+    if (!engine || !baseProject) return;
+    const liveProject = reconcileStudioProject({
+      project: baseProject,
+      settings,
+      slideAssets: assets.map(describeProjectAsset),
+      presenterAsset: presenter ? describeProjectAsset(presenter) : null,
+      // Live draw authority changes immediately; save/recovery timestamps only
+      // change when the persistence transaction reserves a revision.
+      updatedAt: baseProject.updatedAt,
+    });
+    projectRef.current = liveProject;
+    setRenderContract((current) => current === liveProject.renderContract ? current : liveProject.renderContract);
+    settingsRef.current = studioSettingsFromDriftProject(liveProject);
+    void engine.setProjectState(liveProject, assets);
+  }, [assets, presenter, settings]);
   useEffect(() => { void engineRef.current?.setPresenterAsset(pinnedAsset); }, [pinnedAsset]);
 
   useEffect(() => {
@@ -893,7 +936,10 @@ export function App() {
     const engine = engineRef.current;
     if (!engine) throw new Error("Cinematic renderer is unavailable.");
     engine.setPresenterExportFrame(frame?.image ?? null);
-    await engine.renderAtAsync(time, context?.frameIndex ?? null);
+    await engine.renderAtAsync(
+      time,
+      context?.sampleKind === "sequence" ? context.frameIndex : null,
+    );
   }, []);
 
   const beginExport = useCallback(() => {
@@ -1087,7 +1133,7 @@ export function App() {
           ? await persist()
           : await (() => {
               const updatedAt = new Date().toISOString();
-              const baseProject = projectRef.current ?? createDefaultDriftProjectV4(makeLocalProjectId(), updatedAt);
+              const baseProject = projectRef.current ?? createInitialProject(makeLocalProjectId(), updatedAt);
               const project = reconcileStudioProject({
                 project: baseProject,
                 settings: settingsRef.current,
@@ -1158,6 +1204,28 @@ export function App() {
   }, [paused]);
 
   const onTheme = useCallback((id: ThemeId) => {
+    const currentProject = projectRef.current;
+    if (driftBuildIdentity.isDevelopment && id === "editorial-drift" && currentProject) {
+      const { width, height } = settingsRef.current.stage;
+      const authoredRatio = worldRatioForDimensions(width, height);
+      const ratio = authoredRatio ?? nearestWorldRatioForDimensions(width, height);
+      const source = structuredClone(currentProject);
+      source.composition = { ...source.composition, width, height };
+      let applied = applyEditorialDriftFoundation(source, ratio, new Date().toISOString());
+      if (!authoredRatio) {
+        applied = detachEditorialDriftRatioProvenance(applied, applied.updatedAt);
+      }
+      const nextSettings = studioSettingsFromDriftProject(applied);
+      projectRef.current = applied;
+      setRenderContract(applied.renderContract);
+      markProjectDirty();
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+      announce(authoredRatio
+        ? `Editorial Drift · ${ratio} restored from its authored V2 recipe.`
+        : `Editorial Drift direction applied at ${width} × ${height}; output size preserved as Custom.`);
+      return;
+    }
     const theme = getTheme(id);
     const nextSettings = applyTheme(settingsRef.current, theme);
     markProjectDirty();
@@ -1167,10 +1235,41 @@ export function App() {
   }, [announce, markProjectDirty]);
 
   const updateSettings = useCallback((nextSettings: StudioSettings) => {
+    const currentProject = projectRef.current;
+    const ratio = worldRatioForDimensions(nextSettings.stage.width, nextSettings.stage.height);
+    const stageChanged = nextSettings.stage.width !== settingsRef.current.stage.width
+      || nextSettings.stage.height !== settingsRef.current.stage.height;
+    if (
+      stageChanged
+      && currentProject
+      && canRecutEditorialDrift(currentProject)
+    ) {
+      if (ratio) {
+        const source = structuredClone(currentProject);
+        source.composition = {
+          ...source.composition,
+          width: nextSettings.stage.width,
+          height: nextSettings.stage.height,
+        };
+        const applied = applyEditorialDriftFoundation(source, ratio, new Date().toISOString());
+        const projected = studioSettingsFromDriftProject(applied);
+        projectRef.current = applied;
+        markProjectDirty();
+        settingsRef.current = projected;
+        setSettings(projected);
+        announce(`Editorial Drift recut for ${ratio}; the frame was recomposed, not cropped.`);
+        return;
+      }
+      projectRef.current = detachEditorialDriftRatioProvenance(
+        currentProject,
+        new Date().toISOString(),
+      );
+      announce("Custom stage size kept your direction and released the authored ratio recut.");
+    }
     markProjectDirty();
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
-  }, [markProjectDirty]);
+  }, [announce, markProjectDirty]);
 
   const exportInProgress = Boolean(exportProgress);
 
@@ -1360,6 +1459,7 @@ export function App() {
         />
         <ControlPanel
           settings={settings}
+          v2Active={renderContract === DRIFT_V2_RENDER_CONTRACT}
           onSettings={updateSettings}
           onTheme={onTheme}
           onExportStill={exportStill}

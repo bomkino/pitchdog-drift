@@ -145,4 +145,17 @@ describe("Project V4 canonical frame adapter", () => {
         .toThrow(ProjectFrameAdapterError);
     }
   });
+
+  it("rejects a non-finite preview interaction distance", () => {
+    const { project, assets } = fixture();
+    for (const interactionDistancePx of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(() => evaluateProjectFrame({
+        project,
+        time: 0,
+        frameIndex: null,
+        assets,
+        interactionDistancePx,
+      })).toThrow(/interaction distance must be finite/u);
+    }
+  });
 });

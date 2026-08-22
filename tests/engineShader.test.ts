@@ -4,11 +4,15 @@ import {
   assertExportSurfaceSupported,
   getShadowSupportMargin,
   normalizeGrainSeed,
+  resolveCanvasClearAlpha,
   resolveExportFrameIndex,
   resolveGrainFrame,
   resolveMovingTrackAssets,
+  resolvePresenterPreviewClock,
   selectRenderableItems,
 } from "../src/engine/CinematicCarousel";
+import { DRIFT_V2_RENDER_CONTRACT } from "../src/core/project/schema";
+import { createDefaultDriftProjectV4 } from "../src/core/project/defaults";
 import { DEFAULT_SETTINGS, cloneSettings, type StudioAsset } from "../src/model";
 import { evaluateSlide, getLogicalSlotCount, getSlideGeometry, isPotentiallyVisible } from "../src/engine/evaluate";
 import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader } from "../src/engine/shaders";
@@ -88,6 +92,24 @@ describe("custom shader output contract", () => {
     expect(normalized.every((seed) => Number.isInteger(seed) && seed >= 0 && seed < 4_093)).toBe(true);
     expect(new Set(normalized).size).toBe(seeds.length);
     expect(normalizeGrainSeed(4_294_967_295)).toBe(normalizeGrainSeed(4_294_967_295));
+  });
+});
+
+describe("canvas alpha invariant", () => {
+  it("keeps V2 opaque through lifecycle fades while preserving transparent and compatibility clears", () => {
+    const opaque = createDefaultDriftProjectV4("alpha-invariant", undefined, undefined, DRIFT_V2_RENDER_CONTRACT);
+    opaque.composition.alphaMode = "opaque";
+
+    const transparent = structuredClone(opaque);
+    transparent.composition.alphaMode = "transparent";
+
+    const compatibility = structuredClone(opaque);
+    compatibility.renderContract = "drift-v1-compat/1";
+
+    expect(resolveCanvasClearAlpha(opaque)).toBe(1);
+    expect(resolveCanvasClearAlpha(transparent)).toBe(0);
+    expect(resolveCanvasClearAlpha(compatibility)).toBe(0);
+    expect(resolveCanvasClearAlpha(null)).toBe(0);
   });
 });
 
@@ -189,6 +211,64 @@ describe("deterministic export frame identity", () => {
 
     expect(renderAt).toHaveBeenCalledOnce();
     expect(renderAt).toHaveBeenCalledWith(287 / 30, 287);
+  });
+});
+
+describe("canonical presenter preview clock", () => {
+  const base = {
+    masterTime: 1.25,
+    previousMasterTime: 1.2,
+    videoTime: 1.23,
+    videoDuration: 2,
+    masterFps: 30,
+    exact: false,
+  };
+
+  it("lets running playback coast only within one master frame", () => {
+    expect(resolvePresenterPreviewClock(base)).toEqual({
+      targetTime: 1.25,
+      shouldSeek: false,
+      wrapped: false,
+    });
+    expect(resolvePresenterPreviewClock({ ...base, videoTime: 1.1 })).toMatchObject({
+      targetTime: 1.25,
+      shouldSeek: true,
+      wrapped: false,
+    });
+  });
+
+  it("corrects master loops but holds an under-length source instead of inventing an export loop", () => {
+    expect(resolvePresenterPreviewClock({
+      ...base,
+      masterTime: 0.02,
+      previousMasterTime: 2.98,
+      videoTime: 1.02,
+    })).toEqual({ targetTime: 0.02, shouldSeek: true, wrapped: true });
+
+    const held = resolvePresenterPreviewClock({
+      ...base,
+      masterTime: 2.02,
+      previousMasterTime: 1.98,
+      videoTime: 1.99,
+      exact: true,
+    });
+    expect(held.targetTime).toBeCloseTo(2 - 1 / 30, 12);
+    expect(held).toMatchObject({ shouldSeek: true, wrapped: false });
+  });
+
+  it("seeks frozen playback to exact master time and waits for real metadata", () => {
+    expect(resolvePresenterPreviewClock({ ...base, exact: true, videoTime: 1.246 })).toMatchObject({
+      targetTime: 1.25,
+      shouldSeek: true,
+    });
+    expect(resolvePresenterPreviewClock({ ...base, exact: true, videoTime: 1.2495 })).toMatchObject({
+      shouldSeek: false,
+    });
+    expect(resolvePresenterPreviewClock({ ...base, videoDuration: Number.NaN })).toEqual({
+      targetTime: null,
+      shouldSeek: false,
+      wrapped: false,
+    });
   });
 });
 

@@ -1,6 +1,10 @@
 import * as THREE from "three";
-import { resolvePresenterOverlayLayout } from "../core/presenter/layout";
-import { resolvePinLaneComposition } from "../core/presenter/lane";
+import { evaluateProjectFrame, type ProjectFrameEvaluation } from "../core/render/projectFrameAdapter";
+import { DRIFT_V2_RENDER_CONTRACT, type DriftProjectV4, type SlideDirective } from "../core/project/schema";
+import { studioSettingsFromDriftProject } from "../core/project/studioProjection";
+import { validateDriftProjectV4 } from "../core/project/validation";
+import { resolvePresenterOverlayLayout, type PresenterOverlayLayout } from "../core/presenter/layout";
+import { resolvePinLaneComposition, resolveProtectedPinLaneComposition } from "../core/presenter/lane";
 import {
   createPerformanceLifecycle,
   type LifecycleLayerSample,
@@ -38,6 +42,8 @@ const CAMERA_FOV = 35;
 const SHADOW_ALPHA_CUTOFF = 0.001;
 const GRAIN_SEED_MODULUS = 4093;
 const GRAIN_CADENCE_FPS = 12;
+const PRESENTER_EXACT_SEEK_EPSILON_SECONDS = 0.001;
+const PRESENTER_MIN_RUNNING_DRIFT_SECONDS = 0.025;
 
 /**
  * Give the Gaussian enough geometry to reach the shader's discard threshold.
@@ -95,6 +101,145 @@ export function resolveGrainFrame(
   return Math.floor(Math.max(0, time) * cadence);
 }
 
+export interface PresenterPreviewClockInput {
+  masterTime: number;
+  previousMasterTime: number | null;
+  videoTime: number;
+  videoDuration: number;
+  masterFps: number;
+  exact: boolean;
+}
+
+export interface PresenterPreviewClockDecision {
+  targetTime: number | null;
+  shouldSeek: boolean;
+  wrapped: boolean;
+}
+
+/**
+ * Maps the authored preview clock onto one presenter source pass. Running
+ * playback may coast within one delivery frame; a master wrap and every frozen
+ * state seek to the canonical source time. A short source holds its last
+ * decodable frame because export rejects under-length presenter media rather
+ * than silently looping it. Export itself never uses this path; it continues
+ * to provide an explicitly decoded presenter frame.
+ */
+export function resolvePresenterPreviewClock(
+  input: PresenterPreviewClockInput,
+): PresenterPreviewClockDecision {
+  if (!Number.isFinite(input.videoDuration) || input.videoDuration <= 0) {
+    return { targetTime: null, shouldSeek: false, wrapped: false };
+  }
+  const masterTime = Math.max(0, Number.isFinite(input.masterTime) ? input.masterTime : 0);
+  const fps = Number.isFinite(input.masterFps) && input.masterFps > 0 ? input.masterFps : 30;
+  const lastDecodableTime = Math.max(0, input.videoDuration - 1 / fps);
+  const targetTime = Math.min(masterTime, lastDecodableTime);
+  const videoTime = Math.max(0, Number.isFinite(input.videoTime) ? input.videoTime : 0);
+  const exactEpsilon = PRESENTER_EXACT_SEEK_EPSILON_SECONDS;
+  const masterWrapped = input.previousMasterTime !== null
+    && masterTime + exactEpsilon < input.previousMasterTime;
+  const tolerance = input.exact
+    ? exactEpsilon
+    : Math.max(PRESENTER_MIN_RUNNING_DRIFT_SECONDS, 1 / fps);
+  return {
+    targetTime,
+    shouldSeek: masterWrapped || Math.abs(videoTime - targetTime) > tolerance,
+    wrapped: masterWrapped,
+  };
+}
+
+function waitForPresenterVideoState(
+  video: HTMLVideoElement,
+  eventName: "loadedmetadata" | "loadeddata" | "seeked",
+  ready: () => boolean,
+  timeoutMs = 5_000,
+): Promise<void> {
+  if (ready()) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      globalThis.clearTimeout(timeout);
+      video.removeEventListener(eventName, onReady);
+      video.removeEventListener("error", onError);
+    };
+    const onReady = () => {
+      if (!ready()) return;
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("Presenter video could not prepare a canonical preview frame."));
+    };
+    const timeout = globalThis.setTimeout(() => {
+      cleanup();
+      reject(new Error("Presenter video preview preparation timed out."));
+    }, timeoutMs);
+    video.addEventListener(eventName, onReady);
+    video.addEventListener("error", onError, { once: true });
+  });
+}
+
+async function preparePresenterPreviewFrame(
+  video: HTMLVideoElement,
+  readMasterTime: () => number,
+  masterFps: number,
+): Promise<number> {
+  await waitForPresenterVideoState(
+    video,
+    "loadedmetadata",
+    () => video.readyState >= HTMLMediaElement.HAVE_METADATA
+      && Number.isFinite(video.duration)
+      && video.duration > 0,
+  );
+  video.pause();
+  const frameDuration = 1 / (Number.isFinite(masterFps) && masterFps > 0 ? masterFps : 30);
+  let alignedMasterTime = readMasterTime();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    alignedMasterTime = readMasterTime();
+    const decision = resolvePresenterPreviewClock({
+      masterTime: alignedMasterTime,
+      previousMasterTime: null,
+      videoTime: video.currentTime,
+      videoDuration: video.duration,
+      masterFps,
+      exact: true,
+    });
+    const targetTime = decision.targetTime ?? 0;
+    if (Math.abs(video.currentTime - targetTime) > PRESENTER_EXACT_SEEK_EPSILON_SECONDS) {
+      video.currentTime = targetTime;
+      await waitForPresenterVideoState(
+        video,
+        "seeked",
+        () => !video.seeking
+          && Math.abs(video.currentTime - targetTime) <= PRESENTER_EXACT_SEEK_EPSILON_SECONDS,
+      );
+    }
+    if (Math.abs(readMasterTime() - alignedMasterTime) <= frameDuration) break;
+  }
+  await waitForPresenterVideoState(
+    video,
+    "loadeddata",
+    () => video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA,
+  );
+  return alignedMasterTime;
+}
+
+/**
+ * V2's composition alpha mode is an output invariant, including lifecycle
+ * transitions. An opaque composition therefore clears to an opaque black
+ * matte so faded RGB layers cannot punch transient holes into the canvas.
+ * Compatibility rendering keeps its established transparent clear and lets
+ * the legacy background pass establish opacity.
+ */
+export function resolveCanvasClearAlpha(
+  project: Pick<DriftProjectV4, "renderContract" | "composition"> | null,
+): 0 | 1 {
+  return project?.renderContract === DRIFT_V2_RENDER_CONTRACT
+    && project.composition.alphaMode === "opaque"
+    ? 1
+    : 0;
+}
+
 interface EngineCallbacks {
   onError?: (message: string) => void;
   onContextState?: (state: "ready" | "lost" | "restored") => void;
@@ -121,8 +266,10 @@ interface SlidePoolItem {
 interface VisibleItem {
   logicalIndex: number;
   sourceIndex: number;
+  layerIndex: number;
   asset: StudioAsset;
   evaluated: EvaluatedSlide;
+  directive?: SlideDirective;
 }
 
 export interface MovingTrackAsset {
@@ -299,6 +446,7 @@ export class CinematicCarousel {
   private readonly callbacks: EngineCallbacks;
 
   private settings: StudioSettings;
+  private project: DriftProjectV4 | null = null;
   private performanceTimeline: PerformanceLifecycleTimeline;
   private reducedPerformanceTimeline: PerformanceLifecycleTimeline;
   private assets: StudioAsset[] = [];
@@ -312,6 +460,11 @@ export class CinematicCarousel {
   private presenterPreviewTexture: THREE.Texture | null = null;
   private presenterExportTexture: THREE.CanvasTexture<HTMLCanvasElement | OffscreenCanvas> | null = null;
   private presenterExportCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+  private presenterPreviewMasterTime: number | null = null;
+  private presenterReducedMotionMasterTime: number | null = null;
+  private presenterPendingSeekTarget: number | null = null;
+  private presenterPlayPending = false;
+  private presenterShouldPlay = false;
 
   private animationFrame = 0;
   private lastFrameTime = 0;
@@ -332,6 +485,7 @@ export class CinematicCarousel {
   private exportActive = false;
   private blobTextureKeyCounter = 0;
   private presenterRequestGeneration = 0;
+  private projectStateGeneration = 0;
   private activeSlideIndex = -2;
   private readonly backgroundResolution = new THREE.Vector2();
 
@@ -475,7 +629,7 @@ export class CinematicCarousel {
     return this.contextLost;
   }
 
-  setSettings(settings: StudioSettings): void {
+  private applySettings(settings: StudioSettings, render: boolean): void {
     this.settings = settings;
     this.performanceTimeline = createPerformanceLifecycle({
       ...settings.performance,
@@ -488,10 +642,43 @@ export class CinematicCarousel {
     this.updateCamera();
     this.updateSettingsUniforms();
     this.updatePresenterGeometry();
+    if (render && !this.exportActive) this.renderPreview();
+  }
+
+  setSettings(settings: StudioSettings): void {
+    // StudioSettings remains the V1 compatibility input. A drift-v2/1 project
+    // derives this draw-graph projection from Project V4 instead.
+    if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) return;
+    this.applySettings(settings, true);
+  }
+
+  setProject(projectInput: DriftProjectV4 | null): void {
+    this.project = projectInput ? validateDriftProjectV4(projectInput) : null;
+    if (this.project) {
+      this.applySettings(studioSettingsFromDriftProject(this.project), false);
+    }
+    if (!this.exportActive) this.renderPreview();
+  }
+
+  async setProjectState(projectInput: DriftProjectV4, assets: StudioAsset[]): Promise<void> {
+    const project = validateDriftProjectV4(projectInput);
+    const generation = ++this.projectStateGeneration;
+    this.project = project;
+    // Project V4 is live state authority for both render contracts. V2 reads
+    // it directly in the canonical evaluator; compatibility rendering still
+    // needs the exact projected settings or its controls freeze on stale state.
+    this.applySettings(studioSettingsFromDriftProject(project), false);
+    await this.applyAssets(assets, false);
+    if (generation !== this.projectStateGeneration || this.disposed) return;
     if (!this.exportActive) this.renderPreview();
   }
 
   async setAssets(assets: StudioAsset[]): Promise<void> {
+    this.projectStateGeneration += 1;
+    await this.applyAssets(assets, true);
+  }
+
+  private async applyAssets(assets: StudioAsset[], render: boolean): Promise<void> {
     const previousKeys = new Set(this.assets.map((asset) => this.textureKey(asset)));
     this.assets = assets.filter((asset) => asset.kind === "image");
     this.pruneInactiveTextures();
@@ -507,7 +694,7 @@ export class CinematicCarousel {
     if (additions.length > 0) {
       await Promise.all(additions.slice(0, 8).map((asset) => this.ensureTexture(asset).catch(() => null)));
     }
-    this.renderPreview();
+    if (render) this.renderPreview();
   }
 
   private movingTrackAssets(): MovingTrackAsset[] {
@@ -527,13 +714,20 @@ export class CinematicCarousel {
     try {
       if (asset.kind === "video") {
         const video = document.createElement("video");
-        video.src = asset.objectUrl;
         video.preload = "auto";
-        video.loop = true;
+        // Export consumes one source pass and rejects under-length video. Keep
+        // preview honest by holding the tail rather than inventing a loop.
+        video.loop = false;
         video.muted = true;
         video.playsInline = true;
         video.crossOrigin = "anonymous";
-        await video.play().catch(() => undefined);
+        video.src = asset.objectUrl;
+        video.load();
+        const alignedMasterTime = await preparePresenterPreviewFrame(
+          video,
+          () => this.previewMasterTime(),
+          this.settings.output.fps,
+        );
         if (requestGeneration !== this.presenterRequestGeneration || this.presenterAsset !== asset || this.disposed) {
           video.pause();
           video.removeAttribute("src");
@@ -547,6 +741,7 @@ export class CinematicCarousel {
         texture.generateMipmaps = false;
         this.presenterVideo = video;
         this.presenterPreviewTexture = texture;
+        this.presenterPreviewMasterTime = alignedMasterTime;
         this.syncPresenterPlayback();
       } else {
         const record = await this.ensureTexture(asset);
@@ -647,6 +842,11 @@ export class CinematicCarousel {
       this.presenterPreviewTexture.dispose();
     }
     this.presenterPreviewTexture = null;
+    this.presenterPreviewMasterTime = null;
+    this.presenterReducedMotionMasterTime = null;
+    this.presenterPendingSeekTarget = null;
+    this.presenterPlayPending = false;
+    this.presenterShouldPlay = false;
   }
 
   setPaused(paused: boolean): void {
@@ -661,6 +861,11 @@ export class CinematicCarousel {
   }
 
   setReducedMotionPreview(reduced: boolean): void {
+    if (reduced && !this.reducedMotionPreview) {
+      this.presenterReducedMotionMasterTime = this.previewMasterTime();
+    } else if (!reduced) {
+      this.presenterReducedMotionMasterTime = null;
+    }
     this.reducedMotionPreview = reduced;
     if (reduced) this.motionVelocity = 0;
     this.syncPresenterPlayback();
@@ -717,6 +922,16 @@ export class CinematicCarousel {
 
   renderAt(time: number, frameIndex: number | null = null): void {
     const exportFrameIndex = resolveExportFrameIndex(frameIndex);
+    if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
+      const evaluation = evaluateProjectFrame({
+        project: this.project,
+        time,
+        frameIndex: exportFrameIndex,
+        assets: this.assets,
+      });
+      this.renderProjectFrame(evaluation, true);
+      return;
+    }
     const geometry = getSlideGeometry(this.settings);
     const movingAssets = this.movingTrackAssets();
     const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
@@ -734,6 +949,40 @@ export class CinematicCarousel {
 
   async renderAtAsync(time: number, frameIndex: number | null = null): Promise<void> {
     const exportFrameIndex = resolveExportFrameIndex(frameIndex);
+    if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
+      const evaluation = evaluateProjectFrame({
+        project: this.project,
+        time,
+        frameIndex: exportFrameIndex,
+        assets: this.assets,
+      });
+      const needed = new Map<string, StudioAsset>();
+      for (const item of evaluation.renderables) needed.set(this.textureKey(item.asset), item.asset);
+      const pinnedImage = this.settings.presenter.enabled && this.presenterAsset?.kind === "image"
+        ? this.presenterAsset
+        : null;
+      const presenterGeneration = this.presenterRequestGeneration;
+      const [, pinnedRecord] = await Promise.all([
+        Promise.all(Array.from(needed.values(), (asset) => this.ensureTexture(asset))),
+        pinnedImage ? this.ensureTexture(pinnedImage) : Promise.resolve(null),
+      ]);
+      if (this.disposed || this.contextLost) {
+        throw new Error("WebGL renderer became unavailable while preparing an export frame.");
+      }
+      const currentPinnedRecord = pinnedImage
+        && pinnedRecord
+        && presenterGeneration === this.presenterRequestGeneration
+        && this.presenterAsset === pinnedImage
+        && this.settings.presenter.enabled
+        ? pinnedRecord
+        : null;
+      if (currentPinnedRecord) this.presenterPreviewTexture = currentPinnedRecord.texture;
+      this.resolvePresenterTexture(
+        currentPinnedRecord && pinnedImage ? { asset: pinnedImage, record: currentPinnedRecord } : undefined,
+      );
+      this.renderProjectFrame(evaluation, true);
+      return;
+    }
     const geometry = getSlideGeometry(this.settings);
     const movingAssets = this.movingTrackAssets();
     const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
@@ -755,6 +1004,7 @@ export class CinematicCarousel {
       if (isPotentiallyVisible(evaluated, geometry)) visible.push({
         logicalIndex,
         sourceIndex: moving.sourceIndex,
+        layerIndex: moving.sourceIndex,
         asset: moving.asset,
         evaluated,
       });
@@ -801,11 +1051,14 @@ export class CinematicCarousel {
     this.lastFrameTime = performance.now();
     const tick = (now: number) => {
       this.animationFrame = requestAnimationFrame(tick);
-      if (this.exportActive || this.contextLost || document.hidden) return;
-      const delta = Math.min(0.05, Math.max(0, (now - this.lastFrameTime) / 1000));
+      const wallDelta = Math.max(0, (now - this.lastFrameTime) / 1000);
       this.lastFrameTime = now;
-      if (!this.paused) this.elapsed += delta;
-      this.advanceMotion(delta);
+      if (this.exportActive || this.contextLost || document.hidden) return;
+      // The authored show clock follows real active time; otherwise a slow
+      // paint loop makes decoder-driven presenter video outrun the slides.
+      // Only inertial interaction physics is capped after a long frame.
+      if (!this.paused) this.elapsed += wallDelta;
+      this.advanceMotion(Math.min(0.05, wallDelta));
       this.renderPreview();
       this.sampleFps(now);
     };
@@ -829,12 +1082,55 @@ export class CinematicCarousel {
     }
   }
 
+  private normalizeV2InteractionPosition(): void {
+    const project = this.project;
+    if (project?.renderContract !== DRIFT_V2_RENDER_CONTRACT) return;
+    const pinnedOnlyId = project.presenter.enabled
+      && project.presenter.trackMode === "pinned-only"
+      && project.presenter.assetId !== null
+      && project.media.assets[project.presenter.assetId]?.kind === "image"
+      ? project.presenter.assetId
+      : null;
+    const sourceCount = project.media.order.length - (pinnedOnlyId === null ? 0 : 1);
+    const geometry = getSlideGeometry(this.settings);
+    const slotCount = getLogicalSlotCount(sourceCount, geometry);
+    const loopLength = slotCount * geometry.stride;
+    if (!Number.isFinite(this.motionPosition) || !Number.isFinite(loopLength) || loopLength <= 0) {
+      this.motionPosition = 0;
+      return;
+    }
+    this.motionPosition = THREE.MathUtils.euclideanModulo(
+      this.motionPosition + loopLength / 2,
+      loopLength,
+    ) - loopLength / 2;
+  }
+
   private renderPreview(): void {
     if (this.contextLost || this.disposed || this.exportActive) return;
+    if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
+      this.normalizeV2InteractionPosition();
+      const previewTime = loopPerformanceTime(this.elapsed, this.performanceTimeline.totalDuration);
+      this.syncPresenterPlayback(previewTime);
+      try {
+        const evaluation = evaluateProjectFrame({
+          project: this.project,
+          time: previewTime,
+          frameIndex: null,
+          assets: this.assets,
+          reducedMotion: this.reducedMotionPreview,
+          interactionDistancePx: this.motionPosition,
+        });
+        this.renderProjectFrame(evaluation, false);
+      } catch (error) {
+        this.callbacks.onError?.(error instanceof Error ? error.message : "Project V4 frame evaluation failed.");
+      }
+      return;
+    }
     const timeline = this.reducedMotionPreview
       ? this.reducedPerformanceTimeline
       : this.performanceTimeline;
     const performanceTime = loopPerformanceTime(this.elapsed, timeline.totalDuration);
+    this.syncPresenterPlayback(performanceTime);
     const geometry = getSlideGeometry(this.settings);
     const movingAssets = this.movingTrackAssets();
     const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
@@ -878,11 +1174,93 @@ export class CinematicCarousel {
       if (isPotentiallyVisible(evaluated, geometry)) visible.push({
         logicalIndex,
         sourceIndex: moving.sourceIndex,
+        layerIndex: moving.sourceIndex,
         asset: moving.asset,
         evaluated,
       });
     }
     const renderable = selectRenderableItems(visible, this.pool.length);
+
+    this.renderVisibleItems({
+      time,
+      exportMode,
+      exportFrameIndex,
+      lifecycle,
+      visible,
+      renderable,
+      width: geometry.width,
+      height: geometry.height,
+      normalizedVelocity,
+    });
+  }
+
+  private renderProjectFrame(
+    evaluation: ProjectFrameEvaluation,
+    exportMode: boolean,
+  ): void {
+    const visible: VisibleItem[] = evaluation.renderables.map((item) => {
+      const primary = item.evaluated.primary;
+      return {
+        logicalIndex: item.evaluated.logicalIndex,
+        sourceIndex: item.sourceIndex,
+        layerIndex: item.evaluated.sourceIndex,
+        asset: item.asset,
+        directive: item.directive,
+        evaluated: {
+          primary,
+          cross: item.evaluated.cross,
+          z: item.evaluated.z,
+          rotationX: item.evaluated.rotationX,
+          rotationY: item.evaluated.rotationY,
+          rotationZ: item.evaluated.rotationZ,
+          scale: item.evaluated.scale,
+          opacity: item.evaluated.opacity,
+          normalized: primary / Math.max(1, evaluation.geometry.visibleRadius),
+        },
+      };
+    });
+    const interactionVelocity = exportMode
+      ? 0
+      : this.motionVelocity / Math.max(1, evaluation.geometry.stride);
+    const normalizedVelocity = this.reducedMotionPreview && !exportMode
+      ? 0
+      : THREE.MathUtils.clamp(evaluation.frame.track.velocity + interactionVelocity, -1, 1);
+    const renderable = selectRenderableItems(visible, this.pool.length);
+    this.renderVisibleItems({
+      time: evaluation.frame.time,
+      exportMode,
+      exportFrameIndex: evaluation.frame.frameIndex,
+      lifecycle: evaluation.lifecycle ?? undefined,
+      visible,
+      renderable,
+      width: evaluation.geometry.width,
+      height: evaluation.geometry.height,
+      normalizedVelocity,
+    });
+  }
+
+  private renderVisibleItems(input: {
+    time: number;
+    exportMode: boolean;
+    exportFrameIndex: number | null;
+    lifecycle?: PerformanceLifecycleSample;
+    visible: VisibleItem[];
+    renderable: VisibleItem[];
+    width: number;
+    height: number;
+    normalizedVelocity: number;
+  }): void {
+    const {
+      time,
+      exportMode,
+      exportFrameIndex,
+      lifecycle,
+      visible,
+      renderable,
+      width,
+      height,
+      normalizedVelocity,
+    } = input;
 
     if (!exportMode) {
       let centered: VisibleItem | null = null;
@@ -899,6 +1277,7 @@ export class CinematicCarousel {
     }
 
     const keepTextureKeys = new Set<string>();
+    const presenterLayout = this.resolveSafePresenterLayout();
     for (let poolIndex = 0; poolIndex < this.pool.length; poolIndex += 1) {
       const item = this.pool[poolIndex]!;
       const visibleItem = renderable[poolIndex];
@@ -910,21 +1289,22 @@ export class CinematicCarousel {
       this.updatePoolItem(
         item,
         visibleItem,
-        geometry.width,
-        geometry.height,
+        width,
+        height,
         normalizedVelocity,
-        lifecycle?.layers.slides[visibleItem.sourceIndex],
+        lifecycle?.layers.slides[visibleItem.layerIndex],
         this.lifecycleTreatment(lifecycle),
+        presenterLayout,
       );
     }
 
-    this.updatePresenterGeometry(lifecycle?.layers.presenter, this.lifecycleTreatment(lifecycle));
+    this.updatePresenterGeometry(lifecycle?.layers.presenter, this.lifecycleTreatment(lifecycle), presenterLayout);
     this.backgroundMaterial.uniforms.uOpacity!.value = lifecycle?.layers.background.visibility ?? 1;
     this.updateBackground(time, exportMode, exportFrameIndex);
     if (this.renderCounter % 90 === 0) this.evictTextures(keepTextureKeys);
     this.renderCounter += 1;
 
-    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.setClearColor(0x000000, resolveCanvasClearAlpha(this.project));
     this.renderer.clear(true, true, true);
     const transparent = this.settings.stage.transparent || this.settings.background.style === "transparent";
     if (!transparent) {
@@ -946,6 +1326,7 @@ export class CinematicCarousel {
     velocity: number,
     lifecycleLayer?: LifecycleLayerSample,
     treatment: TransitionTreatment | null = null,
+    presenterLayout: PresenterOverlayLayout | null = null,
   ): void {
     const { evaluated, asset, logicalIndex } = visible;
     item.group.visible = true;
@@ -954,15 +1335,34 @@ export class CinematicCarousel {
       treatment,
       Math.min(48, Math.min(this.settings.stage.width, this.settings.stage.height) * 0.035),
     );
-    const pinLane = resolvePinLaneComposition({
-      enabled: this.settings.presenter.enabled,
-      safeOverlay: this.settings.presenter.layoutMode === "safe-overlay",
-      stage: this.settings.stage,
-      axis: this.settings.motion.axis,
-      pinX: this.settings.presenter.x,
-      pinY: this.settings.presenter.y,
-      pinWidth: this.settings.presenter.width,
-    });
+    const vertical = this.settings.motion.axis === "vertical";
+    const movingCenter = vertical
+      ? { x: evaluated.cross, y: -evaluated.primary - transition.translateY }
+      : { x: evaluated.primary, y: evaluated.cross - transition.translateY };
+    const baseScale = evaluated.scale * transition.scale;
+    const pinLane = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT && presenterLayout
+      ? resolveProtectedPinLaneComposition({
+          enabled: this.settings.presenter.enabled,
+          safeOverlay: this.settings.presenter.layoutMode === "safe-overlay",
+          stage: this.settings.stage,
+          axis: this.settings.motion.axis,
+          presenterBounds: presenterLayout.frameBoundsStage,
+          movingCenter,
+          movingSize: { width, height },
+          movingScale: baseScale,
+          movingRotationZ: evaluated.rotationZ,
+          edgeInset: Math.min(this.settings.stage.width, this.settings.stage.height)
+            * this.settings.presenter.safeInset,
+        })
+      : resolvePinLaneComposition({
+          enabled: this.settings.presenter.enabled,
+          safeOverlay: this.settings.presenter.layoutMode === "safe-overlay",
+          stage: this.settings.stage,
+          axis: this.settings.motion.axis,
+          pinX: this.settings.presenter.x,
+          pinY: this.settings.presenter.y,
+          pinWidth: this.settings.presenter.width,
+        });
     if (this.settings.motion.axis === "horizontal") {
       item.group.position.set(
         evaluated.primary + pinLane.offsetX,
@@ -977,7 +1377,7 @@ export class CinematicCarousel {
       );
     }
     item.group.rotation.set(evaluated.rotationX, evaluated.rotationY, evaluated.rotationZ);
-    item.group.scale.setScalar(evaluated.scale * transition.scale * pinLane.scale);
+    item.group.scale.setScalar(baseScale * pinLane.scale);
     item.slide.scale.set(width, height, 1);
     const renderedOpacity = evaluated.opacity * transition.opacity;
     const shadowOpacity = this.settings.slide.shadowOpacity * renderedOpacity;
@@ -986,9 +1386,12 @@ export class CinematicCarousel {
     item.shadow.position.set(10, -14, -8);
 
     const uniforms = item.material.uniforms;
+    const fit = visible.directive?.fit ?? this.settings.slide.fit;
+    const focalX = visible.directive?.focalX ?? this.settings.slide.focalX;
+    const focalY = visible.directive?.focalY ?? this.settings.slide.focalY;
     uniforms.uPlaneAspect!.value = width / height;
-    uniforms.uFit!.value = this.settings.slide.fit === "cover" ? 0 : 1;
-    uniforms.uFocal!.value.set(this.settings.slide.focalX, this.settings.slide.focalY);
+    uniforms.uFit!.value = fit === "cover" ? 0 : 1;
+    uniforms.uFocal!.value.set(focalX, focalY);
     uniforms.uSizePx!.value.set(width, height);
     uniforms.uRadiusPx!.value = Math.min(this.settings.slide.radius, Math.min(width, height) / 2);
     uniforms.uSmoothing!.value = this.settings.slide.smoothing;
@@ -1039,9 +1442,33 @@ export class CinematicCarousel {
     }
   }
 
+  private resolveSafePresenterLayout(): PresenterOverlayLayout | null {
+    const settings = this.settings.presenter;
+    if (!settings.enabled || settings.layoutMode !== "safe-overlay" || !this.presenterAsset) return null;
+    const stage = this.settings.stage;
+    const requestedShadowMargin = getShadowSupportMargin(settings.shadowSoftness, settings.shadowOpacity);
+    return resolvePresenterOverlayLayout({
+      stage,
+      source: { width: this.presenterAsset.width, height: this.presenterAsset.height },
+      customAspect: settings.aspectMode === "custom"
+        ? { width: settings.aspectWidth, height: settings.aspectHeight }
+        : null,
+      anchor: { x: settings.x, y: settings.y },
+      scale: THREE.MathUtils.clamp(settings.width, 0.12, 0.9),
+      safeInset: Math.min(stage.width, stage.height) * settings.safeInset,
+      shadowExtents: {
+        top: Math.max(0, requestedShadowMargin - settings.shadowOffsetY),
+        right: Math.max(0, requestedShadowMargin + settings.shadowOffsetX),
+        bottom: Math.max(0, requestedShadowMargin + settings.shadowOffsetY),
+        left: Math.max(0, requestedShadowMargin - settings.shadowOffsetX),
+      },
+    });
+  }
+
   private updatePresenterGeometry(
     lifecycleLayer?: LifecycleLayerSample,
     treatment: TransitionTreatment | null = null,
+    safeLayout: PresenterOverlayLayout | null = this.resolveSafePresenterLayout(),
   ): void {
     const settings = this.settings.presenter;
     const shouldShow = settings.enabled && Boolean(this.presenterAsset) && Boolean(this.presenterMaterial.uniforms.uMap!.value);
@@ -1067,23 +1494,8 @@ export class CinematicCarousel {
     let shadowOffsetX = settings.shadowOffsetX;
     let shadowOffsetY = settings.shadowOffsetY;
 
-    if (safeOverlay && this.presenterAsset) {
-      const layout = resolvePresenterOverlayLayout({
-        stage,
-        source: { width: this.presenterAsset.width, height: this.presenterAsset.height },
-        customAspect: settings.aspectMode === "custom"
-          ? { width: settings.aspectWidth, height: settings.aspectHeight }
-          : null,
-        anchor: { x: settings.x, y: settings.y },
-        scale: THREE.MathUtils.clamp(settings.width, 0.12, 0.9),
-        safeInset: Math.min(stage.width, stage.height) * settings.safeInset,
-        shadowExtents: {
-          top: Math.max(0, requestedShadowMargin - settings.shadowOffsetY),
-          right: Math.max(0, requestedShadowMargin + settings.shadowOffsetX),
-          bottom: Math.max(0, requestedShadowMargin + settings.shadowOffsetY),
-          left: Math.max(0, requestedShadowMargin - settings.shadowOffsetX),
-        },
-      });
+    if (safeOverlay && safeLayout) {
+      const layout = safeLayout;
       width = layout.frameSizePx.width;
       height = layout.frameSizePx.height;
       shadowMargin *= layout.fitScale;
@@ -1351,14 +1763,95 @@ export class CinematicCarousel {
     this.syncPresenterPlayback();
   }
 
-  private syncPresenterPlayback(): void {
+  private previewMasterTime(): number {
+    return loopPerformanceTime(this.elapsed, this.performanceTimeline.totalDuration);
+  }
+
+  private requestPresenterPreviewSeek(video: HTMLVideoElement, targetTime: number): void {
+    if (this.presenterPendingSeekTarget !== null || video.seeking) return;
+    const requestGeneration = this.presenterRequestGeneration;
+    this.presenterPendingSeekTarget = targetTime;
+    const settle = () => {
+      video.removeEventListener("seeked", settle);
+      video.removeEventListener("error", settle);
+      if (
+        requestGeneration !== this.presenterRequestGeneration
+        || this.presenterVideo !== video
+        || this.disposed
+      ) return;
+      this.presenterPendingSeekTarget = null;
+      if (this.presenterPreviewTexture) this.presenterPreviewTexture.needsUpdate = true;
+      // The authored clock may have advanced while decoding this frame. One
+      // follow-up paint schedules the next exact frame without superseding the
+      // seek that just completed.
+      this.renderPreview();
+    };
+    video.addEventListener("seeked", settle, { once: true });
+    video.addEventListener("error", settle, { once: true });
+    try {
+      video.currentTime = targetTime;
+      if (!video.seeking) settle();
+    } catch {
+      settle();
+    }
+  }
+
+  private requestPresenterPreviewPlay(video: HTMLVideoElement): void {
+    if (this.presenterPlayPending || !video.paused || video.seeking) return;
+    this.presenterPlayPending = true;
+    void video.play()
+      .catch(() => undefined)
+      .finally(() => {
+        this.presenterPlayPending = false;
+        if (
+          !this.presenterShouldPlay
+          || this.presenterVideo !== video
+          || this.disposed
+        ) {
+          video.pause();
+        }
+      });
+  }
+
+  private syncPresenterPlayback(masterTime = this.previewMasterTime()): void {
     const video = this.presenterVideo;
     if (!video) return;
-    if (this.paused || this.reducedMotionPreview || this.exportActive || this.contextLost || document.hidden || this.disposed) {
-      video.pause();
-      return;
+    const effectiveMasterTime = this.reducedMotionPreview
+      ? this.presenterReducedMotionMasterTime ?? masterTime
+      : masterTime;
+    const frozen = this.paused
+      || this.reducedMotionPreview
+      || this.exportActive
+      || this.contextLost
+      || document.hidden
+      || this.disposed;
+    const fps = Number.isFinite(this.settings.output.fps) && this.settings.output.fps > 0
+      ? this.settings.output.fps
+      : 30;
+    const lastDecodableTime = Number.isFinite(video.duration) && video.duration > 0
+      ? Math.max(0, video.duration - 1 / fps)
+      : Number.POSITIVE_INFINITY;
+    const sourceExhausted = effectiveMasterTime > lastDecodableTime + PRESENTER_EXACT_SEEK_EPSILON_SECONDS;
+    const shouldFreezeVideo = frozen || sourceExhausted;
+    const decision = resolvePresenterPreviewClock({
+      masterTime: effectiveMasterTime,
+      previousMasterTime: this.presenterPreviewMasterTime,
+      videoTime: video.currentTime,
+      videoDuration: video.duration,
+      masterFps: fps,
+      exact: shouldFreezeVideo,
+    });
+    this.presenterShouldPlay = !shouldFreezeVideo && !decision.shouldSeek;
+    if (shouldFreezeVideo || decision.shouldSeek) video.pause();
+    if (decision.targetTime !== null && decision.shouldSeek) {
+      // Seeking is an exception: initial alignment, master-loop wrap, a real
+      // delivery drift, or an exact frozen-state landing. Ordinary playback
+      // remains decoder-driven so long-GOP and 4K media stay smooth.
+      this.requestPresenterPreviewSeek(video, decision.targetTime);
+    } else if (this.presenterShouldPlay) {
+      this.requestPresenterPreviewPlay(video);
     }
-    void video.play().catch(() => undefined);
+    this.presenterPreviewMasterTime = effectiveMasterTime;
   }
 
   private onContextLost(event: Event): void {

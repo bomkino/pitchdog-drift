@@ -18,6 +18,7 @@ case "${APP_VARIANT}" in
     WEBSITE_DATA_STORE_IDENTIFIER="default"
     OWNS_PORTABLE_PROJECTS="1"
     PORTABLE_PROJECT_OWNERSHIP="registered"
+    USER_GUIDE_SOURCE="${ROOT_DIR}/docs/MACOS_USER_GUIDE.md"
     ;;
   v2-dev)
     APP_BUNDLE_NAME="Drift V2 Dev"
@@ -30,6 +31,7 @@ case "${APP_VARIANT}" in
     WEBSITE_DATA_STORE_IDENTIFIER="7A519E77-39A8-4BAF-89A0-314590BF3D24"
     OWNS_PORTABLE_PROJECTS="0"
     PORTABLE_PROJECT_OWNERSHIP="absent"
+    USER_GUIDE_SOURCE="${ROOT_DIR}/docs/v2/MACOS_V2_DEV_USER_GUIDE.md"
     ;;
   *)
     echo "Unsupported DRIFT_MACOS_APP_VARIANT: ${APP_VARIANT}" >&2
@@ -174,12 +176,13 @@ node scripts/stage-macos-runtime-licenses.mjs stage "${THIRD_PARTY_LICENSE_DIR}"
 cp \
   docs/MACOS_APP.md \
   docs/MACOS_PRODUCT_CONTRACT.md \
-  docs/MACOS_USER_GUIDE.md \
   docs/MACOS_QA.md \
   docs/MACOS_THREAT_MODEL.md \
   docs/MACOS_RELEASE.md \
   docs/MACOS_RELEASE_CHECKLIST.md \
   "${DOCS_DIR}/"
+cp "${USER_GUIDE_SOURCE}" "${DOCS_DIR}/MACOS_USER_GUIDE.md"
+node scripts/verify-macos-user-guide.mjs "${BUILD_CHANNEL}" "${DOCS_DIR}/MACOS_USER_GUIDE.md"
 
 PACKAGE_VERSION="$(node -p "require('./package.json').version")"
 BUILD_NUMBER="${DRIFT_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || printf '1')}"
@@ -265,6 +268,7 @@ cache_namespace=${CACHE_NAMESPACE}
 storage_namespace=${STORAGE_NAMESPACE}
 website_data_store_identifier=${WEBSITE_DATA_STORE_IDENTIFIER}
 portable_project_ownership=${PORTABLE_PROJECT_OWNERSHIP}
+user_guide_profile=${APP_VARIANT}
 version=${PACKAGE_VERSION}
 build_number=${BUILD_NUMBER}
 source_revision=${SOURCE_REVISION}

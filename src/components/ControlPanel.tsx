@@ -17,6 +17,11 @@ import {
   TEMPO_CURVE_PRESETS,
   type TempoCurvePresetId,
 } from "../core/timeline/tempoCurve";
+import {
+  WORLD_RATIO_DIMENSIONS,
+  worldRatioForDimensions,
+  type WorldRatioId,
+} from "../core/worlds";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
 
@@ -86,6 +91,7 @@ function minimumTotalDuration(performance: PerformanceLifecycleAuthoring): numbe
 
 interface ControlPanelProps {
   settings: StudioSettings;
+  v2Active: boolean;
   onSettings: (settings: StudioSettings) => void;
   onTheme: (id: ThemeId) => void;
   onExportStill: () => void;
@@ -99,6 +105,7 @@ interface ControlPanelProps {
 
 export function ControlPanel({
   settings,
+  v2Active,
   onSettings,
   onTheme,
   onExportStill,
@@ -153,6 +160,7 @@ export function ControlPanel({
       output: { ...settings.output, width, height },
     });
   };
+  const stageRatio = worldRatioForDimensions(settings.stage.width, settings.stage.height);
   const stageLabel = `${settings.stage.width}:${settings.stage.height}`;
   const performanceTimeline = createPerformanceLifecycle(settings.performance);
   const performance = performanceTimeline.authoring;
@@ -194,8 +202,12 @@ export function ControlPanel({
 
       <section className="theme-section" aria-labelledby="themes-title">
         <div className="section-heading-row">
-          <h3 id="themes-title">{driftBuildIdentity.isDevelopment ? "V1 looks · compatibility" : "Film worlds"}</h3>
-          <span>6</span>
+          <h3 id="themes-title">{
+            driftBuildIdentity.isDevelopment
+              ? v2Active ? "Editorial Drift · V2 slice" : "V1 looks · compatibility"
+              : "Film worlds"
+          }</h3>
+          <span>{driftBuildIdentity.isDevelopment && v2Active ? "1 + 5 studies" : "6"}</span>
         </div>
         <div className="theme-grid">
           {THEMES.map((theme) => (
@@ -219,18 +231,19 @@ export function ControlPanel({
       </section>
 
       <InspectorGroup title="Composition" eyebrow={stageLabel} open>
-        <Segmented
+        <Segmented<WorldRatioId | "custom">
           label="Stage ratio"
-          value={`${settings.stage.width}x${settings.stage.height}`}
+          value={stageRatio ?? "custom"}
           options={[
-            { value: "1080x1920", label: "9:16" },
-            { value: "1080x1350", label: "4:5" },
-            { value: "1080x1080", label: "1:1" },
-            { value: "1920x1080", label: "16:9" },
+            { value: "9:16" as const, label: "9:16" },
+            { value: "4:5" as const, label: "4:5" },
+            { value: "1:1" as const, label: "1:1" },
+            { value: "16:9" as const, label: "16:9" },
           ]}
-          onChange={(value) => {
-            const [width, height] = value.split("x").map(Number);
-            setStagePreset(width!, height!);
+          onChange={(ratio) => {
+            if (ratio === "custom") return;
+            const { width, height } = WORLD_RATIO_DIMENSIONS[ratio];
+            setStagePreset(width, height);
           }}
         />
         <div className="number-pair" aria-label="Custom stage dimensions">
@@ -315,6 +328,7 @@ export function ControlPanel({
         <Segmented label="Image fit" value={settings.slide.fit} options={[{ value: "cover", label: "Cover" }, { value: "contain", label: "Contain" }]} onChange={(fit) => patch("slide", { fit })} />
         <RangeField label="Focal point X" value={settings.slide.focalX * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { focalX: value / 100 })} />
         <RangeField label="Focal point Y" value={settings.slide.focalY * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { focalY: value / 100 })} />
+        <p className="performance-note">Image fit and focal point apply to every slide in this deck.</p>
         <RangeField label="Corner radius" value={settings.slide.radius} min={0} max={180} step={1} unit=" px" onChange={(radius) => patch("slide", { radius })} />
         <RangeField label="Corner smoothing" value={settings.slide.smoothing * 100} min={0} max={100} step={1} unit="%" hint="60% is the familiar iOS-style continuous corner." onChange={(value) => patch("slide", { smoothing: value / 100 })} />
         <RangeField label="Border" value={settings.slide.borderWidth} min={0} max={16} step={0.5} decimals={1} unit=" px" onChange={(borderWidth) => patch("slide", { borderWidth })} />

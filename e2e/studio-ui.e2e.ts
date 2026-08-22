@@ -24,6 +24,10 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   const previewDescription = page.locator("#stage-preview-description");
   await expect(previewDescription).toContainText("8 slides");
   await expect(previewDescription).toContainText("editorial drift theme");
+  const atmosphere = page.locator("details").filter({ has: page.locator("summary", { hasText: "Atmosphere" }) });
+  await atmosphere.locator("summary").click();
+  const background = page.getByRole("combobox", { name: "Background", exact: true });
+  await expect(background).toHaveValue("paper");
 
   const flowAxis = page.getByRole("group", { name: "Flow axis" });
   await flowAxis.getByText("Horizontal", { exact: true }).click();
@@ -31,15 +35,33 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await flowAxis.getByText("Vertical", { exact: true }).click();
   await expect(page.locator(".stage-topline").last()).toContainText("vertical");
 
+  const stageRatio = page.getByRole("group", { name: "Stage ratio" });
+  await stageRatio.getByText("16:9", { exact: true }).click();
+  await expect(page.locator(".stage-hud")).toContainText("1920 × 1080");
+  const widePreviewRatio = await page.locator(".stage-frame").evaluate((frame) => {
+    const bounds = frame.getBoundingClientRect();
+    return bounds.width / bounds.height;
+  });
+  expect(widePreviewRatio).toBeCloseTo(16 / 9, 3);
+  await stageRatio.getByText("9:16", { exact: true }).click();
+  await expect(page.locator(".stage-hud")).toContainText("1080 × 1920");
+  const portraitPreviewRatio = await page.locator(".stage-frame").evaluate((frame) => {
+    const bounds = frame.getBoundingClientRect();
+    return bounds.width / bounds.height;
+  });
+  expect(portraitPreviewRatio).toBeCloseTo(9 / 16, 3);
+  await page.getByLabel("Stage width").fill("2160");
+  await page.getByLabel("Stage height").fill("3840");
+  await expect(page.locator(".stage-hud")).toContainText("2160 × 3840");
+  await expect(stageRatio.getByRole("radio", { name: "9:16" })).toBeChecked();
+  await page.getByLabel("Stage height").fill("1920");
+
   await page.getByRole("button", { name: /Dread/ }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("dread");
   await expect(previewDescription).toContainText("dread theme");
   await page.getByLabel("Stage width").fill("1200");
   await expect(page.locator(".stage-hud")).toContainText("1200 × 1920");
 
-  const atmosphere = page.locator("details").filter({ has: page.locator("summary", { hasText: "Atmosphere" }) });
-  await atmosphere.locator("summary").click();
-  const background = page.getByRole("combobox", { name: "Background", exact: true });
   await background.selectOption("transparent");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "true");
   await page.getByRole("button", { name: /Road Memory/ }).click();
@@ -66,6 +88,24 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   }));
   expect(overflow).toEqual({ horizontal: false, vertical: false });
   expect(errors).toEqual([]);
+});
+
+test("director fields expose concise names and separate supporting descriptions", async ({ page }) => {
+  await waitForStudio(page);
+
+  await expect(page.getByLabel("Stage width", { exact: true })).toHaveValue("1080");
+  await expect(page.getByRole("spinbutton", { name: "Stage width", exact: true })).toHaveAccessibleDescription("px");
+  await expect(page.getByLabel("Slide ratio", { exact: true })).toHaveValue("16:9");
+  await expect(page.getByLabel("Speed", { exact: true })).toBeVisible();
+
+  const reducedMotion = page.getByRole("switch", { name: "Reduced-motion master", exact: true });
+  await expect(reducedMotion).toHaveAccessibleDescription(/Independent from your OS preview preference/);
+
+  const surface = page.locator("details").filter({ has: page.locator("summary", { hasText: "Surface" }) });
+  await surface.locator("summary").click();
+  await expect(page.getByLabel("Border", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Border colour", { exact: true })).toBeVisible();
+  await expect(page.getByRole("slider", { name: "Corner smoothing", exact: true })).toHaveAccessibleDescription("60% is the familiar iOS-style continuous corner.");
 });
 
 test("keyboard controls stay visible, file pickers stay out of Tab order, and slide order is operable", async ({ page }) => {
@@ -144,7 +184,7 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   await expect(pinnedSwitch).toBeChecked();
 });
 
-test("reduced motion freezes the rendered preview instead of leaving animated grain behind", async ({ page }) => {
+test("reduced motion yields a stable rendered interval without animated grain", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await waitForStudio(page);
   // Element screenshots include DOM layers painted over the canvas. Hide the
@@ -152,9 +192,10 @@ test("reduced motion freezes the rendered preview instead of leaving animated gr
   // impersonate WebGL motion in this exact-pixel assertion.
   await page.addStyleTag({ content: ".stage-hud, .notice { visibility: hidden !important; }" });
   const canvas = page.locator("[data-testid=webgl-stage]");
-  // Texture decode is asynchronous and can legitimately finish after the
-  // studio shell becomes ready. Establish a stable baseline first; real grain
-  // or motion would prevent two consecutive captures from ever matching.
+  // Texture decode is asynchronous and lifecycle opacity deliberately remains
+  // active under reduced motion. Find a stable body interval; a live 12 fps
+  // grain plate or spatial travel would prevent captures 150 ms apart from
+  // matching, while an entry/exit fade is allowed to make an attempt differ.
   let first = await canvas.screenshot();
   let baselineStable = false;
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -168,9 +209,6 @@ test("reduced motion freezes the rendered preview instead of leaving animated gr
     first = candidate;
   }
   expect(baselineStable).toBe(true);
-  await page.waitForTimeout(700);
-  const second = await canvas.screenshot();
-  expect(second.equals(first)).toBe(true);
 });
 
 test("Pause kills existing carousel inertia and leaves the WebGL preview pixel-still", async ({ page }) => {

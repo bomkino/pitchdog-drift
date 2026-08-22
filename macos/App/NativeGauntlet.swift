@@ -3,6 +3,26 @@ import Foundation
 
 enum NativeGauntlet {
     static func run() throws {
+        let sourceRevision = String(repeating: "a", count: 40)
+        try require(
+            driftCompleteSourceURL(for: sourceRevision).absoluteString
+                == "https://github.com/bomkino/pitchdog-drift/tree/\(sourceRevision)",
+            "complete-source Help URL did not bind to the exact recorded revision"
+        )
+        for invalidRevision in [
+            nil,
+            "",
+            String(repeating: "A", count: 40),
+            String(repeating: "g", count: 40),
+            "../../releases/latest",
+        ] as [String?] {
+            try require(
+                driftCompleteSourceURL(for: invalidRevision).absoluteString
+                    == "https://github.com/bomkino/pitchdog-drift",
+                "malformed source revision escaped the repository-root fallback"
+            )
+        }
+
         // Exactly one renderer-process recovery may be consumed during one
         // studio-window lifetime. A second termination must stop the loop; a
         // genuinely new window starts with a fresh policy.
@@ -629,6 +649,7 @@ enum NativeGauntlet {
         print("Drift stable read-grant gauntlet passed: per-kind cap, inode replacement, same-size rewrite, growth-between-chunks, fail-closed revocation, and external-file preservation.")
         print("Drift ownership-preserving deletion gauntlet passed: deterministic check-to-delete replacement survived and stale ownership was revoked.")
         print("Drift conditional commit and directory-anchor gauntlet passed: existing/absent save collisions, parent replacement, directory replacement, and symlink redirection all preserved external state.")
+        print("Drift source-provenance gauntlet passed: exact revision link and malformed-revision fallback.")
         print("Drift extended native gauntlet passed.")
     }
 

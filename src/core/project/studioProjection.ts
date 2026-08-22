@@ -217,6 +217,39 @@ function copyAsset(asset: AssetDescriptor): AssetDescriptor {
   return { ...asset };
 }
 
+function sameAssetDescriptor(left: AssetDescriptor, right: AssetDescriptor): boolean {
+  return left.id === right.id
+    && left.name === right.name
+    && left.kind === right.kind
+    && left.mimeType === right.mimeType
+    && left.hash === right.hash
+    && left.byteLength === right.byteLength
+    && left.width === right.width
+    && left.height === right.height
+    && left.duration === right.duration;
+}
+
+function mediaTupleMatchesProject(
+  project: CompatibleDriftProject,
+  slideAssets: readonly AssetDescriptor[],
+  presenterAsset: AssetDescriptor | null,
+): boolean {
+  if (project.media.order.length !== slideAssets.length) return false;
+  if (project.media.order.some((assetId, index) => assetId !== slideAssets[index]?.id)) return false;
+  if (project.media.presenterAssetId !== (presenterAsset?.id ?? null)) return false;
+
+  const desiredAssets = new Map<string, AssetDescriptor>();
+  for (const asset of slideAssets) desiredAssets.set(asset.id, asset);
+  if (presenterAsset) desiredAssets.set(presenterAsset.id, presenterAsset);
+  const currentIds = Object.keys(project.media.assets);
+  if (currentIds.length !== desiredAssets.size) return false;
+  return currentIds.every((assetId) => {
+    const desired = desiredAssets.get(assetId);
+    const current = project.media.assets[assetId];
+    return Boolean(desired && current && sameAssetDescriptor(current, desired));
+  });
+}
+
 /**
  * A recipe reference may survive only while its resolved domain still hashes
  * to the authored value. Unrelated project-owned edits keep truthful per-domain
@@ -244,9 +277,19 @@ function directiveFor(
   project: CompatibleDriftProject,
   assetId: string,
   settings: StudioSettings,
+  updateExistingDirection: boolean,
 ): SlideDirective {
   const existing = project.slides[assetId];
-  if (existing) return { ...existing };
+  if (existing) {
+    return updateExistingDirection
+      ? {
+          ...existing,
+          fit: settings.slide.fit,
+          focalX: settings.slide.focalX,
+          focalY: settings.slide.focalY,
+        }
+      : { ...existing };
+  }
   return {
     assetId,
     fit: settings.slide.fit,
@@ -290,24 +333,52 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
     : cloneDriftProject(validateDriftProjectV3(input.project));
   const previouslyProjected = studioSettingsFromDriftProject(next);
   const { settings } = input;
+  const presenter = input.presenterAsset ?? null;
+  const alphaControlsChanged = settings.stage.transparent !== previouslyProjected.stage.transparent
+    || settings.background.style !== previouslyProjected.background.style;
+  const outputWidthChanged = settings.output.width !== previouslyProjected.output.width;
+  const outputHeightChanged = settings.output.height !== previouslyProjected.output.height;
+  const presenterMediaChanged = next.media.presenterAssetId !== (presenter?.id ?? null);
+  const presenterControlsChanged = settings.presenter.enabled !== previouslyProjected.presenter.enabled
+    || settings.presenter.assetId !== previouslyProjected.presenter.assetId
+    || settings.presenter.muted !== previouslyProjected.presenter.muted;
+
+  // The compatibility projection is intentionally lossy: disabled effects,
+  // per-slide crops, and source-aspect presenters all hide authored Project V4
+  // values. Opening or saving an unchanged project must therefore be a literal
+  // no-op for creative state. Only its caller-owned timestamp may advance.
+  if (
+    JSON.stringify(settings) === JSON.stringify(previouslyProjected)
+    && mediaTupleMatchesProject(next, input.slideAssets, presenter)
+  ) {
+    next.updatedAt = input.updatedAt;
+    return next.formatVersion === 4
+      ? validateDriftProjectV4(next)
+      : validateDriftProjectV3(next);
+  }
+
   const performance = fitPerformanceLifecycleToDuration(
     settings.performance,
     settings.output.duration,
     settings.motion.reducedMotionOutput,
   );
-  const presenter = input.presenterAsset ?? null;
+  const updateExistingSlideDirection = settings.slide.fit !== previouslyProjected.slide.fit
+    || settings.slide.focalX !== previouslyProjected.slide.focalX
+    || settings.slide.focalY !== previouslyProjected.slide.focalY;
   const allAssets = [...input.slideAssets, ...(presenter ? [presenter] : [])];
   const assets = Object.fromEntries(allAssets.map((asset) => [asset.id, copyAsset(asset)]));
   const order = input.slideAssets.map((asset) => asset.id);
 
   next.updatedAt = input.updatedAt;
   next.composition = {
-    width: settings.output.width,
-    height: settings.output.height,
-    alphaMode: settings.stage.transparent || settings.background.style === "transparent"
-      ? "transparent"
-      : "opaque",
-    colourSpace: "srgb-rec709",
+    ...next.composition,
+    width: outputWidthChanged ? settings.output.width : next.composition.width,
+    height: outputHeightChanged ? settings.output.height : next.composition.height,
+    alphaMode: alphaControlsChanged
+      ? settings.stage.transparent || settings.background.style === "transparent"
+        ? "transparent"
+        : "opaque"
+      : next.composition.alphaMode,
   };
   next.media = {
     order,
@@ -316,7 +387,7 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
   };
   next.slides = Object.fromEntries(order.map((assetId) => [
     assetId,
-    directiveFor(next, assetId, settings),
+    directiveFor(next, assetId, settings, updateExistingSlideDirection),
   ]));
 
   next.motion.transport = {
@@ -342,23 +413,36 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
   };
 
   next.card = {
+    ...next.card,
     aspectWidth: settings.slide.aspectWidth,
     aspectHeight: settings.slide.aspectHeight,
     scale: settings.slide.scale,
-    defaultFit: settings.slide.fit,
+    defaultFit: settings.slide.fit !== previouslyProjected.slide.fit
+      ? settings.slide.fit
+      : next.card.defaultFit,
     radius: settings.slide.radius,
     smoothing: settings.slide.smoothing,
     borderWidth: settings.slide.borderWidth,
     borderColor: settings.slide.borderColor,
     borderOpacity: settings.slide.borderOpacity,
   };
+  const distortionChanged = settings.motion.distortion !== previouslyProjected.motion.distortion;
   next.material.flex = settings.motion.distortion;
-  next.material.finish.localSmear = settings.motion.distortion;
+  // V1 exposed one broad "distortion" control; V2 deliberately separates
+  // physical card flex from the finish's local smear. A projection round-trip
+  // must not collapse those authored values merely because the legacy control
+  // can display only flex. Keep the compatibility coupling only for an actual
+  // user edit to that control.
+  if (distortionChanged) next.material.finish.localSmear = settings.motion.distortion;
 
-  next.lighting.shadowOpacity = settings.slide.shadowOpacity;
-  next.lighting.shadowSoftness = settings.slide.shadowSoftness;
+  if (settings.slide.shadowOpacity !== previouslyProjected.slide.shadowOpacity) {
+    next.lighting.shadowOpacity = settings.slide.shadowOpacity;
+  }
+  if (settings.slide.shadowSoftness !== previouslyProjected.slide.shadowSoftness) {
+    next.lighting.shadowSoftness = settings.slide.shadowSoftness;
+  }
 
-  next.atmosphere.enabled = next.composition.alphaMode === "opaque";
+  if (alphaControlsChanged) next.atmosphere.enabled = next.composition.alphaMode === "opaque";
   next.atmosphere.family = settings.background.style === previouslyProjected.background.style
     ? next.atmosphere.family
     : settings.background.style;
@@ -380,8 +464,14 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
     x: settings.presenter.x,
     y: settings.presenter.y,
     width: settings.presenter.width,
-    aspectWidth: settings.presenter.aspectWidth,
-    aspectHeight: settings.presenter.aspectHeight,
+    aspectWidth: settings.presenter.aspectMode !== previouslyProjected.presenter.aspectMode
+      || settings.presenter.aspectWidth !== previouslyProjected.presenter.aspectWidth
+      ? settings.presenter.aspectWidth
+      : next.presenter.aspectWidth,
+    aspectHeight: settings.presenter.aspectMode !== previouslyProjected.presenter.aspectMode
+      || settings.presenter.aspectHeight !== previouslyProjected.presenter.aspectHeight
+      ? settings.presenter.aspectHeight
+      : next.presenter.aspectHeight,
     fit: settings.presenter.fit,
     radius: settings.presenter.radius,
     smoothing: settings.presenter.smoothing,
@@ -424,9 +514,11 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
       bitrate: settings.output.videoBitrate,
     },
     audio: {
-      enabled: next.formatVersion === 4
-        ? pinAsset?.kind === "video" && pinId === presenter?.id && settings.presenter.enabled && !settings.presenter.muted
-        : presenter !== null && settings.presenter.enabled && !settings.presenter.muted,
+      enabled: presenterMediaChanged || presenterControlsChanged
+        ? next.formatVersion === 4
+          ? pinAsset?.kind === "video" && pinId === presenter?.id && settings.presenter.enabled && !settings.presenter.muted
+          : presenter !== null && settings.presenter.enabled && !settings.presenter.muted
+        : next.master.audio.enabled,
       bitrate: settings.output.audioBitrate,
     },
   };

@@ -85,6 +85,7 @@ export type DecodedPresenterFrame = Readonly<{
 }>;
 
 export type RenderAtContext = Readonly<{
+  sampleKind?: "sequence" | "still";
   frameIndex: number;
   frameCount: number;
   frameDuration: number;
@@ -1517,7 +1518,7 @@ export async function exportPngStill(options: PngStillOptions): Promise<PngStill
       const decodedFrame = sample && presenter
         ? drawPresenterFrame(presenter, sample, time)
         : undefined;
-      await renderScene(options, time, frameIndex, frameCount, decodedFrame);
+      await renderScene(options, time, frameIndex, frameCount, decodedFrame, "still");
     } finally {
       sample?.close();
     }
@@ -1827,7 +1828,7 @@ async function renderFrames(options: RenderFramesOptions & {
     let presenterFrame: DecodedPresenterFrame | undefined;
     try {
       if (sample && presenter) presenterFrame = drawPresenterFrame(presenter, sample, frame.time);
-      await renderScene(options, frame.time, frame.index, frameCount, presenterFrame);
+      await renderScene(options, frame.time, frame.index, frameCount, presenterFrame, "sequence");
       await options.afterRender(frame);
     } finally {
       sample?.close();
@@ -1879,9 +1880,11 @@ async function renderScene(
   frameIndex: number,
   frameCount: number,
   presenterFrame?: DecodedPresenterFrame,
+  sampleKind: "sequence" | "still" = "sequence",
 ): Promise<void> {
   try {
     await options.renderAt(time, presenterFrame, {
+      sampleKind,
       frameIndex,
       frameCount,
       frameDuration: 1 / options.settings.fps,

@@ -3,6 +3,7 @@ import { createDefaultDriftProject, createDefaultDriftProjectV4 } from "../src/c
 import { migrateDriftProjectV3ToV4 } from "../src/core/project/migrateV3ToV4";
 import {
   DRIFT_PROJECT_V4_MIGRATOR,
+  DRIFT_V2_RENDER_CONTRACT,
   DRIFT_V1_COMPAT_RENDER_CONTRACT,
   type DriftProjectV3,
   type DriftProjectV4,
@@ -78,6 +79,15 @@ describe("Project V4", () => {
     expect(validateDriftProjectV3(v3)).toEqual(v3);
   });
 
+  it("admits an explicit V2 render contract without changing the compatibility default", () => {
+    const compatibility = createDefaultDriftProjectV4("project-v4-compat", NOW, 42);
+    const v2 = createDefaultDriftProjectV4("project-v4-v2", NOW, 42, DRIFT_V2_RENDER_CONTRACT);
+
+    expect(compatibility.renderContract).toBe(DRIFT_V1_COMPAT_RENDER_CONTRACT);
+    expect(v2.renderContract).toBe(DRIFT_V2_RENDER_CONTRACT);
+    expect(validateDriftProjectV4(v2)).toEqual(v2);
+  });
+
   it("migrates a validated V3 candidate purely and preserves dormant creative values exactly", () => {
     const v3 = createDefaultDriftProject("migrated-v4", NOW, 7);
     v3.motion.path = { ...v3.motion.path, curvature: 0.91, banking: -12.5 };
@@ -97,6 +107,7 @@ describe("Project V4", () => {
       sourceFormat: "project-v3",
       migrator: DRIFT_PROJECT_V4_MIGRATOR,
     });
+    expect(migrated.renderContract).toBe(DRIFT_V1_COMPAT_RENDER_CONTRACT);
     expect(migrated.presenter).toMatchObject({
       assetId: null,
       trackMode: "moving-and-pinned",
@@ -169,7 +180,7 @@ describe("Project V4", () => {
     expect(() => validateDriftProjectV4({ ...project, surprise: true })).toThrow(/unknown field surprise/u);
     expect(() => validateDriftProjectV4(withField(project, "formatVersion", 5))).toThrow(/must be 4/u);
     expect(() => validateDriftProjectV4(withField(project, "renderContract", "drift-v2"))).toThrow(
-      /must be drift-v1-compat\/1/u,
+      /must be one of drift-v1-compat\/1, drift-v2\/1/u,
     );
     expect(() => validateDriftProjectV4(withField(project, "migration", {
       sourceFormat: "project-v3",

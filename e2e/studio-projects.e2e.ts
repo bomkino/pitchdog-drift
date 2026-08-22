@@ -122,11 +122,11 @@ test("Project V4 keeps one image still without letting a presenter video steal i
   await expect(page.locator(".asset-list li").first()).toHaveAttribute("data-pinned", "true");
 });
 
-test("presenter playback obeys pause and export while removal preserves an unrelated slide pin", async ({ page }) => {
+test("presenter playback follows the master clock, pause, reduced motion, and export while removal preserves an unrelated slide pin", async ({ page }) => {
   await waitForStudio(page);
   const encodedPresenter = (await readFile(presenterFixturePath)).toString("base64");
   const playback = await page.evaluate(async (encoded) => {
-    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+    const [{ CinematicCarousel }, { DEFAULT_SETTINGS, createCompatibilityPerformanceLifecycle }] = await Promise.all([
       import("/src/engine/CinematicCarousel.ts"),
       import("/src/model.ts"),
     ]);
@@ -135,7 +135,8 @@ test("presenter playback obeys pause and export while removal preserves an unrel
     const objectUrl = URL.createObjectURL(blob);
     const settings = structuredClone(DEFAULT_SETTINGS);
     settings.stage = { width: 256, height: 256, transparent: true };
-    settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
+    settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 1.5 };
+    settings.performance = createCompatibilityPerformanceLifecycle(1.5);
     settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
     settings.presenter = { ...settings.presenter, enabled: true, assetId: "presenter-fixture" };
     const canvas = document.createElement("canvas");
@@ -144,6 +145,13 @@ test("presenter playback obeys pause and export while removal preserves an unrel
     document.body.append(canvas);
     const engine = new CinematicCarousel(canvas, settings);
     const delay = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+    const waitForSeek = async (video: HTMLVideoElement) => {
+      if (!video.seeking) return;
+      await Promise.race([
+        new Promise<void>((resolve) => video.addEventListener("seeked", () => resolve(), { once: true })),
+        delay(1_000),
+      ]);
+    };
     let surface: ReturnType<typeof engine.beginExport> | null = null;
     try {
       await engine.setPresenterAsset({
@@ -158,17 +166,61 @@ test("presenter playback obeys pause and export while removal preserves an unrel
         objectUrl,
       });
       const video = (engine as unknown as { presenterVideo: HTMLVideoElement }).presenterVideo;
+      const clock = engine as unknown as {
+        elapsed: number;
+        performanceTimeline: { totalDuration: number };
+        presenterPendingSeekTarget: number | null;
+        renderPreview(): void;
+      };
+      const waitForPresenterSettled = async () => {
+        let stableChecks = 0;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          if (!video.seeking && clock.presenterPendingSeekTarget === null) {
+            stableChecks += 1;
+            if (stableChecks === 2) return;
+          } else {
+            stableChecks = 0;
+          }
+          await delay(10);
+        }
+        throw new Error("Presenter preview did not settle its canonical seek.");
+      };
+      const deliveredFrameStart = video.getVideoPlaybackQuality().totalVideoFrames;
       const playingStart = video.currentTime;
       await delay(250);
       const playingDelta = video.currentTime - playingStart;
+      const deliveredFrameCount = video.getVideoPlaybackQuality().totalVideoFrames - deliveredFrameStart;
+      // A throttled headless rAF paints nothing while its decoder clock keeps
+      // moving. Force the next actual paint, then judge the landed frame.
+      clock.renderPreview();
+      await waitForPresenterSettled();
+      const playingEnd = video.currentTime;
+      const runningTarget = clock.elapsed % clock.performanceTimeline.totalDuration;
+      const runningClockError = Math.abs(playingEnd - runningTarget);
+      const runningPausedFlag = video.paused;
+      const loopFlag = video.loop;
 
+      engine.stop();
+      clock.elapsed = clock.performanceTimeline.totalDuration - 0.05;
+      clock.renderPreview();
+      await waitForSeek(video);
+      clock.elapsed = clock.performanceTimeline.totalDuration + 0.02;
+      clock.renderPreview();
+      await waitForSeek(video);
+      const wrappedClockError = Math.abs(video.currentTime - 0.02);
+
+      clock.elapsed = 1.25;
       engine.setPaused(true);
+      clock.renderPreview();
+      await waitForSeek(video);
+      const pausedClockError = Math.abs(video.currentTime - 1.25);
       const pausedStart = video.currentTime;
       await delay(250);
       const pausedDelta = video.currentTime - pausedStart;
       const pausedFlag = video.paused;
 
       engine.setPaused(false);
+      engine.start();
       await delay(180);
       engine.setReducedMotionPreview(true);
       const reducedMotionStart = video.currentTime;
@@ -179,6 +231,7 @@ test("presenter playback obeys pause and export while removal preserves an unrel
       engine.setReducedMotionPreview(false);
       await delay(180);
       surface = engine.beginExport(256, 256);
+      await waitForSeek(video);
       const exportStart = video.currentTime;
       await delay(250);
       const exportDelta = video.currentTime - exportStart;
@@ -186,18 +239,31 @@ test("presenter playback obeys pause and export while removal preserves an unrel
 
       surface.restore();
       surface = null;
-      const restoredStart = video.currentTime;
+      const restoredElapsedStart = clock.elapsed;
       await delay(250);
-      const restoredDelta = video.currentTime - restoredStart;
+      await waitForPresenterSettled();
+      const restoredElapsedDelta = clock.elapsed - restoredElapsedStart;
+      const restoredTarget = clock.elapsed % clock.performanceTimeline.totalDuration;
+      const restoredClockError = Math.abs(video.currentTime - restoredTarget);
       return {
         playingDelta,
+        deliveredFrameCount,
+        playingStart,
+        playingEnd,
+        runningTarget,
+        runningClockError,
+        runningPausedFlag,
+        loopFlag,
+        wrappedClockError,
+        pausedClockError,
         pausedDelta,
         pausedFlag,
         reducedMotionDelta,
         reducedMotionPausedFlag,
         exportDelta,
         exportPausedFlag,
-        restoredDelta,
+        restoredElapsedDelta,
+        restoredClockError,
         restoredPausedFlag: video.paused,
       };
     } finally {
@@ -209,13 +275,20 @@ test("presenter playback obeys pause and export while removal preserves an unrel
   }, encodedPresenter);
 
   expect(playback.playingDelta).toBeGreaterThan(0.1);
+  expect(playback.deliveredFrameCount).toBeGreaterThanOrEqual(2);
+  expect(playback.runningClockError, JSON.stringify(playback)).toBeLessThan(0.06);
+  expect(playback.runningPausedFlag).toBe(false);
+  expect(playback.loopFlag).toBe(false);
+  expect(playback.wrappedClockError).toBeLessThan(0.01);
+  expect(playback.pausedClockError).toBeLessThan(0.01);
   expect(Math.abs(playback.pausedDelta)).toBeLessThan(0.05);
   expect(playback.pausedFlag).toBe(true);
   expect(Math.abs(playback.reducedMotionDelta)).toBeLessThan(0.05);
   expect(playback.reducedMotionPausedFlag).toBe(true);
   expect(Math.abs(playback.exportDelta)).toBeLessThan(0.05);
   expect(playback.exportPausedFlag).toBe(true);
-  expect(playback.restoredDelta).toBeGreaterThan(0.1);
+  expect(playback.restoredElapsedDelta).toBeGreaterThan(0.1);
+  expect(playback.restoredClockError, JSON.stringify(playback)).toBeLessThan(0.06);
   expect(playback.restoredPausedFlag).toBe(false);
 
   await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterFixturePath);

@@ -1,5 +1,6 @@
-import type { RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { ExportProgress, StudioAsset, StudioSettings } from "../model";
+import { fitStagePreview, type StagePreviewSize } from "./stageGeometry";
 
 interface StageProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -42,6 +43,8 @@ export function Stage({
   onCancelExport,
   busy,
 }: StageProps) {
+  const wellRef = useRef<HTMLDivElement>(null);
+  const [previewSize, setPreviewSize] = useState<StagePreviewSize | null>(null);
   const transparent = settings.stage.transparent || settings.background.style === "transparent";
   const activeAsset = activeSlideIndex >= 0 ? assets[activeSlideIndex] : undefined;
   const themeName = settings.themeId.replaceAll("-", " ");
@@ -51,6 +54,47 @@ export function Stage({
   const previewDescription = assets.length === 0
     ? `Cinematic preview. No slides. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Drag or add images to begin.`
     : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
+
+  useLayoutEffect(() => {
+    const well = wellRef.current;
+    if (!well) return;
+    let active = true;
+
+    const updateSize = (width: number, height: number) => {
+      if (!active) return;
+      const next = fitStagePreview(
+        width,
+        height,
+        settings.stage.width,
+        settings.stage.height,
+      );
+      setPreviewSize((current) => {
+        if (current === null || next === null) return next;
+        return Math.abs(current.width - next.width) < 0.25
+          && Math.abs(current.height - next.height) < 0.25
+          ? current
+          : next;
+      });
+    };
+
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (box) updateSize(box.width, box.height);
+    });
+    observer.observe(well);
+    const initial = well.getBoundingClientRect();
+    const style = window.getComputedStyle(well);
+    updateSize(
+      initial.width - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
+      initial.height - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom),
+    );
+
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [settings.stage.height, settings.stage.width]);
+
   return (
     <section className="stage-column" aria-label="Cinematic preview" aria-describedby="stage-preview-description" aria-busy={busy}>
       <p id="stage-preview-description" className="visually-hidden">{previewDescription}</p>
@@ -58,13 +102,17 @@ export function Stage({
         <span>{themeName}</span>
         <span>{settings.motion.axis} · {settings.motion.flow}</span>
       </div>
-      <div className="stage-well">
+      <div ref={wellRef} className="stage-well">
         <div
           ref={frameRef}
           className="stage-frame"
           data-transparent={transparent}
           data-context={contextState}
-          style={{ aspectRatio: `${settings.stage.width} / ${settings.stage.height}` }}
+          style={{
+            aspectRatio: `${settings.stage.width} / ${settings.stage.height}`,
+            width: previewSize ? `${previewSize.width}px` : undefined,
+            height: previewSize ? `${previewSize.height}px` : undefined,
+          }}
           onDragOver={(event) => {
             if (!busy && event.dataTransfer.types.includes("Files")) event.preventDefault();
           }}

@@ -2,6 +2,7 @@ import {
   DRIFT_PROJECT_SCHEMA,
   DRIFT_PROJECT_VERSION,
   DRIFT_PROJECT_V4_VERSION,
+  type DriftRenderContract,
   DRIFT_V1_COMPAT_RENDER_CONTRACT,
   PROJECT_DOMAINS,
   type DriftProjectV3,
@@ -224,6 +225,7 @@ export function createDefaultDriftProjectV4(
   projectId: string,
   now = new Date().toISOString(),
   projectSeed = 17,
+  renderContract: DriftRenderContract = DRIFT_V1_COMPAT_RENDER_CONTRACT,
 ): DriftProjectV4 {
   const {
     schema,
@@ -235,7 +237,7 @@ export function createDefaultDriftProjectV4(
   return {
     schema,
     formatVersion: DRIFT_PROJECT_V4_VERSION,
-    renderContract: DRIFT_V1_COMPAT_RENDER_CONTRACT,
+    renderContract,
     migration: null,
     ...project,
     presenter: {
