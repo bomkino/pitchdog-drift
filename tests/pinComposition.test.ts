@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveFirstPinComposition } from "../src/core/presenter/activation";
+import {
+  resetPinnedFrameComposition,
+  resolveFirstPinComposition,
+} from "../src/core/presenter/activation";
+import { cloneSettings, DEFAULT_SETTINGS } from "../src/model";
 import { resolvePresenterOverlayLayout } from "../src/core/presenter/layout";
 import {
   resolvePinLaneComposition,
@@ -27,6 +31,7 @@ describe("authored pin composition", () => {
     const portrait = resolveFirstPinComposition(stage, { width: 1080, height: 1920 });
 
     expect(landscape).toMatchObject({
+      trackMode: "pinned-only",
       layoutMode: "safe-overlay",
       aspectMode: "source",
       x: 0.94,
@@ -35,6 +40,7 @@ describe("authored pin composition", () => {
       shadowSoftness: 72,
     });
     expect(portrait).toMatchObject({
+      trackMode: "pinned-only",
       layoutMode: "safe-overlay",
       aspectMode: "source",
       x: 0.94,
@@ -44,6 +50,44 @@ describe("authored pin composition", () => {
     });
     expect(landscape.y).toBeLessThan(1);
     expect(portrait.y).toBeLessThan(1);
+  });
+
+  it("repairs legacy first-pin geometry only through an explicit reset", () => {
+    const settings = cloneSettings(DEFAULT_SETTINGS);
+    settings.presenter = {
+      ...settings.presenter,
+      enabled: true,
+      assetId: "landscape-slide",
+      trackMode: "moving-and-pinned",
+      layoutMode: "safe-overlay",
+      aspectMode: "custom",
+      aspectWidth: 9,
+      aspectHeight: 16,
+      x: 0.94,
+      y: 0.62,
+      width: 0.42,
+      fit: "contain",
+      borderWidth: 3,
+      borderOpacity: 0.7,
+    };
+    const before = structuredClone(settings);
+
+    const reset = resetPinnedFrameComposition(settings, { width: 1920, height: 1080 });
+
+    expect(settings).toEqual(before);
+    expect(reset.presenter).toMatchObject({
+      enabled: true,
+      assetId: "landscape-slide",
+      trackMode: "pinned-only",
+      layoutMode: "safe-overlay",
+      aspectMode: "source",
+      x: 0.94,
+      y: 0.62,
+      width: 0.42,
+      fit: "contain",
+      borderWidth: 3,
+      borderOpacity: 0.7,
+    });
   });
 
   it("yields a cross-axis lane opposite the pin without changing timing", () => {

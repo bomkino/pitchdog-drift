@@ -94,6 +94,7 @@ interface ControlPanelProps {
   v2Active: boolean;
   onSettings: (settings: StudioSettings) => void;
   onTheme: (id: ThemeId) => void;
+  onResetPinnedFrame: () => void;
   onExportStill: () => void;
   onExportVideo: () => void;
   onExportFrames: () => void;
@@ -108,6 +109,7 @@ export function ControlPanel({
   v2Active,
   onSettings,
   onTheme,
+  onResetPinnedFrame,
   onExportStill,
   onExportVideo,
   onExportFrames,
@@ -369,6 +371,12 @@ export function ControlPanel({
           hint={settings.presenter.assetId ? "Turning this off remembers the frame, so you can bring it back without choosing it again." : "Choose an image or presenter video in Media first."}
           onChange={(enabled) => patch("presenter", { enabled })}
         />
+        {settings.presenter.assetId ? (
+          <div className="pin-reset-control">
+            <button type="button" onClick={onResetPinnedFrame}>Reset pinned frame</button>
+            <small>Source ratio · protected layer · still only. Crop, corners, and border stay yours.</small>
+          </div>
+        ) : null}
         <Segmented
           label="Carousel presence"
           value={settings.presenter.trackMode}

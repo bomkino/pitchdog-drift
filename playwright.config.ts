@@ -10,10 +10,21 @@ export default defineConfig({
   timeout: 120_000,
   expect: { timeout: 15_000 },
   reporter: process.env.CI ? "github" : "list",
+  projects: [
+    {
+      name: "v1-compat",
+      testIgnore: "**/v2-ui.e2e.ts",
+      use: { baseURL: "http://127.0.0.1:5187" },
+    },
+    {
+      name: "v2-dev",
+      testMatch: "**/v2-ui.e2e.ts",
+      use: { baseURL: "http://127.0.0.1:5188" },
+    },
+  ],
   use: {
     ...devices["Desktop Chrome"],
     viewport: { width: 1440, height: 900 },
-    baseURL: "http://127.0.0.1:5187",
     channel: process.env.CI ? undefined : "chrome",
     headless: true,
     launchOptions: {
@@ -22,13 +33,22 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  webServer: {
-    // Existing browser journeys remain the V1 compatibility lane. V2 gets
-    // explicit identity and feature journeys instead of silently changing
-    // what the established regression suite proves.
-    command: "npm run dev:v1 -- --port 5187",
-    url: "http://127.0.0.1:5187",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      // Every established browser journey keeps proving the V1 compatibility
+      // app, origin, and local-project namespace.
+      command: "npm run dev:v1 -- --port 5187",
+      url: "http://127.0.0.1:5187",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      // V2 app-path assertions run against the authored development build,
+      // never against V1 with a feature flag implied by the test name.
+      command: "npm run dev -- --port 5188",
+      url: "http://127.0.0.1:5188",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+  ],
 });

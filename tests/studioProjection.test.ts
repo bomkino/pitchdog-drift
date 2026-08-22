@@ -13,6 +13,10 @@ import {
 } from "../src/core/project/studioProjection";
 import type { AssetDescriptor } from "../src/core/project/schema";
 import { applyEditorialDriftFoundation } from "../src/core/worlds";
+import { resetPinnedFrameComposition } from "../src/core/presenter/activation";
+import { resolveMovingTrackAssets } from "../src/engine/CinematicCarousel";
+import { createDriftProjectPayload, parseStudioProjectPayload } from "../src/lib/studioProjectPayload";
+import type { StudioAsset } from "../src/model";
 
 const slideA: LegacyAssetDescriptor = {
   id: "slide-a",
@@ -505,6 +509,139 @@ describe("Project V3/V4 studio projection", () => {
     });
     expect(migrated.master.audio.enabled).toBe(false);
     expect(studioSettingsFromDriftProject(migrated).presenter.assetId).toBe(slideA.id);
+  });
+
+  it("repairs a restored V3-era hybrid only after Reset and persists the safe pin without flattening the project", () => {
+    const settings = cloneSettings(DEFAULT_SETTINGS);
+    settings.stage = { width: 1080, height: 1920, transparent: false };
+    settings.output.width = 1080;
+    settings.output.height = 1920;
+    settings.slide.aspectWidth = 16;
+    settings.slide.aspectHeight = 9;
+    settings.slide.scale = 0.78;
+    settings.presenter = {
+      ...settings.presenter,
+      enabled: true,
+      assetId: slideA.id,
+      trackMode: "moving-and-pinned",
+      layoutMode: "safe-overlay",
+      aspectMode: "custom",
+      aspectWidth: 9,
+      aspectHeight: 16,
+      x: 0.94,
+      y: 0.62,
+      width: 0.42,
+      fit: "contain",
+      focalX: 0.17,
+      focalY: 0.63,
+      radius: 37,
+      smoothing: 0.61,
+      borderWidth: 3,
+      borderColor: "#123456",
+      borderOpacity: 0.7,
+    };
+    const migrated = migrateLegacyStudioProjectToV4({
+      projectId: "restored-v3-hybrid",
+      createdAt: "2026-08-22T14:31:00.000Z",
+      updatedAt: "2026-08-22T14:32:00.000Z",
+      settings,
+      slideAssets: [slideA],
+    });
+    migrated.migration = {
+      sourceFormat: "project-v3",
+      migrator: "drift-project-v4/1",
+    };
+    migrated.presenter = {
+      ...migrated.presenter,
+      layoutMode: "safe-overlay",
+      focalX: 0.17,
+      focalY: 0.63,
+    };
+
+    const receipt = [{
+      id: slideA.id,
+      name: slideA.name,
+      type: slideA.mimeType,
+      size: 1_024,
+      sha256: slideA.hash,
+    }];
+    const restored = parseStudioProjectPayload(createDriftProjectPayload(migrated), {
+      projectId: migrated.projectId,
+      createdAt: migrated.createdAt,
+      updatedAt: migrated.updatedAt,
+      engineVersion: "1.0.0",
+      themeVersion: "1.0.0",
+      assets: receipt,
+    }).project;
+    const beforeReset = structuredClone(restored);
+    const projected = studioSettingsFromDriftProject(restored);
+
+    expect(restored).toEqual(beforeReset);
+    expect(projected.presenter).toMatchObject({
+      trackMode: "moving-and-pinned",
+      layoutMode: "safe-overlay",
+      aspectMode: "custom",
+      aspectWidth: 9,
+      aspectHeight: 16,
+      fit: "contain",
+      focalX: 0.17,
+      focalY: 0.63,
+      borderWidth: 3,
+      borderOpacity: 0.7,
+    });
+
+    const recoveredSettings = resetPinnedFrameComposition(projected, slideA);
+    const recoveredAt = "2026-08-22T14:40:00.000Z";
+    const autosaved = reconcileStudioProject({
+      project: restored,
+      settings: recoveredSettings,
+      slideAssets: [restored.media.assets[slideA.id]!],
+      updatedAt: recoveredAt,
+    });
+    const reloaded = parseStudioProjectPayload(createDriftProjectPayload(autosaved), {
+      projectId: autosaved.projectId,
+      createdAt: autosaved.createdAt,
+      updatedAt: recoveredAt,
+      engineVersion: "1.0.0",
+      themeVersion: "1.0.0",
+      assets: receipt,
+    }).project;
+    const reloadedSettings = studioSettingsFromDriftProject(reloaded);
+
+    expect(reloaded.renderContract).toBe(beforeReset.renderContract);
+    expect(reloaded.migration).toEqual(beforeReset.migration);
+    expect(reloaded.card).toEqual(beforeReset.card);
+    expect(reloaded.media).toEqual(beforeReset.media);
+    expect(reloaded.slides).toEqual(beforeReset.slides);
+    expect(reloaded.presenter).toMatchObject({
+      enabled: true,
+      assetId: slideA.id,
+      trackMode: "pinned-only",
+      layoutMode: "safe-overlay",
+      aspectMode: "source",
+      fit: "contain",
+      focalX: 0.17,
+      focalY: 0.63,
+      radius: 37,
+      smoothing: 0.61,
+      borderWidth: 3,
+      borderColor: "#123456",
+      borderOpacity: 0.7,
+    });
+    expect(reloadedSettings.presenter).toMatchObject({
+      trackMode: "pinned-only",
+      layoutMode: "safe-overlay",
+      aspectMode: "source",
+      aspectWidth: 16,
+      aspectHeight: 9,
+    });
+
+    const pinnedSlide: StudioAsset = {
+      ...slideA,
+      blob: new Blob(["slide"], { type: slideA.mimeType }),
+      objectUrl: `blob:${slideA.id}`,
+    };
+    expect(resolveMovingTrackAssets([pinnedSlide], pinnedSlide, reloadedSettings.presenter)).toEqual([]);
   });
 
   it("retains a disabled image selection and re-enables that exact pin", () => {

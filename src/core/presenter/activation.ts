@@ -1,6 +1,8 @@
+import type { StudioSettings } from "../../model";
 import type { AspectSize, StageSize } from "./layout";
 
 export interface FirstPinComposition {
+  readonly trackMode: "pinned-only";
   readonly layoutMode: "safe-overlay";
   readonly aspectMode: "source";
   readonly x: number;
@@ -26,6 +28,7 @@ export function resolveFirstPinComposition(
 
   if (stagePortrait) {
     return Object.freeze({
+      trackMode: "pinned-only",
       layoutMode: "safe-overlay",
       aspectMode: "source",
       x: 0.94,
@@ -40,6 +43,7 @@ export function resolveFirstPinComposition(
   }
 
   return Object.freeze({
+    trackMode: "pinned-only",
     layoutMode: "safe-overlay",
     aspectMode: "source",
     x: 0.94,
@@ -51,4 +55,23 @@ export function resolveFirstPinComposition(
     shadowOffsetX: 0,
     shadowOffsetY: 12,
   });
+}
+
+/**
+ * Returns a pin to Drift's authored geometry without disturbing its media
+ * identity, enabled state, crop, focal point, border, or corner treatment.
+ * This is an explicit recovery action: saved custom direction is never
+ * rewritten merely because a project was opened by a newer build.
+ */
+export function resetPinnedFrameComposition(
+  settings: StudioSettings,
+  source: AspectSize,
+): StudioSettings {
+  return {
+    ...settings,
+    presenter: {
+      ...settings.presenter,
+      ...resolveFirstPinComposition(settings.stage, source),
+    },
+  };
 }

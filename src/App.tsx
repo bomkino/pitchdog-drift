@@ -84,7 +84,10 @@ import {
   type ThemeId,
 } from "./model";
 import { applyTheme, getTheme } from "./themes";
-import { resolveFirstPinComposition } from "./core/presenter/activation";
+import {
+  resetPinnedFrameComposition,
+  resolveFirstPinComposition,
+} from "./core/presenter/activation";
 
 const MAX_SLIDES = 200;
 const AUTOSAVE_DELAY_MS = 1_200;
@@ -915,6 +918,24 @@ export function App() {
     setSettings(nextSettings);
   }, [markProjectDirty]);
 
+  const resetPinnedFrame = useCallback(() => {
+    const current = settingsRef.current;
+    const assetId = current.presenter.assetId;
+    const asset = assetId === null
+      ? null
+      : [...assetsRef.current, ...(presenterRef.current ? [presenterRef.current] : [])]
+        .find((candidate) => candidate.id === assetId) ?? null;
+    if (!asset) {
+      announce("Choose a still image or presenter video before resetting the pinned frame.", "error");
+      return;
+    }
+    const nextSettings = resetPinnedFrameComposition(current, asset);
+    markProjectDirty();
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    announce("Pinned frame reset to its source ratio, protected layer, and still-only track.", "good");
+  }, [announce, markProjectDirty]);
+
   const removePresenter = useCallback(() => {
     const removedPresenter = presenterRef.current;
     const removedPresenterId = removedPresenter?.id ?? null;
@@ -1210,7 +1231,10 @@ export function App() {
       const authoredRatio = worldRatioForDimensions(width, height);
       const ratio = authoredRatio ?? nearestWorldRatioForDimensions(width, height);
       const source = structuredClone(currentProject);
-      source.composition = { ...source.composition, width, height };
+      // Selecting an authored opaque World is an explicit scene reset. Match
+      // the existing V1 theme contract: transparent output remains available,
+      // but must be chosen again after the paper room is restored.
+      source.composition = { ...source.composition, width, height, alphaMode: "opaque" };
       let applied = applyEditorialDriftFoundation(source, ratio, new Date().toISOString());
       if (!authoredRatio) {
         applied = detachEditorialDriftRatioProvenance(applied, applied.updatedAt);
@@ -1462,6 +1486,7 @@ export function App() {
           v2Active={renderContract === DRIFT_V2_RENDER_CONTRACT}
           onSettings={updateSettings}
           onTheme={onTheme}
+          onResetPinnedFrame={resetPinnedFrame}
           onExportStill={exportStill}
           onExportVideo={exportVideo}
           onExportFrames={exportFrames}

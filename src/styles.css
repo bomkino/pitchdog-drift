@@ -981,6 +981,36 @@ a:focus-visible {
   line-height: 1.45;
 }
 
+.pin-reset-control {
+  display: grid;
+  gap: 6px;
+  padding: 9px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.047);
+}
+
+.pin-reset-control button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid rgba(225, 155, 106, 0.32);
+  border-radius: 2px;
+  color: #d7cfc3;
+  background: rgba(166, 96, 66, 0.08);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pin-reset-control button:focus-visible {
+  outline: 2px solid var(--rust-light);
+  outline-offset: 2px;
+}
+
+.pin-reset-control small {
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .segmented-field legend {
   width: 100%;
   margin-bottom: 7px;

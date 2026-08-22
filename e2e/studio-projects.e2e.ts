@@ -145,13 +145,6 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
     document.body.append(canvas);
     const engine = new CinematicCarousel(canvas, settings);
     const delay = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-    const waitForSeek = async (video: HTMLVideoElement) => {
-      if (!video.seeking) return;
-      await Promise.race([
-        new Promise<void>((resolve) => video.addEventListener("seeked", () => resolve(), { once: true })),
-        delay(1_000),
-      ]);
-    };
     let surface: ReturnType<typeof engine.beginExport> | null = null;
     try {
       await engine.setPresenterAsset({
@@ -173,21 +166,32 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
         renderPreview(): void;
       };
       const waitForPresenterSettled = async () => {
-        let stableChecks = 0;
-        for (let attempt = 0; attempt < 100; attempt += 1) {
+        const deadline = performance.now() + 1_000;
+        while (performance.now() < deadline) {
           if (!video.seeking && clock.presenterPendingSeekTarget === null) {
-            stableChecks += 1;
-            if (stableChecks === 2) return;
-          } else {
-            stableChecks = 0;
+            return;
           }
-          await delay(10);
+          await delay(0);
         }
         throw new Error("Presenter preview did not settle its canonical seek.");
       };
+      // Media preparation time is scheduler-dependent and can otherwise put
+      // this first observation directly across the master-loop boundary.
+      // Start the playback proof from a known canonical frame.
+      engine.stop();
+      engine.setPaused(true);
+      clock.elapsed = 0;
+      clock.renderPreview();
+      await waitForPresenterSettled();
       const deliveredFrameStart = video.getVideoPlaybackQuality().totalVideoFrames;
       const playingStart = video.currentTime;
-      await delay(250);
+      engine.setPaused(false);
+      engine.start();
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const deliveredFrames = video.getVideoPlaybackQuality().totalVideoFrames - deliveredFrameStart;
+        if (deliveredFrames >= 2 && video.currentTime - playingStart > 0.1) break;
+        await delay(10);
+      }
       const playingDelta = video.currentTime - playingStart;
       const deliveredFrameCount = video.getVideoPlaybackQuality().totalVideoFrames - deliveredFrameStart;
       // A throttled headless rAF paints nothing while its decoder clock keeps
@@ -203,16 +207,16 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
       engine.stop();
       clock.elapsed = clock.performanceTimeline.totalDuration - 0.05;
       clock.renderPreview();
-      await waitForSeek(video);
+      await waitForPresenterSettled();
       clock.elapsed = clock.performanceTimeline.totalDuration + 0.02;
       clock.renderPreview();
-      await waitForSeek(video);
+      await waitForPresenterSettled();
       const wrappedClockError = Math.abs(video.currentTime - 0.02);
 
       clock.elapsed = 1.25;
       engine.setPaused(true);
       clock.renderPreview();
-      await waitForSeek(video);
+      await waitForPresenterSettled();
       const pausedClockError = Math.abs(video.currentTime - 1.25);
       const pausedStart = video.currentTime;
       await delay(250);
@@ -231,7 +235,7 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
       engine.setReducedMotionPreview(false);
       await delay(180);
       surface = engine.beginExport(256, 256);
-      await waitForSeek(video);
+      await waitForPresenterSettled();
       const exportStart = video.currentTime;
       await delay(250);
       const exportDelta = video.currentTime - exportStart;
@@ -241,6 +245,11 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
       surface = null;
       const restoredElapsedStart = clock.elapsed;
       await delay(250);
+      // The preview contract is evaluated at paint time: rAF advances the
+      // authored master clock, while the browser decoder coasts between
+      // paints. Sample immediately after a real paint so scheduler jitter is
+      // not misreported as presenter drift.
+      clock.renderPreview();
       await waitForPresenterSettled();
       const restoredElapsedDelta = clock.elapsed - restoredElapsedStart;
       const restoredTarget = clock.elapsed % clock.performanceTimeline.totalDuration;
