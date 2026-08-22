@@ -10,6 +10,12 @@ import {
   type StudioSettings,
   type ThemeId,
 } from "../../model";
+import {
+  backgroundCompositionForSeed,
+  backgroundSeedForAtmosphere,
+  backgroundVariation,
+  matchingBackgroundPalette,
+} from "../../backgrounds";
 import { validateDriftProjectV3, validateDriftProjectV4 } from "./validation";
 import {
   cloneDriftProject,
@@ -164,7 +170,7 @@ export function studioSettingsFromDriftProject(projectInput: CompatibleDriftProj
       motion: project.atmosphere.motion,
       grain: project.atmosphere.grain,
       vignette: project.atmosphere.vignette,
-      seed: project.atmosphere.seedOffset,
+      seed: backgroundSeedForAtmosphere(project.atmosphere),
     },
     presenter: {
       enabled: project.presenter.enabled && presenterAssetId !== null,
@@ -446,6 +452,10 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
   next.atmosphere.family = settings.background.style === previouslyProjected.background.style
     ? next.atmosphere.family
     : settings.background.style;
+  next.atmosphere.composition = backgroundCompositionForSeed(
+    next.atmosphere.family,
+    settings.background.seed,
+  );
   next.atmosphere.intensity = settings.background.intensity;
   next.atmosphere.motion = settings.background.motion;
   next.atmosphere.grain = settings.background.grain;
@@ -453,7 +463,9 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
   next.atmosphere.colourA = settings.background.colorA;
   next.atmosphere.colourB = settings.background.colorB;
   next.atmosphere.accent = settings.background.accent;
-  next.atmosphere.seedOffset = Math.max(0, Math.round(settings.background.seed));
+  next.atmosphere.seedOffset = backgroundVariation(settings.background.seed);
+  next.atmosphere.recut = next.atmosphere.seedOffset;
+  next.atmosphere.paletteId = matchingBackgroundPalette(settings.background)?.id ?? null;
 
   const pinId = next.formatVersion === 4
     ? settings.presenter.assetId

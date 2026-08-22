@@ -6,6 +6,7 @@ import type {
   ImageFit,
   PresenterSettingsV4,
 } from "../core/project/schema";
+import { backgroundSeedForAtmosphere } from "../backgrounds";
 
 /**
  * Ephemeral renderer input. It is derived from one validated project snapshot
@@ -157,7 +158,7 @@ export function drawGraphStateFromProject(project: DriftProjectV4): DrawGraphSta
       motion: project.atmosphere.motion,
       grain: project.atmosphere.grain,
       vignette: project.atmosphere.vignette,
-      seed: project.atmosphere.seedOffset,
+      seed: backgroundSeedForAtmosphere(project.atmosphere),
     },
     presenter: {
       ...project.presenter,

@@ -1,4 +1,18 @@
 import type { CSSProperties } from "react";
+import {
+  BACKGROUND_COMPOSITIONS,
+  BACKGROUND_PALETTES,
+  BACKGROUND_STUDIES,
+  applyBackgroundStudy,
+  backgroundCompositionIndex,
+  backgroundVariation,
+  matchingBackgroundPalette,
+  matchingBackgroundStudy,
+  withBackgroundComposition,
+  withBackgroundPalette,
+  withBackgroundVariation,
+  type OpaqueBackgroundStyle,
+} from "../backgrounds";
 import { driftBuildIdentity } from "../lib/buildIdentity";
 import {
   fitPerformanceLifecycleToDuration,
@@ -191,6 +205,12 @@ export function ControlPanel({
     MAX_OUTPUT_DURATION,
     minimumTotalDuration(performance),
   );
+  const opaqueBackground = settings.background.style === "transparent"
+    ? null
+    : settings.background.style as OpaqueBackgroundStyle;
+  const backgroundStudy = opaqueBackground ? matchingBackgroundStudy(settings.background) : null;
+  const backgroundPalette = opaqueBackground ? matchingBackgroundPalette(settings.background) : null;
+  const backgroundComposition = backgroundCompositionIndex(settings.background.seed);
 
   return (
     <aside className="inspector" aria-label="Director controls" aria-busy={exporting} inert={exporting}>
@@ -342,6 +362,21 @@ export function ControlPanel({
 
       <InspectorGroup title="Atmosphere" eyebrow={settings.background.style}>
         <SelectField
+          label="Background library · all 40"
+          value={backgroundStudy?.id ?? "custom"}
+          options={[
+            { value: "custom", label: opaqueBackground ? "Custom direction" : "Transparent" },
+            ...BACKGROUND_STUDIES.map((study) => ({
+              value: study.id,
+              label: `${study.genre} · ${study.name}`,
+            })),
+          ]}
+          onChange={(studyId) => {
+            const study = BACKGROUND_STUDIES.find((entry) => entry.id === studyId);
+            if (study) onSettings(applyBackgroundStudy(settings, study));
+          }}
+        />
+        <SelectField
           label="Background"
           value={settings.background.style}
           options={[
@@ -354,6 +389,43 @@ export function ControlPanel({
           ]}
           onChange={(style) => onSettings({ ...settings, stage: { ...settings.stage, transparent: style === "transparent" }, background: { ...settings.background, style } })}
         />
+        {opaqueBackground ? (
+          <>
+            <SelectField
+              label="Composition"
+              value={backgroundComposition}
+              options={BACKGROUND_COMPOSITIONS[opaqueBackground].map((composition, index) => ({
+                value: index,
+                label: composition.name,
+              }))}
+              onChange={(composition) => patch("background", withBackgroundComposition(settings.background, composition))}
+            />
+            <SelectField
+              label="Palette"
+              value={backgroundPalette?.id ?? "custom"}
+              options={[
+                { value: "custom", label: "Custom colours" },
+                ...BACKGROUND_PALETTES.map((palette) => ({ value: palette.id, label: palette.name })),
+              ]}
+              onChange={(paletteId) => {
+                const palette = BACKGROUND_PALETTES.find((entry) => entry.id === paletteId);
+                if (palette) patch("background", withBackgroundPalette(settings.background, palette));
+              }}
+            />
+            <div className="pin-reset-control atmosphere-recut">
+              <button
+                type="button"
+                onClick={() => patch("background", withBackgroundVariation(
+                  settings.background,
+                  (backgroundVariation(settings.background.seed) + 1) % 100,
+                ))}
+              >
+                Recut composition
+              </button>
+              <small>Take {String(backgroundVariation(settings.background.seed) + 1).padStart(2, "0")} · same structure, new deterministic weather.</small>
+            </div>
+          </>
+        ) : null}
         <ColorField label="Ground" value={settings.background.colorA} onChange={(colorA) => patch("background", { colorA })} />
         <ColorField label="Field" value={settings.background.colorB} onChange={(colorB) => patch("background", { colorB })} />
         <ColorField label="Light" value={settings.background.accent} onChange={(accent) => patch("background", { accent })} />
@@ -449,6 +521,13 @@ export function ControlPanel({
           </>
         ) : null}
         <SwitchField label="Mute presenter in export" checked={settings.presenter.muted} onChange={(muted) => patch("presenter", { muted })} />
+        {!settings.presenter.muted ? (
+          <>
+            <RangeField label="Presenter level" value={settings.presenter.gain * 100} min={0} max={200} step={1} unit="%" onChange={(value) => patch("presenter", { gain: value / 100 })} />
+            <RangeField label="Source trim" value={settings.presenter.trimStart} min={0} max={settings.output.duration} step={0.05} decimals={2} unit=" s" onChange={(trimStart) => patch("presenter", { trimStart })} />
+            <RangeField label="Enters at" value={settings.presenter.startAt} min={0} max={settings.output.duration} step={0.05} decimals={2} unit=" s" onChange={(startAt) => patch("presenter", { startAt })} />
+          </>
+        ) : null}
       </InspectorGroup>
 
       <InspectorGroup title="Performance" eyebrow={`${performanceTimeline.totalDuration.toFixed(2)} s total`} open>

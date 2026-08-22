@@ -199,6 +199,7 @@ describe("deterministic export frame identity", () => {
       movingTrackAssets: () => [],
       disposed: false,
       contextLost: false,
+      assertExplicitFrameRendererAvailable: vi.fn(),
       resolvePresenterTexture: vi.fn(),
       setTextureDemand: vi.fn(),
       renderAt,

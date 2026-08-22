@@ -172,7 +172,7 @@ export const backgroundVertexShader = /* glsl */ `
   }
 `;
 
-export const backgroundFragmentShader = /* glsl */ `
+export const backgroundFragmentShaderLegacy = /* glsl */ `
   precision highp float;
   varying vec2 vUv;
   uniform vec2 uResolution;
@@ -288,3 +288,5 @@ export const backgroundFragmentShader = /* glsl */ `
     if (gl_FragColor.a <= 0.001) discard;
   }
 `;
+
+export { backgroundFragmentShader } from "./backgroundShader";

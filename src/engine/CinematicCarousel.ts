@@ -613,7 +613,8 @@ export class CinematicCarousel {
         uGrainFrame: { value: 0 },
         uVignette: { value: state.background.vignette },
         uPhase: { value: 0 },
-        uSeed: { value: normalizeGrainSeed(state.background.seed) },
+        uSeed: { value: state.background.seed },
+        uGrainSeed: { value: normalizeGrainSeed(state.background.seed) },
         uOpacity: { value: 1 },
       },
     });
@@ -1688,7 +1689,8 @@ export class CinematicCarousel {
     this.backgroundMaterial.uniforms.uMotion!.value = background.motion;
     this.backgroundMaterial.uniforms.uGrain!.value = background.grain;
     this.backgroundMaterial.uniforms.uVignette!.value = background.vignette;
-    this.backgroundMaterial.uniforms.uSeed!.value = normalizeGrainSeed(background.seed);
+    this.backgroundMaterial.uniforms.uSeed!.value = background.seed;
+    this.backgroundMaterial.uniforms.uGrainSeed!.value = normalizeGrainSeed(background.seed);
   }
 
   private updateBackground(time: number, exportMode: boolean, exportFrameIndex: number | null = null): void {
