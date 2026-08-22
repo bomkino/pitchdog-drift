@@ -58,6 +58,7 @@ describe("Project V4 canonical V2 frame evaluation", () => {
     expect(exported.lifecycle).toEqual(preview.lifecycle);
     expect({ ...exported.frame, frameIndex: null }).toEqual(preview.frame);
     expect(repeated).toEqual(exported);
+    expect(exported.project).toBe(project);
   });
 
   it.each(["12fps", "18fps", "24fps"] as const)(

@@ -42,6 +42,7 @@ export interface ProtectedPinLaneCompositionInput {
 }
 
 export interface ProtectedPinLaneComposition extends PinLaneComposition {
+  readonly opacity: number;
   readonly influence: number;
   readonly targetScale: number;
   readonly targetCrossCenter: number;
@@ -51,6 +52,7 @@ export interface ProtectedPinLaneComposition extends PinLaneComposition {
 const NEUTRAL: PinLaneComposition = Object.freeze({ scale: 1, offsetX: 0, offsetY: 0 });
 const PROTECTED_NEUTRAL: ProtectedPinLaneComposition = Object.freeze({
   ...NEUTRAL,
+  opacity: 1,
   influence: 0,
   targetScale: 1,
   targetCrossCenter: 0,
@@ -162,9 +164,11 @@ export function resolveProtectedPinLaneComposition(
     : stageCrossMaximum;
   const laneExtent = Math.max(0, laneMaximum - laneMinimum);
   const exactFitScale = movingCrossHalf > 0 ? laneExtent / (movingCrossHalf * 2) : 1;
-  // Below this size, preserve visual authority and let the opposite edge crop.
-  // The presenter-facing edge remains strictly protected.
-  const targetScale = Math.min(1, Math.max(0.34, exactFitScale));
+  const targetScale = clamp(exactFitScale, 0, 1);
+  // A card too small to read is not a useful lane. Preserve the protected pin,
+  // fit the card geometrically, and dissolve the collision instead of cropping
+  // its opposite edge or presenting a decorative thumbnail.
+  const targetOpacity = exactFitScale >= 0.55 ? 1 : 0;
   const targetHalf = movingCrossHalf * targetScale;
   let targetCrossCenter: number;
   if (presenterOnPositiveSide) {
@@ -178,9 +182,11 @@ export function resolveProtectedPinLaneComposition(
   }
 
   const additionalScale = 1 - (1 - targetScale) * influence;
+  const opacity = 1 - (1 - targetOpacity) * influence;
   const crossOffset = (targetCrossCenter - movingCrossCenter) * influence;
   return Object.freeze({
     scale: additionalScale,
+    opacity,
     offsetX: input.axis === "vertical" ? crossOffset : 0,
     offsetY: input.axis === "horizontal" ? crossOffset : 0,
     influence,

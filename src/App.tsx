@@ -11,6 +11,17 @@ import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
 import { createDefaultDriftProjectV4 } from "./core/project/defaults";
 import {
+  assertExportAuthorityUnchanged,
+  captureExportAuthority,
+  type ExportAuthoritySnapshot,
+} from "./core/export/exportAuthority";
+import {
+  exportPlanFromProject,
+  exportPlanFromV1Settings,
+  stagePresentationFromProject,
+  stagePresentationFromV1Settings,
+} from "./core/project/appPresentation";
+import {
   reconcileStudioProject,
   studioSettingsFromDriftProject,
 } from "./core/project/studioProjection";
@@ -256,7 +267,7 @@ export function App() {
   ) => void | Promise<void>>(() => undefined);
 
   const [settings, setSettings] = useState<StudioSettings>(() => cloneSettings(initialSettings));
-  const [renderContract, setRenderContract] = useState(projectRef.current.renderContract);
+  const [liveProject, setLiveProject] = useState<DriftProjectV4>(() => structuredClone(projectRef.current!));
   const [assets, setAssets] = useState<StudioAsset[]>([]);
   const [presenter, setPresenter] = useState<StudioAsset | null>(null);
   const [webglError, setWebglError] = useState<string | null>(null);
@@ -284,11 +295,25 @@ export function App() {
   assetsRef.current = assets;
   presenterRef.current = presenter;
 
+  const v2Active = liveProject.renderContract === DRIFT_V2_RENDER_CONTRACT;
+  const stagePresentation = useMemo(
+    () => v2Active
+      ? stagePresentationFromProject(liveProject)
+      : stagePresentationFromV1Settings(settings),
+    [liveProject, settings, v2Active],
+  );
+  const liveExportPlan = useMemo(
+    () => v2Active
+      ? exportPlanFromProject(liveProject)
+      : exportPlanFromV1Settings(settings),
+    [liveProject, settings, v2Active],
+  );
   const allAssets = useMemo(() => presenter ? [...assets, presenter] : assets, [assets, presenter]);
   const pinnedAsset = useMemo(
-    () => allAssets.find((asset) => asset.id === settings.presenter.assetId) ?? null,
-    [allAssets, settings.presenter.assetId],
+    () => allAssets.find((asset) => asset.id === stagePresentation.pinnedAssetId) ?? null,
+    [allAssets, stagePresentation.pinnedAssetId],
   );
+  const activePinnedAsset = stagePresentation.pinEnabled ? pinnedAsset : null;
 
   const announce = useCallback((message: string, kind: "quiet" | "good" | "error" = "quiet") => {
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
@@ -298,6 +323,37 @@ export function App() {
       setNotice(null);
       noticeTimerRef.current = null;
     }, kind === "error" ? 9_000 : 4_800);
+  }, []);
+
+  const publishLiveProject = useCallback((project: DriftProjectV4) => {
+    projectRef.current = project;
+    setLiveProject(project);
+  }, []);
+
+  const reconcileLiveProject = useCallback((
+    nextSettings: StudioSettings,
+    nextAssets: readonly StudioAsset[],
+    nextPresenter: StudioAsset | null,
+    baseProject = projectRef.current,
+  ): DriftProjectV4 => {
+    if (!baseProject) throw new Error("Project V4 creative authority is unavailable.");
+    const project = reconcileStudioProject({
+      project: baseProject,
+      settings: nextSettings,
+      slideAssets: nextAssets.map(describeProjectAsset),
+      presenterAsset: nextPresenter ? describeProjectAsset(nextPresenter) : null,
+      // Live creative edits do not impersonate persistence revisions.
+      updatedAt: baseProject.updatedAt,
+    });
+    publishLiveProject(project);
+    return project;
+  }, [publishLiveProject]);
+
+  const settingsForCurrentAuthority = useCallback((): StudioSettings => {
+    const project = projectRef.current;
+    return project?.renderContract === DRIFT_V2_RENDER_CONTRACT
+      ? studioSettingsFromDriftProject(project)
+      : settingsRef.current;
   }, []);
 
   const enqueueProjectOperation = useCallback((
@@ -403,8 +459,7 @@ export function App() {
   const installPreparedProjectState = useCallback((prepared: PreparedProjectState) => {
     assetsRef.current.forEach(disposeAsset);
     if (presenterRef.current) disposeAsset(presenterRef.current);
-    projectRef.current = prepared.project;
-    setRenderContract(prepared.project.renderContract);
+    publishLiveProject(prepared.project);
     settingsRef.current = prepared.settings;
     assetsRef.current = prepared.slides;
     presenterRef.current = prepared.presenter;
@@ -422,7 +477,7 @@ export function App() {
       projectId: prepared.project.projectId,
       createdAt: prepared.project.createdAt,
     };
-  }, []);
+  }, [publishLiveProject]);
 
   const replaceProjectState = useCallback(async (snapshot: ProjectSnapshot<StudioProjectPayload>) => {
     const prepared = await prepareProjectState(snapshot);
@@ -435,7 +490,7 @@ export function App() {
   }, [installPreparedProjectState, prepareProjectState]);
 
   const persist = useCallback((
-    nextSettings = settingsRef.current,
+    nextSettings = settingsForCurrentAuthority(),
     nextAssets = assetsRef.current,
     nextPresenter = presenterRef.current,
     reservedRevision?: number,
@@ -451,7 +506,7 @@ export function App() {
       presenterAsset: nextPresenter ? describeProjectAsset(nextPresenter) : null,
       updatedAt,
     });
-    projectRef.current = nextProject;
+    publishLiveProject(nextProject);
     const payload = createDriftProjectPayload(nextProject);
     const projectAssets = [...nextAssets, ...(nextPresenter ? [nextPresenter] : [])].map((asset) => ({
       id: asset.id,
@@ -486,7 +541,7 @@ export function App() {
       },
     );
     return task;
-  }, []);
+  }, [publishLiveProject, settingsForCurrentAuthority]);
 
   const persistExactProject = useCallback((
     project: DriftProjectV4,
@@ -554,6 +609,7 @@ export function App() {
             return;
           }
           assetsRef.current = demo;
+          reconcileLiveProject(settingsForCurrentAuthority(), demo, presenterRef.current);
           setAssets(demo);
           announce("A live study is loaded. Replace it with your own deck whenever you’re ready.");
         }
@@ -567,6 +623,7 @@ export function App() {
         if (cancelled) demo.forEach(disposeAsset);
         else {
           assetsRef.current = demo;
+          reconcileLiveProject(settingsForCurrentAuthority(), demo, presenterRef.current);
           setAssets(demo);
         }
       } finally {
@@ -577,7 +634,7 @@ export function App() {
       }
     });
     return () => { cancelled = true; };
-  }, [announce, enqueueProjectOperation, replaceProjectState]);
+  }, [announce, enqueueProjectOperation, reconcileLiveProject, replaceProjectState, settingsForCurrentAuthority]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -585,7 +642,12 @@ export function App() {
     if (!canvas || !frame) return;
     let engine: CinematicCarousel;
     try {
-      engine = new CinematicCarousel(canvas, settingsRef.current, {
+      const project = projectRef.current;
+      if (!project) throw new Error("Project V4 creative authority is unavailable.");
+      const authority = project.renderContract === DRIFT_V2_RENDER_CONTRACT
+        ? { kind: "project-v4" as const, project }
+        : { kind: "v1-compat" as const, settings: settingsRef.current };
+      engine = new CinematicCarousel(canvas, authority, {
         onError: (message) => announce(message, "error"),
         onContextState: setContextState,
         onFrame: setFps,
@@ -616,23 +678,14 @@ export function App() {
 
   useEffect(() => {
     const engine = engineRef.current;
-    const baseProject = projectRef.current;
-    if (!engine || !baseProject) return;
-    const liveProject = reconcileStudioProject({
-      project: baseProject,
-      settings,
-      slideAssets: assets.map(describeProjectAsset),
-      presenterAsset: presenter ? describeProjectAsset(presenter) : null,
-      // Live draw authority changes immediately; save/recovery timestamps only
-      // change when the persistence transaction reserves a revision.
-      updatedAt: baseProject.updatedAt,
-    });
-    projectRef.current = liveProject;
-    setRenderContract((current) => current === liveProject.renderContract ? current : liveProject.renderContract);
-    settingsRef.current = studioSettingsFromDriftProject(liveProject);
-    void engine.setProjectState(liveProject, assets);
-  }, [assets, presenter, settings]);
-  useEffect(() => { void engineRef.current?.setPresenterAsset(pinnedAsset); }, [pinnedAsset]);
+    if (!engine) return;
+    if (liveProject.renderContract === DRIFT_V2_RENDER_CONTRACT) {
+      void engine.setV2ProjectState(liveProject, assets);
+      return;
+    }
+    void engine.setV1CompatibilityState(settings, liveProject, assets);
+  }, [assets, liveProject, settings]);
+  useEffect(() => { void engineRef.current?.setPresenterAsset(activePinnedAsset); }, [activePinnedAsset]);
 
   useEffect(() => {
     if (!hydratedRef.current) return;
@@ -667,15 +720,15 @@ export function App() {
   useEffect(() => {
     let live = true;
     void import("./lib/exportStudio").then(({ probeExportCapabilities }) => probeExportCapabilities({
-      width: settings.output.width,
-      height: settings.output.height,
-      fps: settings.output.fps,
-      duration: settings.output.duration,
+      width: liveExportPlan.width,
+      height: liveExportPlan.height,
+      fps: liveExportPlan.fps,
+      duration: liveExportPlan.duration,
     }))
       .then((report) => live && setMp4Supported(report.mp4.supported))
       .catch(() => live && setMp4Supported(false));
     return () => { live = false; };
-  }, [settings.output.duration, settings.output.fps, settings.output.height, settings.output.width]);
+  }, [liveExportPlan.duration, liveExportPlan.fps, liveExportPlan.height, liveExportPlan.width]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -777,7 +830,7 @@ export function App() {
     }
     if (replacingDemos) current.forEach(disposeAsset);
     const next = [...retained, ...accepted];
-    const nextSettings = settingsRef.current;
+    const nextSettings = settingsForCurrentAuthority();
     const nextPresenter = presenterRef.current;
     if (options.persistBeforeReply) {
       directPersistenceSnapshotRef.current = {
@@ -788,6 +841,7 @@ export function App() {
     }
     markProjectDirty();
     assetsRef.current = next;
+    reconcileLiveProject(nextSettings, next, nextPresenter);
     setAssets(next);
     const usedBytes = projectAssetBytes([
       ...next,
@@ -806,7 +860,7 @@ export function App() {
         if (options.propagateFailure) throw error;
       }
     }
-  }, [announce, markProjectDirty, persist]);
+  }, [announce, markProjectDirty, persist, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const addImages = useCallback((files: File[]) => {
     void enqueueProjectOperation(() => addImagesNow(files));
@@ -830,17 +884,18 @@ export function App() {
       presenterRef.current = next;
       setPresenter(next);
 
-      const currentPin = settingsRef.current.presenter;
+      const currentSettings = settingsForCurrentAuthority();
+      const currentPin = currentSettings.presenter;
       const selectedSlideStillExists = currentPin.assetId !== null
         && assetsRef.current.some((asset) => asset.id === currentPin.assetId);
       const nextSettings: StudioSettings = {
-        ...settingsRef.current,
+        ...currentSettings,
         presenter: selectedSlideStillExists
           ? currentPin
           : {
               ...currentPin,
               ...(currentPin.assetId === null
-                ? resolveFirstPinComposition(settingsRef.current.stage, next)
+                ? resolveFirstPinComposition(currentSettings.stage, next)
                 : {}),
               enabled: true,
               assetId: next.id,
@@ -855,6 +910,7 @@ export function App() {
       }
       markProjectDirty();
       settingsRef.current = nextSettings;
+      reconcileLiveProject(nextSettings, assetsRef.current, next);
       setSettings(nextSettings);
       announce(
         `${selectedSlideStillExists ? "Presenter video added; the selected still image was kept." : "Presenter video added and kept still."} Audio will be checked—not silently dropped—at export. ${formatProjectMiB(existingSlideBytes + next.blob.size)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
@@ -867,7 +923,7 @@ export function App() {
       announce(error instanceof Error ? error.message : "Presenter video could not be opened.", "error");
       if (options.propagateFailure) throw error;
     }
-  }, [announce, markProjectDirty, persist]);
+  }, [announce, markProjectDirty, persist, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const addPresenter = useCallback((file: File) => {
     void enqueueProjectOperation(() => addPresenterNow(file));
@@ -880,12 +936,12 @@ export function App() {
     const nextAssets = current.filter((asset) => asset.id !== id);
     markProjectDirty();
     assetsRef.current = nextAssets;
-    setAssets(nextAssets);
-
-    const nextSettings = clearPinnedAssetIfRemoved(settingsRef.current, id);
+    const nextSettings = clearPinnedAssetIfRemoved(settingsForCurrentAuthority(), id);
     settingsRef.current = nextSettings;
+    reconcileLiveProject(nextSettings, nextAssets, presenterRef.current);
+    setAssets(nextAssets);
     setSettings(nextSettings);
-  }, [markProjectDirty]);
+  }, [markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const reorder = useCallback((fromId: string, toId: string) => {
     const current = assetsRef.current;
@@ -897,11 +953,12 @@ export function App() {
     next.splice(to, 0, moved!);
     markProjectDirty();
     assetsRef.current = next;
+    reconcileLiveProject(settingsForCurrentAuthority(), next, presenterRef.current);
     setAssets(next);
-  }, [markProjectDirty]);
+  }, [markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const pin = useCallback((asset: StudioAsset | null) => {
-    const current = settingsRef.current;
+    const current = settingsForCurrentAuthority();
     const nextSettings: StudioSettings = {
       ...current,
       presenter: {
@@ -915,11 +972,12 @@ export function App() {
     };
     markProjectDirty();
     settingsRef.current = nextSettings;
+    reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
     setSettings(nextSettings);
-  }, [markProjectDirty]);
+  }, [markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const resetPinnedFrame = useCallback(() => {
-    const current = settingsRef.current;
+    const current = settingsForCurrentAuthority();
     const assetId = current.presenter.assetId;
     const asset = assetId === null
       ? null
@@ -932,9 +990,10 @@ export function App() {
     const nextSettings = resetPinnedFrameComposition(current, asset);
     markProjectDirty();
     settingsRef.current = nextSettings;
+    reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
     setSettings(nextSettings);
     announce("Pinned frame reset to its source ratio, protected layer, and still-only track.", "good");
-  }, [announce, markProjectDirty]);
+  }, [announce, markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const removePresenter = useCallback(() => {
     const removedPresenter = presenterRef.current;
@@ -943,11 +1002,12 @@ export function App() {
     presenterRef.current = null;
     setPresenter(null);
 
-    const nextSettings = clearPinnedAssetIfRemoved(settingsRef.current, removedPresenterId);
+    const nextSettings = clearPinnedAssetIfRemoved(settingsForCurrentAuthority(), removedPresenterId);
     markProjectDirty();
     settingsRef.current = nextSettings;
+    reconcileLiveProject(nextSettings, assetsRef.current, null);
     setSettings(nextSettings);
-  }, [markProjectDirty]);
+  }, [markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const renderForExport = useCallback(async (
     time: number,
@@ -963,22 +1023,89 @@ export function App() {
     );
   }, []);
 
-  const beginExport = useCallback(() => {
-    if (projectPendingRef.current > 0) throw new Error("A project or media operation is still in progress.");
-    const engine = engineRef.current;
-    if (!engine) throw new Error("Cinematic renderer is unavailable; export is blocked.");
-    const output = settingsRef.current.output;
-    const surface = engine.beginExport(output.width, output.height);
+  const reserveExport = useCallback((): {
+    controller: AbortController;
+    authority: ExportAuthoritySnapshot;
+  } => {
+    if (abortRef.current) {
+      throw new DOMException("An export is already preparing or running.", "InvalidStateError");
+    }
+    if (projectPendingRef.current > 0) {
+      throw new DOMException("A project or media operation is still in progress.", "InvalidStateError");
+    }
+    const project = projectRef.current;
+    if (!project) throw new Error("Project V4 creative authority is unavailable.");
     const controller = new AbortController();
+    const authority = captureExportAuthority({
+      project,
+      settings: settingsRef.current,
+      assets: assetsRef.current,
+      presenter: presenterRef.current,
+    });
     abortRef.current = controller;
-    setExportProgress({ phase: "preparing", completed: 0, total: 1_000, message: "Preparing deterministic timeline" });
-    return { engine, controller, surface, output };
+    setExportProgress({
+      phase: "preparing",
+      completed: 0,
+      total: 1_000,
+      message: "Preparing one locked creative snapshot",
+    });
+    return { controller, authority };
   }, []);
 
-  const endExport = useCallback((surface: { restore: () => void }) => {
-    surface.restore();
-    abortRef.current = null;
-    window.setTimeout(() => setExportProgress(null), 650);
+  const beginExport = useCallback(async (reservation: {
+    controller: AbortController;
+    authority: ExportAuthoritySnapshot;
+  }) => {
+    if (abortRef.current !== reservation.controller) {
+      throw new DOMException("Export reservation is no longer active.", "InvalidStateError");
+    }
+    const engine = engineRef.current;
+    if (!engine) throw new Error("Cinematic renderer is unavailable; export is blocked.");
+    const { authority, controller } = reservation;
+    const assertCurrent = () => {
+      if (controller.signal.aborted) {
+        throw new DOMException("Export canceled.", "AbortError");
+      }
+      const project = projectRef.current;
+      if (!project) throw new Error("Project V4 creative authority is unavailable.");
+      assertExportAuthorityUnchanged(authority, {
+        project,
+        settings: settingsRef.current,
+        assets: assetsRef.current,
+        presenter: presenterRef.current,
+      });
+    };
+    assertCurrent();
+    const { project, settings, assets, presenter } = authority;
+    const plan = project.renderContract === DRIFT_V2_RENDER_CONTRACT
+      ? exportPlanFromProject(project)
+      : exportPlanFromV1Settings(settings);
+    if (project.renderContract === DRIFT_V2_RENDER_CONTRACT) {
+      await engine.setV2ProjectState(project, assets);
+    } else {
+      await engine.setV1CompatibilityState(settings, project, assets);
+    }
+    assertCurrent();
+    const availableAssets = [
+      ...assets,
+      ...(presenter ? [presenter] : []),
+    ];
+    const pinned = plan.presenter.assetId === null
+      ? null
+      : availableAssets.find((asset) => asset.id === plan.presenter.assetId) ?? null;
+    await engine.setPresenterAsset(plan.presenter.enabled ? pinned : null);
+    assertCurrent();
+    const surface = engine.beginExport(plan.width, plan.height);
+    return { engine, controller, surface, plan, pinnedAsset: pinned };
+  }, []);
+
+  const endExport = useCallback((
+    reservation: { controller: AbortController },
+    surface?: { restore: () => void },
+  ) => {
+    surface?.restore();
+    if (abortRef.current === reservation.controller) abortRef.current = null;
+    setExportProgress(null);
   }, []);
 
   const exportVideo = useCallback(async () => {
@@ -995,41 +1122,39 @@ export function App() {
       );
       return;
     }
+    let reservation: ReturnType<typeof reserveExport>;
+    try {
+      reservation = reserveExport();
+    } catch (error) {
+      announce(error instanceof Error ? error.message : "Could not start MP4 export.", "error");
+      return;
+    }
     let fileHandle: FileSystemFileHandle | null = null;
-    const savePicker = (window as PickerWindow).showSaveFilePicker;
-    if (savePicker) {
-      try {
+    let session: Awaited<ReturnType<typeof beginExport>> | null = null;
+    try {
+      const savePicker = (window as PickerWindow).showSaveFilePicker;
+      if (savePicker) {
         fileHandle = await savePicker({
           id: "pitchdog-drift-master",
           suggestedName: `drift-master-${timestampSlug()}.mp4`,
           types: [{ description: "H.264 MP4 master", accept: { "video/mp4": [".mp4"] } }],
         });
-      } catch (error) {
-        if (isAbortError(error)) {
-          announce("MP4 export canceled before rendering.");
-          return;
-        }
-        announce(error instanceof Error ? error.message : "Could not choose an MP4 destination.", "error");
-        return;
       }
-    }
-    let session: ReturnType<typeof beginExport> | null = null;
-    try {
-      session = beginExport();
-      const pinnedVideo = settingsRef.current.presenter.enabled && pinnedAsset?.kind === "video" ? pinnedAsset : null;
+      session = await beginExport(reservation);
+      const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { createFileSystemMp4Target, exportMp4 } = await import("./lib/exportStudio");
       const target = fileHandle ? await createFileSystemMp4Target(fileHandle, session.controller.signal) : undefined;
       const result = await exportMp4({
         canvas: session.engine.canvas,
         renderAt: renderForExport,
         settings: {
-          width: session.output.width,
-          height: session.output.height,
-          fps: session.output.fps,
-          duration: session.output.duration,
+          width: session.plan.width,
+          height: session.plan.height,
+          fps: session.plan.fps,
+          duration: session.plan.duration,
         },
         presenter: pinnedVideo?.blob,
-        includePresenterAudio: !settingsRef.current.presenter.muted,
+        includePresenterAudio: session.plan.presenter.includeAudio,
         signal: session.controller.signal,
         onProgress: (progress) => setExportProgress(encoderProgress(progress)),
         target,
@@ -1037,35 +1162,40 @@ export function App() {
       if (result.blob) await downloadBlob(result.blob, `drift-master-${timestampSlug()}.mp4`);
       announce(`${result.width} × ${result.height} H.264 master verified: ${result.verification.frameCount} frames at ${result.fps} fps.`, "good");
     } catch (error) {
-      announce(isAbortError(error) ? "MP4 export canceled." : error instanceof Error ? error.message : "MP4 export failed.", isAbortError(error) ? "quiet" : "error");
+      announce(
+        isAbortError(error) ? "MP4 export canceled." : error instanceof Error ? error.message : "MP4 export failed.",
+        isAbortError(error) ? "quiet" : "error",
+      );
     } finally {
-      if (session) endExport(session.surface);
+      endExport(reservation, session?.surface);
     }
-  }, [announce, beginExport, endExport, mp4Supported, nativeMac, pinnedAsset, renderForExport]);
+  }, [announce, beginExport, endExport, mp4Supported, nativeMac, renderForExport, reserveExport]);
 
   const exportStill = useCallback(async () => {
-    let session: ReturnType<typeof beginExport> | null = null;
+    let reservation: ReturnType<typeof reserveExport> | null = null;
+    let session: Awaited<ReturnType<typeof beginExport>> | null = null;
     try {
-      session = beginExport();
-      const pinnedVideo = settingsRef.current.presenter.enabled && pinnedAsset?.kind === "video" ? pinnedAsset : null;
+      reservation = reserveExport();
+      session = await beginExport(reservation);
+      const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { exportPngStill } = await import("./lib/exportStudio");
       const stillTime = defaultPerformanceStillTime(
-        createPerformanceLifecycle(settingsRef.current.performance),
+        createPerformanceLifecycle(session.plan.performance),
       );
       const result = await exportPngStill({
         canvas: session.engine.canvas,
         renderAt: renderForExport,
         settings: {
-          width: session.output.width,
-          height: session.output.height,
-          fps: session.output.fps,
-          duration: session.output.duration,
+          width: session.plan.width,
+          height: session.plan.height,
+          fps: session.plan.fps,
+          duration: session.plan.duration,
         },
         presenter: pinnedVideo?.blob,
         time: stillTime,
         signal: session.controller.signal,
         requireAlpha: true,
-        requireTransparentPixels: settingsRef.current.stage.transparent || settingsRef.current.background.style === "transparent",
+        requireTransparentPixels: session.plan.requireTransparentPixels,
         onProgress: (progress) => setExportProgress(encoderProgress(progress)),
       });
       await downloadBlob(result.blob, `drift-still-${timestampSlug()}.png`);
@@ -1073,29 +1203,31 @@ export function App() {
     } catch (error) {
       announce(isAbortError(error) ? "PNG save canceled." : error instanceof Error ? error.message : "PNG capture failed.", isAbortError(error) ? "quiet" : "error");
     } finally {
-      if (session) endExport(session.surface);
+      if (reservation) endExport(reservation, session?.surface);
     }
-  }, [announce, beginExport, endExport, pinnedAsset, renderForExport]);
+  }, [announce, beginExport, endExport, renderForExport, reserveExport]);
 
   const exportFrames = useCallback(async () => {
-    let session: ReturnType<typeof beginExport> | null = null;
+    let reservation: ReturnType<typeof reserveExport> | null = null;
+    let session: Awaited<ReturnType<typeof beginExport>> | null = null;
     try {
-      session = beginExport();
-      const pinnedVideo = settingsRef.current.presenter.enabled && pinnedAsset?.kind === "video" ? pinnedAsset : null;
+      reservation = reserveExport();
+      session = await beginExport(reservation);
+      const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { exportPngSequence } = await import("./lib/exportStudio");
       const common = {
         canvas: session.engine.canvas,
         renderAt: renderForExport,
         settings: {
-          width: session.output.width,
-          height: session.output.height,
-          fps: session.output.fps,
-          duration: session.output.duration,
+          width: session.plan.width,
+          height: session.plan.height,
+          fps: session.plan.fps,
+          duration: session.plan.duration,
         },
         presenter: pinnedVideo?.blob,
         signal: session.controller.signal,
         requireAlpha: true,
-        requireTransparentPixels: settingsRef.current.stage.transparent || settingsRef.current.background.style === "transparent",
+        requireTransparentPixels: session.plan.requireTransparentPixels,
         onProgress: (progress: EncoderProgress) => setExportProgress(encoderProgress(progress)),
       };
       const picker = (window as PickerWindow).showDirectoryPicker;
@@ -1112,9 +1244,9 @@ export function App() {
     } catch (error) {
       announce(isAbortError(error) ? "PNG sequence export canceled." : error instanceof Error ? error.message : "PNG sequence export failed.", isAbortError(error) ? "quiet" : "error");
     } finally {
-      if (session) endExport(session.surface);
+      if (reservation) endExport(reservation, session?.surface);
     }
-  }, [announce, beginExport, endExport, pinnedAsset, renderForExport]);
+  }, [announce, beginExport, endExport, renderForExport, reserveExport]);
 
   const savePortableProjectNow = useCallback(async () => {
     try {
@@ -1157,12 +1289,12 @@ export function App() {
               const baseProject = projectRef.current ?? createInitialProject(makeLocalProjectId(), updatedAt);
               const project = reconcileStudioProject({
                 project: baseProject,
-                settings: settingsRef.current,
+                settings: settingsForCurrentAuthority(),
                 slideAssets: assetsRef.current.map(describeProjectAsset),
                 presenterAsset: presenterRef.current ? describeProjectAsset(presenterRef.current) : null,
                 updatedAt,
               });
-              projectRef.current = project;
+              publishLiveProject(project);
               return createProjectBundle({
                 payload: createDriftProjectPayload(project),
                 assets: [...assetsRef.current, ...(presenterRef.current ? [presenterRef.current] : [])].map((asset) => ({
@@ -1210,7 +1342,7 @@ export function App() {
       announce(error instanceof Error ? `Project rejected: ${error.message}` : "Project was rejected.", "error");
       if (propagateFailure) throw error;
     }
-  }, [announce, installPreparedProjectState, persist, persistExactProject, prepareProjectState, replaceProjectState]);
+  }, [announce, installPreparedProjectState, persist, persistExactProject, prepareProjectState, publishLiveProject, replaceProjectState, settingsForCurrentAuthority]);
 
   const openPortableProject = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
@@ -1227,7 +1359,7 @@ export function App() {
   const onTheme = useCallback((id: ThemeId) => {
     const currentProject = projectRef.current;
     if (driftBuildIdentity.isDevelopment && id === "editorial-drift" && currentProject) {
-      const { width, height } = settingsRef.current.stage;
+      const { width, height } = stagePresentationFromProject(currentProject);
       const authoredRatio = worldRatioForDimensions(width, height);
       const ratio = authoredRatio ?? nearestWorldRatioForDimensions(width, height);
       const source = structuredClone(currentProject);
@@ -1240,8 +1372,7 @@ export function App() {
         applied = detachEditorialDriftRatioProvenance(applied, applied.updatedAt);
       }
       const nextSettings = studioSettingsFromDriftProject(applied);
-      projectRef.current = applied;
-      setRenderContract(applied.renderContract);
+      publishLiveProject(applied);
       markProjectDirty();
       settingsRef.current = nextSettings;
       setSettings(nextSettings);
@@ -1251,18 +1382,20 @@ export function App() {
       return;
     }
     const theme = getTheme(id);
-    const nextSettings = applyTheme(settingsRef.current, theme);
+    const nextSettings = applyTheme(settingsForCurrentAuthority(), theme);
     markProjectDirty();
     settingsRef.current = nextSettings;
+    reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
     setSettings(nextSettings);
     announce(`${theme.name} is now directing the scene.`);
-  }, [announce, markProjectDirty]);
+  }, [announce, markProjectDirty, publishLiveProject, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const updateSettings = useCallback((nextSettings: StudioSettings) => {
     const currentProject = projectRef.current;
+    const currentSettings = settingsForCurrentAuthority();
     const ratio = worldRatioForDimensions(nextSettings.stage.width, nextSettings.stage.height);
-    const stageChanged = nextSettings.stage.width !== settingsRef.current.stage.width
-      || nextSettings.stage.height !== settingsRef.current.stage.height;
+    const stageChanged = nextSettings.stage.width !== currentSettings.stage.width
+      || nextSettings.stage.height !== currentSettings.stage.height;
     if (
       stageChanged
       && currentProject
@@ -1277,23 +1410,24 @@ export function App() {
         };
         const applied = applyEditorialDriftFoundation(source, ratio, new Date().toISOString());
         const projected = studioSettingsFromDriftProject(applied);
-        projectRef.current = applied;
+        publishLiveProject(applied);
         markProjectDirty();
         settingsRef.current = projected;
         setSettings(projected);
         announce(`Editorial Drift recut for ${ratio}; the frame was recomposed, not cropped.`);
         return;
       }
-      projectRef.current = detachEditorialDriftRatioProvenance(
+      publishLiveProject(detachEditorialDriftRatioProvenance(
         currentProject,
         new Date().toISOString(),
-      );
+      ));
       announce("Custom stage size kept your direction and released the authored ratio recut.");
     }
     markProjectDirty();
     settingsRef.current = nextSettings;
+    reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
     setSettings(nextSettings);
-  }, [announce, markProjectDirty]);
+  }, [announce, markProjectDirty, publishLiveProject, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const exportInProgress = Boolean(exportProgress);
 
@@ -1304,7 +1438,7 @@ export function App() {
       return true;
     }
 
-    const blocked = exportInProgress || projectBusy || saveState === "loading";
+    const blocked = Boolean(abortRef.current) || exportInProgress || projectBusy || saveState === "loading";
     if (blocked) return false;
 
     switch (command) {
@@ -1419,7 +1553,7 @@ export function App() {
           : saveState === "recovery"
             ? "recovery locked"
             : "saved locally";
-  const interactionBusy = exportInProgress || projectBusy || saveState === "loading";
+  const interactionBusy = Boolean(abortRef.current) || exportInProgress || projectBusy || saveState === "loading";
 
   return (
     <main className="app" data-focus={focusMode} data-active-panel={activePanel} data-build-channel={driftBuildIdentity.channel} aria-busy={interactionBusy}>
@@ -1450,7 +1584,7 @@ export function App() {
         <MediaLibrary
           assets={assets}
           presenter={presenter}
-          pinnedAssetId={settings.presenter.enabled ? settings.presenter.assetId : null}
+          pinnedAssetId={stagePresentation.pinEnabled ? stagePresentation.pinnedAssetId : null}
           imageInputRef={imageInputRef}
           presenterInputRef={presenterInputRef}
           onAddImages={addImages}
@@ -1464,9 +1598,9 @@ export function App() {
         <Stage
           canvasRef={canvasRef}
           frameRef={frameRef}
-          settings={settings}
+          presentation={stagePresentation}
           assets={assets}
-          pinnedAsset={settings.presenter.enabled ? pinnedAsset : null}
+          pinnedAsset={activePinnedAsset}
           webglError={webglError}
           contextState={contextState}
           fps={fps}
@@ -1483,7 +1617,7 @@ export function App() {
         />
         <ControlPanel
           settings={settings}
-          v2Active={renderContract === DRIFT_V2_RENDER_CONTRACT}
+          v2Active={v2Active}
           onSettings={updateSettings}
           onTheme={onTheme}
           onResetPinnedFrame={resetPinnedFrame}

@@ -1,5 +1,5 @@
 import type { ProjectCommand } from "../commands/projectCommand";
-import type { DriftProjectV3, MotionSettings } from "../project/schema";
+import type { DriftCreativeState, DriftProjectV3, MotionSettings } from "../project/schema";
 import { refreshMotionRecipeProvenance } from "../recipes/motion";
 import type { EvaluatedFrameSlide, FrameEvaluation } from "../timeline/FrameEvaluation";
 import type { SpatialEvaluationContext } from "../timeline/evaluateFrame";
@@ -181,7 +181,7 @@ export function applyPathCommand(id: string): ProjectCommand {
   };
 }
 
-export function deriveSlideGeometry(project: DriftProjectV3, sourceCount = project.media.order.length): SlideGeometry {
+export function deriveSlideGeometry(project: DriftCreativeState, sourceCount = project.media.order.length): SlideGeometry {
   const aspect = project.card.aspectWidth / Math.max(0.01, project.card.aspectHeight);
   const width = project.composition.width * clamp(project.card.scale, 0.2, 1.25);
   const height = width / aspect;
@@ -326,7 +326,7 @@ function hash01(value: number): number {
 }
 
 function imperfection(
-  project: DriftProjectV3,
+  project: DriftCreativeState,
   sourceIndex: number,
   visibleSlides: number,
   sourceCount: number,
@@ -346,11 +346,12 @@ function imperfection(
 }
 
 function evaluateVirtualSlide(
-  project: DriftProjectV3,
+  project: DriftCreativeState,
   frame: Omit<FrameEvaluation, "slides">,
   geometry: SlideGeometry,
   slot: number,
   sourceCount: number,
+  sourceOrder: readonly string[],
 ): EvaluatedFrameSlide {
   const loopLength = geometry.virtualSlotCount * geometry.stride;
   let primary = positiveModulo(
@@ -402,7 +403,7 @@ function evaluateVirtualSlide(
 
   const focusWeight = 1 - clamp(abs, 0, 1);
   const depthScale = clamp(1 + (point.z + organic.z) / Math.max(1, geometry.visibleRadius) * 0.34, 0.62, 1.08);
-  const directive = project.slides[project.media.order[sourceIndex]!];
+  const directive = project.slides[sourceOrder[sourceIndex]!];
   const directiveScale = 1 + (directive?.scaleOffset ?? 0);
   const scale = clamp(
     depthScale * (1 + project.motion.path.focusScale * focusWeight) * directiveScale,
@@ -439,20 +440,24 @@ function renderOrder(slides: EvaluatedFrameSlide[]): EvaluatedFrameSlide[] {
 
 export function evaluateSpatialSlides(context: SpatialEvaluationContext): EvaluatedFrameSlide[] {
   const { project, sourceCount, frame } = context;
-  return evaluateSpatialFrame(project, sourceCount, frame);
+  return evaluateSpatialFrame(project, sourceCount, frame, project.media.order);
 }
 
 /** Pure spatial draw-plan boundary shared by canonical timeline evaluators. */
 export function evaluateSpatialFrame(
-  project: DriftProjectV3,
+  project: DriftCreativeState,
   sourceCount: number,
   frame: Omit<FrameEvaluation, "slides">,
+  sourceOrder: readonly string[] = project.media.order,
 ): EvaluatedFrameSlide[] {
   if (sourceCount <= 0) return [];
+  if (sourceOrder.length !== sourceCount) {
+    throw new Error(`Spatial source order contains ${sourceOrder.length} entries for ${sourceCount} sources.`);
+  }
   const geometry = deriveSlideGeometry(project, sourceCount);
   const slides = Array.from(
     { length: geometry.virtualSlotCount },
-    (_, slot) => evaluateVirtualSlide(project, frame, geometry, slot, sourceCount),
+    (_, slot) => evaluateVirtualSlide(project, frame, geometry, slot, sourceCount, sourceOrder),
   ).filter((slide) => Math.abs(slide.primary) <= geometry.visibleRadius + geometry.stride * 1.25);
   return renderOrder(slides);
 }

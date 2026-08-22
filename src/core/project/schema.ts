@@ -342,6 +342,19 @@ export interface DriftProjectV4 extends Omit<DriftProjectV3, "formatVersion" | "
   extensions: Record<string, DriftJsonValue>;
 }
 
+/**
+ * Version-neutral creative input used by pure timeline and spatial evaluators.
+ *
+ * Render evaluation never needs a schema version, migration envelope, saved
+ * presenter shape, or compatibility contract. Keeping that boundary narrow
+ * lets Project V4 remain Project V4 instead of manufacturing a false V3 value
+ * merely to satisfy historical function signatures.
+ */
+export type DriftCreativeState = Pick<
+  DriftProjectV3,
+  "projectSeed" | "composition" | "media" | "slides" | "motion" | "card" | "master"
+>;
+
 export function cloneDriftProject(project: DriftProjectV3): DriftProjectV3 {
   return structuredClone(project);
 }

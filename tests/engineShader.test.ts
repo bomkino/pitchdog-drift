@@ -189,7 +189,8 @@ describe("deterministic export frame identity", () => {
     const renderAt = vi.fn();
     const settings = cloneSettings(DEFAULT_SETTINGS);
     const fakeEngine = {
-      settings,
+      drawState: settings,
+      requireV1Settings: () => settings,
       performanceTimeline: createPerformanceLifecycle(settings.performance),
       assets: [],
       pool: [],
@@ -199,6 +200,7 @@ describe("deterministic export frame identity", () => {
       disposed: false,
       contextLost: false,
       resolvePresenterTexture: vi.fn(),
+      setTextureDemand: vi.fn(),
       renderAt,
     };
     const renderAtAsync = CinematicCarousel.prototype.renderAtAsync as unknown as (

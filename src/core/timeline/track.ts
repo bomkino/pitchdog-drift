@@ -1,4 +1,4 @@
-import type { DriftProjectV3 } from "../project/schema";
+import type { DriftCreativeState } from "../project/schema";
 import { evaluateCadence, type CadenceEvaluation } from "./cadence";
 import { evaluateMasterTimeline, samplePoseTime, type MasterTimelineSample } from "./master";
 import { canonicalZero } from "./math";
@@ -23,7 +23,7 @@ export interface TrackEvaluationOptions {
   samplePose?: boolean;
 }
 
-export function totalMasterTravelSlides(project: DriftProjectV3): number {
+export function totalMasterTravelSlides(project: DriftCreativeState): number {
   if (project.master.reducedMotion) return 0;
   const sourceCount = project.media.order.length;
   if (project.motion.seamless.enabled) {
@@ -33,7 +33,7 @@ export function totalMasterTravelSlides(project: DriftProjectV3): number {
 }
 
 export function evaluateTrack(
-  project: DriftProjectV3,
+  project: DriftCreativeState,
   time: number,
   options: TrackEvaluationOptions = {},
 ): TrackEvaluation {

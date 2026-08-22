@@ -36,7 +36,7 @@ describe("authored pin composition", () => {
       aspectMode: "source",
       x: 0.94,
       y: 0.62,
-      width: 0.42,
+      width: 0.35,
       shadowSoftness: 72,
     });
     expect(portrait).toMatchObject({
@@ -45,11 +45,26 @@ describe("authored pin composition", () => {
       aspectMode: "source",
       x: 0.94,
       y: 0.58,
-      width: 0.38,
+      width: 0.34,
       shadowSoftness: 72,
     });
     expect(landscape.y).toBeLessThan(1);
     expect(portrait.y).toBeLessThan(1);
+  });
+
+  it("caps a portrait pin by stage height on a 16:9 composition", () => {
+    const stage = { width: 1920, height: 1080 };
+    const composition = resolveFirstPinComposition(stage, { width: 1080, height: 1920 });
+    const layout = resolvePresenterOverlayLayout({
+      stage,
+      source: { width: 1080, height: 1920 },
+      anchor: { x: composition.x, y: composition.y },
+      scale: composition.width,
+    });
+
+    expect(composition.width).toBeGreaterThanOrEqual(0.14);
+    expect(composition.width).toBeLessThanOrEqual(0.16);
+    expect(layout.frameSizePx.height / stage.height).toBeLessThanOrEqual(0.45);
   });
 
   it("repairs legacy first-pin geometry only through an explicit reset", () => {
@@ -83,7 +98,7 @@ describe("authored pin composition", () => {
       aspectMode: "source",
       x: 0.94,
       y: 0.62,
-      width: 0.42,
+      width: 0.35,
       fit: "contain",
       borderWidth: 3,
       borderOpacity: 0.7,
@@ -149,6 +164,8 @@ describe("authored pin composition", () => {
 
     expect(result.influence).toBe(1);
     expect(result.scale).toBeLessThan(0.5);
+    expect(result.targetScale).toBeLessThan(0.55);
+    expect(result.opacity).toBe(0);
     expect(result.offsetX).toBeLessThan(-250);
     expect(result.offsetY).toBe(0);
     expect(finalRight).toBeLessThanOrEqual(
@@ -241,6 +258,7 @@ describe("authored pin composition", () => {
         scale: 1,
         offsetX: 0,
         offsetY: 0,
+        opacity: 1,
         influence: 0,
         targetScale: 1,
         targetCrossCenter: 0,

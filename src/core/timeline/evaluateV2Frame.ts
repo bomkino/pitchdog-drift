@@ -1,4 +1,4 @@
-import type { DriftProjectV3, DriftProjectV4 } from "../project/schema";
+import type { DriftCreativeState, DriftProjectV4 } from "../project/schema";
 import { deriveSlideGeometry, evaluateSpatialFrame } from "../spatial/spatial";
 import { evaluateCadence } from "./cadence";
 import { planSemanticEventsFromRawTimeline } from "./eventPlanner";
@@ -24,7 +24,6 @@ export interface EvaluateV2FrameOptions {
 export interface EvaluatedV2Frame {
   frame: FrameEvaluation;
   lifecycle: PerformanceLifecycleSample;
-  creativeProject: DriftProjectV3;
 }
 
 // A card fragment below this threshold reads as a rendering accident. Keep it
@@ -40,7 +39,7 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
 }
 
 function applyStageRevealEnvelope(
-  project: DriftProjectV3,
+  project: DriftCreativeState,
   sourceCount: number,
   slides: FrameEvaluation["slides"],
 ): FrameEvaluation["slides"] {
@@ -67,30 +66,6 @@ function applyStageRevealEnvelope(
   });
 }
 
-function creativeProject(project: DriftProjectV4, sourceOrder: readonly string[]): DriftProjectV3 {
-  return {
-    schema: project.schema,
-    formatVersion: 3,
-    projectId: project.projectId,
-    projectSeed: project.projectSeed,
-    createdAt: project.createdAt,
-    updatedAt: project.updatedAt,
-    composition: project.composition,
-    media: { ...project.media, order: [...sourceOrder] },
-    slides: project.slides,
-    motion: project.motion,
-    card: project.card,
-    material: project.material,
-    lighting: project.lighting,
-    atmosphere: project.atmosphere,
-    lens: project.lens,
-    sound: project.sound,
-    presenter: project.presenter,
-    master: project.master,
-    provenance: project.provenance,
-  };
-}
-
 function lifecycleTimeline(project: DriftProjectV4, reducedMotion: boolean): PerformanceLifecycleTimeline {
   return createPerformanceLifecycle({
     ...project.performance,
@@ -99,7 +74,7 @@ function lifecycleTimeline(project: DriftProjectV4, reducedMotion: boolean): Per
 }
 
 function travelAt(
-  project: DriftProjectV3,
+  project: DriftCreativeState,
   timeline: PerformanceLifecycleTimeline,
   sourceCount: number,
   time: number,
@@ -123,7 +98,7 @@ function travelAt(
   return { time: sampledTime, lifecycle, travel };
 }
 
-function visibleDistance(project: DriftProjectV3, travel: PerformanceTravelSample): number {
+function visibleDistance(project: DriftCreativeState, travel: PerformanceTravelSample): number {
   const cadence = evaluateCadence(project, Math.abs(travel.distance));
   return canonicalZero(project.motion.transport.direction * (cadence.cycle + cadence.progress));
 }
@@ -158,7 +133,7 @@ export function evaluateV2Frame(
   time: number,
   options: EvaluateV2FrameOptions = {},
 ): EvaluatedV2Frame {
-  const project = creativeProject(projectInput, sourceOrder);
+  const project = projectInput;
   const frameIndex = options.frameIndex ?? null;
   const reducedMotion = options.reducedMotion === true;
   const timeline = lifecycleTimeline(projectInput, reducedMotion);
@@ -260,23 +235,27 @@ export function evaluateV2Frame(
     },
     events: previousTime === null
       ? clampedTime <= TIMELINE_EPSILON
-        ? planSemanticEventsFromRawTimeline(project, 0, 0, { duration: timeline.totalDuration, rawDistanceAtTime })
+        ? planSemanticEventsFromRawTimeline(project, 0, 0, {
+            duration: timeline.totalDuration,
+            sourceCount,
+            rawDistanceAtTime,
+          })
         : []
       : previousTime <= clampedTime
         ? planSemanticEventsFromRawTimeline(project, Math.max(0, previousTime), clampedTime, {
             duration: timeline.totalDuration,
+            sourceCount,
             rawDistanceAtTime,
           })
         : [],
   };
 
-  const spatialSlides = evaluateSpatialFrame(project, sourceCount, base);
+  const spatialSlides = evaluateSpatialFrame(project, sourceCount, base, sourceOrder);
   return {
     frame: {
       ...base,
       slides: applyStageRevealEnvelope(project, sourceCount, spatialSlides),
     },
     lifecycle: current.lifecycle,
-    creativeProject: project,
   };
 }

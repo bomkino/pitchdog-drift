@@ -1,11 +1,12 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
-import type { ExportProgress, StudioAsset, StudioSettings } from "../model";
+import type { StagePresentation } from "../core/project/appPresentation";
+import type { ExportProgress, StudioAsset } from "../model";
 import { fitStagePreview, type StagePreviewSize } from "./stageGeometry";
 
 interface StageProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   frameRef: RefObject<HTMLDivElement | null>;
-  settings: StudioSettings;
+  presentation: StagePresentation;
   assets: StudioAsset[];
   pinnedAsset: StudioAsset | null;
   webglError: string | null;
@@ -26,7 +27,7 @@ interface StageProps {
 export function Stage({
   canvasRef,
   frameRef,
-  settings,
+  presentation,
   assets,
   pinnedAsset,
   webglError,
@@ -45,15 +46,14 @@ export function Stage({
 }: StageProps) {
   const wellRef = useRef<HTMLDivElement>(null);
   const [previewSize, setPreviewSize] = useState<StagePreviewSize | null>(null);
-  const transparent = settings.stage.transparent || settings.background.style === "transparent";
+  const transparent = presentation.transparent;
   const activeAsset = activeSlideIndex >= 0 ? assets[activeSlideIndex] : undefined;
-  const themeName = settings.themeId.replaceAll("-", " ");
-  const pinDescription = settings.presenter.enabled && pinnedAsset
+  const pinDescription = presentation.pinEnabled && pinnedAsset
     ? ` Protected still frame: ${pinnedAsset.name}.`
     : "";
   const previewDescription = assets.length === 0
-    ? `Cinematic preview. No slides. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Drag or add images to begin.`
-    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
+    ? `Cinematic preview. No slides. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Drag or add images to begin.`
+    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
 
   useLayoutEffect(() => {
     const well = wellRef.current;
@@ -65,8 +65,8 @@ export function Stage({
       const next = fitStagePreview(
         width,
         height,
-        settings.stage.width,
-        settings.stage.height,
+        presentation.width,
+        presentation.height,
       );
       setPreviewSize((current) => {
         if (current === null || next === null) return next;
@@ -93,14 +93,14 @@ export function Stage({
       active = false;
       observer.disconnect();
     };
-  }, [settings.stage.height, settings.stage.width]);
+  }, [presentation.height, presentation.width]);
 
   return (
     <section className="stage-column" aria-label="Cinematic preview" aria-describedby="stage-preview-description" aria-busy={busy}>
       <p id="stage-preview-description" className="visually-hidden">{previewDescription}</p>
       <div className="stage-topline">
-        <span>{themeName}</span>
-        <span>{settings.motion.axis} · {settings.motion.flow}</span>
+        <span>{presentation.directionLabel}</span>
+        <span>{presentation.axis} · {presentation.pathLabel}</span>
       </div>
       <div ref={wellRef} className="stage-well">
         <div
@@ -109,7 +109,7 @@ export function Stage({
           data-transparent={transparent}
           data-context={contextState}
           style={{
-            aspectRatio: `${settings.stage.width} / ${settings.stage.height}`,
+            aspectRatio: `${presentation.width} / ${presentation.height}`,
             width: previewSize ? `${previewSize.width}px` : undefined,
             height: previewSize ? `${previewSize.height}px` : undefined,
           }}
@@ -164,7 +164,7 @@ export function Stage({
           ) : null}
 
           <div className="stage-hud" aria-hidden="true">
-            <span>{settings.stage.width} × {settings.stage.height}</span>
+            <span>{presentation.width} × {presentation.height}</span>
             <span>{fps > 0 ? `${fps} FPS` : "GPU"}</span>
           </div>
         </div>

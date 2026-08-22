@@ -146,7 +146,7 @@ test("transparent PNG stores straight-alpha colour without dark fringes", async 
       shadowOpacity: 0,
     };
 
-    const engine = new CinematicCarousel(canvas, settings);
+    const engine = new CinematicCarousel(canvas, { kind: "v1-compat", settings });
     try {
       await engine.setAssets([{
         id: "half-alpha-grey",
@@ -268,7 +268,7 @@ test("cover focal controls reach both source edges in both axes", async ({ page 
     canvas.width = 256;
     canvas.height = 256;
     document.body.append(canvas);
-    const engine = new CinematicCarousel(canvas, settings);
+    const engine = new CinematicCarousel(canvas, { kind: "v1-compat", settings });
     const urls: string[] = [];
 
     const sampleAxis = async (vertical: boolean): Promise<number[][]> => {
@@ -290,7 +290,7 @@ test("cover focal controls reach both source edges in both axes", async ({ page 
       for (const focal of [0, 0.5, 1]) {
         settings.slide.focalX = vertical ? 0.5 : focal;
         settings.slide.focalY = vertical ? focal : 0.5;
-        engine.setSettings(structuredClone(settings));
+        engine.setV1Settings(structuredClone(settings));
         const surface = engine.beginExport(256, 256);
         try {
           const result = await exportPngStill({

@@ -1,4 +1,4 @@
-import type { DriftProjectV3 } from "../project/schema";
+import type { DriftCreativeState } from "../project/schema";
 import {
   clamp,
   finite,
@@ -35,7 +35,7 @@ export interface CadenceEvaluation {
   schedule: CadenceSchedule;
 }
 
-function phaseWeights(project: DriftProjectV3): Record<CadenceBeat, number> {
+function phaseWeights(project: DriftCreativeState): Record<CadenceBeat, number> {
   const cadence = project.motion.cadence;
   const linger = clamp(project.motion.performance.linger, 0, 1);
   const values: Record<CadenceBeat, number> = {
@@ -52,7 +52,7 @@ function phaseWeights(project: DriftProjectV3): Record<CadenceBeat, number> {
   return values;
 }
 
-export function cadenceSchedule(project: DriftProjectV3): CadenceSchedule {
+export function cadenceSchedule(project: DriftCreativeState): CadenceSchedule {
   const weights = phaseWeights(project);
   const readEnd = weights.read;
   const anticipationEnd = readEnd + weights.anticipate;
@@ -74,7 +74,7 @@ function localProgress(phase: number, start: number, end: number): number {
   return clamp((phase - start) / Math.max(TIMELINE_EPSILON, end - start), 0, 1);
 }
 
-export function evaluateCadence(project: DriftProjectV3, rawSlideDistance: number): CadenceEvaluation {
+export function evaluateCadence(project: DriftCreativeState, rawSlideDistance: number): CadenceEvaluation {
   const distance = Math.max(0, finite(rawSlideDistance));
   const cycle = Math.floor(distance);
   const rawPhase = distance - cycle;
@@ -137,12 +137,12 @@ export function evaluateCadence(project: DriftProjectV3, rawSlideDistance: numbe
   };
 }
 
-export function visibleSlideDistance(project: DriftProjectV3, rawSlideDistance: number): number {
+export function visibleSlideDistance(project: DriftCreativeState, rawSlideDistance: number): number {
   const cadence = evaluateCadence(project, rawSlideDistance);
   return cadence.cycle + cadence.progress;
 }
 
-export function invertVisibleSlideDistance(project: DriftProjectV3, visibleDistance: number): number {
+export function invertVisibleSlideDistance(project: DriftCreativeState, visibleDistance: number): number {
   const visible = Math.max(0, finite(visibleDistance));
   const cycle = Math.floor(visible);
   const target = visible - cycle;

@@ -143,7 +143,7 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
     canvas.width = 256;
     canvas.height = 256;
     document.body.append(canvas);
-    const engine = new CinematicCarousel(canvas, settings);
+    const engine = new CinematicCarousel(canvas, { kind: "v1-compat", settings });
     const delay = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
     let surface: ReturnType<typeof engine.beginExport> | null = null;
     try {

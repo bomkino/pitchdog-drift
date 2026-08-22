@@ -84,6 +84,81 @@ enum NativeGauntlet {
             throw BridgeFailure("DataError", "Chunked native readback did not match the committed file.")
         }
 
+        // MP4 semantic verification must inspect the private stage before the
+        // selected path changes. A rejected stage preserves an existing file
+        // byte-for-byte, and a rejected first save leaves no destination.
+        let transactionBroker = NativeFileBroker(fileManager: manager)
+        let transactionalURL = root.appendingPathComponent("transactional-master.mp4", isDirectory: false)
+        let transactionalOriginal = Data("irreplaceable-old-master".utf8)
+        let transactionalOutput = Data("verified-new-master".utf8)
+        try transactionalOriginal.write(to: transactionalURL)
+        let transactionalGrant = try transactionBroker.registerSavePanelFile(transactionalURL)
+        let transactionalToken = try token(from: transactionalGrant)
+        let rejectedSession = try stagedWriteSession(
+            broker: transactionBroker,
+            token: transactionalToken,
+            data: transactionalOutput
+        )
+        _ = try transactionBroker.closeWriteSession(["session": rejectedSession, "commit": false])
+        try require(
+            try Data(contentsOf: transactionalURL) == transactionalOriginal,
+            "sealing a staged MP4 changed its existing destination before semantic verification"
+        )
+        let stagedInfo = try transactionBroker.fileInfo(["session": rejectedSession])
+        try require(
+            (stagedInfo["size"] as? Int) == transactionalOutput.count,
+            "staged MP4 metadata did not describe the private verification bytes"
+        )
+        let stagedReadback = try transactionBroker.readFile([
+            "session": rejectedSession,
+            "offset": 0,
+            "length": transactionalOutput.count,
+        ])
+        guard let stagedEncoded = stagedReadback["data"] as? String,
+              Data(base64Encoded: stagedEncoded) == transactionalOutput else {
+            throw BridgeFailure("DataError", "Staged MP4 readback did not match the private verification bytes.")
+        }
+        _ = try transactionBroker.abortWriteSession(["session": rejectedSession])
+        try require(
+            try Data(contentsOf: transactionalURL) == transactionalOriginal,
+            "aborting a semantically rejected MP4 changed its existing destination"
+        )
+
+        let acceptedSession = try stagedWriteSession(
+            broker: transactionBroker,
+            token: transactionalToken,
+            data: transactionalOutput
+        )
+        _ = try transactionBroker.closeWriteSession(["session": acceptedSession, "commit": false])
+        try require(
+            try Data(contentsOf: transactionalURL) == transactionalOriginal,
+            "verified MP4 staging changed its destination before explicit commit"
+        )
+        _ = try transactionBroker.closeWriteSession(["session": acceptedSession, "commit": true])
+        try require(
+            try Data(contentsOf: transactionalURL) == transactionalOutput,
+            "explicit commit did not publish the verified MP4 stage"
+        )
+
+        let firstSaveURL = root.appendingPathComponent("transactional-first-save.mp4", isDirectory: false)
+        let firstSaveGrant = try transactionBroker.registerSavePanelFile(firstSaveURL)
+        let firstSaveToken = try token(from: firstSaveGrant)
+        let firstSaveSession = try stagedWriteSession(
+            broker: transactionBroker,
+            token: firstSaveToken,
+            data: transactionalOutput
+        )
+        _ = try transactionBroker.closeWriteSession(["session": firstSaveSession, "commit": false])
+        try require(
+            !manager.fileExists(atPath: firstSaveURL.path),
+            "sealing a first-save MP4 leaked a destination before semantic verification"
+        )
+        _ = try transactionBroker.abortWriteSession(["session": firstSaveSession])
+        try require(
+            !manager.fileExists(atPath: firstSaveURL.path),
+            "aborting a rejected first-save MP4 left a destination artifact"
+        )
+
         // A native close can fail after bytes have been staged—for example when
         // the selected destination changes type before commit. Failure must
         // remove the write session and revoke stale destination identity. A
@@ -521,8 +596,15 @@ enum NativeGauntlet {
             token: existingSaveToken,
             data: Data("drift-output".utf8)
         )
+        _ = try existingSaveBroker.closeWriteSession([
+            "session": existingSaveSession,
+            "commit": false,
+        ])
         try expectFailure("InvalidModificationError", label: "selected existing save replaced during export") {
-            _ = try existingSaveBroker.closeWriteSession(["session": existingSaveSession])
+            _ = try existingSaveBroker.closeWriteSession([
+                "session": existingSaveSession,
+                "commit": true,
+            ])
         }
         try require(
             try Data(contentsOf: existingSaveURL) == existingSaveIntruder,
@@ -547,8 +629,15 @@ enum NativeGauntlet {
             token: absentSaveToken,
             data: Data("drift-output".utf8)
         )
+        _ = try absentSaveBroker.closeWriteSession([
+            "session": absentSaveSession,
+            "commit": false,
+        ])
         try expectFailure("InvalidModificationError", label: "selected absent save appeared during export") {
-            _ = try absentSaveBroker.closeWriteSession(["session": absentSaveSession])
+            _ = try absentSaveBroker.closeWriteSession([
+                "session": absentSaveSession,
+                "commit": true,
+            ])
         }
         try require(
             try Data(contentsOf: absentSaveURL) == absentSaveIntruder,

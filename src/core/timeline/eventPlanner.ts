@@ -1,5 +1,5 @@
 import type { SemanticEvent, SemanticEventType } from "../events/SemanticEvent";
-import type { DriftProjectV3 } from "../project/schema";
+import type { DriftCreativeState } from "../project/schema";
 import { cadenceSchedule } from "./cadence";
 import { quantizeEventTimeToPose } from "./master";
 import { stableEventTime, TIMELINE_EPSILON } from "./math";
@@ -16,7 +16,7 @@ function sourceIndex(sequence: number, sourceCount: number): number | null {
   return ((sequence % sourceCount) + sourceCount) % sourceCount;
 }
 
-function defaultRawDistanceAtTime(project: DriftProjectV3, time: number): number {
+function defaultRawDistanceAtTime(project: DriftCreativeState, time: number): number {
   return evaluateTrack(project, time, { samplePose: false }).rawSlides;
 }
 
@@ -36,18 +36,18 @@ function timeForRawDistance(
 }
 
 function event(
-  project: DriftProjectV3,
+  project: DriftCreativeState,
   type: SemanticEventType,
   rawTime: number,
   sequence: number,
   intensity: number,
+  sourceCount: number,
 ): SemanticEvent {
   const time = stableEventTime(quantizeEventTimeToPose(
     rawTime,
     project.motion.cadence.poseCadence,
     project.master.duration,
   ));
-  const sourceCount = project.media.order.length;
   const current = sourceIndex(sequence, sourceCount);
   const previous = sourceIndex(sequence - 1, sourceCount);
   return {
@@ -64,6 +64,8 @@ function event(
 
 export interface SemanticEventRawTimeline {
   readonly duration: number;
+  /** Exact moving-track source count owned by the caller. */
+  readonly sourceCount: number;
   /** Monotonic unsigned authored slide distance at exact time. */
   rawDistanceAtTime(time: number): number;
 }
@@ -74,7 +76,7 @@ export interface SemanticEventRawTimeline {
  * retaining their own pure distance evaluators.
  */
 export function planSemanticEventsFromRawTimeline(
-  project: DriftProjectV3,
+  project: DriftCreativeState,
   fromTime: number,
   toTime: number,
   timeline: SemanticEventRawTimeline,
@@ -88,7 +90,7 @@ export function planSemanticEventsFromRawTimeline(
 
   const events: SemanticEvent[] = [];
   if (startTime <= TIMELINE_EPSILON && endTime <= TIMELINE_EPSILON) {
-    events.push(event(project, "master-start", 0, 0, 0));
+    events.push(event(project, "master-start", 0, 0, 0, timeline.sourceCount));
   }
 
   const startDistance = timeline.rawDistanceAtTime(startTime);
@@ -109,25 +111,25 @@ export function planSemanticEventsFromRawTimeline(
       const target = cycle + threshold.phase;
       if (target <= startDistance + TIMELINE_EPSILON || target > endDistance + TIMELINE_EPSILON) continue;
       const rawTime = timeForRawDistance(duration, timeline.rawDistanceAtTime, target);
-      const planned = event(project, threshold.type, rawTime, cycle + 1, threshold.intensity);
+      const planned = event(project, threshold.type, rawTime, cycle + 1, threshold.intensity, timeline.sourceCount);
       if (planned.time > startTime + TIMELINE_EPSILON && planned.time <= endTime + TIMELINE_EPSILON) events.push(planned);
     }
   }
 
-  const sourceCount = project.media.order.length;
+  const sourceCount = timeline.sourceCount;
   if (project.motion.seamless.enabled && sourceCount > 0) {
     const firstBoundary = Math.max(1, Math.floor(startDistance / sourceCount) + 1);
     const finalBoundary = Math.floor((endDistance + TIMELINE_EPSILON) / sourceCount);
     for (let boundary = firstBoundary; boundary <= finalBoundary; boundary += 1) {
       const target = boundary * sourceCount;
       const rawTime = timeForRawDistance(duration, timeline.rawDistanceAtTime, target);
-      const planned = event(project, "loop-boundary", rawTime, target, 0);
+      const planned = event(project, "loop-boundary", rawTime, target, 0, sourceCount);
       if (planned.time > startTime + TIMELINE_EPSILON && planned.time <= endTime + TIMELINE_EPSILON) events.push(planned);
     }
   }
 
   if (startTime < duration - TIMELINE_EPSILON && endTime >= duration - TIMELINE_EPSILON) {
-    events.push(event(project, "master-finish", duration, Math.ceil(endDistance), 0));
+    events.push(event(project, "master-finish", duration, Math.ceil(endDistance), 0, sourceCount));
   }
 
   const unique = new Map(events.map((entry) => [entry.id, entry]));
@@ -135,12 +137,13 @@ export function planSemanticEventsFromRawTimeline(
 }
 
 export function planSemanticEvents(
-  project: DriftProjectV3,
+  project: DriftCreativeState,
   fromTime: number,
   toTime: number,
 ): SemanticEvent[] {
   return planSemanticEventsFromRawTimeline(project, fromTime, toTime, {
     duration: project.master.duration,
+    sourceCount: project.media.order.length,
     rawDistanceAtTime: (time) => defaultRawDistanceAtTime(project, time),
   });
 }

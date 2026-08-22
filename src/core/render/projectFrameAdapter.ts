@@ -28,6 +28,8 @@ export interface ProjectFrameRenderableItem {
 }
 
 export interface ProjectFrameEvaluation {
+  /** Exact validated Project V4 creative authority used for this frame. */
+  project: DriftProjectV4;
   frame: FrameEvaluation;
   lifecycle: PerformanceLifecycleSample | null;
   geometry: SlideGeometry;
@@ -158,22 +160,22 @@ export function evaluateProjectFrame(input: EvaluateProjectFrameInput): ProjectF
   assertV2FrameAuthority(input.project, input.time, input.frameIndex);
 
   const sourceOrder = movingSourceOrder(input.project);
-  const compatibleProject = creativeTreeForV1Compat(input.project);
-  const canonicalGeometry = deriveSlideGeometry(compatibleProject, sourceOrder.length);
+  const canonicalGeometry = deriveSlideGeometry(input.project, sourceOrder.length);
   const interactionSlides = sourceOrder.length > 0
     ? (input.interactionDistancePx ?? 0) / Math.max(1, canonicalGeometry.stride)
     : 0;
-  const v2 = input.project.renderContract === DRIFT_V2_RENDER_CONTRACT
+  const v2Active = input.project.renderContract === DRIFT_V2_RENDER_CONTRACT;
+  const v2 = v2Active
     ? evaluateV2Frame(input.project, sourceOrder, input.time, {
         frameIndex: input.frameIndex,
         reducedMotion: input.reducedMotion,
         interactionSlides,
       })
     : null;
-  const evaluationProject = v2?.creativeProject ?? compatibleProject;
-  const frame = v2?.frame ?? evaluateFrame(compatibleProject, input.time, { frameIndex: input.frameIndex });
-  const renderOrder = v2 ? sourceOrder : input.project.media.order;
-  const geometry = deriveSlideGeometry(evaluationProject, renderOrder.length);
+  const compatibleProject = v2Active ? null : creativeTreeForV1Compat(input.project);
+  const frame = v2?.frame ?? evaluateFrame(compatibleProject!, input.time, { frameIndex: input.frameIndex });
+  const renderOrder = v2Active ? sourceOrder : input.project.media.order;
+  const geometry = deriveSlideGeometry(v2Active ? input.project : compatibleProject!, renderOrder.length);
   const projectSourceIndex = new Map(input.project.media.order.map((assetId, index) => [assetId, index]));
   const renderables = frame.slides.map((evaluated) => {
     const assetId = renderOrder[evaluated.sourceIndex];
@@ -194,6 +196,7 @@ export function evaluateProjectFrame(input: EvaluateProjectFrameInput): ProjectF
   });
 
   return {
+    project: input.project,
     frame,
     lifecycle: v2?.lifecycle ?? null,
     geometry,

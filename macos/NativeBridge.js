@@ -226,8 +226,34 @@
     return cursor;
   }
 
+  async function readNativeFile(authority, fallbackName, fallbackMimeType, fallbackLastModified) {
+    const info = await callNative("file-info", authority);
+    if (!Number.isSafeInteger(info.size) || info.size < 0 || info.size > MAX_READBACK_BYTES) {
+      throw new DOMException("Native readback exceeds the 512 MiB safety limit.", "QuotaExceededError");
+    }
+    const parts = [];
+    for (let offset = 0; offset < info.size; offset += READ_CHUNK_BYTES) {
+      const expected = Math.min(READ_CHUNK_BYTES, info.size - offset);
+      const result = await callNative("file-read", {
+        ...authority,
+        offset,
+        length: expected,
+      });
+      const bytes = base64ToBytes(result.data);
+      if (result.length !== bytes.byteLength || bytes.byteLength !== expected) {
+        throw new DOMException("Native file readback returned a short or inconsistent chunk.", "DataError");
+      }
+      parts.push(bytes);
+    }
+    return new File(parts, info.name || fallbackName, {
+      type: info.mimeType || fallbackMimeType,
+      lastModified: info.lastModified || fallbackLastModified,
+    });
+  }
+
   class NativeWritableFileStream extends WritableStream {
     constructor(fileToken, options = {}) {
+      const deferCommit = options.__driftDeferCommit === true;
       const state = {
         position: 0,
         session: null,
@@ -294,8 +320,8 @@
           const opened = await state.opening;
           const session = state.session ?? opened.session;
           try {
-            await callNative("write-close", { session });
-            state.status = "closed";
+            await callNative("write-close", { session, commit: !deferCommit });
+            state.status = deferCommit ? "sealed" : "closed";
           } catch (error) {
             await abortNativeSession(error);
             throw error;
@@ -305,6 +331,54 @@
           await abortNativeSession(reason);
         },
       });
+
+      if (deferCommit) {
+        Object.defineProperties(this, {
+          __driftReadStagedFile: {
+            configurable: false,
+            writable: false,
+            value: async () => {
+              if (state.status !== "sealed" || !state.session) {
+                throw new DOMException(
+                  "The native export stage is not sealed for verification.",
+                  "InvalidStateError",
+                );
+              }
+              return readNativeFile(
+                { session: state.session },
+                "Drift Export.mp4",
+                "video/mp4",
+                Date.now(),
+              );
+            },
+          },
+          __driftCommit: {
+            configurable: false,
+            writable: false,
+            value: async () => {
+              if (state.status === "closed") return;
+              if (state.status !== "sealed" || !state.session) {
+                throw new DOMException(
+                  "The native export stage is not ready to commit.",
+                  "InvalidStateError",
+                );
+              }
+              try {
+                await callNative("write-close", { session: state.session, commit: true });
+                state.status = "closed";
+              } catch (error) {
+                await abortNativeSession(error);
+                throw error;
+              }
+            },
+          },
+          __driftAbortStaged: {
+            configurable: false,
+            writable: false,
+            value: abortNativeSession,
+          },
+        });
+      }
     }
 
     async write(data) {
@@ -341,28 +415,12 @@
     }
 
     async getFile() {
-      const info = await callNative("file-info", { token: this._token });
-      if (!Number.isSafeInteger(info.size) || info.size < 0 || info.size > MAX_READBACK_BYTES) {
-        throw new DOMException("Native readback exceeds the 512 MiB safety limit.", "QuotaExceededError");
-      }
-      const parts = [];
-      for (let offset = 0; offset < info.size; offset += READ_CHUNK_BYTES) {
-        const expected = Math.min(READ_CHUNK_BYTES, info.size - offset);
-        const result = await callNative("file-read", {
-          token: this._token,
-          offset,
-          length: expected,
-        });
-        const bytes = base64ToBytes(result.data);
-        if (result.length !== bytes.byteLength || bytes.byteLength !== expected) {
-          throw new DOMException("Native file readback returned a short or inconsistent chunk.", "DataError");
-        }
-        parts.push(bytes);
-      }
-      return new File(parts, info.name || this.name, {
-        type: info.mimeType || this._mimeType,
-        lastModified: info.lastModified || this._lastModified,
-      });
+      return readNativeFile(
+        { token: this._token },
+        this.name,
+        this._mimeType,
+        this._lastModified,
+      );
     }
 
     async isSameEntry(other) {

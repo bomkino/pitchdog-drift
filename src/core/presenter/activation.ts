@@ -23,8 +23,17 @@ export function resolveFirstPinComposition(
   stage: StageSize,
   source: AspectSize,
 ): FirstPinComposition {
-  const stagePortrait = stage.height / Math.max(1, stage.width) >= 1.2;
-  const sourcePortrait = source.height / Math.max(1, source.width) >= 1.15;
+  const stageWidth = Math.max(1, stage.width);
+  const stageHeight = Math.max(1, stage.height);
+  const sourceAspect = Math.max(0.01, source.width / Math.max(1, source.height));
+  const stagePortrait = stageHeight / stageWidth >= 1.2;
+  const sourcePortrait = sourceAspect <= 1 / 1.15;
+  const maxHeight = stagePortrait ? 0.44 : 0.45;
+  const maxWidth = stagePortrait
+    ? sourcePortrait ? 0.34 : 0.35
+    : sourcePortrait ? 0.22 : 0.32;
+  const heightLimitedWidth = maxHeight * (stageHeight / stageWidth) * sourceAspect;
+  const width = Math.max(0.01, Math.min(maxWidth, heightLimitedWidth));
 
   if (stagePortrait) {
     return Object.freeze({
@@ -33,7 +42,7 @@ export function resolveFirstPinComposition(
       aspectMode: "source",
       x: 0.94,
       y: sourcePortrait ? 0.58 : 0.62,
-      width: sourcePortrait ? 0.38 : 0.42,
+      width,
       safeInset: 0.055,
       shadowOpacity: 0.2,
       shadowSoftness: 72,
@@ -48,7 +57,7 @@ export function resolveFirstPinComposition(
     aspectMode: "source",
     x: 0.94,
     y: 0.86,
-    width: sourcePortrait ? 0.25 : 0.32,
+    width,
     safeInset: 0.045,
     shadowOpacity: 0.18,
     shadowSoftness: 64,

@@ -166,6 +166,7 @@ private final class WriteSession {
     let writeAuthority: WriteAuthority
     let expectedDestinationIdentity: FileIdentity?
     var handle: FileHandle?
+    var stagedReadAccess: StableReadAccess?
     var cleanupExpectedStagingIdentity: FileIdentity?
     var committedDisplacedIdentity: FileIdentity?
     var preserveReplacementDirectory = false
@@ -553,25 +554,23 @@ final class NativeFileBroker {
         guard let session = writeSessions[sessionToken] else {
             throw BridgeFailure("InvalidStateError", "The writable stream is no longer open.")
         }
+        let shouldCommit = (payload["commit"] as? Bool) ?? true
 
         do {
-            if let handle = session.handle {
-                try handle.synchronize()
-                try handle.close()
-                session.handle = nil
+            let committedReadAccess = try sealWriteSession(session)
+            if !shouldCommit {
+                guard let grant = fileGrants[session.fileToken] else {
+                    throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
+                }
+                var stagedMetadata = readMetadata(for: grant, access: committedReadAccess)
+                stagedMetadata["staged"] = true
+                stagedMetadata["session"] = session.token
+                return stagedMetadata
             }
-            let finalSize = try fileSize(at: session.stagingURL, fileManager: fileManager)
-            guard finalSize <= driftMaximumNativeOutputBytes else {
-                throw BridgeFailure("QuotaExceededError", "The completed native export exceeded 512 MiB.")
-            }
+
             // Hold the exact staged inode open before rename. After commit its
             // descriptor becomes the grant's stable read authority; later path
             // replacement or in-place mutation is detected before bytes return.
-            let committedReadAccess = try openStableReadAccess(
-                at: session.stagingURL,
-                maximumBytes: driftMaximumNativeOutputBytes
-            )
-            session.cleanupExpectedStagingIdentity = committedReadAccess.admittedIdentity
             let parent = session.destinationURL.deletingLastPathComponent().standardizedFileURL
             try requireWriteAuthority(session.writeAuthority, parent: parent)
             try rejectSymlink(session.destinationURL, allowMissing: true)
@@ -604,6 +603,7 @@ final class NativeFileBroker {
             }
 
             writeSessions.removeValue(forKey: sessionToken)
+            session.stagedReadAccess = nil
             if let displacedIdentity = session.committedDisplacedIdentity {
                 session.cleanupExpectedStagingIdentity = displacedIdentity
             }
@@ -635,6 +635,14 @@ final class NativeFileBroker {
     }
 
     func fileInfo(_ payload: JSONDictionary) throws -> JSONDictionary {
+        if payload["session"] != nil {
+            let session = try requiredSession(payload)
+            guard let grant = fileGrants[session.fileToken] else {
+                throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
+            }
+            return readMetadata(for: grant, access: try verifiedStagedReadAccess(for: session))
+        }
+
         let token = try requiredString(payload, "token")
         guard let grant = fileGrants[token] else {
             throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
@@ -647,14 +655,29 @@ final class NativeFileBroker {
     }
 
     func readFile(_ payload: JSONDictionary) throws -> JSONDictionary {
-        let token = try requiredString(payload, "token")
-        guard let grant = fileGrants[token] else {
-            throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
-        }
         let offset = try requiredOffset(payload, "offset")
         let requestedLength = try requiredOffset(payload, "length")
         guard requestedLength <= UInt64(driftMaximumReadChunkBytes) else {
             throw BridgeFailure("QuotaExceededError", "Native read chunks are limited to 1 MiB.")
+        }
+
+        if payload["session"] != nil {
+            let session = try requiredSession(payload)
+            let access = try verifiedStagedReadAccess(for: session)
+            let totalSize = access.admittedIdentity.size
+            guard offset <= totalSize else {
+                throw BridgeFailure("DataError", "Native read offset is beyond the end of the staged file.")
+            }
+            let safeLength = min(requestedLength, totalSize - offset)
+            try access.handle.seek(toOffset: offset)
+            let data = try access.handle.read(upToCount: Int(safeLength)) ?? Data()
+            _ = try verifiedStagedReadAccess(for: session)
+            return ["data": data.base64EncodedString(), "length": data.count]
+        }
+
+        let token = try requiredString(payload, "token")
+        guard let grant = fileGrants[token] else {
+            throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
         }
         guard !writeSessions.values.contains(where: { $0.fileToken == token }) else {
             throw BridgeFailure("InvalidStateError", "That file is still being written.")
@@ -855,6 +878,36 @@ final class NativeFileBroker {
             throw BridgeFailure("InvalidStateError", "The writable stream is no longer open.")
         }
         return session
+    }
+
+    private func sealWriteSession(_ session: WriteSession) throws -> StableReadAccess {
+        if session.stagedReadAccess != nil {
+            return try verifiedStagedReadAccess(for: session)
+        }
+        if let handle = session.handle {
+            try handle.synchronize()
+            try handle.close()
+            session.handle = nil
+        }
+        let finalSize = try fileSize(at: session.stagingURL, fileManager: fileManager)
+        guard finalSize <= driftMaximumNativeOutputBytes else {
+            throw BridgeFailure("QuotaExceededError", "The completed native export exceeded 512 MiB.")
+        }
+        let access = try openStableReadAccess(
+            at: session.stagingURL,
+            maximumBytes: driftMaximumNativeOutputBytes
+        )
+        session.cleanupExpectedStagingIdentity = access.admittedIdentity
+        session.stagedReadAccess = access
+        return access
+    }
+
+    private func verifiedStagedReadAccess(for session: WriteSession) throws -> StableReadAccess {
+        guard session.handle == nil, let access = session.stagedReadAccess else {
+            throw BridgeFailure("InvalidStateError", "The native export stage is not sealed for verification.")
+        }
+        try requireStablePathIdentity(access, at: session.stagingURL)
+        return access
     }
 
     private func openStableDirectoryAccess(at url: URL) throws -> StableDirectoryAccess {
