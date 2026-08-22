@@ -1,0 +1,329 @@
+import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import {
+  audioOnlyFixturePath,
+  fixturePath,
+  halfAlphaGreyPng,
+  LOCAL_REOPENED_NOTICE,
+  PORTABLE_OPENED_NOTICE,
+  PORTABLE_SAVED_NOTICE,
+  presenterFixturePath,
+  waitForStudio,
+} from "./studio.helpers";
+
+test("WebGL2 denial yields an explicit, usable DOM fallback", async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = window as Window & { __driftSavePickerCalls?: number; showSaveFilePicker?: () => Promise<never> };
+    state.__driftSavePickerCalls = 0;
+    state.showSaveFilePicker = () => {
+      state.__driftSavePickerCalls = (state.__driftSavePickerCalls ?? 0) + 1;
+      return new Promise<never>(() => undefined);
+    };
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function getContext(type: string, ...args: unknown[]) {
+      if (type === "webgl2") return null;
+      return original.call(this, type as never, ...(args as []));
+    } as typeof HTMLCanvasElement.prototype.getContext;
+  });
+  await page.goto("/");
+  await expect(page.getByText("Cinematic renderer unavailable.")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/Cinematic export is blocked/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save portable project" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add slides" })).toBeVisible();
+  await page.getByRole("button", { name: "Export MP4 master" }).click();
+  await expect(page.getByRole("alert")).toContainText("Cinematic renderer is unavailable; export is blocked.");
+  expect(await page.evaluate(() => (window as Window & { __driftSavePickerCalls?: number }).__driftSavePickerCalls)).toBe(0);
+});
+
+test("export lifecycle preserves playback truth and releases a failed GPU preflight", async ({ page }) => {
+  await waitForStudio(page);
+  await page.getByLabel("Stage width").fill("256");
+  await page.getByLabel("Stage height").fill("256");
+  await page.getByRole("slider", { name: "Duration" }).fill("3");
+  await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
+  await expect(page.locator(".stage-hud")).toContainText("256 × 256");
+  await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
+
+  const stillDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
+  expect(await (await stillDownload).path()).toBeTruthy();
+  const pause = page.getByRole("button", { name: "Pause preview" });
+  await expect(pause).toBeEnabled();
+  await pause.click();
+  await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
+  await page.getByRole("button", { name: "Play preview" }).click();
+  await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Pause preview" }).click();
+  await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
+  await page.getByRole("button", { name: "Export PNG sequence" }).click();
+  await expect(page.locator(".export-overlay")).toBeVisible();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel export" }).click();
+  await expect(page.locator(".export-overlay")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Play preview" })).toBeEnabled();
+  await page.getByRole("button", { name: "Play preview" }).click();
+  await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
+  await expect(page.locator(".header-status")).toContainText("saved locally", { timeout: 10_000 });
+
+  await page.locator("[data-testid=webgl-stage]").evaluate((canvas) => {
+    const gl = (canvas as HTMLCanvasElement).getContext("webgl2")!;
+    const original = gl.getParameter.bind(gl);
+    Object.defineProperty(gl, "getParameter", {
+      configurable: true,
+      value: (parameter: number) => {
+        if (parameter === gl.MAX_RENDERBUFFER_SIZE) return 128;
+        if (parameter === gl.MAX_VIEWPORT_DIMS) return new Int32Array([128, 128]);
+        return original(parameter);
+      },
+    });
+  });
+
+  await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
+  await expect(page.getByRole("alert")).toContainText("exceeds this GPU's safe WebGL limit of 128 × 128");
+  const projectDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save portable project" }).click();
+  expect(await (await projectDownload).path()).toBeTruthy();
+  await expect(page.locator(".notice")).toContainText(PORTABLE_SAVED_NOTICE);
+});
+
+test("transparent PNG stores straight-alpha colour without dark fringes", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async (encodedPng) => {
+    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }, { exportPngStill }] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/model.ts"),
+      import("/src/lib/exportStudio.ts"),
+    ]);
+    const bytes = Uint8Array.from(atob(encodedPng), (character) => character.charCodeAt(0));
+    const blob = new Blob([bytes], { type: "image/png" });
+    const objectUrl = URL.createObjectURL(blob);
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    document.body.append(canvas);
+
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.stage = { width: 256, height: 256, transparent: true };
+    settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
+    settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
+    settings.motion = {
+      ...settings.motion,
+      axis: "horizontal",
+      speed: 0,
+      flow: "straight",
+      gap: 0,
+      curvature: 0,
+      depth: 0,
+      tilt: 0,
+      distortion: 0,
+      focusScale: 0,
+      edgeFade: 0,
+    };
+    settings.slide = {
+      ...settings.slide,
+      aspectWidth: 1,
+      aspectHeight: 1,
+      scale: 1,
+      fit: "cover",
+      radius: 0,
+      smoothing: 0,
+      borderWidth: 0,
+      borderOpacity: 0,
+      shadowOpacity: 0,
+    };
+
+    const engine = new CinematicCarousel(canvas, settings);
+    try {
+      await engine.setAssets([{
+        id: "half-alpha-grey",
+        name: "half-alpha-grey.png",
+        kind: "image",
+        blob,
+        mimeType: "image/png",
+        width: 4,
+        height: 4,
+        objectUrl,
+      }]);
+      const surface = engine.beginExport(256, 256);
+      try {
+        const result = await exportPngStill({
+          canvas,
+          renderAt: async (time) => engine.renderAtAsync(time),
+          settings: { width: 256, height: 256, fps: 24, duration: 3 },
+          requireAlpha: true,
+          requireTransparentPixels: true,
+        });
+        const bitmap = await createImageBitmap(result.blob, { premultiplyAlpha: "none" });
+        const decoded = document.createElement("canvas");
+        decoded.width = bitmap.width;
+        decoded.height = bitmap.height;
+        const context = decoded.getContext("2d", { willReadFrequently: true })!;
+        context.drawImage(bitmap, 0, 0);
+        const pixel = Array.from(context.getImageData(128, 128, 1, 1).data);
+        bitmap.close();
+        const alpha = pixel[3]! / 255;
+        const overWhite = pixel.slice(0, 3).map((channel) => Math.round(channel! * alpha + 255 * (1 - alpha)));
+        return { pixel, overWhite };
+      } finally {
+        surface.restore();
+      }
+    } finally {
+      engine.dispose();
+      URL.revokeObjectURL(objectUrl);
+      canvas.remove();
+    }
+  }, halfAlphaGreyPng);
+
+  expect(receipt.pixel[3]).toBeGreaterThanOrEqual(126);
+  expect(receipt.pixel[3]).toBeLessThanOrEqual(129);
+  for (const channel of receipt.pixel.slice(0, 3)) {
+    expect(channel).toBeGreaterThanOrEqual(125);
+    expect(channel).toBeLessThanOrEqual(131);
+  }
+  for (const channel of receipt.overWhite) {
+    expect(channel).toBeGreaterThanOrEqual(189);
+    expect(channel).toBeLessThanOrEqual(193);
+  }
+});
+
+test("cover focal controls reach both source edges in both axes", async ({ page }) => {
+  await page.goto("/");
+  const samples = await page.evaluate(async () => {
+    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }, { exportPngStill }] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/model.ts"),
+      import("/src/lib/exportStudio.ts"),
+    ]);
+
+    const makeBands = async (width: number, height: number, vertical: boolean): Promise<Blob> => {
+      const source = document.createElement("canvas");
+      source.width = width;
+      source.height = height;
+      const context = source.getContext("2d")!;
+      const colours = ["#ef1c1c", "#d228db", "#22d04c"];
+      for (let index = 0; index < colours.length; index += 1) {
+        context.fillStyle = colours[index]!;
+        if (vertical) {
+          const start = Math.floor((height * index) / 3);
+          const end = Math.ceil((height * (index + 1)) / 3);
+          context.fillRect(0, start, width, end - start);
+        } else {
+          const start = Math.floor((width * index) / 3);
+          const end = Math.ceil((width * (index + 1)) / 3);
+          context.fillRect(start, 0, end - start, height);
+        }
+      }
+      return new Promise<Blob>((resolve, reject) => source.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error("Could not create focal fixture.")),
+        "image/png",
+      ));
+    };
+
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.stage = { width: 256, height: 256, transparent: true };
+    settings.output = { ...settings.output, width: 256, height: 256, fps: 24, duration: 3 };
+    settings.background = { ...settings.background, style: "transparent", grain: 0, vignette: 0 };
+    settings.motion = {
+      ...settings.motion,
+      axis: "horizontal",
+      speed: 0,
+      flow: "straight",
+      gap: 0,
+      curvature: 0,
+      depth: 0,
+      tilt: 0,
+      distortion: 0,
+      focusScale: 0,
+      edgeFade: 0,
+    };
+    settings.slide = {
+      ...settings.slide,
+      aspectWidth: 1,
+      aspectHeight: 1,
+      scale: 1,
+      fit: "cover",
+      radius: 0,
+      smoothing: 0,
+      borderWidth: 0,
+      borderOpacity: 0,
+      shadowOpacity: 0,
+    };
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    document.body.append(canvas);
+    const engine = new CinematicCarousel(canvas, settings);
+    const urls: string[] = [];
+
+    const sampleAxis = async (vertical: boolean): Promise<number[][]> => {
+      const blob = await makeBands(vertical ? 100 : 800, vertical ? 800 : 100, vertical);
+      const objectUrl = URL.createObjectURL(blob);
+      urls.push(objectUrl);
+      await engine.setAssets([{
+        id: vertical ? "vertical-bands" : "horizontal-bands",
+        name: vertical ? "vertical-bands.png" : "horizontal-bands.png",
+        kind: "image",
+        blob,
+        mimeType: "image/png",
+        width: vertical ? 100 : 800,
+        height: vertical ? 800 : 100,
+        objectUrl,
+      }]);
+
+      const pixels: number[][] = [];
+      for (const focal of [0, 0.5, 1]) {
+        settings.slide.focalX = vertical ? 0.5 : focal;
+        settings.slide.focalY = vertical ? focal : 0.5;
+        engine.setSettings(structuredClone(settings));
+        const surface = engine.beginExport(256, 256);
+        try {
+          const result = await exportPngStill({
+            canvas,
+            renderAt: async (time) => engine.renderAtAsync(time),
+            settings: { width: 256, height: 256, fps: 24, duration: 3 },
+            requireAlpha: true,
+          });
+          const bitmap = await createImageBitmap(result.blob);
+          const decoded = document.createElement("canvas");
+          decoded.width = bitmap.width;
+          decoded.height = bitmap.height;
+          const context = decoded.getContext("2d", { willReadFrequently: true })!;
+          context.drawImage(bitmap, 0, 0);
+          pixels.push(Array.from(context.getImageData(128, 128, 1, 1).data));
+          bitmap.close();
+        } finally {
+          surface.restore();
+        }
+      }
+      return pixels;
+    };
+
+    try {
+      return {
+        horizontal: await sampleAxis(false),
+        vertical: await sampleAxis(true),
+      };
+    } finally {
+      engine.dispose();
+      for (const url of urls) URL.revokeObjectURL(url);
+      canvas.remove();
+    }
+  });
+
+  for (const axis of [samples.horizontal, samples.vertical]) {
+    const [start, middle, end] = axis;
+    expect(start![0]).toBeGreaterThan(180);
+    expect(start![1]).toBeLessThan(100);
+    expect(start![2]).toBeLessThan(100);
+    expect(middle![0]).toBeGreaterThan(150);
+    expect(middle![1]).toBeLessThan(100);
+    expect(middle![2]).toBeGreaterThan(150);
+    expect(end![0]).toBeLessThan(100);
+    expect(end![1]).toBeGreaterThan(150);
+    expect(end![2]).toBeLessThan(120);
+  }
+});

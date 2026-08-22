@@ -1,4 +1,5 @@
 import type { StudioAsset } from "../model";
+import { isBuiltInDemoAssetIdentity } from "./demoAssetIdentity";
 
 export async function sha256(blob: Blob): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
@@ -17,9 +18,11 @@ export async function imageFileToAsset(file: Blob & { name?: string }, id: strin
   const height = bitmap.height;
   bitmap.close();
   if (!width || !height) throw new Error(`Could not read dimensions for ${file.name ?? "image"}.`);
+  const name = file.name ?? `slide-${id.slice(0, 6)}`;
+  const demo = isBuiltInDemoAssetIdentity(id, name);
   return {
     id,
-    name: file.name ?? `slide-${id.slice(0, 6)}`,
+    name,
     kind: "image",
     blob: file,
     mimeType: file.type || "application/octet-stream",
@@ -27,6 +30,7 @@ export async function imageFileToAsset(file: Blob & { name?: string }, id: strin
     height,
     hash: await sha256(file),
     objectUrl: URL.createObjectURL(file),
+    ...(demo ? { demo: true } : {}),
   };
 }
 

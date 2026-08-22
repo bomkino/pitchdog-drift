@@ -1,5 +1,6 @@
 node_modules/
 dist/
+build/
 coverage/
 playwright-report/
 test-results/
@@ -11,6 +12,20 @@ output/
 .env.*
 !.env.example
 *.pitched
+*.app
+*.dmg
+*.pkg
+*.xcarchive
+*.notary-log.json
+__pycache__/
+*.pyc
 
 # Local master renders and QA evidence are deliberately retained off-repo.
 artifacts/qa/
+
+# Downloaded CI evidence can contain large app bundles and diagnostic logs.
+artifacts/ci-*/
+
+# Private construction handovers may contain workspace or unreleased context.
+# Keep them local unless a maintainer explicitly curates a public version.
+Handover/

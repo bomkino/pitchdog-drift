@@ -1,10 +1,20 @@
-import { useRef, type ChangeEvent, type DragEvent } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type RefObject,
+} from "react";
+import { pickNativeMacFiles } from "../lib/nativeMac";
 import type { StudioAsset } from "../model";
 
 interface MediaLibraryProps {
   assets: StudioAsset[];
   presenter: StudioAsset | null;
   pinnedAssetId: string | null;
+  imageInputRef: RefObject<HTMLInputElement | null>;
+  presenterInputRef: RefObject<HTMLInputElement | null>;
   onAddImages: (files: File[]) => void;
   onPresenter: (file: File) => void;
   onRemove: (id: string) => void;
@@ -14,10 +24,19 @@ interface MediaLibraryProps {
   busy: boolean;
 }
 
+function pickerMessage(error: unknown, fallback: string): string {
+  if (error instanceof DOMException && error.name === "AbortError") return "";
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : fallback;
+}
+
 export function MediaLibrary({
   assets,
   presenter,
   pinnedAssetId,
+  imageInputRef,
+  presenterInputRef,
   onAddImages,
   onPresenter,
   onRemove,
@@ -27,19 +46,55 @@ export function MediaLibrary({
   busy,
 }: MediaLibraryProps) {
   const draggedId = useRef<string | null>(null);
-  const imageInput = useRef<HTMLInputElement>(null);
-  const presenterInput = useRef<HTMLInputElement>(null);
+  const [pickerError, setPickerError] = useState<string | null>(null);
 
   const addImages = (event: ChangeEvent<HTMLInputElement>) => {
+    setPickerError(null);
     const files = Array.from(event.currentTarget.files ?? []);
     if (files.length) onAddImages(files);
     event.currentTarget.value = "";
   };
+
   const addPresenter = (event: ChangeEvent<HTMLInputElement>) => {
+    setPickerError(null);
     const file = event.currentTarget.files?.[0];
     if (file) onPresenter(file);
     event.currentTarget.value = "";
   };
+
+  const requestImages = useCallback(() => {
+    setPickerError(null);
+    void pickNativeMacFiles("slides", true)
+      .then((files) => {
+        if (files === null) {
+          imageInputRef.current?.click();
+          return;
+        }
+        if (files.length) onAddImages(files);
+      })
+      .catch((error: unknown) => {
+        const message = pickerMessage(error, "Slides could not be opened.");
+        if (message) setPickerError(message);
+      });
+  }, [imageInputRef, onAddImages]);
+
+  const requestPresenter = useCallback(() => {
+    setPickerError(null);
+    void pickNativeMacFiles("presenter", false)
+      .then((files) => {
+        if (files === null) {
+          presenterInputRef.current?.click();
+          return;
+        }
+        const file = files[0];
+        if (file) onPresenter(file);
+      })
+      .catch((error: unknown) => {
+        const message = pickerMessage(error, "Presenter video could not be opened.");
+        if (message) setPickerError(message);
+      });
+  }, [onPresenter, presenterInputRef]);
+
   const onDrop = (event: DragEvent, targetId: string) => {
     event.preventDefault();
     if (draggedId.current && draggedId.current !== targetId) onReorder(draggedId.current, targetId);
@@ -56,18 +111,20 @@ export function MediaLibrary({
         <span className="media-count">{assets.length}</span>
       </div>
 
-      <input ref={imageInput} hidden tabIndex={-1} disabled={busy} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple onChange={addImages} />
-      <input ref={presenterInput} hidden tabIndex={-1} disabled={busy} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={addPresenter} />
+      <input ref={imageInputRef} hidden tabIndex={-1} disabled={busy} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple onChange={addImages} />
+      <input ref={presenterInputRef} hidden tabIndex={-1} disabled={busy} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={addPresenter} />
 
       <div className="media-add-row">
-        <button type="button" className="media-add" disabled={busy} onClick={() => imageInput.current?.click()}>
+        <button type="button" className="media-add" disabled={busy} onClick={requestImages}>
           <span aria-hidden="true">＋</span> Add slides
         </button>
-        <button type="button" className="media-add subtle" disabled={busy} onClick={() => presenterInput.current?.click()}>
+        <button type="button" className="media-add subtle" disabled={busy} onClick={requestPresenter}>
           Presenter
         </button>
       </div>
-      <p className="media-note">Images move. One optional video can stay pinned. Files remain on this device.</p>
+      <p className="media-note" data-error={Boolean(pickerError)} aria-live="polite">
+        {pickerError ?? "Images move. One optional video can stay pinned. Original media: 64 MiB each, 80 MiB total. Files remain on this device."}
+      </p>
 
       <ol className="asset-list" aria-label="Slide order">
         {assets.map((asset, index) => (
@@ -131,9 +188,9 @@ export function MediaLibrary({
             <button type="button" disabled={busy} onClick={onRemovePresenter} aria-label="Remove presenter video">×</button>
           </div>
         ) : (
-          <button type="button" className="empty-presenter" disabled={busy} onClick={() => presenterInput.current?.click()}>
+          <button type="button" className="empty-presenter" disabled={busy} onClick={requestPresenter}>
             <span>Drop in your talking-head video</span>
-            <small>MP4, WebM, or MOV · one active decoder</small>
+            <small>MP4, WebM, or MOV · 64 MiB maximum · one active decoder</small>
           </button>
         )}
       </section>

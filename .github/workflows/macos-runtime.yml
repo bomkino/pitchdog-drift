@@ -1,0 +1,129 @@
+name: macOS WKWebView runtime
+
+on:
+  push:
+    branches: [main, feat/native-macos-studio, integration/mega-main-native, mm/native-foundation-gate]
+  pull_request:
+    paths:
+      - "macos/**"
+      - "scripts/**macos**"
+      - "scripts/**probe**"
+      - "src/**"
+      - "tests/**"
+      - "docs/mega-main/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/macos.yml"
+      - ".github/workflows/macos-runtime.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wkwebview-runtime:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Record runtime identity
+        env:
+          DRIFT_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          DRIFT_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/macos
+          TESTED_COMMIT_SHA="$(git rev-parse HEAD)"
+          TREE_SHA="$(git rev-parse 'HEAD^{tree}')"
+          {
+            echo "event=$GITHUB_EVENT_NAME"
+            echo "ref=$GITHUB_REF"
+            echo "head_ref=$GITHUB_HEAD_REF"
+            echo "base_ref=$GITHUB_BASE_REF"
+            echo "source_head_sha=$DRIFT_SOURCE_HEAD_SHA"
+            echo "tested_commit_sha=$TESTED_COMMIT_SHA"
+            echo "base_sha=$DRIFT_BASE_SHA"
+            echo "tree_sha=$TREE_SHA"
+            echo "runner=${RUNNER_NAME}"
+            echo "arch=$(uname -m)"
+            sw_vers
+            xcodebuild -version
+            xcrun swiftc --version
+            system_profiler SPHardwareDataType SPSoftwareDataType
+          } > build/macos/runtime-identity.txt
+          sed -n '1,12p' build/macos/runtime-identity.txt
+
+      - name: Prove WebGL, PNG, and AVC inside WKWebView
+        env:
+          DRIFT_REQUIRE_NATIVE_MP4: "1"
+          DRIFT_CODEC_REPORT: ${{ github.workspace }}/build/macos/codec-capabilities.json
+        run: scripts/probe-macos-codecs.sh
+
+      - name: Prove Apple software AAC-LC through AudioToolbox
+        env:
+          DRIFT_NATIVE_AAC_REPORT: ${{ github.workspace }}/build/macos/native-aac-capabilities.json
+        run: scripts/probe-macos-aac.sh
+
+      - name: Reconcile WebKit and native audio capabilities
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const webkit = JSON.parse(fs.readFileSync('build/macos/codec-capabilities.json', 'utf8'));
+          const native = JSON.parse(fs.readFileSync('build/macos/native-aac-capabilities.json', 'utf8'));
+
+          if (native.encoded !== true || native.provider !== 'AudioToolbox') {
+            console.error('Apple AudioToolbox AAC did not produce a verified access unit.');
+            console.error(JSON.stringify(native, null, 2));
+            process.exit(1);
+          }
+
+          const browserAudioEncoder = webkit.apis?.AudioEncoder === 'function';
+          const browserAudioData = webkit.apis?.AudioData === 'function';
+          console.log(`WKWebView AudioEncoder API: ${browserAudioEncoder ? 'present' : 'absent'}`);
+          console.log(`WKWebView AudioData API: ${browserAudioData ? 'present' : 'absent'}`);
+          console.log(`AudioToolbox AAC packets: ${native.packetCount}`);
+          console.log(`AudioToolbox frame equation: ${native.frameEquationHolds}`);
+
+          if (webkit.aac?.encoded === true) {
+            console.log('WKWebView also encoded AAC; Drift still uses the deterministic native app backend.');
+          } else {
+            console.log('Presenter audio is supplied by Drift.app through its bounded native AAC bridge.');
+          }
+          NODE
+
+      - name: Render and verify real deterministic outputs inside WKWebView
+        env:
+          DRIFT_EXPORT_PROBE_REPORT: ${{ github.workspace }}/build/macos/export-probe-result.json
+          DRIFT_EXPORT_PROBE_TIMEOUT: "240"
+        run: scripts/run-macos-export-probe.sh
+
+      - name: Upload runtime receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-wkwebview-runtime-${{ github.run_id }}
+          path: |
+            build/macos/runtime-identity.txt
+            build/macos/codec-capabilities.json
+            build/macos/native-aac-capabilities.json
+            build/macos/export-probe-result.json
+            build/macos/export-probe/ProbeBundleReceipt.json
+          if-no-files-found: warn
+          retention-days: 14
