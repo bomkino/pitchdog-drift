@@ -2,7 +2,7 @@
 
 Updated: 22 August 2026
 
-This checkpoint makes one narrow promise: Drift can turn a slide deck and one optional pinned image or presenter video into a controlled, deterministic performance with a tasteful beginning, body, ending, and repeat structure. It is an isolated creative/export beta, not the complete curated-donor V2.
+This checkpoint makes one narrow promise: Drift can turn a slide deck and one optional pinned image or presenter video into a controlled, deterministic performance with a tasteful beginning, body, ending, and repeat structure. It is an isolated creative/export beta, not the complete curated-donor V2. The [installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-22.md) records which parts of that promise are package-verified and which still require an unlocked-screen UI check.
 
 ## What is live
 
@@ -29,7 +29,7 @@ The default master is 1080 × 1920, 30 fps, and 8.00 seconds:
 - slide border: off;
 - grain: restrained, held at a handcrafted 12 fps plate cadence for export.
 
-The pin does not receive a fake glass panel or dark contain matte. On first use, a landscape pin occupies 42% of a portrait stage and a portrait pin 38%; the moving track yields on the cross-axis. User-positioned or remembered pins are never silently recomposed.
+The pin does not receive a fake glass panel or dark contain matte. On first use, it explicitly returns to source aspect and safe-overlay composition: a landscape pin occupies 42% of a portrait stage and a portrait pin 38%; the moving track yields on the cross-axis. User-positioned or remembered pins are never silently recomposed.
 
 ## Timeline contract
 
@@ -70,3 +70,9 @@ A usable local checkpoint requires all of these on one candidate:
 5. Installation at `/Applications/Drift V2 Dev.app`, installed-bundle readback, normal launch, and simultaneous V1 use.
 
 These gates prove only the checked vertical slice. They do not turn source, tests, a local package, an installation, or a branch into a merged, notarised, released, published, or owner-approved product.
+
+## Current acceptance state
+
+Implementation source `b7bb5a520a23755306bf2f07656f604fd90b7b65` passes `245/245` units, typecheck, Mac source contracts, the freshly compiled native gauntlet, three targeted browser repair journeys, packaged `3/3`, exact candidate/install comparison, and installed `3/3`. V1 remained running and untouched during installation.
+
+Two gates remain open because the Mac screen locked: inspect the repaired first-use source-aspect pin in the installed app, and save/decode one transparent PNG plus one short MP4 through the ordinary installed Save panels. Until those checks pass, package/install HOLD is not whole-artifact HOLD.

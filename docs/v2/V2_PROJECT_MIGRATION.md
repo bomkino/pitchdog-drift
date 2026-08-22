@@ -235,7 +235,8 @@ A recognized future project must never fall through and be misread as schema-les
 ## Known release-live blockers
 
 - Browser portable Save proves download initiation, not destination readback. Native Save proves staged commit and committed identity/size, not a semantic or byte-for-byte re-import of the saved archive.
-- The full browser E2E suite beyond `e2e/studio-projects.e2e.ts`, packaged WKWebView gauntlet, installed-app checks, representative saved-project archive readback, and golden visual/export pixel comparison remain pending for the exact V4 revision.
+- The last uninterrupted full browser suite passed `28/28` on the clean pre-native-repair candidate. Exact implementation source `b7bb5a520a23755306bf2f07656f604fd90b7b65` then passed packaged `3/3`, exact candidate/install comparison, and installed `3/3`.
+- Representative saved-project archive readback, golden visual/export comparison, post-fix installed pin review, and ordinary installed Save-panel PNG/MP4 proof remain pending. The browser run is not relabelled as an exact-`b7bb5a5` rerun.
 
 ## V2 Worlds require a later explicit upgrade
 

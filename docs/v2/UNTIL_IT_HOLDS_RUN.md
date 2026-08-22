@@ -47,7 +47,9 @@ Produce an honest, beautiful, deterministic Editorial Performance vertical slice
 - Separated pin identity from presenter media, added protected orthographic layout, source/custom aspect, focal point, safe inset, shadow, matte, and track ownership.
 - First visual round BREAK: 32% bottom-right thumbnail overlapped the moving track and HUD.
 - Repair: portrait-stage first-use defaults now use a 42% landscape or 38% portrait plane, lifted right-side anchor, broad shadow, and a strong cross-axis yield lane. Remembered/user-positioned pins remain untouched.
-- Fresh visual critic: HOLD in vertical and horizontal captures. Portrait-source owner approval remains a later visual gate.
+- A later installed critic round found a separate BREAK: the first landscape pin inherited a remembered 9:16 custom aspect and amputated the artwork.
+- Repair `15fdd78`: first-use pin activation now selects source aspect and safe-overlay composition. Remembered/user-positioned pins remain untouched.
+- Focused pin, Project V4, and projection tests pass. Post-fix installed visual review remains open; no visual HOLD is claimed for the repaired candidate yet.
 
 ### 4 — lifecycle and tempo
 
@@ -82,23 +84,46 @@ Produce an honest, beautiful, deterministic Editorial Performance vertical slice
 - Replaced one transient reopen-notice assertion with durable readback of saved state, asset identity, dimensions, and ready renderer state.
 - Focused repaired journeys passed, followed by one uninterrupted `28/28` full browser run in 8.9 minutes after edits stopped.
 
+### 9 — exact-file native save authority
+
+- Real installed transparent-PNG saving exposed a native authority error: `Drift could not anchor the selected folder: Operation not permitted.`
+- Cause: an exact file granted by the Save panel was incorrectly widened into a request for parent-folder authority.
+- Repair `b7bb5a5`: an explicit exact-file lane now remains scoped to the chosen destination, while folder grants keep the existing directory lane. Same-volume staging, collision refusal, identity verification, and restoration remain fail-closed.
+- Mac source contracts and a freshly compiled native authority gauntlet pass.
+- The repaired ordinary Save panel still needs real installed PNG and MP4 proof after the Mac screen is unlocked. Source/native tests are not being counted as that UI proof.
+
+### 10 — exact package and isolated installation
+
+- Built `Drift V2 Dev.app` from exact implementation source `b7bb5a520a23755306bf2f07656f604fd90b7b65`.
+- An initial packaged-matrix timeout was traced to an older running process with the same V2 development identity. Only V2 was quit; V1 stayed running.
+- Clean packaged rerun: `3/3`.
+- Installed `/Applications/Drift V2 Dev.app`, proved an exact byte match with the candidate, then passed the installed matrix `3/3`.
+- `/Applications/Drift.app` remained running as PID `75493` and untouched at capture time.
+- Preserved the previous V2 installation at `/Applications/.drift-v2-backups/20260822-202409/Drift V2 Dev.app`.
+- Verdict: HOLD for exact packaging, installation, and coexistence. Normal-UI export and post-fix visual checks remain separate open gates.
+
 ## Current evidence
 
-- Source checkpoint `fb1773c` plus subsequent test/document repairs in the working tree.
+- Exact installed implementation source: `b7bb5a520a23755306bf2f07656f604fd90b7b65`.
 - Unit suite: `245/245` passing.
 - Typecheck: passing.
 - Mac source contracts: passing.
+- Freshly compiled native authority gauntlet: passing.
 - V2 Web build: passing.
-- Pin visual critic: HOLD.
+- Pin visual critic: BREAK on pre-repair inherited portrait crop; source repair committed; installed recheck pending.
 - Lifecycle critic: HOLD.
 - Director-control critic: HOLD.
-- Full browser suite: `28/28` passed uninterrupted in 8.9 minutes on the clean candidate.
-- Current exact-SHA Mac package/install: pending.
+- Last full browser suite: `28/28` passed uninterrupted in 8.9 minutes on the clean pre-native-repair candidate; it is not claimed as an exact-`b7bb5a5` rerun.
+- Exact-`b7bb5a5` targeted browser rerun: Project V4 first-pin, export lifecycle, and straight-alpha transparent PNG journeys passed (`3/3`).
+- Exact-SHA packaged matrix: `3/3`.
+- Exact byte candidate/install comparison: passed.
+- Exact-SHA installed matrix: `3/3`.
+- Normal-UI installed transparent PNG and short MP4: pending Mac unlock.
 - Push, merge, release, notarisation, publication: not performed.
 
 ## Whole-artifact gate still open
 
-1. Build and verify exact-SHA `Drift V2 Dev.app` including packaged `3/3` WKWebView evidence.
-2. Install it in `/Applications` without touching V1; compare candidate and installed bundle.
-3. Launch both apps and smoke the installed V2 lifecycle, pin, persistence, PNG, and short MP4 paths.
-4. Read the installed receipt and identity back, then report package/install/push/merge/release states separately.
+1. Unlock the Mac and visually inspect the `15fdd78` first-use pin repair in installed V2, including source aspect and protected composition in both axes.
+2. Save one transparent PNG and one short MP4 through the ordinary installed Save panels.
+3. Decode and inspect both outputs; verify transparency, dimensions, codec, frame rate, duration, and clean playback as applicable.
+4. Record the final UI evidence without conflating it with source, native-gauntlet, package, installation, push, merge, release, or owner-approval states.
