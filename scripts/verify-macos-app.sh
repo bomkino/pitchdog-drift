@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="${1:-${DRIFT_MACOS_OUTPUT_DIR:-${ROOT_DIR}/build/macos}/Drift.app}"
-EXECUTABLE="${APP_BUNDLE}/Contents/MacOS/Drift"
 INFO_PLIST="${APP_BUNDLE}/Contents/Info.plist"
 RESOURCES="${APP_BUNDLE}/Contents/Resources"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/drift-macos-verify.XXXXXX")"
@@ -21,6 +20,57 @@ fi
 for command in codesign lipo node open otool plutil python3; do
   command -v "${command}" >/dev/null 2>&1 || fail "missing required command ${command}."
 done
+
+[[ -f "${INFO_PLIST}" ]] || fail "missing app-bundle file ${INFO_PLIST}."
+EXECUTABLE_NAME="$(plutil -extract CFBundleExecutable raw -o - "${INFO_PLIST}")"
+EXECUTABLE="${APP_BUNDLE}/Contents/MacOS/${EXECUTABLE_NAME}"
+BUNDLE_IDENTIFIER="$(plutil -extract CFBundleIdentifier raw -o - "${INFO_PLIST}")"
+APP_DISPLAY_NAME="$(plutil -extract CFBundleDisplayName raw -o - "${INFO_PLIST}")"
+APP_BUNDLE_NAME="$(plutil -extract CFBundleName raw -o - "${INFO_PLIST}")"
+BUILD_CHANNEL="$(plutil -extract DriftBuildChannel raw -o - "${INFO_PLIST}")"
+CACHE_NAMESPACE="$(plutil -extract DriftCacheNamespace raw -o - "${INFO_PLIST}")"
+STORAGE_NAMESPACE="$(plutil -extract DriftStorageNamespace raw -o - "${INFO_PLIST}")"
+WEBSITE_DATA_STORE_IDENTIFIER="$(plutil -extract DriftWebsiteDataStoreIdentifier raw -o - "${INFO_PLIST}")"
+OWNS_PORTABLE_PROJECTS="$(plutil -extract DriftOwnsPortableProjects raw -o - "${INFO_PLIST}")"
+
+case "${BUILD_CHANNEL}" in
+  release)
+    EXPECTED_APP_BUNDLE_NAME="Drift.app"
+    EXPECTED_APP_DISPLAY_NAME="Drift"
+    EXPECTED_EXECUTABLE_NAME="Drift"
+    EXPECTED_BUNDLE_IDENTIFIER="dog.pitch.drift"
+    EXPECTED_CACHE_NAMESPACE="Drift"
+    EXPECTED_STORAGE_NAMESPACE="pitchdog-drift"
+    EXPECTED_WEBSITE_DATA_STORE_IDENTIFIER="default"
+    EXPECTED_PORTABLE_PROJECT_OWNERSHIP="true"
+    ;;
+  v2-dev)
+    EXPECTED_APP_BUNDLE_NAME="Drift V2 Dev.app"
+    EXPECTED_APP_DISPLAY_NAME="Drift V2 Dev"
+    EXPECTED_EXECUTABLE_NAME="DriftV2Dev"
+    EXPECTED_BUNDLE_IDENTIFIER="dog.pitch.drift.v2.dev"
+    EXPECTED_CACHE_NAMESPACE="DriftV2Dev"
+    EXPECTED_STORAGE_NAMESPACE="pitchdog-drift-v2-dev"
+    EXPECTED_WEBSITE_DATA_STORE_IDENTIFIER="7A519E77-39A8-4BAF-89A0-314590BF3D24"
+    EXPECTED_PORTABLE_PROJECT_OWNERSHIP="false"
+    ;;
+  *) fail "unsupported build channel ${BUILD_CHANNEL}." ;;
+esac
+
+[[ "$(basename "${APP_BUNDLE}")" == "${EXPECTED_APP_BUNDLE_NAME}" ]] \
+  || fail "app bundle name does not match its build channel."
+[[ "${EXECUTABLE_NAME}" == "${EXPECTED_EXECUTABLE_NAME}" ]] || fail "unexpected executable name."
+[[ "${APP_DISPLAY_NAME}" == "${EXPECTED_APP_DISPLAY_NAME}" ]] || fail "unexpected display name."
+[[ "${APP_BUNDLE_NAME}" == "${EXPECTED_APP_DISPLAY_NAME}" ]] || fail "unexpected bundle name."
+[[ "${BUNDLE_IDENTIFIER}" == "${EXPECTED_BUNDLE_IDENTIFIER}" ]] || fail "unexpected bundle identifier."
+[[ "${CACHE_NAMESPACE}" == "${EXPECTED_CACHE_NAMESPACE}" ]] || fail "unexpected cache namespace."
+[[ "${STORAGE_NAMESPACE}" == "${EXPECTED_STORAGE_NAMESPACE}" ]] || fail "unexpected storage namespace."
+[[ "${WEBSITE_DATA_STORE_IDENTIFIER}" == "${EXPECTED_WEBSITE_DATA_STORE_IDENTIFIER}" ]] \
+  || fail "unexpected website data-store identifier."
+[[ "${OWNS_PORTABLE_PROJECTS}" == "${EXPECTED_PORTABLE_PROJECT_OWNERSHIP}" ]] \
+  || fail "portable-project ownership disagrees with the build channel."
+[[ "$(plutil -extract DriftExpectedBundleIdentifier raw -o - "${INFO_PLIST}")" == "${BUNDLE_IDENTIFIER}" ]] \
+  || fail "runtime and packaged bundle identifiers disagree."
 
 for path in \
   "${INFO_PLIST}" \
@@ -51,17 +101,23 @@ node "${ROOT_DIR}/scripts/stage-macos-runtime-licenses.mjs" verify \
   "${RESOURCES}/Legal/ThirdPartyLicenses"
 
 plutil -lint "${INFO_PLIST}" >/dev/null
-[[ "$(plutil -extract CFBundleIdentifier raw -o - "${INFO_PLIST}")" == "dog.pitch.drift" ]] \
-  || fail "unexpected bundle identifier."
 [[ "$(plutil -extract DriftNativeBridgeVersion raw -o - "${INFO_PLIST}")" == "2" ]] \
   || fail "Info.plist and bridge version disagree."
 [[ "$(plutil -extract LSMinimumSystemVersion raw -o - "${INFO_PLIST}")" == "13.3" ]] \
   || fail "the packaged minimum macOS version is not 13.3."
 INFO_DUMP="$(plutil -p "${INFO_PLIST}")"
-grep -F 'dog.pitch.pitched-project' <<<"${INFO_DUMP}" >/dev/null \
-  || fail "the .pitched document type is missing."
-grep -F 'UTExportedTypeDeclarations' <<<"${INFO_DUMP}" >/dev/null \
-  || fail "the app does not export its .pitched type declaration."
+if [[ "${BUILD_CHANNEL}" == "release" ]]; then
+  grep -F 'dog.pitch.pitched-project' <<<"${INFO_DUMP}" >/dev/null \
+    || fail "the .pitched document type is missing."
+  grep -F 'UTExportedTypeDeclarations' <<<"${INFO_DUMP}" >/dev/null \
+    || fail "the app does not export its .pitched type declaration."
+else
+  if grep -F 'dog.pitch.pitched-project' <<<"${INFO_DUMP}" >/dev/null \
+    || grep -F 'CFBundleDocumentTypes' <<<"${INFO_DUMP}" >/dev/null \
+    || grep -F 'UTExportedTypeDeclarations' <<<"${INFO_DUMP}" >/dev/null; then
+    fail "the development app claims production .pitched document ownership."
+  fi
+fi
 
 codesign --verify --deep --strict --all-architectures --verbose=2 "${APP_BUNDLE}"
 SIGNATURE="${TEMP_DIR}/signature.txt"
@@ -126,9 +182,10 @@ expected_archs="$(printf '%s\n' ${DRIFT_EXPECT_ARCHS:-arm64 x86_64} | sort | tr 
 [[ "${actual_archs}" == "${expected_archs}" ]] \
   || fail "architectures are ${actual_archs}; expected ${expected_archs}."
 
-python3 - "${INFO_PLIST}" "${RESOURCES}/BuildReceipt.txt" "${actual_archs}" <<'PY'
+python3 - "${INFO_PLIST}" "${RESOURCES}/BuildReceipt.txt" "${RESOURCES}/Web/MacWebBundleReceipt.json" "${actual_archs}" <<'PY'
 from __future__ import annotations
 
+import json
 import plistlib
 import re
 import sys
@@ -136,7 +193,8 @@ from pathlib import Path
 
 info_path = Path(sys.argv[1])
 receipt_path = Path(sys.argv[2])
-actual_architectures = set(sys.argv[3].split())
+web_receipt_path = Path(sys.argv[3])
+actual_architectures = set(sys.argv[4].split())
 with info_path.open("rb") as stream:
     info = plistlib.load(stream)
 
@@ -150,6 +208,15 @@ for line_number, line in enumerate(receipt_path.read_text(encoding="utf-8").spli
     receipt[key] = value
 
 expected = {
+    "app_name": str(info.get("CFBundleDisplayName", "")),
+    "app_variant": str(info.get("DriftBuildChannel", "")),
+    "executable_name": str(info.get("CFBundleExecutable", "")),
+    "bundle_identifier": str(info.get("CFBundleIdentifier", "")),
+    "build_channel": str(info.get("DriftBuildChannel", "")),
+    "cache_namespace": str(info.get("DriftCacheNamespace", "")),
+    "storage_namespace": str(info.get("DriftStorageNamespace", "")),
+    "website_data_store_identifier": str(info.get("DriftWebsiteDataStoreIdentifier", "")),
+    "portable_project_ownership": "registered" if info.get("DriftOwnsPortableProjects") is True else "absent",
     "version": str(info.get("CFBundleShortVersionString", "")),
     "build_number": str(info.get("CFBundleVersion", "")),
     "source_revision": str(info.get("DriftSourceRevision", "")),
@@ -163,6 +230,10 @@ if re.fullmatch(r"[0-9a-f]{40}", expected["source_revision"]) is None:
     raise SystemExit("Drift.app verification failed: source revision is not one full Git SHA-1.")
 if set(receipt.get("architectures", "").split()) != actual_architectures:
     raise SystemExit("Drift.app verification failed: build receipt architectures do not match the executable.")
+
+web_receipt = json.loads(web_receipt_path.read_text(encoding="utf-8"))
+if web_receipt.get("buildChannel") != expected["build_channel"]:
+    raise SystemExit("Drift.app verification failed: signed Web runtime and native build channel disagree.")
 PY
 
 # Universal binaries produce one unindented header per architecture. Only
@@ -232,7 +303,11 @@ for relative, expected in observed.items():
         raise SystemExit(f"resource digest mismatch: {relative}")
 PY
 
-grep -Fx "app_name=Drift" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has no app identity."
+grep -Fx "app_name=${APP_DISPLAY_NAME}" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has no app identity."
+grep -Fx "bundle_identifier=${BUNDLE_IDENTIFIER}" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong bundle identity."
+grep -Fx "build_channel=${BUILD_CHANNEL}" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong build channel."
+grep -Fx "cache_namespace=${CACHE_NAMESPACE}" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong cache namespace."
+grep -Fx "storage_namespace=${STORAGE_NAMESPACE}" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong storage namespace."
 grep -Fx "minimum_macos=13.3" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong deployment target."
 grep -Fx "codec_policy=system-frameworks-only" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong codec policy."
 grep -Fx "video_codec=WKWebView-H264-capability-gated" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt misstates the video path."
@@ -261,7 +336,11 @@ run_packaged_webview_self_test() {
   # One coordinator owns exact-process selection, external WebContent
   # termination, loopback denial, receipts, and cleanup. Keeping a second
   # launcher here previously let local verification drift from CI.
-  DRIFT_WEBVIEW_MATRIX_DIR="${ROOT_DIR}/build/macos/verify-packaged-webview" \
+  local matrix_dir="${ROOT_DIR}/build/macos/verify-packaged-webview"
+  if [[ "${BUILD_CHANNEL}" == "v2-dev" ]]; then
+    matrix_dir="${ROOT_DIR}/build/macos/v2-dev/verify-packaged-webview"
+  fi
+  DRIFT_WEBVIEW_MATRIX_DIR="${matrix_dir}" \
     bash "${ROOT_DIR}/scripts/probe-macos-packaged-webview.sh" "${APP_BUNDLE}"
 }
 

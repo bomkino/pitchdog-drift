@@ -60,6 +60,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     private var recoveredCommandVerified = false
     private var persistedAssetVerified = false
     private var isolatedDatabaseCleanupVerified = false
+    private var runtimeBuildIdentityVerified = false
     private var lastProbe = "no probe completed"
     private var bootDiagnostics = "none"
     private let isolatedDatabaseName = "drift-project-self-test-\(UUID().uuidString.lowercased())"
@@ -224,7 +225,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         // This is the production persistent store. A document-start database
         // namespace keeps test records isolated without using WebKit's
         // semantically different non-persistent Blob/File implementation.
-        configuration.websiteDataStore = .default()
+        configuration.websiteDataStore = driftWebsiteDataStore()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.mediaTypesRequiringUserActionForPlayback = []
@@ -389,6 +390,11 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 "bundleIdentifier": Bundle.main.bundleIdentifier ?? NSNull(),
                 "bundleVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? NSNull(),
                 "sourceRevision": Bundle.main.object(forInfoDictionaryKey: "DriftSourceRevision") ?? NSNull(),
+                "buildChannel": driftBuildChannel,
+                "cacheNamespace": driftCacheNamespace,
+                "storageNamespace": driftStorageNamespace,
+                "websiteDataStoreIdentifier": Bundle.main.object(forInfoDictionaryKey: "DriftWebsiteDataStoreIdentifier") ?? NSNull(),
+                "runtimeBuildIdentityVerified": runtimeBuildIdentityVerified,
                 "startedNavigation": startedNavigation,
                 "committedNavigation": committedNavigation,
                 "finishedNavigation": finishedNavigation,
@@ -451,7 +457,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             ])
         }
         return caches
-            .appendingPathComponent("Drift", isDirectory: true)
+            .appendingPathComponent(driftCacheNamespace, isDirectory: true)
             .appendingPathComponent("SelfTests", isDirectory: true)
     }
 
@@ -659,6 +665,8 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
         (() => ({
           hasApp: Boolean(document.querySelector('main.app')),
           hasCanvas: Boolean(document.querySelector('canvas')),
+          buildChannel: document.documentElement.dataset.driftBuildChannel ?? null,
+          storageNamespace: document.documentElement.dataset.driftStorageNamespace ?? null,
           hasNativeMarker: window.__DRIFT_NATIVE_MAC__?.bridgeVersion === 2,
           hasNativeDocumentAuthority: window.__DRIFT_NATIVE_MAC__?.documentAuthority === 'appkit-issued-per-document',
           hasTruthfulNetworkBoundary: window.__DRIFT_NATIVE_MAC__?.webKitOutboundPolicyInstalled === true
@@ -707,9 +715,13 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
             }
             self.lastProbe = Self.boundedDescription(values, maximum: 8_192)
             let state = self.bridge?.clientState ?? ClientState()
+            let buildIdentityReady = values["buildChannel"] as? String == driftBuildChannel
+                && values["storageNamespace"] as? String == driftStorageNamespace
+            self.runtimeBuildIdentityVerified = buildIdentityReady
             let structureReady =
                 values["hasApp"] as? Bool == true
                 && values["hasCanvas"] as? Bool == true
+                && buildIdentityReady
                 && values["hasNativeMarker"] as? Bool == true
                 && values["hasNativeDocumentAuthority"] as? Bool == true
                 && values["hasTruthfulNetworkBoundary"] as? Bool == true

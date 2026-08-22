@@ -458,6 +458,13 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                 DispatchQueue.main.async { completion(error) }
             }
         }
+        guard kind != .project || driftAllowsExternalPortableProjects else {
+            completionOnMain(BridgeFailure(
+                "NotAllowedError",
+                "Drift V2 Dev accepts copied project fixtures only through its verification harness."
+            ))
+            return
+        }
         guard let completionOnce = trackExternalImportCompletion(completionOnMain) else {
             completionOnMain(BridgeFailure(
                 "AbortError",
@@ -938,6 +945,13 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
         let kind = DriftImportKind(rawValue: optionalString(payload, "kind") ?? "project") ?? .project
+        guard kind != .project || driftAllowsExternalPortableProjects else {
+            replyHandler(failureEnvelope(BridgeFailure(
+                "NotAllowedError",
+                "Drift V2 Dev does not open production .pitched projects."
+            )), nil)
+            return
+        }
         let panel = configuredOpenPanel(kind: kind, multiple: (payload["multiple"] as? Bool) == true)
         beginAuthorizedPanel(panel, document: document, replyHandler: replyHandler) { [weak self] result in
             guard let self else { return }

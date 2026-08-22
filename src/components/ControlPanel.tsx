@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { driftBuildIdentity } from "../lib/buildIdentity";
 import type { StudioSettings, ThemeId } from "../model";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
@@ -12,6 +13,7 @@ interface ControlPanelProps {
   onExportFrames: () => void;
   onExportProject: () => void;
   onImportProject: () => void;
+  projectFilesEnabled: boolean;
   exporting: boolean;
 }
 
@@ -24,6 +26,7 @@ export function ControlPanel({
   onExportFrames,
   onExportProject,
   onImportProject,
+  projectFilesEnabled,
   exporting,
 }: ControlPanelProps) {
   const patch = <K extends keyof StudioSettings>(key: K, values: Partial<StudioSettings[K]>) => {
@@ -53,7 +56,7 @@ export function ControlPanel({
 
       <section className="theme-section" aria-labelledby="themes-title">
         <div className="section-heading-row">
-          <h3 id="themes-title">Film worlds</h3>
+          <h3 id="themes-title">{driftBuildIdentity.isDevelopment ? "V1 looks · compatibility" : "Film worlds"}</h3>
           <span>6</span>
         </div>
         <div className="theme-grid">
@@ -256,8 +259,9 @@ export function ControlPanel({
           <button type="button" onClick={onExportFrames} disabled={exporting}>Export PNG sequence</button>
         </div>
         <div className="project-actions">
-          <button type="button" onClick={onExportProject} disabled={exporting}>Save portable project</button>
-          <button type="button" onClick={onImportProject} disabled={exporting}>Open project</button>
+          <button type="button" onClick={onExportProject} disabled={exporting || !projectFilesEnabled}>Save portable project</button>
+          <button type="button" onClick={onImportProject} disabled={exporting || !projectFilesEnabled}>Open project</button>
+          {!projectFilesEnabled ? <p className="development-boundary">V2 Dev keeps real .pitched projects in Drift.</p> : null}
         </div>
       </InspectorGroup>
     </aside>

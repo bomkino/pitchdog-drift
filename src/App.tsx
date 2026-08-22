@@ -17,6 +17,7 @@ import {
 import type { AssetDescriptor, DriftProjectV3 } from "./core/project/schema";
 import { CinematicCarousel } from "./engine/CinematicCarousel";
 import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
+import { driftBuildIdentity } from "./lib/buildIdentity";
 import { createDemoSlides } from "./lib/demoSlides";
 import type { ExportProgress as EncoderProgress } from "./lib/exportStudio";
 import {
@@ -224,6 +225,12 @@ export function App() {
   const [projectBusy, setProjectBusy] = useState(false);
   const [mp4Supported, setMp4Supported] = useState<boolean | null>(null);
   const nativeMac = isNativeMacRuntime();
+  const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
+    __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
+  }).__DRIFT_NATIVE_SELF_TEST_DB__;
+  const portableProjectFilesEnabled = !driftBuildIdentity.isDevelopment
+    || (typeof nativeSelfTestDatabase === "string"
+      && /^drift-project-self-test-[a-f0-9-]{36}$/.test(nativeSelfTestDatabase));
 
   settingsRef.current = settings;
   assetsRef.current = assets;
@@ -1060,6 +1067,7 @@ export function App() {
 
     switch (command) {
     case "open-project":
+      if (!portableProjectFilesEnabled) return false;
       importInputRef.current?.click();
       return Boolean(importInputRef.current);
     case "add-slides":
@@ -1069,6 +1077,7 @@ export function App() {
       presenterInputRef.current?.click();
       return Boolean(presenterInputRef.current);
     case "save-project":
+      if (!portableProjectFilesEnabled) return false;
       savePortableProject();
       return true;
     case "export-mp4":
@@ -1108,6 +1117,12 @@ export function App() {
         "TypeMismatchError",
       );
     }
+    if (kind === "project" && !portableProjectFilesEnabled) {
+      throw new DOMException(
+        "Drift V2 Dev uses copied fixtures only. Open real .pitched work in Drift.",
+        "NotAllowedError",
+      );
+    }
     const file = files[0];
     if (kind === "presenter") {
       return enqueueProjectOperation(
@@ -1143,21 +1158,41 @@ export function App() {
       : mp4Supported
         ? nativeMac ? "WebGL2 · system H.264 ready" : "WebGL2 · H.264 ready"
         : "WebGL2 · PNG output";
+  const localSaveStatusLabel = driftBuildIdentity.isDevelopment
+    ? saveState === "loading"
+      ? "loading V2 sandbox…"
+      : saveState === "saving"
+        ? "saving to V2 sandbox…"
+        : saveState === "failed"
+          ? "V2 sandbox save failed"
+          : saveState === "recovery"
+            ? "V2 sandbox recovery locked"
+            : "saved to V2 sandbox"
+    : saveState === "loading"
+      ? "loading local project…"
+      : saveState === "saving"
+        ? "saving locally…"
+        : saveState === "failed"
+          ? "local save failed"
+          : saveState === "recovery"
+            ? "recovery locked"
+            : "saved locally";
   const interactionBusy = exportInProgress || projectBusy || saveState === "loading";
 
   return (
-    <main className="app" data-focus={focusMode} data-active-panel={activePanel} aria-busy={interactionBusy}>
+    <main className="app" data-focus={focusMode} data-active-panel={activePanel} data-build-channel={driftBuildIdentity.channel} aria-busy={interactionBusy}>
       <header className="app-header">
         <a className="wordmark" href="#studio" aria-label="Drift studio home">
           <span>pitch.dog</span>
           <strong>DRIFT</strong>
+          {driftBuildIdentity.isDevelopment ? <em className="dev-build-badge">V2 DEV</em> : null}
         </a>
         <p>Decks should move like they mean it.</p>
         <div className="header-status">
           <span className="capability-dot" data-ready={!webglError} />
           <span>{capabilityLabel}</span>
           <span className="header-divider" />
-          <span>{saveState === "loading" ? "loading local project…" : saveState === "saving" ? "saving locally…" : saveState === "failed" ? "local save failed" : saveState === "recovery" ? "recovery locked" : "saved locally"}</span>
+          <span>{localSaveStatusLabel}</span>
         </div>
       </header>
 
@@ -1212,6 +1247,7 @@ export function App() {
           onExportFrames={exportFrames}
           onExportProject={savePortableProject}
           onImportProject={() => importInputRef.current?.click()}
+          projectFilesEnabled={portableProjectFilesEnabled}
           exporting={interactionBusy}
         />
       </div>
@@ -1221,7 +1257,7 @@ export function App() {
         hidden
         tabIndex={-1}
         type="file"
-        disabled={interactionBusy}
+        disabled={interactionBusy || !portableProjectFilesEnabled}
         accept=".pitched,application/vnd.pitchdog.pitched+zip,application/zip"
         onChange={openPortableProject}
       />

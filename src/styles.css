@@ -142,6 +142,28 @@ a:focus-visible {
   letter-spacing: 0.19em;
 }
 
+.dev-build-badge {
+  margin-left: 2px;
+  padding: 3px 5px 2px;
+  border: 1px solid color(display-p3 0.88 0.32 0.21 / 0.72);
+  border-radius: 2px;
+  color: #ff795b;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 720;
+  letter-spacing: 0.1em;
+  line-height: 1;
+}
+
+.development-boundary {
+  margin: 4px 0 0;
+  color: #a9a197;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .app-header > p {
   margin: 0;
   color: #b7b0a4;

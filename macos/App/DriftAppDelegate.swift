@@ -131,6 +131,10 @@ final class DriftAppDelegate: NSObject,
     private var navigationIdentity = NavigationIdentityTracker()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard driftBuildIdentityIsValid() else {
+            presentFatalError("The signed application identity is internally inconsistent. Rebuild Drift from a supported product profile.")
+            return
+        }
         NSApp.appearance = nil
         installMenus()
         prepareLocalRuntime()
@@ -167,6 +171,14 @@ final class DriftAppDelegate: NSObject,
     }
 
     func application(_ application: NSApplication, openFiles filenames: [String]) {
+        guard driftAllowsExternalPortableProjects else {
+            application.reply(toOpenOrPrint: .failure)
+            presentWarning(
+                title: "Drift V2 Dev protects production projects",
+                message: "This development build opens copied fixtures only through its verification harness. Use Drift for real .pitched projects."
+            )
+            return
+        }
         let urls = filenames.map { URL(fileURLWithPath: $0).standardizedFileURL }
         let projects = urls.filter { $0.pathExtension.lowercased() == "pitched" }
         guard projects.count == urls.count, !projects.isEmpty else {
@@ -313,7 +325,7 @@ final class DriftAppDelegate: NSObject,
         invalidateRecoveryStabilityWindow()
 
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
+        configuration.websiteDataStore = driftWebsiteDataStore()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.mediaTypesRequiringUserActionForPlayback = []
@@ -368,7 +380,7 @@ final class DriftAppDelegate: NSObject,
             defer: false
         )
         window.delegate = self
-        window.title = "Drift — pitch.dog"
+        window.title = "\(driftApplicationDisplayName) — pitch.dog"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
@@ -376,8 +388,9 @@ final class DriftAppDelegate: NSObject,
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.tabbingMode = .disallowed
         window.contentView = webView
-        window.setFrameAutosaveName("DriftMainWindow")
-        if !window.setFrameUsingName("DriftMainWindow") { window.center() }
+        let frameAutosaveName = "\(driftApplicationDisplayName.replacingOccurrences(of: " ", with: ""))MainWindow"
+        window.setFrameAutosaveName(frameAutosaveName)
+        if !window.setFrameUsingName(frameAutosaveName) { window.center() }
         window.makeKeyAndOrderFront(nil)
         self.window = window
 
@@ -903,8 +916,10 @@ final class DriftAppDelegate: NSObject,
         let exporting = nativeBridge?.clientState.exportInProgress == true
         let protected = hasProtectedWork
         switch menuItem.action {
-        case #selector(openProject(_:)), #selector(addSlides(_:)), #selector(addPresenter(_:)),
-             #selector(savePortableProject(_:)), #selector(exportMP4(_:)), #selector(exportStill(_:)),
+        case #selector(openProject(_:)), #selector(savePortableProject(_:)):
+            return driftAllowsExternalPortableProjects && webRuntimeReady && !protected
+        case #selector(addSlides(_:)), #selector(addPresenter(_:)),
+             #selector(exportMP4(_:)), #selector(exportStill(_:)),
              #selector(exportFrames(_:)), #selector(reload(_:)):
             return webRuntimeReady && !protected
         case #selector(togglePlayback(_:)), #selector(previousSlide(_:)), #selector(nextSlide(_:)), #selector(toggleFocus(_:)):
@@ -918,10 +933,22 @@ final class DriftAppDelegate: NSObject,
         }
     }
 
-    @objc private func openProject(_ sender: Any?) { dispatchNativeCommand("open-project") }
+    @objc private func openProject(_ sender: Any?) {
+        guard driftAllowsExternalPortableProjects else {
+            presentDevelopmentProjectBoundary()
+            return
+        }
+        dispatchNativeCommand("open-project")
+    }
     @objc private func addSlides(_ sender: Any?) { dispatchNativeCommand("add-slides") }
     @objc private func addPresenter(_ sender: Any?) { dispatchNativeCommand("add-presenter") }
-    @objc private func savePortableProject(_ sender: Any?) { dispatchNativeCommand("save-project") }
+    @objc private func savePortableProject(_ sender: Any?) {
+        guard driftAllowsExternalPortableProjects else {
+            presentDevelopmentProjectBoundary()
+            return
+        }
+        dispatchNativeCommand("save-project")
+    }
     @objc private func exportMP4(_ sender: Any?) { dispatchNativeCommand("export-mp4") }
     @objc private func exportStill(_ sender: Any?) { dispatchNativeCommand("export-still") }
     @objc private func exportFrames(_ sender: Any?) { dispatchNativeCommand("export-frames") }
@@ -930,6 +957,13 @@ final class DriftAppDelegate: NSObject,
     @objc private func nextSlide(_ sender: Any?) { dispatchNativeCommand("next-slide") }
     @objc private func toggleFocus(_ sender: Any?) { dispatchNativeCommand("toggle-focus") }
     @objc private func cancelExport(_ sender: Any?) { dispatchNativeCommand("cancel-export") }
+
+    private func presentDevelopmentProjectBoundary() {
+        presentWarning(
+            title: "Production projects stay in Drift",
+            message: "Drift V2 Dev uses copied fixtures while its project model is changing. Open and save real .pitched work in Drift."
+        )
+    }
 
     @objc private func revealLastSavedFile(_ sender: Any?) {
         nativeBridge?.revealLastCommittedFileInFinder()

@@ -118,6 +118,7 @@ fi
 # evidence is added below and the frozen bundle is signed once more afterwards.
 DRIFT_CODESIGN_IDENTITY="$SIGN_IDENTITY" \
 DRIFT_MACOS_ARCHS="${DRIFT_MACOS_ARCHS:-arm64 x86_64}" \
+DRIFT_MACOS_APP_VARIANT=release \
 DRIFT_MACOS_OUTPUT_DIR="$(dirname "$APP_PATH")" \
   "$ROOT/scripts/build-macos-app.sh"
 

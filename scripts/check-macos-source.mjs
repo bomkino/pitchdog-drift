@@ -43,6 +43,7 @@ const probes = [
 ];
 const scripts = [
   "scripts/build-macos-app.sh",
+  "scripts/build-macos-v2-dev.sh",
   "scripts/build-macos-export-probe.mjs",
   "scripts/generate-macos-icon.py",
   "scripts/package-macos-dmg.sh",
@@ -52,6 +53,7 @@ const scripts = [
   "scripts/release-macos-app.sh",
   "scripts/run-macos-export-probe.sh",
   "scripts/verify-macos-app.sh",
+  "scripts/verify-macos-v2-dev.sh",
   "scripts/verify-macos-dmg.sh",
   "scripts/verify-macos-release.sh",
 ];
@@ -628,6 +630,17 @@ requireMarkers("scripts/build-macos-app.sh", [
   "native_network_client_surface=none-shipped",
   "network_boundary=app-entitled-webkit-blocked",
   "stage-macos-runtime-licenses.mjs stage",
+  'APP_VARIANT="${DRIFT_MACOS_APP_VARIANT:-release}"',
+  'BUNDLE_IDENTIFIER="dog.pitch.drift.v2.dev"',
+  'STORAGE_NAMESPACE="pitchdog-drift-v2-dev"',
+]);
+requireMarkers("scripts/build-macos-v2-dev.sh", [
+  'DRIFT_MACOS_APP_VARIANT="v2-dev"',
+  'build/macos/v2-dev',
+]);
+requireMarkers("scripts/verify-macos-v2-dev.sh", [
+  'build/macos/v2-dev/Drift V2 Dev.app',
+  'verify-macos-app.sh',
 ]);
 requireMarkers("scripts/verify-macos-app.sh", [
   "--smoke-test",
@@ -663,6 +676,7 @@ requireMarkers("scripts/package-macos-dmg.sh", [
   "The app source revision does not match the exact checked-out commit",
   'ditto "${APP_BUNDLE}" "${STAGE_DIR}/Drift.app"',
   "https://github.com/bomkino/pitchdog-drift/tree/${APP_SOURCE_REVISION}",
+  "DRIFT_MACOS_APP_VARIANT=release npm run build:mac",
 ]);
 forbidMarkers("scripts/package-macos-dmg.sh", ["Source, licence, privacy"]);
 requireMarkers("scripts/verify-macos-dmg.sh", [
@@ -679,6 +693,7 @@ requireMarkers("scripts/release-macos-app.sh", [
   "Refusing overlapping release app and output paths",
   "release app and output paths must be absolute",
   'DRIFT_MACOS_OUTPUT_DIR="$(dirname "$APP_PATH")"',
+  "DRIFT_MACOS_APP_VARIANT=release",
 ]);
 requireMarkers("scripts/verify-macos-release.sh", [
   "DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST=0",

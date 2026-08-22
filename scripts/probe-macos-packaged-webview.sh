@@ -123,6 +123,22 @@ expected_source_revision = subprocess.check_output(
     ["plutil", "-extract", "DriftSourceRevision", "raw", "-o", "-", str(info)],
     text=True,
 ).strip()
+expected_build_channel = subprocess.check_output(
+    ["plutil", "-extract", "DriftBuildChannel", "raw", "-o", "-", str(info)],
+    text=True,
+).strip()
+expected_cache_namespace = subprocess.check_output(
+    ["plutil", "-extract", "DriftCacheNamespace", "raw", "-o", "-", str(info)],
+    text=True,
+).strip()
+expected_storage_namespace = subprocess.check_output(
+    ["plutil", "-extract", "DriftStorageNamespace", "raw", "-o", "-", str(info)],
+    text=True,
+).strip()
+expected_website_data_store_identifier = subprocess.check_output(
+    ["plutil", "-extract", "DriftWebsiteDataStoreIdentifier", "raw", "-o", "-", str(info)],
+    text=True,
+).strip()
 expected_executable_name = subprocess.check_output(
     ["plutil", "-extract", "CFBundleExecutable", "raw", "-o", "-", str(info)],
     text=True,
@@ -500,8 +516,8 @@ web_rtc_udp_thread.start()
 
 home = Path.home()
 roots = [
-    home / "Library" / "Containers" / expected_bundle_id / "Data" / "Library" / "Caches" / "Drift" / "SelfTests",
-    home / "Library" / "Caches" / "Drift" / "SelfTests",
+    home / "Library" / "Containers" / expected_bundle_id / "Data" / "Library" / "Caches" / expected_cache_namespace / "SelfTests",
+    home / "Library" / "Caches" / expected_cache_namespace / "SelfTests",
 ]
 for root in roots:
     for suffix in ("", ".termination-request.json", ".termination-ack.json"):
@@ -825,6 +841,11 @@ if receipt is not None:
     expect(receipt.get("bundleIdentifier") == expected_bundle_id, "receipt bundle identifier changed")
     expect(receipt.get("bundleVersion") == expected_bundle_version, "receipt bundle version changed")
     expect(receipt.get("sourceRevision") == expected_source_revision, "receipt source revision changed")
+    expect(receipt.get("buildChannel") == expected_build_channel, "runtime build channel changed")
+    expect(receipt.get("cacheNamespace") == expected_cache_namespace, "runtime cache namespace changed")
+    expect(receipt.get("storageNamespace") == expected_storage_namespace, "runtime storage namespace changed")
+    expect(receipt.get("websiteDataStoreIdentifier") == expected_website_data_store_identifier, "runtime website data-store identifier changed")
+    expect(receipt.get("runtimeBuildIdentityVerified") is True, "signed Web runtime and native build identity disagree")
     expect(receipt.get("startedNavigation") is True, "WKWebView never started navigation")
     expect(receipt.get("committedNavigation") is True, "WKWebView never committed navigation")
     expect(receipt.get("finishedNavigation") is True, "WKWebView never finished navigation")

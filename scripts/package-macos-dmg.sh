@@ -74,7 +74,7 @@ PY
 
 cd "${ROOT_DIR}"
 if [[ "${DRIFT_SKIP_APP_BUILD:-0}" != "1" ]]; then
-  npm run build:mac
+  DRIFT_MACOS_APP_VARIANT=release npm run build:mac
 fi
 
 # A prebuilt input is useful only when it is the exact clean checkout being

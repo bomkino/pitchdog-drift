@@ -1,10 +1,99 @@
 import Foundation
 import Security
 import UniformTypeIdentifiers
+import WebKit
 
 let driftBridgeName = "driftNative"
 let driftBridgeVersion = 2
-let driftBundleIdentifier = "dog.pitch.drift"
+let driftReleaseBundleIdentifier = "dog.pitch.drift"
+let driftReleaseStorageNamespace = "pitchdog-drift"
+let driftV2DevelopmentStorageNamespace = "pitchdog-drift-v2-dev"
+let driftV2DevelopmentDataStoreIdentifier = UUID(uuidString: "7A519E77-39A8-4BAF-89A0-314590BF3D24")!
+
+func driftInfoString(_ key: String, fallback: String) -> String {
+    guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+          !value.isEmpty else { return fallback }
+    return value
+}
+
+var driftExpectedBundleIdentifier: String {
+    driftInfoString("DriftExpectedBundleIdentifier", fallback: driftReleaseBundleIdentifier)
+}
+
+var driftBuildChannel: String {
+    driftInfoString("DriftBuildChannel", fallback: "release")
+}
+
+var driftCacheNamespace: String {
+    driftInfoString("DriftCacheNamespace", fallback: "Drift")
+}
+
+var driftStorageNamespace: String {
+    driftInfoString("DriftStorageNamespace", fallback: driftReleaseStorageNamespace)
+}
+
+var driftApplicationDisplayName: String {
+    driftInfoString("CFBundleDisplayName", fallback: "Drift")
+}
+
+func driftBuildIdentityIsValid() -> Bool {
+    let info = Bundle.main.infoDictionary ?? [:]
+    let executable = info["CFBundleExecutable"] as? String
+    let websiteDataStoreIdentifier = info["DriftWebsiteDataStoreIdentifier"] as? String
+    let ownsPortableProjects = info["DriftOwnsPortableProjects"] as? Bool
+    let hasDocumentTypes = info["CFBundleDocumentTypes"] != nil
+    let hasExportedTypes = info["UTExportedTypeDeclarations"] != nil
+
+    guard Bundle.main.bundleIdentifier == driftExpectedBundleIdentifier else { return false }
+    switch driftBuildChannel {
+    case "release":
+        return driftExpectedBundleIdentifier == driftReleaseBundleIdentifier
+            && driftApplicationDisplayName == "Drift"
+            && executable == "Drift"
+            && driftCacheNamespace == "Drift"
+            && driftStorageNamespace == driftReleaseStorageNamespace
+            && websiteDataStoreIdentifier == "default"
+            && ownsPortableProjects == true
+            && hasDocumentTypes
+            && hasExportedTypes
+    case "v2-dev":
+        return driftExpectedBundleIdentifier == "dog.pitch.drift.v2.dev"
+            && driftApplicationDisplayName == "Drift V2 Dev"
+            && executable == "DriftV2Dev"
+            && driftCacheNamespace == "DriftV2Dev"
+            && driftStorageNamespace == driftV2DevelopmentStorageNamespace
+            && websiteDataStoreIdentifier == driftV2DevelopmentDataStoreIdentifier.uuidString
+            && ownsPortableProjects == false
+            && !hasDocumentTypes
+            && !hasExportedTypes
+    default:
+        return false
+    }
+}
+
+var driftAllowsExternalPortableProjects: Bool {
+    driftBuildChannel == "release"
+        || CommandLine.arguments.contains("--webview-self-test")
+        || CommandLine.arguments.contains("--native-self-test")
+}
+
+func driftWebsiteDataStore() -> WKWebsiteDataStore {
+    switch driftBuildChannel {
+    case "release":
+        return .default()
+    case "v2-dev":
+        if #available(macOS 14.0, *) {
+            return WKWebsiteDataStore(forIdentifier: driftV2DevelopmentDataStoreIdentifier)
+        }
+        // macOS 13 still receives a distinct App Sandbox container from the
+        // development bundle identifier. The default store is therefore
+        // isolated from release even though named stores arrived in macOS 14.
+        return .default()
+    default:
+        // A malformed build must not fall back into a persistent release store.
+        return .nonPersistent()
+    }
+}
 let driftMaximumReadChunkBytes = 1 * 1024 * 1024
 let driftMaximumWriteChunkBytes = 512 * 1024
 // MP4 verification currently reopens the completed native file as one Blob.

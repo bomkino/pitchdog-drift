@@ -23,7 +23,10 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "npm run dev -- --port 5187",
+    // Existing browser journeys remain the V1 compatibility lane. V2 gets
+    // explicit identity and feature journeys instead of silently changing
+    // what the established regression suite proves.
+    command: "npm run dev:v1 -- --port 5187",
     url: "http://127.0.0.1:5187",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
