@@ -27,12 +27,19 @@ export interface NativeMacClientState {
 export interface NativeMacAppBridge {
   command: (command: NativeMacCommand) => boolean | void | Promise<boolean | void>;
   importFile: (kind: NativeMacImportKind, file: File) => void | Promise<void>;
+  importFiles?: (kind: NativeMacImportKind, files: readonly File[]) => void | Promise<void>;
 }
 
 interface NativeMacRuntimeMarker {
   bridgeVersion: number;
   platform: "macOS";
   systemCodecsOnly: true;
+  documentAuthority: "appkit-issued-per-document";
+  webKitOutboundPolicyInstalled: true;
+  webKitOutboundPolicyVersion: 3;
+  nativeNetworkClientSurface: "none-shipped";
+  networkBoundary: "app-entitled-webkit-blocked";
+  networkClientEntitlementRequiredWhenSandboxed: true;
 }
 
 interface NativeMacFileHandle extends FileSystemFileHandle {
@@ -55,6 +62,10 @@ declare global {
     __driftNativeInstallAppBridge?: (bridge: NativeMacAppBridge) => void | (() => void);
     __driftNativeReportClientState?: (state: NativeMacClientState) => void;
     __driftNativeSaveBlob?: (blob: Blob, suggestedName: string) => Promise<void>;
+    __driftNativeCall?: (
+      command: string,
+      payload?: Readonly<Record<string, unknown>>,
+    ) => Promise<unknown>;
   }
 }
 
@@ -93,7 +104,13 @@ let installedAppBridge: NativeMacAppBridge | null = null;
 export function isNativeMacRuntime(): boolean {
   return typeof window !== "undefined"
     && window.__DRIFT_NATIVE_MAC__?.platform === "macOS"
-    && window.__DRIFT_NATIVE_MAC__.bridgeVersion === 2;
+    && window.__DRIFT_NATIVE_MAC__.bridgeVersion === 2
+    && window.__DRIFT_NATIVE_MAC__.documentAuthority === "appkit-issued-per-document"
+    && window.__DRIFT_NATIVE_MAC__.webKitOutboundPolicyInstalled === true
+    && window.__DRIFT_NATIVE_MAC__.webKitOutboundPolicyVersion === 3
+    && window.__DRIFT_NATIVE_MAC__.nativeNetworkClientSurface === "none-shipped"
+    && window.__DRIFT_NATIVE_MAC__.networkBoundary === "app-entitled-webkit-blocked"
+    && window.__DRIFT_NATIVE_MAC__.networkClientEntitlementRequiredWhenSandboxed === true;
 }
 
 export function installNativeMacAppBridge(bridge: NativeMacAppBridge): () => void {
@@ -141,10 +158,11 @@ export async function dispatchNativeMacFiles(
     throw new DOMException("The native picker returned an invalid file object.", "DataError");
   }
 
-  // The app bridge serializes project/media operations. Dispatching a selected
-  // slide batch in picker order therefore preserves ordering and first-deck
-  // replacement semantics without manufacturing a browser-owned FileList.
-  for (const file of selected) await bridge.importFile(kind, file);
+  // A native multi-slide selection is one project mutation and one durable
+  // save, rather than N success replies and N progressively larger snapshots.
+  // Retain the single-file fallback for older installed bridge implementations.
+  if (bridge.importFiles) await bridge.importFiles(kind, selected);
+  else for (const file of selected) await bridge.importFile(kind, file);
   return true;
 }
 

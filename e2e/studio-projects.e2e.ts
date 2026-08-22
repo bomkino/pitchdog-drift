@@ -11,6 +11,38 @@ import {
   waitForStudio,
 } from "./studio.helpers";
 
+test("reopening a verified local project performs no phantom IndexedDB rewrite", async ({ page }) => {
+  await waitForStudio(page);
+  await page.waitForTimeout(1_800);
+  await expect(page.locator(".header-status")).toContainText("saved locally");
+
+  await page.addInitScript(() => {
+    const instrumentedWindow = window as Window & { __driftHydrationWrites?: number };
+    instrumentedWindow.__driftHydrationWrites = 0;
+    const originalPut = IDBObjectStore.prototype.put;
+    const originalClear = IDBObjectStore.prototype.clear;
+    IDBObjectStore.prototype.put = function put(value: unknown, key?: IDBValidKey) {
+      instrumentedWindow.__driftHydrationWrites = (instrumentedWindow.__driftHydrationWrites ?? 0) + 1;
+      return key === undefined
+        ? originalPut.call(this, value)
+        : originalPut.call(this, value, key);
+    };
+    IDBObjectStore.prototype.clear = function clear() {
+      instrumentedWindow.__driftHydrationWrites = (instrumentedWindow.__driftHydrationWrites ?? 0) + 1;
+      return originalClear.call(this);
+    };
+  });
+
+  await page.reload();
+  await expect(page.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".asset-list li")).toHaveCount(8);
+  await page.waitForTimeout(1_800);
+  await expect(page.locator(".header-status")).toContainText("saved locally");
+  expect(await page.evaluate(() => (
+    window as Window & { __driftHydrationWrites?: number }
+  ).__driftHydrationWrites)).toBe(0);
+});
+
 test("saved starter studies remain replaceable by the first real deck", async ({ page }) => {
   await waitForStudio(page);
   await page.waitForTimeout(1_800);
@@ -78,6 +110,14 @@ test("presenter playback obeys pause and export while removal preserves an unrel
 
       engine.setPaused(false);
       await delay(180);
+      engine.setReducedMotionPreview(true);
+      const reducedMotionStart = video.currentTime;
+      await delay(250);
+      const reducedMotionDelta = video.currentTime - reducedMotionStart;
+      const reducedMotionPausedFlag = video.paused;
+
+      engine.setReducedMotionPreview(false);
+      await delay(180);
       surface = engine.beginExport(256, 256);
       const exportStart = video.currentTime;
       await delay(250);
@@ -89,7 +129,17 @@ test("presenter playback obeys pause and export while removal preserves an unrel
       const restoredStart = video.currentTime;
       await delay(250);
       const restoredDelta = video.currentTime - restoredStart;
-      return { playingDelta, pausedDelta, pausedFlag, exportDelta, exportPausedFlag, restoredDelta, restoredPausedFlag: video.paused };
+      return {
+        playingDelta,
+        pausedDelta,
+        pausedFlag,
+        reducedMotionDelta,
+        reducedMotionPausedFlag,
+        exportDelta,
+        exportPausedFlag,
+        restoredDelta,
+        restoredPausedFlag: video.paused,
+      };
     } finally {
       surface?.restore();
       engine.dispose();
@@ -101,6 +151,8 @@ test("presenter playback obeys pause and export while removal preserves an unrel
   expect(playback.playingDelta).toBeGreaterThan(0.1);
   expect(Math.abs(playback.pausedDelta)).toBeLessThan(0.05);
   expect(playback.pausedFlag).toBe(true);
+  expect(Math.abs(playback.reducedMotionDelta)).toBeLessThan(0.05);
+  expect(playback.reducedMotionPausedFlag).toBe(true);
   expect(Math.abs(playback.exportDelta)).toBeLessThan(0.05);
   expect(playback.exportPausedFlag).toBe(true);
   expect(playback.restoredDelta).toBeGreaterThan(0.1);

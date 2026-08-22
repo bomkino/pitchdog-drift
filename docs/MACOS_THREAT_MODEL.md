@@ -56,7 +56,7 @@ The web application imposes stricter limits where appropriate. The native ceilin
 
 ### Filesystem
 
-The signed app uses App Sandbox and `com.apple.security.files.user-selected.read-write`. It has no blanket Downloads, Documents, home-directory, temporary-exception, or network entitlement.
+The signed app uses App Sandbox, `com.apple.security.files.user-selected.read-write`, and `com.apple.security.network.client`. It has no network-server, blanket Downloads, Documents, home-directory, or temporary-exception entitlement. The network-client entitlement is app-wide; macOS does not restrict it to the WebKit helper topology.
 
 Save destinations are staged in Foundation’s item-replacement directory for the selected destination volume. A completed stream is synchronized and committed with same-volume rename. Aborted and failed sessions remove staging bytes while leaving the previous destination untouched.
 
@@ -78,9 +78,9 @@ Its receipt includes packet bytes, packet frame counts, AudioSpecificConfig, mag
 
 ### Network
 
-The app has no client or server network entitlement. WebKit content rules block HTTP, HTTPS, WS, WSS, and FTP loads. Navigation policy permits bundled file, Blob, data, and required about URLs. A deliberate click on an HTTP or HTTPS help/source link is handed to the user’s default browser and cancelled inside Drift.
+The signed sandboxed app has the app-wide network-client entitlement required by its packaged WKWebView topology and no network-server entitlement. A document-start page-world script removes `RTCPeerConnection` and `webkitRTCPeerConnection`; versioned WebKit content rules block HTTP, HTTPS, WS, WSS, and FTP; and the shared navigation policy cancels remote responses and every WebKit download request before native destination authority. Bundled file, Blob, data, and required about URLs remain available. A deliberate click on an HTTP or HTTPS help/source link is handed to the user’s default browser and cancelled inside Drift.
 
-The app contains no updater daemon, analytics service, cloud uploader, remote font, local server, or background network task.
+The app contains no native `URLSession`, Network.framework, or socket client; updater daemon; analytics service; cloud uploader; remote font; local server; or background network task. Adding native network code would immediately gain outbound capability and is therefore a protected-boundary change, not an ordinary feature.
 
 ## Threats and countermeasures
 
@@ -126,7 +126,7 @@ A malicious filesystem can still race metadata checks. App Sandbox and user-sele
 
 **Threat:** a bundled page, imported project, or compromised renderer sends private media away.
 
-**Countermeasure:** no app network entitlement, content-rule blocking, navigation cancellation, no remote fonts, and the existing application’s no-fetch runtime contract. External links open outside Drift only after explicit user activation.
+**Countermeasure:** document-start WebRTC-constructor removal, versioned content-rule blocking, remote response/download cancellation before destination authority, no remote fonts, no shipped native network client, and the existing application’s no-fetch runtime contract. External links open outside Drift only after explicit user activation. Packaged evidence must pair signed-entitlement readback with exact TCP/UDP loopback listeners that observe zero token-bearing hits.
 
 ### Unbounded bridge memory
 
@@ -172,9 +172,9 @@ A malicious filesystem can still race metadata checks. App Sandbox and user-sele
 
 ### Test harness claims exporter failure when JavaScript never booted
 
-**Threat:** a local-file ES-module or asset-path failure waits for a timeout and is misdiagnosed as an encoder hang.
+**Threat:** a local-file bootstrap or asset-path failure waits for a timeout and is misdiagnosed as an encoder hang.
 
-**Countermeasure:** the deterministic probe records boot and progress events, reports navigation/module diagnostics, verifies every bundle file against a SHA-256 receipt, and uses one classic IIFE with code splitting disabled. The packaged-app self-test separately tests the exact production ES-module topology.
+**Countermeasure:** the deterministic probe records boot and progress events, reports navigation/bootstrap diagnostics, verifies every bundle file against a SHA-256 receipt, and uses one classic IIFE with code splitting disabled. The packaged app is also a receipt-verified single-entry classic IIFE; its self-test exercises that exact production graph.
 
 ### Diagnostics leak private data
 
@@ -185,6 +185,8 @@ A malicious filesystem can still race metadata checks. App Sandbox and user-sele
 ## Residual risks
 
 - Image/video decoders, AudioToolbox, WebKit, and GPU drivers process hostile media. App Sandbox reduces impact but does not eliminate decoder vulnerabilities.
+- The network-client entitlement is app-wide. The application-level WebKit lockdown and absence of shipped native networking reduce the ordinary exfiltration surface, but an arbitrary WebKit or macOS compromise may still obtain outbound capability.
+- Future native `URLSession`, Network.framework, or socket code would be network-capable without an entitlement change. Source review and the native-client invariant must remain release gates.
 - WebKit storage can be removed by the user or operating system. Portable `.pitched` backups remain necessary.
 - User-selected grants are held for the lifetime of their opaque token; count is capped, but long sessions can retain access longer than one immediate operation.
 - A user can deliberately choose an unreliable network, shared, removable, or nearly full destination volume. Drift protects replacement semantics, not the volume itself.
@@ -196,7 +198,9 @@ A malicious filesystem can still race metadata checks. App Sandbox and user-sele
 
 ## Evidence required for a release claim
 
-- Extracted signed entitlements showing App Sandbox, user-selected file access, and no network entitlement.
+- Extracted signed entitlements showing App Sandbox, user-selected file access, network-client access, and absence of network-server/broad-directory exceptions.
+- Exact packaged TCP and UDP loopback probes with unpredictable tokens and zero accepted hits, tied to the tested app/WebContent processes and production rule identifier.
+- Source and behavioural evidence that remote responses/downloads cannot acquire destination authority and no native `URLSession`, Network.framework, or socket client is shipped.
 - Universal architecture readback and a separate Intel runtime receipt.
 - Build-manifest checksum verification.
 - Native broker self-test output.

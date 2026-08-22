@@ -43,28 +43,53 @@ requireMarkers("src/lib/nativeMac.ts", [
   "return await Promise.all(handles.map((handle) => handle.getFile()))",
   "await Promise.allSettled",
   "handle._release",
+  "if (bridge.importFiles) await bridge.importFiles(kind, selected)",
 ]);
 requireMarkers("src/App.tsx", [
   "replacingStartingDemos",
   "current.every((asset) => asset.demo)",
   "if (replacingDemos) current.forEach(disposeAsset)",
+  "directPersistenceSnapshotRef",
+  "advanceLocalSaveRevision(saveRevisionAuthorityRef.current)",
+  "ownsLocalSaveRevision(saveRevisionAuthorityRef.current, revision)",
+  "persistBeforeReply: true, propagateFailure: true",
+  "await persist(nextSettings, next, nextPresenter)",
+  "await persist(nextSettings, assetsRef.current, next)",
+  "importFiles: (kind, files) => nativeImportRef.current(kind, files)",
 ]);
 requireMarkers("tests/nativeFileInputBridge.test.ts", [
   "routes portable projects to the project panel",
   "routes every supported presenter spelling",
   "routes image and unknown file contracts to the slide panel",
 ]);
+requireMarkers("tests/nativeMac.test.ts", [
+  "delivers a native slide selection as one durable batch",
+  'toHaveBeenCalledWith("slides", files)',
+]);
+requireMarkers("tests/localSaveAuthority.test.ts", [
+  "keeps exit protection active when an older save resolves after a newer mutation",
+  "suppresses autosave only for the exact directly persisted snapshot",
+]);
 requireMarkers("e2e/native-menu-import.e2e.ts", [
   "A real 4 × 4 RGBA PNG",
-  "replaces the demo slate through one native picker",
+  "durably reloads one ordered native batch",
   "first real deck must replace those eight demos",
-  'toHaveCount(1)',
-  'releaseCount: 1',
+  'toHaveCount(2)',
+  'menu-import-1.png',
+  'menu-import-2.png',
+  'releaseCount: 2',
+  'lastSaveState: "saved"',
+  "await page.reload()",
   'Dismiss native file error',
+]);
+requireMarkers("e2e/studio-projects.e2e.ts", [
+  "reopening a verified local project performs no phantom IndexedDB rewrite",
+  "__driftHydrationWrites",
+  "await page.waitForTimeout(1_800)",
 ]);
 forbidMarkers("e2e/native-menu-import.e2e.ts", [
   "const decodablePng",
   "initialCount + 1",
 ]);
 
-console.log("Native import contract passed: menu and web-button imports share one typed picker, copied file grants are released, demo media is replaced on first import, and failure remains dismissible.");
+console.log("Native import contract passed: menu and web-button imports share one typed picker, copied file grants are released, native media replies await durable persistence, demo media is replaced on first import, and browser failure remains dismissible.");

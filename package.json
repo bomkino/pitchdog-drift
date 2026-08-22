@@ -2,7 +2,18 @@
   "name": "pitchdog-drift",
   "private": true,
   "version": "0.1.0",
+  "description": "A local-first WebGL motion studio for turning pitch-deck slides into deterministic cinematic exports.",
+  "keywords": [
+    "creative-tools",
+    "local-first",
+    "macos",
+    "pitch-decks",
+    "threejs",
+    "video-export",
+    "webgl"
+  ],
   "license": "AGPL-3.0-or-later",
+  "packageManager": "npm@11.19.0",
   "homepage": "https://github.com/bomkino/pitchdog-drift#readme",
   "repository": {
     "type": "git",
@@ -22,7 +33,7 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check:mac-source": "node scripts/check-macos-source.mjs && node --check scripts/build-macos-web.mjs && node scripts/check-native-import-contract.mjs && node scripts/check-macos-matrix-budget.mjs && node scripts/check-macos-hardening.mjs && bash -n scripts/build-macos-app.sh && bash -n scripts/verify-macos-app.sh && bash -n scripts/package-macos-dmg.sh && bash -n scripts/verify-macos-dmg.sh && bash -n scripts/release-macos-app.sh && bash -n scripts/verify-macos-release.sh && python3 -m py_compile scripts/generate-macos-icon.py",
+    "check:mac-source": "node scripts/check-macos-source.mjs && node --check scripts/build-macos-web.mjs && node --check scripts/stage-macos-runtime-licenses.mjs && node scripts/check-native-import-contract.mjs && node scripts/check-macos-matrix-budget.mjs && node scripts/check-macos-hardening.mjs && bash -n scripts/build-macos-app.sh && bash -n scripts/verify-macos-app.sh && bash -n scripts/package-macos-dmg.sh && bash -n scripts/verify-macos-dmg.sh && bash -n scripts/release-macos-app.sh && bash -n scripts/verify-macos-release.sh && python3 -c \"import ast,pathlib; ast.parse(pathlib.Path('scripts/generate-macos-icon.py').read_text(encoding='utf-8'))\"",
     "build:mac:web": "node scripts/build-macos-web.mjs",
     "build:mac": "bash scripts/build-macos-app.sh",
     "verify:mac": "bash scripts/verify-macos-app.sh",

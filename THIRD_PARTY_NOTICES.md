@@ -54,6 +54,7 @@ Release-grade Mac packaging copies these materials into `Drift.app/Contents/Reso
 - `ASSET-LICENSE.md`;
 - `THIRD_PARTY_NOTICES.md`;
 - `TRADEMARKS.md`;
+- exact MIT and MPL-2.0 licence texts for every JavaScript runtime component, plus a hash-bound version, copyright, and source manifest in `ThirdPartyLicenses/`;
 - macOS product, user, threat, QA, and release documentation;
 - a CycloneDX source-dependency SBOM.
 

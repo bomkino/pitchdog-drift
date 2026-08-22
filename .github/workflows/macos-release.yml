@@ -27,11 +27,16 @@ jobs:
     timeout-minutes: 90
     environment:
       name: macos-release
-    env:
-      KEYCHAIN_PATH: ${{ runner.temp }}/drift-release.keychain-db
-      CERTIFICATE_PATH: ${{ runner.temp }}/drift-developer-id.p12
-      NOTARY_KEY_PATH: ${{ runner.temp }}/AuthKey_Drift.p8
     steps:
+      - name: Establish isolated release paths before secrets exist
+        run: |
+          set -euo pipefail
+          {
+            echo "KEYCHAIN_PATH=${RUNNER_TEMP}/drift-release.keychain-db"
+            echo "CERTIFICATE_PATH=${RUNNER_TEMP}/drift-developer-id.p12"
+            echo "NOTARY_KEY_PATH=${RUNNER_TEMP}/AuthKey_Drift.p8"
+          } >> "$GITHUB_ENV"
+
       - name: Check out trusted main history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,6 +53,7 @@ jobs:
             echo "source_commit must be one exact 40-character Git commit SHA." >&2
             exit 1
           fi
+          CANONICAL_REQUESTED_COMMIT="$(printf '%s' "$REQUESTED_COMMIT" | tr '[:upper:]' '[:lower:]')"
           git fetch --no-tags origin main
           git cat-file -e "${REQUESTED_COMMIT}^{commit}"
           if ! git merge-base --is-ancestor "$REQUESTED_COMMIT" origin/main; then
@@ -56,7 +62,7 @@ jobs:
           fi
           git checkout --detach "$REQUESTED_COMMIT"
           RESOLVED_COMMIT="$(git rev-parse HEAD)"
-          [[ "$RESOLVED_COMMIT" == "${REQUESTED_COMMIT,,}" ]] || {
+          [[ "$RESOLVED_COMMIT" == "$CANONICAL_REQUESTED_COMMIT" ]] || {
             echo "Resolved commit differs from the requested commit." >&2
             exit 1
           }

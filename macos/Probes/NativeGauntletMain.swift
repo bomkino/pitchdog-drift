@@ -6,14 +6,29 @@ struct NativeGauntletMain {
     static func main() {
         var activePhase = "startup"
         do {
+            activePhase = "native bridge failure envelope"
+            try BridgeFailure.runEnvelopeSelfTest()
+
+            activePhase = "main-frame navigation identity"
+            try NavigationIdentityTracker.runSelfTest()
+
             activePhase = "trusted WebKit main-frame boundary"
             try TrustedWebRuntime.runSelfTest()
+
+            activePhase = "trusted navigation and download policy"
+            try TrustedNavigationPolicy.runSelfTest()
 
             activePhase = "export power-activity lifecycle"
             try ExportActivityGuard.runSelfTest()
 
             activePhase = "external Finder project admission"
             try ClientState.runExternalProjectImportAdmissionSelfTest()
+
+            activePhase = "native document authority lifecycle"
+            try NativeDocumentSession.runSelfTest()
+
+            activePhase = "native reply and teardown lifecycle"
+            try NativeBridgeHost.runReplyLifecycleSelfTest()
 
             activePhase = "native file-broker core"
             try NativeFileBroker.runSelfTest()
@@ -24,7 +39,7 @@ struct NativeGauntletMain {
             activePhase = "native AAC encoder"
             try NativeAacEncoderBroker.runSelfTest()
 
-            print("Drift trusted-WebKit, export-activity, project-admission, native file, rollback, grant, and AAC gauntlets passed.")
+            print("Drift trusted-WebKit, export-activity, project-admission, document-authority, native file, rollback, grant, and AAC gauntlets passed.")
             Darwin.exit(0)
         } catch let failure as BridgeFailure {
             fputs(

@@ -22,11 +22,36 @@ const MAX_POOL_SIZE = 24;
 const TEXTURE_CACHE_LIMIT = 24;
 const PREVIEW_TEXTURE_EDGE = 2048;
 const CAMERA_FOV = 35;
+const SHADOW_ALPHA_CUTOFF = 0.001;
+const GRAIN_SEED_MODULUS = 4093;
+
+/**
+ * Give the Gaussian enough geometry to reach the shader's discard threshold.
+ * The result is a per-side margin; opacity matters because a faint shadow can
+ * terminate sooner without exposing a hard plane edge.
+ */
+export function getShadowSupportMargin(softnessPx: number, opacity: number): number {
+  const boundedOpacity = THREE.MathUtils.clamp(opacity, 0, 1);
+  if (boundedOpacity <= SHADOW_ALPHA_CUTOFF) return 0;
+  const sigma = Math.max(1, Math.max(0, softnessPx) * 0.34);
+  return Math.ceil(sigma * Math.sqrt(2 * Math.log(boundedOpacity / SHADOW_ALPHA_CUTOFF)));
+}
+
+/**
+ * WebGL uniforms are float32. Fold large Project V3 seeds into an exactly
+ * representable prime range before the shader uses them as a coordinate shift.
+ */
+export function normalizeGrainSeed(seed: number): number {
+  if (!Number.isFinite(seed)) return 0;
+  const integer = Math.trunc(seed);
+  return ((integer % GRAIN_SEED_MODULUS) + GRAIN_SEED_MODULUS) % GRAIN_SEED_MODULUS;
+}
 
 interface EngineCallbacks {
   onError?: (message: string) => void;
   onContextState?: (state: "ready" | "lost" | "restored") => void;
   onFrame?: (fps: number) => void;
+  onActiveSlide?: (index: number) => void;
 }
 
 interface TextureRecord {
@@ -157,7 +182,6 @@ function createSlideMaterial(placeholder: THREE.Texture): THREE.ShaderMaterial {
       uDistortion: { value: 0 },
       uAxis: { value: 0 },
       uPhase: { value: 0 },
-      uTime: { value: 0 },
     },
   });
 }
@@ -170,7 +194,8 @@ function createShadowMaterial(): THREE.ShaderMaterial {
     depthTest: true,
     depthWrite: false,
     uniforms: {
-      uSizePx: { value: new THREE.Vector2(800, 450) },
+      uCanvasSizePx: { value: new THREE.Vector2(900, 550) },
+      uCardSizePx: { value: new THREE.Vector2(800, 450) },
       uRadiusPx: { value: 24 },
       uSmoothing: { value: 0.6 },
       uSoftnessPx: { value: 32 },
@@ -231,6 +256,8 @@ export class CinematicCarousel {
   private exportActive = false;
   private blobTextureKeyCounter = 0;
   private presenterRequestGeneration = 0;
+  private activeSlideIndex = -2;
+  private readonly backgroundResolution = new THREE.Vector2();
 
   private readonly onPointerDownBound = (event: PointerEvent) => this.onPointerDown(event);
   private readonly onPointerMoveBound = (event: PointerEvent) => this.onPointerMove(event);
@@ -290,9 +317,10 @@ export class CinematicCarousel {
         uIntensity: { value: settings.background.intensity },
         uMotion: { value: settings.background.motion },
         uGrain: { value: settings.background.grain },
+        uGrainFrame: { value: 0 },
         uVignette: { value: settings.background.vignette },
         uPhase: { value: 0 },
-        uSeed: { value: settings.background.seed },
+        uSeed: { value: normalizeGrainSeed(settings.background.seed) },
       },
     });
     this.backgroundMesh = new THREE.Mesh(this.backgroundGeometry, this.backgroundMaterial);
@@ -467,10 +495,7 @@ export class CinematicCarousel {
     this.presenterMaterial.uniforms.uTextureAspect!.value = aspect;
   }
 
-  private resolvePresenterTexture(
-    time = this.elapsed,
-    fixedImage?: { asset: StudioAsset; record: TextureRecord },
-  ): void {
+  private resolvePresenterTexture(fixedImage?: { asset: StudioAsset; record: TextureRecord }): void {
     if (!this.presenterAsset || !this.settings.presenter.enabled) {
       this.presenterMaterial.uniforms.uMap!.value = null;
       this.presenterGroup.visible = false;
@@ -483,12 +508,12 @@ export class CinematicCarousel {
           this.presenterExportTexture,
           this.presenterExportCanvas.width / Math.max(1, this.presenterExportCanvas.height),
         );
-        this.updatePresenterGeometry(time);
+        this.updatePresenterGeometry();
         return;
       }
       if (fixedImage && fixedImage.asset === this.presenterAsset && fixedImage.asset.kind === "image") {
         this.applyPresenterTexture(fixedImage.record.texture, fixedImage.record.aspect);
-        this.updatePresenterGeometry(time);
+        this.updatePresenterGeometry();
         return;
       }
       // A video export without a decoded frame must never fall back to the
@@ -503,7 +528,7 @@ export class CinematicCarousel {
         this.presenterPreviewTexture,
         this.presenterAsset.width / Math.max(1, this.presenterAsset.height),
       );
-      this.updatePresenterGeometry(time);
+      this.updatePresenterGeometry();
       return;
     }
 
@@ -527,7 +552,7 @@ export class CinematicCarousel {
 
   setPaused(paused: boolean): void {
     this.paused = paused;
-    if (paused) this.motionVelocity *= 0.7;
+    if (paused) this.motionVelocity = 0;
     this.syncPresenterPlayback();
   }
 
@@ -539,6 +564,7 @@ export class CinematicCarousel {
   setReducedMotionPreview(reduced: boolean): void {
     this.reducedMotionPreview = reduced;
     if (reduced) this.motionVelocity = 0;
+    this.syncPresenterPlayback();
   }
 
   stepSlides(amount: number): void {
@@ -629,7 +655,6 @@ export class CinematicCarousel {
       : null;
     if (currentPinnedRecord) this.presenterPreviewTexture = currentPinnedRecord.texture;
     this.resolvePresenterTexture(
-      time,
       currentPinnedRecord && pinnedImage ? { asset: pinnedImage, record: currentPinnedRecord } : undefined,
     );
     this.renderAt(time);
@@ -655,7 +680,7 @@ export class CinematicCarousel {
       if (this.exportActive || this.contextLost || document.hidden) return;
       const delta = Math.min(0.05, Math.max(0, (now - this.lastFrameTime) / 1000));
       this.lastFrameTime = now;
-      this.elapsed += delta;
+      if (!this.paused && !this.reducedMotionPreview) this.elapsed += delta;
       this.advanceMotion(delta);
       this.renderPreview();
       this.sampleFps(now);
@@ -669,8 +694,12 @@ export class CinematicCarousel {
   }
 
   private advanceMotion(delta: number): void {
+    if (this.paused || this.reducedMotionPreview) {
+      this.motionVelocity = 0;
+      return;
+    }
     const geometry = getSlideGeometry(this.settings);
-    const autoplay = this.settings.motion.autoplay && !this.paused && !this.reducedMotionPreview;
+    const autoplay = this.settings.motion.autoplay;
     const desiredVelocity = autoplay ? this.settings.motion.direction * this.settings.motion.speed * geometry.stride : 0;
     if (!this.dragging) {
       const response = 1 - Math.exp(-delta * (autoplay ? 4.8 : 7.5));
@@ -698,6 +727,20 @@ export class CinematicCarousel {
     }
     const renderable = selectRenderableItems(visible, this.pool.length);
 
+    if (!exportMode) {
+      let centered: VisibleItem | null = null;
+      for (const item of visible) {
+        if (!centered || Math.abs(item.evaluated.primary) < Math.abs(centered.evaluated.primary)) centered = item;
+      }
+      const nextActiveSlide = centered && this.assets.length > 0
+        ? centered.logicalIndex % this.assets.length
+        : -1;
+      if (nextActiveSlide !== this.activeSlideIndex) {
+        this.activeSlideIndex = nextActiveSlide;
+        this.callbacks.onActiveSlide?.(nextActiveSlide);
+      }
+    }
+
     const keepTextureKeys = new Set<string>();
     for (let poolIndex = 0; poolIndex < this.pool.length; poolIndex += 1) {
       const item = this.pool[poolIndex]!;
@@ -707,10 +750,10 @@ export class CinematicCarousel {
         continue;
       }
       keepTextureKeys.add(this.textureKey(visibleItem.asset));
-      this.updatePoolItem(item, visibleItem, geometry.width, geometry.height, time, normalizedVelocity);
+      this.updatePoolItem(item, visibleItem, geometry.width, geometry.height, normalizedVelocity);
     }
 
-    this.updatePresenterGeometry(time);
+    this.updatePresenterGeometry();
     this.updateBackground(time, exportMode);
     if (this.renderCounter % 90 === 0) this.evictTextures(keepTextureKeys);
     this.renderCounter += 1;
@@ -730,7 +773,6 @@ export class CinematicCarousel {
     visible: VisibleItem,
     width: number,
     height: number,
-    time: number,
     velocity: number,
   ): void {
     const { evaluated, asset, logicalIndex } = visible;
@@ -740,7 +782,8 @@ export class CinematicCarousel {
     item.group.rotation.set(evaluated.rotationX, evaluated.rotationY, evaluated.rotationZ);
     item.group.scale.setScalar(evaluated.scale);
     item.slide.scale.set(width, height, 1);
-    const shadowMargin = Math.min(84, this.settings.slide.shadowSoftness * 1.35);
+    const shadowOpacity = this.settings.slide.shadowOpacity * evaluated.opacity;
+    const shadowMargin = getShadowSupportMargin(this.settings.slide.shadowSoftness, shadowOpacity);
     item.shadow.scale.set(width + shadowMargin * 2, height + shadowMargin * 2, 1);
     item.shadow.position.set(10, -14, -8);
 
@@ -759,14 +802,14 @@ export class CinematicCarousel {
     uniforms.uDistortion!.value = this.settings.motion.distortion;
     uniforms.uAxis!.value = this.settings.motion.axis === "horizontal" ? 0 : 1;
     uniforms.uPhase!.value = logicalIndex;
-    uniforms.uTime!.value = time;
 
     const shadowUniforms = item.shadowMaterial.uniforms;
-    shadowUniforms.uSizePx!.value.set(width + shadowMargin * 2, height + shadowMargin * 2);
-    shadowUniforms.uRadiusPx!.value = this.settings.slide.radius + shadowMargin * 0.35;
+    shadowUniforms.uCanvasSizePx!.value.set(width + shadowMargin * 2, height + shadowMargin * 2);
+    shadowUniforms.uCardSizePx!.value.set(width, height);
+    shadowUniforms.uRadiusPx!.value = this.settings.slide.radius;
     shadowUniforms.uSmoothing!.value = this.settings.slide.smoothing;
     shadowUniforms.uSoftnessPx!.value = this.settings.slide.shadowSoftness;
-    shadowUniforms.uOpacity!.value = this.settings.slide.shadowOpacity * evaluated.opacity;
+    shadowUniforms.uOpacity!.value = shadowOpacity;
 
     const assetKey = this.textureKey(asset);
     if (item.assetKey !== assetKey) {
@@ -798,7 +841,7 @@ export class CinematicCarousel {
     }
   }
 
-  private updatePresenterGeometry(time = this.elapsed): void {
+  private updatePresenterGeometry(): void {
     const settings = this.settings.presenter;
     const shouldShow = settings.enabled && Boolean(this.presenterAsset) && Boolean(this.presenterMaterial.uniforms.uMap!.value);
     this.presenterGroup.visible = shouldShow;
@@ -811,7 +854,8 @@ export class CinematicCarousel {
     this.presenterGroup.rotation.set(0, 0, 0);
     this.presenterGroup.scale.setScalar(1);
     this.presenterSlide.scale.set(width, height, 1);
-    const margin = 54;
+    const shadowSoftness = 48;
+    const margin = getShadowSupportMargin(shadowSoftness, settings.shadowOpacity);
     this.presenterShadow.scale.set(width + margin * 2, height + margin * 2, 1);
     this.presenterShadow.position.set(12, -18, -10);
 
@@ -829,13 +873,13 @@ export class CinematicCarousel {
     uniforms.uVelocity!.value = 0;
     uniforms.uDistortion!.value = 0;
     uniforms.uAxis!.value = 0;
-    uniforms.uTime!.value = time;
 
     const shadowUniforms = this.presenterShadowMaterial.uniforms;
-    shadowUniforms.uSizePx!.value.set(width + margin * 2, height + margin * 2);
-    shadowUniforms.uRadiusPx!.value = settings.radius + margin * 0.3;
+    shadowUniforms.uCanvasSizePx!.value.set(width + margin * 2, height + margin * 2);
+    shadowUniforms.uCardSizePx!.value.set(width, height);
+    shadowUniforms.uRadiusPx!.value = settings.radius;
     shadowUniforms.uSmoothing!.value = settings.smoothing;
-    shadowUniforms.uSoftnessPx!.value = 48;
+    shadowUniforms.uSoftnessPx!.value = shadowSoftness;
     shadowUniforms.uOpacity!.value = settings.shadowOpacity;
   }
 
@@ -849,7 +893,7 @@ export class CinematicCarousel {
     this.backgroundMaterial.uniforms.uMotion!.value = background.motion;
     this.backgroundMaterial.uniforms.uGrain!.value = background.grain;
     this.backgroundMaterial.uniforms.uVignette!.value = background.vignette;
-    this.backgroundMaterial.uniforms.uSeed!.value = background.seed;
+    this.backgroundMaterial.uniforms.uSeed!.value = normalizeGrainSeed(background.seed);
   }
 
   private updateBackground(time: number, exportMode: boolean): void {
@@ -859,10 +903,17 @@ export class CinematicCarousel {
       phase = (time / Math.max(0.001, this.settings.output.duration)) * Math.PI * 2 * Math.max(1, Math.round(this.settings.motion.seamlessLoops));
     }
     this.backgroundMaterial.uniforms.uPhase!.value = phase;
-    this.backgroundMaterial.uniforms.uResolution!.value.set(
-      this.exportActive ? this.settings.output.width : this.settings.stage.width,
-      this.exportActive ? this.settings.output.height : this.settings.stage.height,
-    );
+    // Grain cadence is deliberately independent from the room's slow breath.
+    // Export gets one deterministic plate per exact output frame. Preview caps
+    // at 30 Hz for a quiet cinema cadence and freezes with Pause/reduced motion.
+    const grainRate = exportMode ? this.settings.output.fps : Math.min(30, this.settings.output.fps);
+    this.backgroundMaterial.uniforms.uGrainFrame!.value = reduced
+      ? 0
+      : exportMode
+        ? Math.round(time * grainRate)
+        : Math.floor(time * grainRate);
+    this.renderer.getDrawingBufferSize(this.backgroundResolution);
+    this.backgroundMaterial.uniforms.uResolution!.value.copy(this.backgroundResolution);
   }
 
   private updateCamera(): void {
@@ -1036,7 +1087,7 @@ export class CinematicCarousel {
   private syncPresenterPlayback(): void {
     const video = this.presenterVideo;
     if (!video) return;
-    if (this.paused || this.exportActive || this.contextLost || document.hidden || this.disposed) {
+    if (this.paused || this.reducedMotionPreview || this.exportActive || this.contextLost || document.hidden || this.disposed) {
       video.pause();
       return;
     }

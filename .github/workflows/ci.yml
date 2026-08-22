@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, integration/mega-main-native]
+    branches: [main, integration/mega-main-native, mm/native-foundation-gate]
   pull_request:
   workflow_dispatch:
 

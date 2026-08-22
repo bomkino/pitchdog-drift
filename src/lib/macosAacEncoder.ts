@@ -15,10 +15,6 @@ const AAC_PACKET_FRAMES = 1_024;
 const AAC_AUDIO_SPECIFIC_CONFIG = new Uint8Array([0x11, 0x90]);
 const MAX_APPEND_BYTES = 2 * 1024 * 1024;
 
-type NativeEnvelope =
-  | Readonly<{ ok: true; value: unknown }>
-  | Readonly<{ ok: false; error?: Readonly<{ name?: unknown; message?: unknown }> }>;
-
 type NativePacketReceipt = Readonly<{
   dataBase64: string;
   byteCount: number;
@@ -54,46 +50,26 @@ type NativeAacSession = Readonly<{
   maximumAppendBytes: number;
 }>;
 
-interface NativeMessageHandler {
-  postMessage(message: unknown): Promise<unknown>;
-}
+type AuthorizedNativeCall = (
+  command: string,
+  payload?: Readonly<Record<string, unknown>>,
+) => Promise<unknown>;
 
-interface NativeWebKit {
-  messageHandlers?: {
-    driftNative?: NativeMessageHandler;
-  };
-}
-
-function nativeHandler(): NativeMessageHandler | null {
+function authorizedNativeCall(): AuthorizedNativeCall | null {
   if (typeof window === "undefined" || !isNativeMacRuntime()) return null;
-  const nativeWindow = window as unknown as { webkit?: NativeWebKit };
-  const handler = nativeWindow.webkit?.messageHandlers?.driftNative;
-  return handler && typeof handler.postMessage === "function" ? handler : null;
+  return typeof window.__driftNativeCall === "function" ? window.__driftNativeCall : null;
 }
 
 async function callNative(command: string, payload: Readonly<Record<string, unknown>>): Promise<unknown> {
-  const handler = nativeHandler();
-  if (!handler) {
+  const nativeCall = authorizedNativeCall();
+  if (!nativeCall) {
     throw new DOMException(
       "Drift’s native AAC bridge is unavailable in this runtime.",
       "NotSupportedError",
     );
   }
 
-  const response = await handler.postMessage({ command, payload }) as NativeEnvelope;
-  if (!response || typeof response !== "object" || typeof response.ok !== "boolean") {
-    throw new DOMException("Native AAC returned a malformed reply.", "DataError");
-  }
-  if (!response.ok) {
-    const name = typeof response.error?.name === "string"
-      ? response.error.name
-      : "OperationError";
-    const message = typeof response.error?.message === "string"
-      ? response.error.message
-      : "Native AAC operation failed.";
-    throw new DOMException(message, name);
-  }
-  return response.value;
+  return nativeCall(command, payload);
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -281,11 +257,11 @@ class NativeMacAacEncoder extends CustomAudioEncoder {
       && config.sampleRate === SAMPLE_RATE
       && config.numberOfChannels === CHANNELS
       && config.bitrate === BIT_RATE
-      && nativeHandler() !== null;
+      && authorizedNativeCall() !== null;
   }
 
   async init(): Promise<void> {
-    if (!nativeHandler()) {
+    if (!authorizedNativeCall()) {
       throw new DOMException(
         "Drift’s native AudioToolbox AAC encoder is unavailable.",
         "NotSupportedError",

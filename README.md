@@ -8,10 +8,12 @@ Drift turns still slides and one optional talking-head video into authored, Inst
 
 This is not a CSS carousel wearing a shader as jewellery. Preview and export share the same scene evaluator. Portable projects contain their source media. MP4 output is reopened, decoded, and checked before Drift calls it finished.
 
+Drift is pre-1.0 and currently source-first. Read the [project status](docs/STATUS.md) for the exact boundary between public source, local candidates, verification, and release.
+
 The repository now contains two first-class ways to run the same studio:
 
 - the original local browser application;
-- a sandboxed, standalone macOS application on [`feat/native-macos-studio`](../../tree/feat/native-macos-studio).
+- a sandboxed, standalone macOS application in [`macos/`](macos/) with its native build and verification lanes in [`scripts/`](scripts/).
 
 The native application keeps the WebGL renderer and project format intact. AppKit owns the window, menus, Finder integration, file permissions, staged destination writes, recovery, signing, and packaging. It does not invent a second renderer or a second export timeline.
 
@@ -21,7 +23,7 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - Drag, wheel, keyboard, autoplay, pause, reverse, inertia, and seamless-output lock.
 - Custom stage, output, slide, and pinned-frame ratios.
 - Cover/contain fit, focal point, scale, spacing, depth, tilt, velocity bend, continuous corners, borders, and shadows.
-- Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL.
+- Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL, with restrained world-only film grain.
 - Six authored motion worlds: Editorial Drift, Road Memory, Dread, Noir Contact, Tender Light, and Chrome Dream.
 - One optional pinned image or presenter video, off by default.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
@@ -68,7 +70,7 @@ npm run verify:mac             # bundle, manifest, signature, native and WebView
 npm run package:mac:dmg        # local drag-to-Applications disk image
 ```
 
-Read [the Mac architecture](docs/MACOS_APP.md), [user guide](docs/MACOS_USER_GUIDE.md), [product contract](docs/MACOS_PRODUCT_CONTRACT.md), [threat model](docs/MACOS_THREAT_MODEL.md), [QA gauntlet](docs/MACOS_QA.md), and [release boundary](docs/MACOS_RELEASE.md).
+Read [the repository map](docs/REPOSITORY_MAP.md), [Mac architecture](docs/MACOS_APP.md), [user guide](docs/MACOS_USER_GUIDE.md), [product contract](docs/MACOS_PRODUCT_CONTRACT.md), [threat model](docs/MACOS_THREAT_MODEL.md), [QA gauntlet](docs/MACOS_QA.md), and [release boundary](docs/MACOS_RELEASE.md).
 
 ## Mac codec truth
 
@@ -127,13 +129,13 @@ Those checks are evidence for the tested runtime, not a substitute for physical 
 | Other WebGL2 browsers | Tested case by case | Capability-gated | Capability-gated | If canvas PNG is available | Yes |
 | No WebGL2 | DOM media strip | Blocked visibly | Blocked | Blocked | Yes |
 
-Media never leaves the browser or app container. The current portable archive cap is 96 MiB, with 80 MiB total source assets and 64 MiB per asset. Those limits prevent a friendly local tool from becoming a memory bomb.
+Drift ships no uploader, analytics client, or native network client. The packaged app separately tests its page-level outbound lockdown; the signed network-client entitlement remains app-wide and is documented as a residual risk. The current portable archive cap is 96 MiB, with 80 MiB total source assets and 64 MiB per asset. Those limits prevent a friendly local tool from becoming a memory bomb.
 
 ## Why the Mac app is not an Electron bundle
 
-The native shell is compiled directly from Swift using AppKit, WebKit, Foundation, Uniform Type Identifiers, CryptoKit, and AudioToolbox. There is no Electron runtime, Chromium distribution, background server, updater daemon, shell bridge, or arbitrary native method invocation.
+The native shell is compiled directly from Swift using AppKit, WebKit, Foundation, Security, CryptoKit, Uniform Type Identifiers, and AudioToolbox. There is no Electron runtime, Chromium distribution, background server, updater daemon, shell bridge, or arbitrary native method invocation.
 
-JavaScript receives opaque grants rather than absolute file paths. Native save and directory panels produce scoped capabilities. Writes are chunked, bounded, staged, synchronized, and either committed or rolled back. HTTP, HTTPS, WebSocket, and FTP loads are blocked inside the app; deliberate help/source links open in the default browser.
+JavaScript receives opaque grants rather than absolute file paths. Native save and directory panels produce scoped capabilities. Writes are chunked, bounded, staged, synchronized, and either committed or rolled back. A document-start page boundary removes WebRTC constructors; HTTP, HTTPS, WebSocket, and FTP loads are blocked; remote downloads never receive destination authority. Deliberate help/source links open in the default browser. These are tested application controls, not a claim that arbitrary WebKit or macOS compromise is impossible.
 
 ## Binary release boundary
 
@@ -149,13 +151,15 @@ A distributable candidate still requires:
 - physical Apple Silicon and Intel user-journey testing;
 - explicit authorization to publish.
 
-The release workflow is manual and uploads private evidence only. It does not create a GitHub Release, push a tag, deploy a website, or publish binaries by itself.
+The release workflow is manual and uploads text-only Actions evidence suitable for a public repository. It does not create a GitHub Release, push a tag, deploy a website, or publish binaries by itself.
 
 ## Design position
 
 Drift studies the pacing, spatial confidence, and material restraint of excellent film and WebGL work without cloning anyone’s composition. Siena Film Foundation was an art-direction reference; Codrops’ WebGL carousel work was a technical conversation starter. The implementation and demo artwork here are original.
 
 The default is authored on purpose. Controls can bend the scene, but presets are coherent parameter bundles rather than palette swaps. Distortion is bounded so a deck remains readable.
+
+Slides are borderless by default. Five worlds rely on silhouette, spacing, and a shadow cast from the true rounded-card mask; Noir Contact alone uses a deliberate opaque 1 px keyline. Grain belongs to the surrounding world, never to imported artwork or presenter pixels. Its plate advances deterministically with output frames, runs at a quieter capped cadence in preview, and freezes under Pause or Reduce Motion.
 
 ## Contributing
 

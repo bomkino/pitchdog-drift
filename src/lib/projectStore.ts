@@ -833,7 +833,21 @@ export class ProjectStore {
   }
 }
 
-export const projectStore = new ProjectStore();
+function runtimeDatabaseName(): string {
+  const candidate = (globalThis as typeof globalThis & {
+    __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
+  }).__DRIFT_NATIVE_SELF_TEST_DB__;
+  // The packaged AppKit probe injects a random namespace before the signed app
+  // entry executes. This preserves production persistent IndexedDB semantics
+  // without reading, clearing, or replacing a user's actual Drift project.
+  if (
+    typeof candidate === "string"
+    && /^drift-project-self-test-[a-f0-9-]{36}$/.test(candidate)
+  ) return candidate;
+  return DATABASE_NAME;
+}
+
+export const projectStore = new ProjectStore({ databaseName: runtimeDatabaseName() });
 
 export function saveProject<TPayload>(project: NewProject<TPayload>): Promise<ProjectSnapshot<TPayload>> {
   return projectStore.save(project);

@@ -2,16 +2,20 @@
 
 This checklist governs a downloadable Mac binary. Building an `.app` locally or compiling it in CI is not the same as authorizing a public release.
 
-## 1. Source freeze
+Sections 1–12 are pre-merge candidate gates and must pass on one exact reviewed commit. Merge only that green commit and preserve it as reachable from `main`. Section 13 is the post-merge Developer ID/notarization evidence lane. Section 14 is a separate, explicitly authorized publication decision.
 
-- [ ] Choose one exact commit on `feat/native-macos-studio` or its reviewed successor.
-- [ ] Confirm the branch is based on the intended `main` commit without unrelated agent work.
+## 1. Pre-merge source freeze
+
+- [ ] Choose one exact candidate commit after the review scope is frozen.
+- [ ] Confirm the candidate is based on the intended `main` commit without unrelated work.
 - [ ] Record commit SHA, tree SHA, `package-lock.json` SHA-256, package version, and bridge version.
 - [ ] Confirm all source, shader, documentation, and native changes remain under AGPL-3.0-or-later or their stated dependency licences.
 - [ ] Confirm `npm run check:mac-source` passes from a clean checkout.
 - [ ] Confirm canonical Swift source lives only in `macos/App/` and probes in `macos/Probes/`.
 - [ ] Review every native command and prove a user-facing need for it.
-- [ ] Confirm the PR remains draft/unmerged until the review and publication decisions are separate and explicit.
+- [ ] Confirm every pre-merge gate in sections 1–12 is green on this exact commit.
+- [ ] Merge only after review and green evidence; preserve the exact reviewed commit as reachable from `main` without source changes.
+- [ ] Record that merge authorizes source integration only—not signing, notarization, tagging, release, or publication.
 
 ## 2. Browser-engine regression gate
 
@@ -44,7 +48,7 @@ This checklist governs a downloadable Mac binary. Building an `.app` locally or 
 - [ ] Extract entitlements from the signed finished app, not the source plist.
 - [ ] `com.apple.security.app-sandbox` is true.
 - [ ] `com.apple.security.files.user-selected.read-write` is true.
-- [ ] `com.apple.security.network.client` is absent.
+- [ ] `com.apple.security.network.client` is present in the signed sandboxed app and reported truthfully at runtime.
 - [ ] `com.apple.security.network.server` is absent.
 - [ ] Broad Downloads, Documents, home-directory, and temporary-exception entitlements are absent.
 - [ ] Hardened runtime flag is present.
@@ -55,11 +59,15 @@ This checklist governs a downloadable Mac binary. Building an `.app` locally or 
 - [ ] Symlink, traversal, unsafe-leaf, grant-cap, session-cap, and output-cap tests pass.
 - [ ] Quit, close, and content-process crash abort incomplete native writes.
 - [ ] The bundled WebView cannot load HTTP, HTTPS, WS, WSS, or FTP resources.
+- [ ] Document-start page-world lockdown removes `RTCPeerConnection` and `webkitRTCPeerConnection` before application code runs.
+- [ ] Production navigation policy cancels remote responses and every download request before WebKit or AppKit can grant a destination.
+- [ ] Exact packaged TCP and UDP loopback probes, protected by unpredictable per-run tokens, record zero accepted hits from the tested app/WebContent lifecycle.
+- [ ] No native `URLSession`, Network.framework, socket, updater, analytics, or cloud-upload client is shipped; adding one is reviewed as an app-wide capability change.
 - [ ] Explicit external links open in the default browser rather than Drift.
 
 ## 5. Codec and licensing gate
 
-- [ ] Build uses `vite build --mode macos`.
+- [ ] `npm run build:mac:web` produces the receipt-verified single-entry classic IIFE used by the packaged app.
 - [ ] `@mediabunny/aac-encoder` resolves to `src/lib/macosAacEncoder.ts` only for the Mac build.
 - [ ] `src/lib/macosAacEncoder.ts` registers the bounded native Mediabunny custom encoder.
 - [ ] `macos/App/NativeAacEncoder.swift` explicitly requests Apple’s software AAC-LC component through AudioToolbox.
@@ -72,6 +80,7 @@ This checklist governs a downloadable Mac binary. Building an `.app` locally or 
 - [ ] Presenter audio is never omitted silently.
 - [ ] 50/60 fps presenter-audio requests fail with the documented guard; muted output remains available when H.264 holds.
 - [ ] `THIRD_PARTY_NOTICES.md` distinguishes browser and standalone Mac AAC paths.
+- [ ] `Legal/ThirdPartyLicenses/` contains the exact audited MIT/MPL texts and hash-bound runtime manifest.
 - [ ] The app contains project licence, notices, asset licence, third-party notices, trademarks, threat model, QA plan, user guide, product contract, release guide, and SBOM.
 
 ## 6. Deterministic runtime gate
@@ -86,7 +95,7 @@ This checklist governs a downloadable Mac binary. Building an `.app` locally or 
 - [ ] PNG readback verifies dimensions, visible content, alpha-capable channel, and transparent pixels.
 - [ ] The exporter probe emits native progress events and no content-process termination.
 - [ ] `ProbeBundleReceipt.json` byte-counts and SHA-256-verifies every probe file before launch.
-- [ ] The probe bundle is a single classic IIFE with code splitting disabled; the packaged-app self-test separately owns production ES-module loading.
+- [ ] The exporter probe and packaged app are separately receipt-verified single-entry classic IIFEs; each self-test exercises the graph it actually ships or claims.
 
 ## 7. User-journey gate
 
@@ -159,6 +168,15 @@ This checklist governs a downloadable Mac binary. Building an `.app` locally or 
 - [ ] Light/dark system appearance does not make panels or alerts illegible.
 - [ ] Error, progress, cancellation, and recovery overlays are readable over every theme.
 - [ ] Save/open panels have truthful prompts, filters, and safe default buttons.
+- [ ] Current 960, 1024, and 1440 px captures keep the stage dominant while Media and Director remain readable and operable.
+- [ ] All six film worlds remain materially distinct in pace, path, density, light, and texture—not palette swaps.
+- [ ] Default slide and presenter borders are absent; Noir Contact’s intentional keyline is opaque and exactly 1 px.
+- [ ] Shadows follow the rounded card mask without a translucent rectangular mat around the slide or presenter.
+- [ ] Grain affects the world only. Imported slide and presenter pixels remain unchanged by the grain frame.
+- [ ] Pause and Reduce Motion produce pixel-identical WebGL content after excluding the independent FPS overlay.
+- [ ] A world-only 256 px sequence keeps default adjacent-frame grain restrained (judgment band: RMS 1.1–1.7/255, p99 3–5/255, signed mean drift below 0.1/255) and the 60% control remains bounded (RMS at most 3.8/255, p99 at most 10/255, clipped channels below 0.1%).
+- [ ] Inspect both a lossless frame and a second-generation delivery H.264 transcode at normal viewing size; reject crawling grids, bright sparks, banding, and codec mosquitoes.
+- [ ] Reduce Transparency, Increase Contrast, forced colours, coarse pointer targets, and fine-pointer hover behavior retain legible state boundaries.
 - [ ] Human review confirms motion serves slide legibility rather than becoming the subject.
 
 ## 12. Physical hardware gate
@@ -171,12 +189,14 @@ This checklist governs a downloadable Mac binary. Building an `.app` locally or 
 - [ ] External/removable destination volume.
 - [ ] Sleep/wake and full-screen transition.
 - [ ] Long presenter video and 30-second export.
-- [ ] Clean-machine Gatekeeper launch from a quarantine-setting download path.
 
 Cross-compiling the Intel slice is not an Intel runtime test.
 
-## 13. Signing and notarization
+## 13. Post-merge signing and notarization
 
+- [ ] Confirm the exact reviewed commit from sections 1–12 is reachable from `origin/main` and has not changed.
+- [ ] Dispatch `.github/workflows/macos-release.yml` with that exact 40-character commit.
+- [ ] Confirm the workflow rejected non-`main` ancestry before signing/notarization secrets were used.
 - [ ] Sign every executable code object with the intended Developer ID Application identity.
 - [ ] Preserve App Sandbox and hardened runtime entitlements in the final signature.
 - [ ] `codesign --verify --deep --strict --verbose=2` passes.
@@ -186,10 +206,15 @@ Cross-compiling the Intel slice is not an Intel runtime test.
 - [ ] Staple both tickets.
 - [ ] `spctl --assess --type execute --verbose=4 Drift.app` passes on a clean Mac.
 - [ ] Gatekeeper launch succeeds without an override.
+- [ ] Repeat any security, physical-hardware, accessibility, or destructive-failure journey whose result could change under final signing and notarization.
+- [ ] Confirm the evidence workflow retained text receipts only and did not publish a binary, tag, or GitHub Release.
 
-## 14. DMG and publication gate
+## 14. Separately authorized DMG publication gate
 
-- [ ] `npm run package:mac:dmg` succeeds against the frozen app.
+Completing section 13 does not authorize this section.
+
+- [ ] Use the exact signed, notarized, stapled app and DMG that passed section 13; do not package them again.
+- [ ] If the evidence lane deleted its compiled outputs, produce a new post-merge signed/notarized candidate and repeat every artifact-dependent gate before considering publication.
 - [ ] DMG contains Drift.app, Applications alias, and Read Me First.
 - [ ] `hdiutil verify` passes.
 - [ ] Mounted app bytes and identity match the frozen source app.
@@ -197,9 +222,9 @@ Cross-compiling the Intel slice is not an Intel runtime test.
 - [ ] Mount, drag, eject, launch, and update-over-old-copy journeys pass.
 - [ ] Release notes state minimum macOS, H.264 and native AAC policy, 30 fps audio ceiling, project compatibility, privacy model, and known issues.
 - [ ] Complete corresponding source is available at the exact published revision.
-- [ ] Publishing the binary is explicitly authorized.
-- [ ] CI artifact upload or GitHub Release creation occurs only in that authorized step.
-- [ ] No rebuild occurs between final testing and publication.
+- [ ] Publication authority names the exact source commit plus the tested app and DMG hashes.
+- [ ] Binary upload, tag creation, GitHub Release creation, and announcement occur only in that authorized step.
+- [ ] No rebuild occurs between final testing and publication; any rebuild returns to the affected candidate gates.
 
 ## Final receipt
 
@@ -209,12 +234,14 @@ Cross-compiling the Intel slice is not an Intel runtime test.
 - [ ] DMG SHA-256
 - [ ] Architecture output
 - [ ] Extracted entitlements
+- [ ] Packaged TCP/UDP zero-hit receipt, WebKit rule identifier, and remote response/download-policy receipt
 - [ ] Dynamic-library inventory
 - [ ] Signature identity
 - [ ] Notarization IDs
 - [ ] Gatekeeper output
 - [ ] Hardware/macOS matrix
 - [ ] Automated logs and workflow run IDs
+- [ ] Pre-merge exact-head and merge-compatibility receipts
 - [ ] Deterministic MP4/PNG receipt and hashes
 - [ ] Native AAC packet/frame receipt
 - [ ] Manual visual/accessibility reviewer

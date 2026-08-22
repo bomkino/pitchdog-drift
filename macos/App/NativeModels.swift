@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import UniformTypeIdentifiers
 
 let driftBridgeName = "driftNative"
@@ -29,6 +30,25 @@ struct BridgeFailure: Error {
         self.name = name
         self.message = message
     }
+
+    static func runEnvelopeSelfTest() throws {
+        let expected = BridgeFailure(
+            "SecurityError",
+            "That native message belongs to a stale Drift document."
+        )
+        let erased: Error = expected
+        let envelope = failureEnvelope(erased)
+        let error = envelope["error"] as? JSONDictionary
+        guard envelope["ok"] as? Bool == false,
+              error?["name"] as? String == expected.name,
+              error?["message"] as? String == expected.message else {
+            throw BridgeFailure(
+                "DataError",
+                "A typed native bridge failure lost its DOMException name after Error erasure."
+            )
+        }
+        print("Drift bridge-failure envelope self-test passed: typed DOMException names survive Error erasure.")
+    }
 }
 
 enum DriftImportKind: String {
@@ -57,6 +77,76 @@ struct WebContentRecoveryPolicy {
 
     mutating func reset() {
         consumedAttempts = 0
+    }
+}
+
+/// Tracks the exact main-frame navigation object that owns lifecycle events.
+/// A same-URL reload is a different document: delayed callbacks from the old
+/// `WKNavigation` must never revoke or unlock the replacement document.
+struct NavigationIdentityTracker {
+    private var activeNavigation: ObjectIdentifier?
+    private(set) var generation: UInt64 = 0
+
+    @discardableResult
+    mutating func start(_ navigation: AnyObject?) -> UInt64? {
+        guard let navigation else {
+            invalidate()
+            return nil
+        }
+        generation &+= 1
+        activeNavigation = ObjectIdentifier(navigation)
+        return generation
+    }
+
+    func accepts(_ navigation: AnyObject?) -> Bool {
+        guard let navigation, let activeNavigation else { return false }
+        return activeNavigation == ObjectIdentifier(navigation)
+    }
+
+    mutating func invalidate() {
+        generation &+= 1
+        activeNavigation = nil
+    }
+
+    static func runSelfTest() throws {
+        let first = NSObject()
+        let replacement = NSObject()
+        var tracker = NavigationIdentityTracker()
+        guard tracker.start(first) == 1,
+              tracker.accepts(first),
+              !tracker.accepts(replacement) else {
+            throw BridgeFailure("DataError", "The first navigation identity was not isolated.")
+        }
+        guard tracker.start(replacement) == 2,
+              tracker.accepts(replacement),
+              !tracker.accepts(first) else {
+            throw BridgeFailure("DataError", "A delayed callback from the replaced navigation remained current.")
+        }
+        tracker.invalidate()
+        guard !tracker.accepts(first), !tracker.accepts(replacement) else {
+            throw BridgeFailure("DataError", "Navigation invalidation retained a document identity.")
+        }
+        print("Drift navigation-identity self-test passed: delayed finish/fail callbacks cannot cross a replacement document.")
+    }
+}
+
+struct NativeRuntimeSecurityFacts {
+    let sandboxed: Bool
+    let networkClientEntitled: Bool
+
+    static func current() -> NativeRuntimeSecurityFacts {
+        NativeRuntimeSecurityFacts(
+            sandboxed: entitlement("com.apple.security.app-sandbox"),
+            networkClientEntitled: entitlement("com.apple.security.network.client")
+        )
+    }
+
+    private static func entitlement(_ name: String) -> Bool {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let value = SecTaskCopyValueForEntitlement(task, name as CFString, nil) else {
+            return false
+        }
+        return (value as? Bool) == true
     }
 }
 
@@ -159,6 +249,12 @@ func failureEnvelope(_ failure: BridgeFailure) -> JSONDictionary {
 }
 
 func failureEnvelope(_ error: Error) -> JSONDictionary {
+    // Swift catch clauses expose thrown values as `Error`. Preserve Drift's
+    // intentional DOMException contract before considering Foundation/POSIX
+    // translation; bridging BridgeFailure through NSError erases its name.
+    if let failure = error as? BridgeFailure {
+        return failureEnvelope(failure)
+    }
     let nsError = error as NSError
     return failureEnvelope(BridgeFailure(domErrorName(for: nsError), nsError.localizedDescription))
 }
@@ -289,6 +385,64 @@ func appVersionString() -> String {
 /// also prevents a later `data:`, `blob:`, remote, sibling, or traversed main
 /// frame from inheriting the file and codec capabilities of the signed studio.
 enum TrustedWebRuntime {
+    static let networkPolicyIdentifier = "dog.pitch.drift.network-lock.v3"
+    /// WebKit content rules do not cover WebRTC socket creation. Remove the two
+    /// page-visible constructors before signed or generated content can run.
+    /// This is deliberately a page-world capability boundary; it does not claim
+    /// to contain an arbitrary compromise of the WebContent process itself.
+    static let webRTCCapabilityBoundary = "page-world-document-start-lockdown"
+    static let webRTCCapabilityLockdownJavaScript = """
+    (() => {
+      'use strict';
+      const constructorNames = ['RTCPeerConnection', 'webkitRTCPeerConnection'];
+      for (const name of constructorNames) {
+        try {
+          Object.defineProperty(globalThis, name, {
+            configurable: false,
+            enumerable: false,
+            writable: false,
+            value: undefined
+          });
+        } catch {
+          // Runtime verification inspects the real property. Never turn an
+          // installation failure into a positive marker.
+        }
+      }
+
+      const locked = constructorNames.every((name) => {
+        const descriptor = Object.getOwnPropertyDescriptor(globalThis, name);
+        return typeof globalThis[name] === 'undefined'
+          && descriptor?.configurable === false
+          && descriptor?.writable === false
+          && descriptor?.value === undefined;
+      });
+      try {
+        Object.defineProperty(globalThis, '__DRIFT_WEBRTC_PAGE_CAPABILITY__', {
+          configurable: false,
+          enumerable: false,
+          writable: false,
+          value: Object.freeze({
+            boundary: 'page-world-document-start-lockdown',
+            constructors: Object.freeze([...constructorNames]),
+            locked
+          })
+        });
+      } catch {
+        // The constructor descriptors above are the authority. The marker is
+        // diagnostic only and its absence must fail runtime verification.
+      }
+    })();
+    """
+    // Omit a resource-type allowlist: a future WebKit request category must be
+    // blocked by default instead of silently escaping an outdated enum list.
+    static let networkPolicyJSON = """
+    [
+      {"trigger":{"url-filter":"^https?://.*"},"action":{"type":"block"}},
+      {"trigger":{"url-filter":"^wss?://.*"},"action":{"type":"block"}},
+      {"trigger":{"url-filter":"^ftp://.*"},"action":{"type":"block"}}
+    ]
+    """
+
     static func bundledIndexURL(bundle: Bundle = .main) -> URL? {
         bundle.url(
             forResource: "index",
@@ -370,6 +524,129 @@ enum TrustedWebRuntime {
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         if !condition() { throw BridgeFailure("SecurityError", message) }
+    }
+}
+
+enum TrustedNavigationDecision: Equatable {
+    case allow
+    case cancel
+    case openExternally(URL)
+}
+
+/// Pure policy shared by the production delegate and the native gauntlet.
+/// Scheme and download intent are decided before WebKit can create a download
+/// object or ask AppKit for destination authority.
+enum TrustedNavigationPolicy {
+    static func action(
+        url: URL?,
+        isMainFrame: Bool,
+        isActivatedLink: Bool,
+        shouldPerformDownload: Bool,
+        trustedIndexURL: URL?,
+        webRootURL: URL?
+    ) -> TrustedNavigationDecision {
+        guard let url, let scheme = url.scheme?.lowercased() else { return .cancel }
+        if shouldPerformDownload { return .cancel }
+
+        if isMainFrame {
+            if TrustedWebRuntime.acceptsMainFrameURL(url, trustedIndexURL: trustedIndexURL) {
+                return .allow
+            }
+            if ["http", "https"].contains(scheme), isActivatedLink {
+                return .openExternally(url)
+            }
+            return .cancel
+        }
+
+        if scheme == "file" {
+            guard let webRootURL else { return .cancel }
+            let candidate = url.standardizedFileURL.resolvingSymlinksInPath()
+            let root = webRootURL.standardizedFileURL.resolvingSymlinksInPath()
+            let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+            return candidate == root || candidate.path.hasPrefix(rootPath) ? .allow : .cancel
+        }
+        if ["blob", "data", "about"].contains(scheme) { return .allow }
+        if ["http", "https"].contains(scheme), isActivatedLink {
+            return .openExternally(url)
+        }
+        return .cancel
+    }
+
+    static func response(url: URL?, canShowMIMEType: Bool) -> TrustedNavigationDecision {
+        guard let scheme = url?.scheme?.lowercased(),
+              ["file", "blob", "data", "about"].contains(scheme),
+              canShowMIMEType else {
+            return .cancel
+        }
+        return .allow
+    }
+
+    static func runSelfTest() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "drift-navigation-policy-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let index = root.appendingPathComponent("index.html")
+        let asset = root.appendingPathComponent("assets/app.js")
+        let outside = root.deletingLastPathComponent().appendingPathComponent("outside.js")
+        let remote = URL(string: "https://example.invalid/deck.pitched")!
+
+        guard action(
+            url: index,
+            isMainFrame: true,
+            isActivatedLink: false,
+            shouldPerformDownload: false,
+            trustedIndexURL: index,
+            webRootURL: root
+        ) == .allow else {
+            throw BridgeFailure("DataError", "The trusted bundled main document was blocked.")
+        }
+        guard action(
+            url: asset,
+            isMainFrame: false,
+            isActivatedLink: false,
+            shouldPerformDownload: false,
+            trustedIndexURL: index,
+            webRootURL: root
+        ) == .allow,
+        action(
+            url: outside,
+            isMainFrame: false,
+            isActivatedLink: false,
+            shouldPerformDownload: false,
+            trustedIndexURL: index,
+            webRootURL: root
+        ) == .cancel else {
+            throw BridgeFailure("DataError", "The bundled subresource boundary did not hold.")
+        }
+        guard action(
+            url: remote,
+            isMainFrame: true,
+            isActivatedLink: true,
+            shouldPerformDownload: false,
+            trustedIndexURL: index,
+            webRootURL: root
+        ) == .openExternally(remote) else {
+            throw BridgeFailure("DataError", "An activated web link was not handed to the default browser.")
+        }
+        for isMainFrame in [true, false] {
+            guard action(
+                url: remote,
+                isMainFrame: isMainFrame,
+                isActivatedLink: true,
+                shouldPerformDownload: true,
+                trustedIndexURL: index,
+                webRootURL: root
+            ) == .cancel else {
+                throw BridgeFailure("SecurityError", "A remote attachment acquired WebKit download authority.")
+            }
+        }
+        guard response(url: remote, canShowMIMEType: true) == .cancel,
+              response(url: remote, canShowMIMEType: false) == .cancel,
+              response(url: index, canShowMIMEType: true) == .allow else {
+            throw BridgeFailure("SecurityError", "The remote response/download policy did not fail closed.")
+        }
+        print("Drift navigation/download policy self-test passed: remote attachments cannot create a WKDownload or destination path.")
     }
 }
 

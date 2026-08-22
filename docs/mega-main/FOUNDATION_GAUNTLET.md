@@ -4,6 +4,8 @@ Audited: 2026-08-21
 Branch: `integration/mega-main-native`  
 Audited source head: `20db7ccbd53004fb6d077fecab04bd1453278202`
 
+This document preserves the 2026-08-21 audit as historical evidence. Its “current” statements refer to that exact audited source head, not to later repair work. A 2026-08-22 repair-worktree status appears below; it remains a **HOLD**, not a retroactive green claim.
+
 ## Verdict
 
 **The foundation is strong, but it is not cleared for higher feature construction yet.**
@@ -108,6 +110,8 @@ applicationNetworkBlocked: true
 networkBoundary: webkit-client-only
 ```
 
+That block records the audit’s first proposed shape; it is superseded by the narrower repair contract below. The entitlement is app-wide, not WebKit-only, and “application network blocked” would overstate what application-level WebKit controls can guarantee.
+
 The packaged verifier must inspect the signature and prove both sides: the helper entitlement exists; application-originated remote traffic remains blocked.
 
 ## P1 — remote downloads can bypass the scheme gate
@@ -191,6 +195,8 @@ Higher feature work may start only after one literal source head proves all of t
 - [ ] Packaged WebKit exercises the production authority path through a termination and reload.
 - [ ] Network capability reporting matches the signed entitlement and local-only policy.
 - [ ] Remote attachment downloads cannot obtain a native save destination.
+- [ ] Signed-entitlement readback and exact packaged TCP/UDP loopback listeners prove the two sides independently: app-wide network-client capability exists; token-bearing WebKit traffic records zero hits under the production policy.
+- [ ] Source invariants prove no native `URLSession`, Network.framework, socket, updater, analytics, or cloud-upload client ships today.
 - [ ] Active directory authorities survive grant pressure, or new grants fail safely.
 - [ ] Structural CI checks integration, not merely the existence of an unused session file.
 - [ ] CI, macOS standalone app, and macOS WKWebView runtime all pass on the same literal source SHA.
@@ -211,3 +217,26 @@ Before any RC is called verified:
 ## Merge boundary
 
 No merge, release, tag, deployment, or downloadable binary is authorised by this gauntlet. PR #30 remains a construction draft. `main` remains untouched.
+
+## 2026-08-22 repair-worktree status — HOLD
+
+Repair work is in progress on `mm/native-foundation-gate`, based on `684855acbebc633fef4ba25227ad2711d7d444f6`. The working tree is not a frozen candidate and this appendix does not clear any construction, merge, release, or publication gate.
+
+The truthful network contract for the repair is:
+
+```text
+networkClientEntitled: <read from the running signature>
+webKitOutboundPolicyInstalled: true
+webKitOutboundPolicyVersion: 3
+nativeNetworkClientSurface: none-shipped
+networkBoundary: app-entitled-webkit-blocked
+```
+
+- The entitlement source includes App Sandbox, user-selected read/write, and app-wide `com.apple.security.network.client`; it omits network-server and broad-directory exceptions.
+- A document-start page-world boundary removes `RTCPeerConnection` and `webkitRTCPeerConnection` before application code runs.
+- Versioned WebKit content rules block HTTP, HTTPS, WS, WSS, and FTP.
+- Shared navigation/download policy cancels remote responses and every WebKit download request before destination authority. Activated help/source links leave Drift and open in the default browser.
+- No native `URLSession`, Network.framework, socket, updater, analytics, or cloud-upload client is shipped today. Because the entitlement is app-wide, future native networking would have outbound capability without an entitlement change.
+- An arbitrary WebKit or macOS compromise remains a residual risk; these controls define the packaged application path, not a universal kernel-enforced “offline” guarantee.
+
+This remains **HOLD** until one literal, committed source SHA passes signed-entitlement readback, exact packaged TCP and UDP loopback zero-hit probes, remote-attachment destination denial, generation-bound authority/reload tests, the full browser/native/runtime suites, and a second clean rerun without source changes. Historical CI and an uncommitted repair worktree do not satisfy that bar.

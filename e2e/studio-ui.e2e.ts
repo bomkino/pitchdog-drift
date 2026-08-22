@@ -21,6 +21,9 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await waitForStudio(page);
   await expect(page.locator(".asset-list li")).toHaveCount(8);
   await expect(page.getByText(/WebGL2 · (H.264 ready|PNG output)/)).toBeVisible();
+  const previewDescription = page.locator("#stage-preview-description");
+  await expect(previewDescription).toContainText("8 slides");
+  await expect(previewDescription).toContainText("editorial drift theme");
 
   const flowAxis = page.getByRole("group", { name: "Flow axis" });
   await flowAxis.getByText("Horizontal", { exact: true }).click();
@@ -30,6 +33,7 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
 
   await page.getByRole("button", { name: /Dread/ }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("dread");
+  await expect(previewDescription).toContainText("dread theme");
   await page.getByLabel("Stage width").fill("1200");
   await expect(page.locator(".stage-hud")).toContainText("1200 × 1920");
 
@@ -66,6 +70,15 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
 
 test("keyboard controls stay visible, file pickers stay out of Tab order, and slide order is operable", async ({ page }) => {
   await waitForStudio(page);
+
+  const fullFrame = page.getByRole("button", { name: "Full frame" });
+  await fullFrame.click();
+  const exitFullFrame = page.getByRole("button", { name: "Exit full frame" });
+  await expect(exitFullFrame).toBeFocused();
+  await expect(page.locator("main.app")).toHaveAttribute("data-focus", "true");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("main.app")).toHaveAttribute("data-focus", "false");
+  await expect(fullFrame).toBeFocused();
 
   const fileInputs = page.locator('input[type="file"]');
   await expect(fileInputs).toHaveCount(3);
@@ -127,6 +140,57 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   await pinnedSwitch.click();
   await expect(pinnedSwitch).not.toBeChecked();
   await expect(pinnedSwitch).toBeDisabled();
+});
+
+test("reduced motion freezes the rendered preview instead of leaving animated grain behind", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await waitForStudio(page);
+  // Element screenshots include DOM layers painted over the canvas. Hide the
+  // live FPS counter and timed notices so their independent updates cannot
+  // impersonate WebGL motion in this exact-pixel assertion.
+  await page.addStyleTag({ content: ".stage-hud, .notice { visibility: hidden !important; }" });
+  const canvas = page.locator("[data-testid=webgl-stage]");
+  // Texture decode is asynchronous and can legitimately finish after the
+  // studio shell becomes ready. Establish a stable baseline first; real grain
+  // or motion would prevent two consecutive captures from ever matching.
+  let first = await canvas.screenshot();
+  let baselineStable = false;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await page.waitForTimeout(150);
+    const candidate = await canvas.screenshot();
+    if (candidate.equals(first)) {
+      first = candidate;
+      baselineStable = true;
+      break;
+    }
+    first = candidate;
+  }
+  expect(baselineStable).toBe(true);
+  await page.waitForTimeout(700);
+  const second = await canvas.screenshot();
+  expect(second.equals(first)).toBe(true);
+});
+
+test("Pause kills existing carousel inertia and leaves the WebGL preview pixel-still", async ({ page }) => {
+  await waitForStudio(page);
+  await page.addStyleTag({ content: ".stage-hud, .notice { visibility: hidden !important; }" });
+  const canvas = page.locator("[data-testid=webgl-stage]");
+
+  await canvas.evaluate((element) => element.dispatchEvent(new WheelEvent("wheel", {
+    bubbles: true,
+    cancelable: true,
+    deltaY: 150,
+  })));
+  await page.getByRole("button", { name: "Pause preview" }).click();
+  await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
+
+  // Let the pause state cross a paint boundary, then prove neither residual
+  // inertia nor the grain clock can alter a later WebGL frame.
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const first = await canvas.screenshot();
+  await page.waitForTimeout(700);
+  const second = await canvas.screenshot();
+  expect(second.equals(first)).toBe(true);
 });
 
 test("320 and 390px panel shells keep a single viewport with a stable footer", async ({ page }) => {

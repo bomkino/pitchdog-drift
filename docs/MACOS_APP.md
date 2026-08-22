@@ -29,6 +29,15 @@ build/macos/Drift.app
     │   ├── NativeBridge.js
     │   ├── Drift.icns
     │   ├── Legal/
+    │   │   ├── LICENSE
+    │   │   ├── NOTICE
+    │   │   ├── ASSET-LICENSE.md
+    │   │   ├── THIRD_PARTY_NOTICES.md
+    │   │   ├── TRADEMARKS.md
+    │   │   └── ThirdPartyLicenses/
+    │   │       ├── MANIFEST.json
+    │   │       ├── RUNTIME_COMPONENTS.md
+    │   │       └── exact dependency licence texts
     │   ├── BuildReceipt.txt
     │   └── BuildManifest.txt
     ├── _CodeSignature/
@@ -70,7 +79,7 @@ Other native resources:
 | --- | --- |
 | `macos/NativeBridge.js` | page-world file-system polyfills and typed app/AAC commands |
 | `macos/Info.plist` | app identity, minimum OS, `.pitched` document type, single-instance policy |
-| `macos/Drift.entitlements` | App Sandbox and user-selected read/write only |
+| `macos/Drift.entitlements` | App Sandbox, user-selected read/write, and the network-client entitlement required by the packaged WKWebView topology |
 | `macos/Probes/CodecProbe.swift` | WKWebView WebGL2, PNG, AVC, and WebCodecs capability probe |
 | `macos/Probes/ExportProbe.swift` | visible deterministic exporter harness and diagnostics |
 
@@ -185,18 +194,20 @@ The signed app requests:
 ```text
 com.apple.security.app-sandbox = true
 com.apple.security.files.user-selected.read-write = true
+com.apple.security.network.client = true
 ```
 
-It deliberately omits network client/server, Downloads, Documents, home-directory, and temporary-exception entitlements.
+It omits the network-server, Downloads, Documents, home-directory, and temporary-exception entitlements. The network-client entitlement is app-wide. macOS does not confine it to WebKit, so future native `URLSession`, Network.framework, or socket code would inherit outbound capability and must be treated as a security-boundary change. Drift ships no such native network client today.
 
 Inside WKWebView:
 
-- HTTP and HTTPS loads are blocked;
-- WebSocket and FTP loads are blocked;
+- a document-start page-world lockdown removes WebRTC constructors before application code runs;
+- versioned WebKit content rules block HTTP, HTTPS, WS, WSS, and FTP requests;
+- the production navigation policy cancels remote responses and every WebKit download request before a native destination can be granted;
 - bundled `file:`, generated `blob:`, `data:`, and required `about:` URLs remain available;
 - deliberate source/help links open in the default browser and are cancelled inside Drift.
 
-No updater, analytics client, cloud upload, local server, or background daemon is bundled.
+No updater, analytics client, cloud upload, native `URLSession`/Network.framework client, local server, or background daemon is bundled. These controls establish the packaged application’s tested local-only policy; they are not a claim that an arbitrary WebKit or macOS compromise cannot use the app-wide entitlement.
 
 ## App lifecycle
 
@@ -237,6 +248,7 @@ Checks:
 - executable smoke test;
 - native broker gauntlet;
 - packaged WKWebView, React, typed bridge, native command, and reload-recovery probe;
+- signed-entitlement readback plus an exact packaged TCP/UDP loopback probe that must observe zero outbound hits;
 - LaunchServices opening.
 
 ### Runtime export verification
@@ -252,7 +264,7 @@ The dedicated macOS runtime workflow proves, on a visible hosted Apple Silicon W
 - transparent PNG with both visible and non-opaque pixels;
 - native progress events and no content-process termination.
 
-The probe bundle is a single classic IIFE because the packaged app’s separate self-test already owns the exact production ES-module graph. Every probe file is byte-counted and SHA-256-verified against `ProbeBundleReceipt.json` before WebKit runs it.
+The shipped packaged app and deterministic exporter probe each use a receipt-verified, single-entry classic IIFE. The app self-test owns the exact production packaged graph; the exporter probe independently owns the export source path. Every probe file is byte-counted and SHA-256-verified against `ProbeBundleReceipt.json` before WebKit runs it.
 
 ## Release boundary
 
@@ -268,7 +280,7 @@ A public binary additionally requires:
 - physical Apple Silicon and Intel journey testing;
 - explicit publication authority.
 
-The manual release workflow creates private evidence only. It never merges, tags, deploys, or publishes automatically.
+The manual release workflow creates text-only Actions evidence suitable for a public repository. It never merges, tags, deploys, or publishes automatically.
 
 ## Known limits
 

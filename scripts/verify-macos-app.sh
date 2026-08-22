@@ -35,6 +35,8 @@ for path in \
   "${RESOURCES}/Legal/ASSET-LICENSE.md" \
   "${RESOURCES}/Legal/THIRD_PARTY_NOTICES.md" \
   "${RESOURCES}/Legal/TRADEMARKS.md" \
+  "${RESOURCES}/Legal/ThirdPartyLicenses/MANIFEST.json" \
+  "${RESOURCES}/Legal/ThirdPartyLicenses/RUNTIME_COMPONENTS.md" \
   "${RESOURCES}/Documentation/MACOS_APP.md" \
   "${RESOURCES}/Documentation/MACOS_PRODUCT_CONTRACT.md" \
   "${RESOURCES}/Documentation/MACOS_USER_GUIDE.md" \
@@ -45,6 +47,8 @@ for path in \
   [[ -f "${path}" ]] || fail "missing app-bundle file ${path}."
 done
 [[ -x "${EXECUTABLE}" ]] || fail "the main executable is not executable."
+node "${ROOT_DIR}/scripts/stage-macos-runtime-licenses.mjs" verify \
+  "${RESOURCES}/Legal/ThirdPartyLicenses"
 
 plutil -lint "${INFO_PLIST}" >/dev/null
 [[ "$(plutil -extract CFBundleIdentifier raw -o - "${INFO_PLIST}")" == "dog.pitch.drift" ]] \
@@ -122,6 +126,45 @@ expected_archs="$(printf '%s\n' ${DRIFT_EXPECT_ARCHS:-arm64 x86_64} | sort | tr 
 [[ "${actual_archs}" == "${expected_archs}" ]] \
   || fail "architectures are ${actual_archs}; expected ${expected_archs}."
 
+python3 - "${INFO_PLIST}" "${RESOURCES}/BuildReceipt.txt" "${actual_archs}" <<'PY'
+from __future__ import annotations
+
+import plistlib
+import re
+import sys
+from pathlib import Path
+
+info_path = Path(sys.argv[1])
+receipt_path = Path(sys.argv[2])
+actual_architectures = set(sys.argv[3].split())
+with info_path.open("rb") as stream:
+    info = plistlib.load(stream)
+
+receipt: dict[str, str] = {}
+for line_number, line in enumerate(receipt_path.read_text(encoding="utf-8").splitlines(), start=1):
+    if "=" not in line:
+        raise SystemExit(f"Drift.app verification failed: malformed build receipt line {line_number}.")
+    key, value = line.split("=", 1)
+    if not key or key in receipt:
+        raise SystemExit(f"Drift.app verification failed: duplicate or empty build receipt key {key!r}.")
+    receipt[key] = value
+
+expected = {
+    "version": str(info.get("CFBundleShortVersionString", "")),
+    "build_number": str(info.get("CFBundleVersion", "")),
+    "source_revision": str(info.get("DriftSourceRevision", "")),
+}
+for key, value in expected.items():
+    if not value or receipt.get(key) != value:
+        raise SystemExit(
+            f"Drift.app verification failed: build receipt {key} does not match Info.plist."
+        )
+if re.fullmatch(r"[0-9a-f]{40}", expected["source_revision"]) is None:
+    raise SystemExit("Drift.app verification failed: source revision is not one full Git SHA-1.")
+if set(receipt.get("architectures", "").split()) != actual_architectures:
+    raise SystemExit("Drift.app verification failed: build receipt architectures do not match the executable.")
+PY
+
 # Universal binaries produce one unindented header per architecture. Only
 # indented rows are dependencies; parsing every first field mistakes the second
 # architecture header for a dylib path.
@@ -194,128 +237,32 @@ grep -Fx "minimum_macos=13.3" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail
 grep -Fx "codec_policy=system-frameworks-only" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong codec policy."
 grep -Fx "video_codec=WKWebView-H264-capability-gated" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt misstates the video path."
 grep -Fx "audio_codec=AudioToolbox-Apple-software-AAC-LC" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt misstates the presenter-audio path."
-grep -Fx "network_entitlement=webkit-client-only" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong WebKit entitlement policy."
-grep -Fx "application_network_policy=blocked" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong application network policy."
+grep -Fx "network_client_entitlement=present-in-sandbox-signature" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong signed network-client entitlement contract."
+grep -Fx "webview_outbound_policy=v3-block-http-ws-ftp" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong WebKit outbound policy."
+grep -Fx "webrtc_page_capability=page-world-document-start-lockdown" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong WebRTC page-capability boundary."
+grep -Fx "navigation_download_policy=remote-denied-before-destination" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has the wrong remote navigation/download policy."
+grep -Fx "native_network_client_surface=none-shipped" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has an unexpected native network client surface."
+grep -Fx "network_boundary=app-entitled-webkit-blocked" "${RESOURCES}/BuildReceipt.txt" >/dev/null || fail "build receipt has a misleading network boundary."
 
-if [[ -n "$(find "${APP_BUNDLE}" -type f -perm -0002 -print -quit)" ]]; then
-  fail "the app bundle contains a world-writable file."
+if [[ -n "$(find "${APP_BUNDLE}" -type f \( -perm -0020 -o -perm -0002 -o ! -perm -0444 \) -print -quit)" ]]; then
+  fail "the app bundle contains a group/world-writable or not-all-user-readable file."
+fi
+if [[ -n "$(find "${APP_BUNDLE}" -type d \( -perm -0020 -o -perm -0002 -o ! -perm -0555 \) -print -quit)" ]]; then
+  fail "the app bundle contains a group/world-writable or not-all-user-traversable directory."
+fi
+if [[ -z "$(find "${EXECUTABLE}" -type f -perm -0555 -print -quit)" ]]; then
+  fail "the app executable is not readable and executable by every local account."
 fi
 
 "${EXECUTABLE}" --smoke-test
 "${EXECUTABLE}" --native-self-test
 
 run_packaged_webview_self_test() {
-  # A sandboxed GUI application is not faithfully exercised by invoking its
-  # Mach-O directly from a shell. LaunchServices supplies the application,
-  # container, and WindowServer bootstrap that users actually receive. The app
-  # writes a bounded receipt inside its own container; this verifier treats that
-  # receipt—not the `open` command's exit code—as the authoritative result.
-  local receipt_name
-  receipt_name="webview-self-test-$(date +%s)-${PPID}-${RANDOM}.json"
-  python3 - "${APP_BUNDLE}" "${receipt_name}" <<'PY'
-from __future__ import annotations
-
-import json
-import subprocess
-import sys
-import time
-from pathlib import Path
-
-app = Path(sys.argv[1]).resolve()
-receipt_name = sys.argv[2]
-home = Path.home()
-roots = [
-    home / "Library" / "Containers" / "dog.pitch.drift" / "Data" / "Library" / "Caches" / "Drift" / "SelfTests",
-    home / "Library" / "Caches" / "Drift" / "SelfTests",
-]
-for root in roots:
-    candidate = root / receipt_name
-    try:
-        candidate.unlink()
-    except FileNotFoundError:
-        pass
-
-command = [
-    "open",
-    "-W",
-    "-n",
-    str(app),
-    "--args",
-    "--webview-self-test",
-    f"--webview-self-test-report-name={receipt_name}",
-]
-try:
-    completed = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=90,
-    )
-except subprocess.TimeoutExpired as error:
-    raise SystemExit(f"Drift.app verification failed: LaunchServices WebView self-test timed out: {error}") from error
-
-# The app may terminate with a failing self-test while `open -W` still returns
-# zero. Conversely, LaunchServices diagnostics are useful when no receipt was
-# written. Poll only for filesystem propagation, never to hide a process crash.
-deadline = time.monotonic() + 8
-receipt_path: Path | None = None
-while time.monotonic() < deadline and receipt_path is None:
-    for root in roots:
-        candidate = root / receipt_name
-        if candidate.is_file():
-            receipt_path = candidate
-            break
-    if receipt_path is None:
-        time.sleep(0.1)
-
-if receipt_path is None:
-    container = home / "Library" / "Containers" / "dog.pitch.drift"
-    if container.is_dir():
-        matches = list(container.rglob(receipt_name))
-        if len(matches) == 1:
-            receipt_path = matches[0]
-
-if receipt_path is None:
-    raise SystemExit(
-        "Drift.app verification failed: LaunchServices produced no WebView receipt; "
-        f"open exit={completed.returncode}; stdout={completed.stdout!r}; stderr={completed.stderr!r}"
-    )
-
-try:
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-finally:
-    receipt_path.unlink(missing_ok=True)
-
-failures: list[str] = []
-def expect(condition: bool, message: str) -> None:
-    if not condition:
-        failures.append(message)
-
-expect(receipt.get("schemaVersion") == 1, "unknown receipt schema")
-expect(receipt.get("ok") is True, str(receipt.get("message") or "packaged WebView self-test failed"))
-expect(receipt.get("bundleIdentifier") == "dog.pitch.drift", "receipt has the wrong bundle identifier")
-expect(receipt.get("startedNavigation") is True, "packaged WebView never started navigation")
-expect(receipt.get("committedNavigation") is True, "packaged WebView never committed navigation")
-expect(receipt.get("finishedNavigation") is True, "packaged WebView never finished navigation")
-expect(int(receipt.get("contentProcessTerminationCount", 99)) <= 1, "WebKit content process terminated more than once")
-expect(receipt.get("webKitFileInputVerified") is True, "typed native file ingestion was not verified")
-expect(
-    receipt.get("saveState") in {"saved", "saving"},
-    "React project entered an invalid state during packaged verification",
-)
-expect(receipt.get("projectBusy") is False, "React project operation remained busy")
-expect(receipt.get("exportInProgress") is False, "React export remained in progress")
-
-if failures:
-    details = "; ".join(failures)
-    raise SystemExit(
-        "Drift.app verification failed: packaged LaunchServices/WebKit receipt did not hold: "
-        f"{details}; receipt={json.dumps(receipt, sort_keys=True)}"
-    )
-
-print("Drift packaged WebView self-test passed through LaunchServices.")
-PY
+  # One coordinator owns exact-process selection, external WebContent
+  # termination, loopback denial, receipts, and cleanup. Keeping a second
+  # launcher here previously let local verification drift from CI.
+  DRIFT_WEBVIEW_MATRIX_DIR="${ROOT_DIR}/build/macos/verify-packaged-webview" \
+    bash "${ROOT_DIR}/scripts/probe-macos-packaged-webview.sh" "${APP_BUNDLE}"
 }
 
 if [[ "${DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST:-0}" == "1" ]]; then
@@ -327,7 +274,7 @@ fi
 printf 'Verified %s\n' "${APP_BUNDLE}"
 printf 'Bundle size: %s\n' "$(du -sh "${APP_BUNDLE}" | awk '{print $1}')"
 printf 'Architectures: %s\n' "${actual_archs}"
-printf 'Sandbox: enabled; user-selected read/write; WebKit client entitlement only\n'
-printf 'WebKit client entitlement present; application traffic blocked\n'
+printf 'Sandbox: enabled; user-selected read/write; app network-client entitlement present\n'
+printf 'WebKit outbound policy v3 blocked; no native network client shipped\n'
 printf 'Video: WKWebView H.264, capability-gated and output-verified\n'
 printf 'Audio: Apple software AAC-LC through AudioToolbox; no FFmpeg WASM\n'

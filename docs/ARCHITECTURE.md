@@ -29,13 +29,16 @@ The moving track is a virtual strip whose slot count is always a complete multip
 - WebGL2 is required for the cinematic renderer.
 - The renderer uses sRGB output and `NoToneMapping`; source textures are tagged sRGB.
 - The slide vertex shader bends a subdivided plane from bounded, normalised velocity.
-- The slide fragment shader handles cover/contain sampling, focal position, antialiased superellipse corners, borders, grain, and alpha.
-- A separate shader scene draws animated backgrounds. Transparent mode skips it entirely.
+- The slide fragment shader handles cover/contain sampling, focal position, antialiased superellipse corners, optional borders, and alpha. It never adds procedural texture to imported artwork.
+- A separate shader scene draws animated backgrounds and monochrome, spatially correlated film grain. Transparent mode skips that scene entirely. Preview grain advances at no more than 30 Hz; export derives one plate from the exact output-frame index; Pause and Reduce Motion freeze the plate.
+- Shadow meshes include room for Gaussian falloff, but their signed-distance field is evaluated against the original rounded card. Expanded blur geometry never becomes a translucent second card.
 - The pinned frame is a separate scene object. It never inherits moving-track transforms.
 - Presenter preview uses `VideoTexture`. Deterministic output instead draws decoded samples into a stable canvas and updates a `CanvasTexture` before rendering each frame. A single binder gives an active export frame strict precedence over preview media, and pinned images are awaited even when they sit outside the moving mesh pool.
 - Presenter playback follows the renderer state: user pause, export, context loss, document hiding, or disposal pauses the actual media element. Restore returns both UI and media to the truthful prior state.
 
 WebGPU/TSL is not the v1 primary path. WebGL2 currently gives the project a broader, better-proven route through canvas capture and browser video encoding. The evaluator and settings model are deliberately renderer-independent enough for a later WebGPU backend.
+
+Determinism here means the same saved state and frame index drive the same renderer state. Exact PNG bytes are verified across repeated exports in the tested runtime. Project grain seeds are folded modulo 4093 before reaching a float32 uniform; this preserves entropy for the complete Project V3 integer range but intentionally provides 4093 grain identities rather than cryptographic uniqueness. Raw GPU floating-point and hash behavior is not promised to be bit-identical across different graphics drivers or hardware; cross-machine masters must be visually and structurally verified instead of compared as universal hashes.
 
 ## Export
 

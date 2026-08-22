@@ -73,6 +73,18 @@ describe("validateStudioSettings", () => {
     }
   });
 
+  it("keeps slide edges clean by default and reserves an outline for the contact-sheet world", () => {
+    expect(DEFAULT_SETTINGS.slide).toMatchObject({ borderWidth: 0, borderOpacity: 0 });
+    expect(DEFAULT_SETTINGS.presenter).toMatchObject({ borderWidth: 0, borderOpacity: 0 });
+    for (const theme of THEMES.filter((theme) => theme.id !== "noir-contact")) {
+      expect(theme.settings.slide).toMatchObject({ borderWidth: 0, borderOpacity: 0 });
+    }
+    expect(THEMES.find((theme) => theme.id === "noir-contact")?.settings.slide).toMatchObject({
+      borderWidth: 1,
+      borderOpacity: 1,
+    });
+  });
+
   it("accepts every current enum and frame-rate choice", () => {
     const choices: Array<[string, readonly (string | number)[]]> = [
       ["themeId", ["editorial-drift", "road-memory", "dread", "noir-contact", "tender-light", "chrome-dream"]],
