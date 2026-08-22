@@ -134,12 +134,14 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   await pinnedGroup.locator("summary").click();
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   await expect(pinnedSwitch).toBeDisabled();
-  await page.getByRole("button", { name: "Pin Drift study 02.png" }).click();
+  await page.getByRole("button", { name: "Keep Drift study 02.png still" }).click();
   await expect(pinnedSwitch).toBeEnabled();
   await expect(pinnedSwitch).toBeChecked();
   await pinnedSwitch.click();
   await expect(pinnedSwitch).not.toBeChecked();
-  await expect(pinnedSwitch).toBeDisabled();
+  await expect(pinnedSwitch).toBeEnabled();
+  await pinnedSwitch.click();
+  await expect(pinnedSwitch).toBeChecked();
 });
 
 test("reduced motion freezes the rendered preview instead of leaving animated grain behind", async ({ page }) => {

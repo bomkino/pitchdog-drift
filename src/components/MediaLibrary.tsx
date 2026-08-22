@@ -123,7 +123,7 @@ export function MediaLibrary({
         </button>
       </div>
       <p className="media-note" data-error={Boolean(pickerError)} aria-live="polite">
-        {pickerError ?? "Images move. One optional video can stay pinned. Original media: 64 MiB each, 80 MiB total. Files remain on this device."}
+        {pickerError ?? "Any one image or presenter video can stay still. Original media: 64 MiB each, 80 MiB total. Files remain on this device."}
       </p>
 
       <ol className="asset-list" aria-label="Slide order">
@@ -141,6 +141,7 @@ export function MediaLibrary({
             <span className="asset-meta">
               <strong>{String(index + 1).padStart(2, "0")}</strong>
               <small title={asset.name}>{asset.name}</small>
+              {pinnedAssetId === asset.id ? <em className="asset-state">STILL</em> : null}
             </span>
             <span className="asset-actions">
               <button
@@ -161,8 +162,15 @@ export function MediaLibrary({
               >
                 ↓
               </button>
-              <button type="button" disabled={busy} onClick={() => onPin(pinnedAssetId === asset.id ? null : asset)} aria-label={pinnedAssetId === asset.id ? `Unpin ${asset.name}` : `Pin ${asset.name}`} title="Pin frame">
-                {pinnedAssetId === asset.id ? "●" : "○"}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onPin(pinnedAssetId === asset.id ? null : asset)}
+                aria-label={pinnedAssetId === asset.id ? `Return ${asset.name} to the carousel` : `Keep ${asset.name} still`}
+                aria-pressed={pinnedAssetId === asset.id}
+                title={pinnedAssetId === asset.id ? "Return to carousel" : "Keep still"}
+              >
+                {pinnedAssetId === asset.id ? "↻" : "⌖"}
               </button>
               <button type="button" disabled={busy} onClick={() => onRemove(asset.id)} aria-label={`Remove ${asset.name}`} title="Remove from project">×</button>
             </span>
@@ -182,8 +190,14 @@ export function MediaLibrary({
               <strong>{presenter.name}</strong>
               <small>{presenter.duration?.toFixed(1) ?? "—"} s · audio checked at export</small>
             </span>
-            <button type="button" disabled={busy} onClick={() => onPin(pinnedAssetId === presenter.id ? null : presenter)}>
-              {pinnedAssetId === presenter.id ? "Pinned" : "Pin"}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onPin(pinnedAssetId === presenter.id ? null : presenter)}
+              aria-label={pinnedAssetId === presenter.id ? `Return ${presenter.name} to its media slot` : `Keep ${presenter.name} still`}
+              aria-pressed={pinnedAssetId === presenter.id}
+            >
+              {pinnedAssetId === presenter.id ? "Return" : "Keep still"}
             </button>
             <button type="button" disabled={busy} onClick={onRemovePresenter} aria-label="Remove presenter video">×</button>
           </div>

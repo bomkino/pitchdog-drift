@@ -33,6 +33,9 @@ export type LightMotion = "static" | "breathe" | "sweep" | "flicker" | "orbit";
 export type AtmosphereTreatment = "quiet" | "cinema" | "graphic" | "weathered";
 export type AtmospherePresence = "whisper" | "balanced" | "statement";
 export type PresenterTreatment = "protected" | "through-lens";
+export type PresenterTrackMode = "pinned-only" | "moving-and-pinned";
+export type PresenterLayoutMode = "safe-overlay" | "legacy-perspective";
+export type PresenterAspectMode = "source" | "custom";
 export type SoundSource = "recorded" | "procedural";
 export type SoundGrammar = "dry" | "editorial" | "organic";
 export type WorldVariant = "restrained" | "directed" | "fever" | "custom";
@@ -246,6 +249,28 @@ export interface PresenterSettings {
   startAt: number;
 }
 
+/**
+ * Project V4 owns the pinned frame independently from the optional presenter
+ * video slot. The V3 fields remain as the exact compatibility surface while
+ * these additions describe safe V2 composition without overloading lighting
+ * or moving-track state.
+ */
+export interface PresenterSettingsV4 extends PresenterSettings {
+  assetId: string | null;
+  trackMode: PresenterTrackMode;
+  layoutMode: PresenterLayoutMode;
+  aspectMode: PresenterAspectMode;
+  focalX: number;
+  focalY: number;
+  safeInset: number;
+  shadowOpacity: number;
+  shadowSoftness: number;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+  matteColor: string;
+  matteOpacity: number;
+}
+
 export interface MasterSettings {
   fps: 24 | 25 | 30 | 50 | 60;
   duration: number;
@@ -300,10 +325,11 @@ export interface DriftProjectMigrationV4 {
   migrator: typeof DRIFT_PROJECT_V4_MIGRATOR;
 }
 
-export interface DriftProjectV4 extends Omit<DriftProjectV3, "formatVersion"> {
+export interface DriftProjectV4 extends Omit<DriftProjectV3, "formatVersion" | "presenter"> {
   formatVersion: typeof DRIFT_PROJECT_V4_VERSION;
   renderContract: typeof DRIFT_V1_COMPAT_RENDER_CONTRACT;
   migration: DriftProjectMigrationV4 | null;
+  presenter: PresenterSettingsV4;
   extensions: Record<string, DriftJsonValue>;
 }
 

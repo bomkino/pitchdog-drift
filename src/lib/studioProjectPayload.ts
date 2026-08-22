@@ -1,5 +1,5 @@
 import type { StoredAssetDescriptor, StudioSettings } from "../model";
-import { migrateLegacyStudioProject, type LegacyAssetDescriptor } from "../core/project/migrateLegacy";
+import { migrateLegacyStudioProjectToV4, type LegacyAssetDescriptor } from "../core/project/migrateLegacy";
 import { migrateDriftProjectV3ToV4 } from "../core/project/migrateV3ToV4";
 import {
   DRIFT_PROJECT_SCHEMA,
@@ -183,7 +183,7 @@ function assertProjectMediaReceipts(
 function migrateLegacyPayload(
   payload: LegacyStudioProjectPayload,
   context: StudioPayloadContext,
-): DriftProjectV3 {
+): DriftProjectV4 {
   const receipts = receiptsById(context);
   const descriptors = new Map(payload.descriptors.map((descriptor) => [descriptor.id, descriptor]));
   if (descriptors.size !== receipts.size) {
@@ -229,7 +229,7 @@ function migrateLegacyPayload(
     throw new Error("Legacy project pinned-frame settings reference missing media.");
   }
 
-  return migrateLegacyStudioProject({
+  return migrateLegacyStudioProjectToV4({
     projectId: context.projectId,
     createdAt: context.createdAt,
     updatedAt: context.updatedAt,
@@ -311,10 +311,7 @@ export function parseStudioProjectPayload(
   assertLegacyStudioV1Contract(context);
   const legacy = parseLegacyPayload(value);
   return {
-    project: migrateDriftProjectV3ToV4(
-      migrateLegacyPayload(legacy, context),
-      "legacy-studio-v1",
-    ),
+    project: migrateLegacyPayload(legacy, context),
     sourceFormat: "legacy-studio-v1",
   };
 }

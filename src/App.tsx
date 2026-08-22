@@ -781,9 +781,14 @@ export function App() {
       presenterRef.current = next;
       setPresenter(next);
 
+      const currentPin = settingsRef.current.presenter;
+      const selectedSlideStillExists = currentPin.assetId !== null
+        && assetsRef.current.some((asset) => asset.id === currentPin.assetId);
       const nextSettings: StudioSettings = {
         ...settingsRef.current,
-        presenter: { ...settingsRef.current.presenter, enabled: true, assetId: next.id },
+        presenter: selectedSlideStillExists
+          ? currentPin
+          : { ...currentPin, enabled: true, assetId: next.id },
       };
       if (options.persistBeforeReply) {
         directPersistenceSnapshotRef.current = {
@@ -796,7 +801,7 @@ export function App() {
       settingsRef.current = nextSettings;
       setSettings(nextSettings);
       announce(
-        `Presenter video pinned. Audio will be checked—not silently dropped—at export. ${formatProjectMiB(existingSlideBytes + next.blob.size)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
+        `${selectedSlideStillExists ? "Presenter video added; the selected still image was kept." : "Presenter video added and kept still."} Audio will be checked—not silently dropped—at export. ${formatProjectMiB(existingSlideBytes + next.blob.size)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
         "good",
       );
       if (options.persistBeforeReply) {
@@ -842,7 +847,11 @@ export function App() {
   const pin = useCallback((asset: StudioAsset | null) => {
     const nextSettings: StudioSettings = {
       ...settingsRef.current,
-      presenter: { ...settingsRef.current.presenter, enabled: Boolean(asset), assetId: asset?.id ?? null },
+      presenter: {
+        ...settingsRef.current.presenter,
+        enabled: Boolean(asset),
+        assetId: asset?.id ?? settingsRef.current.presenter.assetId,
+      },
     };
     markProjectDirty();
     settingsRef.current = nextSettings;
@@ -1300,7 +1309,7 @@ export function App() {
         <MediaLibrary
           assets={assets}
           presenter={presenter}
-          pinnedAssetId={settings.presenter.assetId}
+          pinnedAssetId={settings.presenter.enabled ? settings.presenter.assetId : null}
           imageInputRef={imageInputRef}
           presenterInputRef={presenterInputRef}
           onAddImages={addImages}
@@ -1316,6 +1325,7 @@ export function App() {
           frameRef={frameRef}
           settings={settings}
           assets={assets}
+          pinnedAsset={settings.presenter.enabled ? pinnedAsset : null}
           webglError={webglError}
           contextState={contextState}
           fps={fps}

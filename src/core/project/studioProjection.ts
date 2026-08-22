@@ -64,6 +64,35 @@ function firstVisibleDirective(project: CompatibleDriftProject): SlideDirective 
   return null;
 }
 
+function pinnedAssetId(project: CompatibleDriftProject): string | null {
+  return project.formatVersion === 4
+    ? project.presenter.assetId
+    : project.media.presenterAssetId;
+}
+
+function sourceAspect(project: CompatibleDriftProject, assetId: string | null): {
+  aspectWidth: number;
+  aspectHeight: number;
+} | null {
+  if (project.formatVersion !== 4 || project.presenter.aspectMode !== "source" || assetId === null) return null;
+  const asset = project.media.assets[assetId];
+  if (!asset) return null;
+  let left = asset.width;
+  let right = asset.height;
+  while (right !== 0) [left, right] = [right, left % right];
+  const divisor = Math.max(1, left);
+  let aspectWidth = asset.width / divisor;
+  let aspectHeight = asset.height / divisor;
+  const scale = Math.max(aspectWidth, aspectHeight) / 64;
+  if (scale > 1) {
+    aspectWidth /= scale;
+    aspectHeight /= scale;
+  }
+  if (aspectWidth < 1) return { aspectWidth: 1, aspectHeight: 64 };
+  if (aspectHeight < 1) return { aspectWidth: 64, aspectHeight: 1 };
+  return { aspectWidth, aspectHeight };
+}
+
 /**
  * Projects the V3 creative tree, including its V4 compatibility envelope,
  * through the renderer capabilities that exist on the
@@ -76,7 +105,8 @@ export function studioSettingsFromDriftProject(projectInput: CompatibleDriftProj
     ? validateDriftProjectV4(projectInput)
     : validateDriftProjectV3(projectInput);
   const background = legacyBackground(project);
-  const presenterAssetId = project.media.presenterAssetId;
+  const presenterAssetId = pinnedAssetId(project);
+  const presenterAspect = sourceAspect(project, presenterAssetId);
   const firstDirective = firstVisibleDirective(project);
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -135,18 +165,31 @@ export function studioSettingsFromDriftProject(projectInput: CompatibleDriftProj
     presenter: {
       enabled: project.presenter.enabled && presenterAssetId !== null,
       assetId: presenterAssetId,
+      trackMode: project.formatVersion === 4 ? project.presenter.trackMode : "moving-and-pinned",
+      layoutMode: project.formatVersion === 4 ? project.presenter.layoutMode : "legacy-perspective",
+      aspectMode: project.formatVersion === 4 ? project.presenter.aspectMode : "custom",
       x: project.presenter.x,
       y: project.presenter.y,
       width: project.presenter.width,
-      aspectWidth: project.presenter.aspectWidth,
-      aspectHeight: project.presenter.aspectHeight,
+      aspectWidth: presenterAspect?.aspectWidth ?? project.presenter.aspectWidth,
+      aspectHeight: presenterAspect?.aspectHeight ?? project.presenter.aspectHeight,
       fit: project.presenter.fit,
+      focalX: project.formatVersion === 4 ? project.presenter.focalX : 0.5,
+      focalY: project.formatVersion === 4 ? project.presenter.focalY : 0.5,
+      safeInset: project.formatVersion === 4 ? project.presenter.safeInset : 0,
       radius: project.presenter.radius,
       smoothing: project.presenter.smoothing,
       borderWidth: project.presenter.borderWidth,
       borderColor: project.presenter.borderColor,
       borderOpacity: project.presenter.borderOpacity,
-      shadowOpacity: project.lighting.enabled ? project.lighting.shadowOpacity : 0,
+      shadowOpacity: project.formatVersion === 4
+        ? project.presenter.shadowOpacity
+        : project.lighting.enabled ? project.lighting.shadowOpacity : 0,
+      shadowSoftness: project.formatVersion === 4 ? project.presenter.shadowSoftness : 48,
+      shadowOffsetX: project.formatVersion === 4 ? project.presenter.shadowOffsetX : 12,
+      shadowOffsetY: project.formatVersion === 4 ? project.presenter.shadowOffsetY : 18,
+      matteColor: project.formatVersion === 4 ? project.presenter.matteColor : "#000000",
+      matteOpacity: project.formatVersion === 4 ? project.presenter.matteOpacity : 1,
       muted: project.presenter.muted,
       gain: project.presenter.gain,
       trimStart: project.presenter.trimStart,
@@ -293,8 +336,12 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
   next.atmosphere.accent = settings.background.accent;
   next.atmosphere.seedOffset = Math.max(0, Math.round(settings.background.seed));
 
-  next.presenter = {
-    enabled: settings.presenter.enabled && presenter !== null,
+  const pinId = next.formatVersion === 4
+    ? settings.presenter.assetId
+    : presenter?.id ?? null;
+  const pinAsset = pinId === null ? null : assets[pinId] ?? null;
+  const presenterBase = {
+    enabled: settings.presenter.enabled && pinAsset !== null,
     x: settings.presenter.x,
     y: settings.presenter.y,
     width: settings.presenter.width,
@@ -311,6 +358,27 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
     trimStart: settings.presenter.trimStart,
     startAt: settings.presenter.startAt,
   };
+  if (next.formatVersion === 4) {
+    next.presenter = {
+      ...next.presenter,
+      ...presenterBase,
+      assetId: pinId,
+      trackMode: settings.presenter.trackMode,
+      layoutMode: settings.presenter.layoutMode,
+      aspectMode: settings.presenter.aspectMode,
+      focalX: settings.presenter.focalX,
+      focalY: settings.presenter.focalY,
+      safeInset: settings.presenter.safeInset,
+      shadowOpacity: settings.presenter.shadowOpacity,
+      shadowSoftness: settings.presenter.shadowSoftness,
+      shadowOffsetX: settings.presenter.shadowOffsetX,
+      shadowOffsetY: settings.presenter.shadowOffsetY,
+      matteColor: settings.presenter.matteColor,
+      matteOpacity: settings.presenter.matteOpacity,
+    };
+  } else {
+    next.presenter = presenterBase;
+  }
   next.master = {
     fps: settings.output.fps,
     duration: settings.output.duration,
@@ -320,7 +388,9 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
       bitrate: settings.output.videoBitrate,
     },
     audio: {
-      enabled: presenter !== null && settings.presenter.enabled && !settings.presenter.muted,
+      enabled: next.formatVersion === 4
+        ? pinAsset?.kind === "video" && pinId === presenter?.id && settings.presenter.enabled && !settings.presenter.muted
+        : presenter !== null && settings.presenter.enabled && !settings.presenter.muted,
       bitrate: settings.output.audioBitrate,
     },
   };

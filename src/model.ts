@@ -7,6 +7,9 @@ export type Axis = "horizontal" | "vertical";
 export type Direction = 1 | -1;
 export type Flow = "straight" | "arc" | "ribbon" | "cylinder" | "tunnel";
 export type ImageFit = "cover" | "contain";
+export type PresenterTrackMode = "pinned-only" | "moving-and-pinned";
+export type PresenterLayoutMode = "safe-overlay" | "legacy-perspective";
+export type PresenterAspectMode = "source" | "custom";
 export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
 export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
 
@@ -66,18 +69,29 @@ export interface BackgroundSettings {
 export interface PresenterSettings {
   enabled: boolean;
   assetId: string | null;
+  trackMode: PresenterTrackMode;
+  layoutMode: PresenterLayoutMode;
+  aspectMode: PresenterAspectMode;
   x: number;
   y: number;
   width: number;
   aspectWidth: number;
   aspectHeight: number;
   fit: ImageFit;
+  focalX: number;
+  focalY: number;
+  safeInset: number;
   radius: number;
   smoothing: number;
   borderWidth: number;
   borderColor: string;
   borderOpacity: number;
   shadowOpacity: number;
+  shadowSoftness: number;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+  matteColor: string;
+  matteOpacity: number;
   muted: boolean;
   gain: number;
   trimStart: number;
@@ -196,18 +210,29 @@ export const DEFAULT_SETTINGS: StudioSettings = {
   presenter: {
     enabled: false,
     assetId: null,
-    x: 0.72,
-    y: 0.28,
-    width: 0.34,
+    trackMode: "pinned-only",
+    layoutMode: "safe-overlay",
+    aspectMode: "source",
+    x: 1,
+    y: 1,
+    width: 0.32,
     aspectWidth: 9,
     aspectHeight: 16,
     fit: "cover",
-    radius: 42,
+    focalX: 0.5,
+    focalY: 0.5,
+    safeInset: 0.04,
+    radius: 28,
     smoothing: 0.6,
     borderWidth: 0,
     borderColor: "#f4ead8",
     borderOpacity: 0,
-    shadowOpacity: 0.48,
+    shadowOpacity: 0.22,
+    shadowSoftness: 36,
+    shadowOffsetX: 0,
+    shadowOffsetY: 12,
+    matteColor: "#000000",
+    matteOpacity: 0,
     muted: false,
     gain: 1,
     trimStart: 0,

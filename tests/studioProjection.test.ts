@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
-import { migrateLegacyStudioProject, type LegacyAssetDescriptor } from "../src/core/project/migrateLegacy";
+import {
+  migrateLegacyStudioProject,
+  migrateLegacyStudioProjectToV4,
+  type LegacyAssetDescriptor,
+} from "../src/core/project/migrateLegacy";
 import { migrateDriftProjectV3ToV4 } from "../src/core/project/migrateV3ToV4";
 import {
   reconcileStudioProject,
@@ -291,5 +295,105 @@ describe("Project V3/V4 studio projection", () => {
     expect(replaced.motion.path.id).toBe("ribbon");
     expect(replaced.atmosphere.family).toBe("paper");
     expect(replaced.provenance.world?.id).toBe("tender-light");
+  });
+
+  it("keeps an ordered image pinned when a separate presenter video also exists", () => {
+    const settings = cloneSettings(DEFAULT_SETTINGS);
+    settings.presenter.enabled = true;
+    settings.presenter.assetId = slideA.id;
+    settings.presenter.shadowOpacity = 0.63;
+
+    const migrated = migrateLegacyStudioProjectToV4({
+      projectId: "legacy-image-pin",
+      createdAt: "2026-08-21T03:00:00.000Z",
+      updatedAt: "2026-08-21T03:00:00.000Z",
+      settings,
+      slideAssets: [slideA],
+      presenterAsset: presenter,
+    });
+
+    expect(migrated.media.presenterAssetId).toBe(presenter.id);
+    expect(migrated.presenter).toMatchObject({
+      enabled: true,
+      assetId: slideA.id,
+      trackMode: "moving-and-pinned",
+      layoutMode: "legacy-perspective",
+      aspectMode: "custom",
+      shadowOpacity: 0.63,
+      shadowSoftness: 48,
+      shadowOffsetX: 12,
+      shadowOffsetY: 18,
+      matteOpacity: 1,
+    });
+    expect(migrated.master.audio.enabled).toBe(false);
+    expect(studioSettingsFromDriftProject(migrated).presenter.assetId).toBe(slideA.id);
+  });
+
+  it("retains a disabled image selection and re-enables that exact pin", () => {
+    const settings = cloneSettings(DEFAULT_SETTINGS);
+    settings.presenter.enabled = true;
+    settings.presenter.assetId = slideA.id;
+    const migrated = migrateLegacyStudioProjectToV4({
+      projectId: "remember-image-pin",
+      createdAt: "2026-08-21T04:00:00.000Z",
+      updatedAt: "2026-08-21T04:00:00.000Z",
+      settings,
+      slideAssets: [slideA],
+      presenterAsset: presenter,
+    });
+    migrated.presenter.enabled = false;
+    migrated.master.audio.enabled = false;
+
+    const projected = studioSettingsFromDriftProject(migrated);
+    expect(projected.presenter).toMatchObject({ enabled: false, assetId: slideA.id });
+    projected.presenter.enabled = true;
+
+    const reconciled = reconcileStudioProject({
+      project: migrated,
+      settings: projected,
+      slideAssets: [migrated.media.assets[slideA.id]!],
+      presenterAsset: migrated.media.assets[presenter.id]!,
+      updatedAt: "2026-08-21T04:15:00.000Z",
+    });
+    expect(reconciled.presenter).toMatchObject({ enabled: true, assetId: slideA.id });
+    expect(reconciled.media.presenterAssetId).toBe(presenter.id);
+    expect(reconciled.master.audio.enabled).toBe(false);
+  });
+
+  it("round-trips presenter shadow direction independently from moving-card lighting", () => {
+    const settings = cloneSettings(DEFAULT_SETTINGS);
+    settings.presenter.enabled = true;
+    settings.presenter.assetId = presenter.id;
+    settings.presenter.shadowOpacity = 0.61;
+    settings.slide.shadowOpacity = 0.22;
+    const migrated = migrateLegacyStudioProjectToV4({
+      projectId: "independent-shadow",
+      createdAt: "2026-08-21T05:00:00.000Z",
+      updatedAt: "2026-08-21T05:00:00.000Z",
+      settings,
+      slideAssets: [slideA],
+      presenterAsset: presenter,
+    });
+
+    const projected = studioSettingsFromDriftProject(migrated);
+    expect(projected.presenter.shadowOpacity).toBe(0.61);
+    expect(projected.slide.shadowOpacity).toBe(0.22);
+    projected.presenter.shadowOpacity = 0.47;
+    projected.slide.shadowOpacity = 0.13;
+
+    const reconciled = reconcileStudioProject({
+      project: migrated,
+      settings: projected,
+      slideAssets: [migrated.media.assets[slideA.id]!],
+      presenterAsset: migrated.media.assets[presenter.id]!,
+      updatedAt: "2026-08-21T05:15:00.000Z",
+    });
+    expect(reconciled.presenter).toMatchObject({
+      shadowOpacity: 0.47,
+      shadowSoftness: 48,
+      shadowOffsetX: 12,
+      shadowOffsetY: 18,
+    });
+    expect(reconciled.lighting.shadowOpacity).toBe(0.13);
   });
 });

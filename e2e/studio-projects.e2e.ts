@@ -12,6 +12,16 @@ import {
   waitForStudio,
 } from "./studio.helpers";
 
+async function readSavedProject(page: import("@playwright/test").Page): Promise<Record<string, any>> {
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save portable project" }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  const archive = unzipSync(new Uint8Array(await readFile(path!)));
+  return JSON.parse(strFromU8(archive["manifest.json"]!)).payload.project as Record<string, any>;
+}
+
 test("reopening a verified local project performs no phantom IndexedDB rewrite", async ({ page }) => {
   await waitForStudio(page);
   await page.waitForTimeout(1_800);
@@ -61,6 +71,55 @@ test("saved starter studies remain replaceable by the first real deck", async ({
   await expect(page.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".asset-list li")).toHaveCount(1);
   await expect(page.locator(".asset-list li").first()).toContainText("slide.png");
+});
+
+test("Project V4 keeps one image still without letting a presenter video steal it", async ({ page }) => {
+  await waitForStudio(page);
+  const firstSlide = page.locator(".asset-list li").first();
+  await page.getByRole("button", { name: "Keep Drift study 01.png still" }).click();
+  await expect(firstSlide).toHaveAttribute("data-pinned", "true");
+
+  const firstSave = await readSavedProject(page);
+  const pinnedImageId = firstSave.media.order[0] as string;
+  expect(firstSave.presenter).toMatchObject({
+    enabled: true,
+    assetId: pinnedImageId,
+    trackMode: "pinned-only",
+    layoutMode: "safe-overlay",
+    aspectMode: "source",
+    matteOpacity: 0,
+  });
+
+  await page.reload();
+  await expect(page.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".asset-list li").first()).toHaveAttribute("data-pinned", "true");
+  await expect(page.getByRole("button", { name: "Return Drift study 01.png to the carousel" })).toBeVisible();
+
+  await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterFixturePath);
+  await expect(page.locator(".presenter-card")).toBeVisible();
+  await expect(page.locator(".asset-list li").first()).toHaveAttribute("data-pinned", "true");
+  const withVideo = await readSavedProject(page);
+  expect(withVideo.media.presenterAssetId).not.toBe(pinnedImageId);
+  expect(withVideo.presenter.assetId).toBe(pinnedImageId);
+
+  const pinnedGroup = page.locator("details").filter({ has: page.locator("summary", { hasText: "Pinned frame" }) });
+  await pinnedGroup.locator("summary").click();
+  const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
+  await pinnedSwitch.click();
+  await expect(pinnedSwitch).not.toBeChecked();
+  await expect(pinnedSwitch).toBeEnabled();
+  const disabled = await readSavedProject(page);
+  expect(disabled.presenter).toMatchObject({ enabled: false, assetId: pinnedImageId });
+
+  await page.reload();
+  await expect(page.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
+  const reopenedGroup = page.locator("details").filter({ has: page.locator("summary", { hasText: "Pinned frame" }) });
+  await reopenedGroup.locator("summary").click();
+  const reopenedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
+  await expect(reopenedSwitch).not.toBeChecked();
+  await expect(reopenedSwitch).toBeEnabled();
+  await reopenedSwitch.click();
+  await expect(page.locator(".asset-list li").first()).toHaveAttribute("data-pinned", "true");
 });
 
 test("presenter playback obeys pause and export while removal preserves an unrelated slide pin", async ({ page }) => {
@@ -162,12 +221,12 @@ test("presenter playback obeys pause and export while removal preserves an unrel
   await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterFixturePath);
   await expect(page.locator(".presenter-card")).toBeVisible();
   const firstSlide = page.locator(".asset-list li").first();
-  await page.getByRole("button", { name: "Pin Drift study 01.png" }).click();
+  await page.getByRole("button", { name: "Keep Drift study 01.png still" }).click();
   await expect(firstSlide).toHaveAttribute("data-pinned", "true");
   await page.getByRole("button", { name: "Remove presenter video" }).click();
   await expect(page.locator(".presenter-card")).toHaveCount(0);
   await expect(firstSlide).toHaveAttribute("data-pinned", "true");
-  await expect(page.getByRole("button", { name: "Unpin Drift study 01.png" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Return Drift study 01.png to the carousel" })).toBeVisible();
 });
 
 test("portable Project V4 survives a fresh context without flattening dormant direction", async ({ page, browser }) => {

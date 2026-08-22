@@ -395,6 +395,19 @@ a:focus-visible {
   white-space: nowrap;
 }
 
+.asset-state {
+  width: max-content;
+  padding: 2px 5px 1px;
+  border: 1px solid rgba(194, 109, 63, 0.38);
+  border-radius: 999px;
+  color: var(--rust-light);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 8px;
+  font-style: normal;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
 .asset-actions {
   display: grid;
   grid-template-columns: repeat(2, 32px);

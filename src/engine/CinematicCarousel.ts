@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { resolvePresenterOverlayLayout } from "../core/presenter/layout";
 import type { StudioAsset, StudioSettings } from "../model";
 import {
   distanceAtTime,
@@ -104,8 +105,29 @@ interface SlidePoolItem {
 
 interface VisibleItem {
   logicalIndex: number;
+  sourceIndex: number;
   asset: StudioAsset;
   evaluated: EvaluatedSlide;
+}
+
+export interface MovingTrackAsset {
+  asset: StudioAsset;
+  sourceIndex: number;
+}
+
+export function resolveMovingTrackAssets(
+  assets: readonly StudioAsset[],
+  presenterAsset: StudioAsset | null,
+  presenter: Pick<StudioSettings["presenter"], "enabled" | "trackMode">,
+): MovingTrackAsset[] {
+  const excludedId = presenter.enabled
+    && presenter.trackMode === "pinned-only"
+    && presenterAsset?.kind === "image"
+    ? presenterAsset.id
+    : null;
+  return assets.flatMap((asset, sourceIndex) => (
+    asset.id === excludedId ? [] : [{ asset, sourceIndex }]
+  ));
 }
 
 class StaleTextureRequestError extends Error {
@@ -189,12 +211,12 @@ function backgroundMode(style: StudioSettings["background"]["style"]): number {
   }
 }
 
-function createSlideMaterial(placeholder: THREE.Texture): THREE.ShaderMaterial {
+function createSlideMaterial(placeholder: THREE.Texture, depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: slideVertexShader,
     fragmentShader: slideFragmentShader,
     transparent: true,
-    depthTest: true,
+    depthTest,
     depthWrite: false,
     side: THREE.DoubleSide,
     uniforms: {
@@ -209,6 +231,9 @@ function createSlideMaterial(placeholder: THREE.Texture): THREE.ShaderMaterial {
       uBorderPx: { value: 1 },
       uBorderColor: { value: new THREE.Color("#ffffff") },
       uBorderOpacity: { value: 0.5 },
+      uLegacyContainMatte: { value: 1 },
+      uMatteColor: { value: new THREE.Color("#000000") },
+      uMatteOpacity: { value: 1 },
       uOpacity: { value: 1 },
       uVelocity: { value: 0 },
       uDistortion: { value: 0 },
@@ -218,12 +243,12 @@ function createSlideMaterial(placeholder: THREE.Texture): THREE.ShaderMaterial {
   });
 }
 
-function createShadowMaterial(): THREE.ShaderMaterial {
+function createShadowMaterial(depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: shadowVertexShader,
     fragmentShader: shadowFragmentShader,
     transparent: true,
-    depthTest: true,
+    depthTest,
     depthWrite: false,
     uniforms: {
       uCanvasSizePx: { value: new THREE.Vector2(900, 550) },
@@ -241,8 +266,10 @@ export class CinematicCarousel {
   readonly renderer: THREE.WebGLRenderer;
 
   private readonly scene = new THREE.Scene();
+  private readonly presenterScene = new THREE.Scene();
   private readonly backgroundScene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(CAMERA_FOV, 9 / 16, 1, 50_000);
+  private readonly presenterCamera = new THREE.OrthographicCamera(-540, 540, 960, -960, 0.1, 100);
   private readonly backgroundCamera = new THREE.Camera();
   private readonly track = new THREE.Group();
   private readonly geometry = new THREE.PlaneGeometry(1, 1, 32, 18);
@@ -361,12 +388,13 @@ export class CinematicCarousel {
     this.scene.add(this.track);
 
     for (let index = 0; index < MAX_POOL_SIZE; index += 1) this.pool.push(this.createPoolItem(index));
-    ({ group: this.presenterGroup, slide: this.presenterSlide, shadow: this.presenterShadow, material: this.presenterMaterial, shadowMaterial: this.presenterShadowMaterial } = this.createPoolItem(1000));
+    ({ group: this.presenterGroup, slide: this.presenterSlide, shadow: this.presenterShadow, material: this.presenterMaterial, shadowMaterial: this.presenterShadowMaterial } = this.createPoolItem(1000, true));
     this.presenterGroup.renderOrder = 1000;
     this.presenterSlide.renderOrder = 1001;
     this.presenterShadow.renderOrder = 999;
     this.presenterGroup.visible = false;
-    this.scene.add(this.presenterGroup);
+    this.presenterScene.add(this.presenterGroup);
+    this.presenterCamera.position.z = 10;
 
     canvas.addEventListener("pointerdown", this.onPointerDownBound);
     canvas.addEventListener("pointermove", this.onPointerMoveBound);
@@ -383,10 +411,10 @@ export class CinematicCarousel {
     this.start();
   }
 
-  private createPoolItem(index: number): SlidePoolItem {
+  private createPoolItem(index: number, protectedOverlay = false): SlidePoolItem {
     const group = new THREE.Group();
-    const material = createSlideMaterial(this.placeholderTexture);
-    const shadowMaterial = createShadowMaterial();
+    const material = createSlideMaterial(this.placeholderTexture, !protectedOverlay);
+    const shadowMaterial = createShadowMaterial(!protectedOverlay);
     const slide = new THREE.Mesh(this.geometry, material);
     const shadow = new THREE.Mesh(this.geometry, shadowMaterial);
     slide.renderOrder = index * 2 + 2;
@@ -445,6 +473,10 @@ export class CinematicCarousel {
       await Promise.all(additions.slice(0, 8).map((asset) => this.ensureTexture(asset).catch(() => null)));
     }
     this.renderPreview();
+  }
+
+  private movingTrackAssets(): MovingTrackAsset[] {
+    return resolveMovingTrackAssets(this.assets, this.presenterAsset, this.settings.presenter);
   }
 
   async setPresenterAsset(asset: StudioAsset | null): Promise<void> {
@@ -651,7 +683,7 @@ export class CinematicCarousel {
   renderAt(time: number, frameIndex: number | null = null): void {
     const exportFrameIndex = resolveExportFrameIndex(frameIndex);
     const geometry = getSlideGeometry(this.settings);
-    const slotCount = getLogicalSlotCount(this.assets.length, geometry);
+    const slotCount = getLogicalSlotCount(this.movingTrackAssets().length, geometry);
     const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
     const velocity = velocityAtTime(this.settings, slotCount, geometry.stride, true);
     this.renderInternal(time, distance, velocity, true, exportFrameIndex);
@@ -660,14 +692,20 @@ export class CinematicCarousel {
   async renderAtAsync(time: number, frameIndex: number | null = null): Promise<void> {
     const exportFrameIndex = resolveExportFrameIndex(frameIndex);
     const geometry = getSlideGeometry(this.settings);
-    const slotCount = getLogicalSlotCount(this.assets.length, geometry);
+    const movingAssets = this.movingTrackAssets();
+    const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
     const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
     const visible: VisibleItem[] = [];
     for (let logicalIndex = 0; logicalIndex < slotCount; logicalIndex += 1) {
-      const asset = this.assets[logicalIndex % Math.max(1, this.assets.length)];
-      if (!asset) continue;
+      const moving = movingAssets[logicalIndex % Math.max(1, movingAssets.length)];
+      if (!moving) continue;
       const evaluated = evaluateSlide(logicalIndex, slotCount, distance, this.settings, geometry);
-      if (isPotentiallyVisible(evaluated, geometry)) visible.push({ logicalIndex, asset, evaluated });
+      if (isPotentiallyVisible(evaluated, geometry)) visible.push({
+        logicalIndex,
+        sourceIndex: moving.sourceIndex,
+        asset: moving.asset,
+        evaluated,
+      });
     }
     const needed = new Map<string, StudioAsset>();
     for (const item of selectRenderableItems(visible, this.pool.length)) needed.set(this.textureKey(item.asset), item.asset);
@@ -755,15 +793,21 @@ export class CinematicCarousel {
     exportFrameIndex: number | null = null,
   ): void {
     const geometry = getSlideGeometry(this.settings);
-    const slotCount = getLogicalSlotCount(this.assets.length, geometry);
+    const movingAssets = this.movingTrackAssets();
+    const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
     const normalizedVelocity = this.reducedMotionPreview && !exportMode ? 0 : THREE.MathUtils.clamp(velocity / Math.max(1, geometry.stride), -1, 1);
     const visible: VisibleItem[] = [];
 
     for (let logicalIndex = 0; logicalIndex < slotCount; logicalIndex += 1) {
-      const asset = this.assets[logicalIndex % Math.max(1, this.assets.length)];
-      if (!asset) continue;
+      const moving = movingAssets[logicalIndex % Math.max(1, movingAssets.length)];
+      if (!moving) continue;
       const evaluated = evaluateSlide(logicalIndex, slotCount, distance, this.settings, geometry);
-      if (isPotentiallyVisible(evaluated, geometry)) visible.push({ logicalIndex, asset, evaluated });
+      if (isPotentiallyVisible(evaluated, geometry)) visible.push({
+        logicalIndex,
+        sourceIndex: moving.sourceIndex,
+        asset: moving.asset,
+        evaluated,
+      });
     }
     const renderable = selectRenderableItems(visible, this.pool.length);
 
@@ -772,8 +816,8 @@ export class CinematicCarousel {
       for (const item of visible) {
         if (!centered || Math.abs(item.evaluated.primary) < Math.abs(centered.evaluated.primary)) centered = item;
       }
-      const nextActiveSlide = centered && this.assets.length > 0
-        ? centered.logicalIndex % this.assets.length
+      const nextActiveSlide = centered
+        ? centered.sourceIndex
         : -1;
       if (nextActiveSlide !== this.activeSlideIndex) {
         this.activeSlideIndex = nextActiveSlide;
@@ -806,6 +850,10 @@ export class CinematicCarousel {
       this.renderer.clearDepth();
     }
     this.renderer.render(this.scene, this.camera);
+    if (this.presenterGroup.visible && this.presenterGroup.parent === this.presenterScene) {
+      this.renderer.clearDepth();
+      this.renderer.render(this.presenterScene, this.presenterCamera);
+    }
   }
 
   private updatePoolItem(
@@ -886,36 +934,77 @@ export class CinematicCarousel {
     const shouldShow = settings.enabled && Boolean(this.presenterAsset) && Boolean(this.presenterMaterial.uniforms.uMap!.value);
     this.presenterGroup.visible = shouldShow;
     if (!shouldShow) return;
-    const width = this.settings.stage.width * THREE.MathUtils.clamp(settings.width, 0.12, 0.9);
-    const height = width / (settings.aspectWidth / Math.max(0.01, settings.aspectHeight));
-    const x = (settings.x - 0.5) * this.settings.stage.width;
-    const y = (0.5 - settings.y) * this.settings.stage.height;
-    this.presenterGroup.position.set(x, y, 180);
+    const safeOverlay = settings.layoutMode === "safe-overlay";
+    const desiredParent = safeOverlay ? this.presenterScene : this.scene;
+    if (this.presenterGroup.parent !== desiredParent) desiredParent.add(this.presenterGroup);
+    this.presenterMaterial.depthTest = !safeOverlay;
+    this.presenterShadowMaterial.depthTest = !safeOverlay;
+
+    const stage = this.settings.stage;
+    const shadowSoftness = settings.shadowSoftness;
+    const requestedShadowMargin = getShadowSupportMargin(shadowSoftness, settings.shadowOpacity);
+    let width: number;
+    let height: number;
+    let shadowMargin = requestedShadowMargin;
+    let shadowOffsetX = settings.shadowOffsetX;
+    let shadowOffsetY = settings.shadowOffsetY;
+
+    if (safeOverlay && this.presenterAsset) {
+      const layout = resolvePresenterOverlayLayout({
+        stage,
+        source: { width: this.presenterAsset.width, height: this.presenterAsset.height },
+        customAspect: settings.aspectMode === "custom"
+          ? { width: settings.aspectWidth, height: settings.aspectHeight }
+          : null,
+        anchor: { x: settings.x, y: settings.y },
+        scale: THREE.MathUtils.clamp(settings.width, 0.12, 0.9),
+        safeInset: Math.min(stage.width, stage.height) * settings.safeInset,
+        shadowExtents: {
+          top: Math.max(0, requestedShadowMargin - settings.shadowOffsetY),
+          right: Math.max(0, requestedShadowMargin + settings.shadowOffsetX),
+          bottom: Math.max(0, requestedShadowMargin + settings.shadowOffsetY),
+          left: Math.max(0, requestedShadowMargin - settings.shadowOffsetX),
+        },
+      });
+      width = layout.frameSizePx.width;
+      height = layout.frameSizePx.height;
+      shadowMargin *= layout.fitScale;
+      shadowOffsetX *= layout.fitScale;
+      shadowOffsetY *= layout.fitScale;
+      this.presenterGroup.position.set(layout.centerStage.x, layout.centerStage.y, 0);
+    } else {
+      width = stage.width * THREE.MathUtils.clamp(settings.width, 0.12, 0.9);
+      height = width / (settings.aspectWidth / Math.max(0.01, settings.aspectHeight));
+      const x = (settings.x - 0.5) * stage.width;
+      const y = (0.5 - settings.y) * stage.height;
+      this.presenterGroup.position.set(x, y, 180);
+    }
     this.presenterGroup.rotation.set(0, 0, 0);
     this.presenterGroup.scale.setScalar(1);
     this.presenterSlide.scale.set(width, height, 1);
-    const shadowSoftness = 48;
-    const margin = getShadowSupportMargin(shadowSoftness, settings.shadowOpacity);
-    this.presenterShadow.scale.set(width + margin * 2, height + margin * 2, 1);
-    this.presenterShadow.position.set(12, -18, -10);
+    this.presenterShadow.scale.set(width + shadowMargin * 2, height + shadowMargin * 2, 1);
+    this.presenterShadow.position.set(shadowOffsetX, -shadowOffsetY, safeOverlay ? -1 : -10);
 
     const uniforms = this.presenterMaterial.uniforms;
     uniforms.uPlaneAspect!.value = width / height;
     uniforms.uFit!.value = settings.fit === "cover" ? 0 : 1;
-    uniforms.uFocal!.value.set(0.5, 0.5);
+    uniforms.uFocal!.value.set(settings.focalX, settings.focalY);
     uniforms.uSizePx!.value.set(width, height);
     uniforms.uRadiusPx!.value = Math.min(settings.radius, Math.min(width, height) / 2);
     uniforms.uSmoothing!.value = settings.smoothing;
     uniforms.uBorderPx!.value = settings.borderWidth;
     uniforms.uBorderColor!.value.set(settings.borderColor);
     uniforms.uBorderOpacity!.value = settings.borderOpacity;
+    uniforms.uLegacyContainMatte!.value = safeOverlay ? 0 : 1;
+    uniforms.uMatteColor!.value.set(settings.matteColor);
+    uniforms.uMatteOpacity!.value = settings.matteOpacity;
     uniforms.uOpacity!.value = 1;
     uniforms.uVelocity!.value = 0;
     uniforms.uDistortion!.value = 0;
     uniforms.uAxis!.value = 0;
 
     const shadowUniforms = this.presenterShadowMaterial.uniforms;
-    shadowUniforms.uCanvasSizePx!.value.set(width + margin * 2, height + margin * 2);
+    shadowUniforms.uCanvasSizePx!.value.set(width + shadowMargin * 2, height + shadowMargin * 2);
     shadowUniforms.uCardSizePx!.value.set(width, height);
     shadowUniforms.uRadiusPx!.value = settings.radius;
     shadowUniforms.uSmoothing!.value = settings.smoothing;
@@ -966,6 +1055,11 @@ export class CinematicCarousel {
     this.camera.far = cameraZ + 50_000;
     this.camera.lookAt(0, 0, 0);
     this.camera.updateProjectionMatrix();
+    this.presenterCamera.left = -stage.width / 2;
+    this.presenterCamera.right = stage.width / 2;
+    this.presenterCamera.top = stage.height / 2;
+    this.presenterCamera.bottom = -stage.height / 2;
+    this.presenterCamera.updateProjectionMatrix();
     this.backgroundMaterial.uniforms.uResolution!.value.set(stage.width, stage.height);
   }
 

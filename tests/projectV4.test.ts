@@ -16,9 +16,26 @@ function asV3(project: DriftProjectV4): DriftProjectV3 {
     renderContract: _renderContract,
     migration: _migration,
     extensions: _extensions,
+    presenter: presenterV4,
     ...v4
   } = project;
-  return { ...v4, formatVersion: 3 };
+  const {
+    assetId: _assetId,
+    trackMode: _trackMode,
+    layoutMode: _layoutMode,
+    aspectMode: _aspectMode,
+    focalX: _focalX,
+    focalY: _focalY,
+    safeInset: _safeInset,
+    shadowOpacity: _shadowOpacity,
+    shadowSoftness: _shadowSoftness,
+    shadowOffsetX: _shadowOffsetX,
+    shadowOffsetY: _shadowOffsetY,
+    matteColor: _matteColor,
+    matteOpacity: _matteOpacity,
+    ...presenter
+  } = presenterV4;
+  return { ...v4, presenter, formatVersion: 3 };
 }
 
 function withField(project: DriftProjectV4, field: string, value: unknown): unknown {
@@ -26,7 +43,7 @@ function withField(project: DriftProjectV4, field: string, value: unknown): unkn
 }
 
 describe("Project V4", () => {
-  it("adds a neutral compatibility envelope without changing any V3 creative value", () => {
+  it("adds the V4 envelope and authored safe-overlay defaults without mutating V3 defaults", () => {
     const v3 = createDefaultDriftProject("project-v4", NOW, 42);
     const v4 = createDefaultDriftProjectV4("project-v4", NOW, 42);
 
@@ -35,9 +52,19 @@ describe("Project V4", () => {
       formatVersion: 4,
       renderContract: DRIFT_V1_COMPAT_RENDER_CONTRACT,
       migration: null,
+      presenter: {
+        assetId: null,
+        trackMode: "pinned-only",
+        layoutMode: "safe-overlay",
+        aspectMode: "source",
+        safeInset: 0.04,
+      },
       extensions: {},
     });
-    expect(asV3(v4)).toEqual(v3);
+    const { presenter: _v3Presenter, ...v3Rest } = v3;
+    const { presenter: _v4Presenter, ...v4Rest } = asV3(v4);
+    expect(v4Rest).toEqual(v3Rest);
+    expect(v4.presenter).toMatchObject({ x: 1, y: 1, width: 0.32, radius: 28 });
     expect(validateDriftProjectV3(v3)).toEqual(v3);
   });
 
@@ -60,6 +87,20 @@ describe("Project V4", () => {
       sourceFormat: "project-v3",
       migrator: DRIFT_PROJECT_V4_MIGRATOR,
     });
+    expect(migrated.presenter).toMatchObject({
+      assetId: null,
+      trackMode: "moving-and-pinned",
+      layoutMode: "legacy-perspective",
+      aspectMode: "custom",
+      focalX: 0.5,
+      focalY: 0.5,
+      safeInset: 0,
+      shadowOpacity: v3.lighting.shadowOpacity,
+      shadowSoftness: 48,
+      shadowOffsetX: 12,
+      shadowOffsetY: 18,
+      matteOpacity: 1,
+    });
   });
 
   it("records the legacy source boundary when a validated legacy-to-V3 candidate is promoted", () => {
@@ -71,6 +112,38 @@ describe("Project V4", () => {
       sourceFormat: "legacy-studio-v1",
       migrator: DRIFT_PROJECT_V4_MIGRATOR,
     });
+  });
+
+  it("promotes an active V3 presenter without changing its V3 creative tree", () => {
+    const v3 = createDefaultDriftProject("v3-presenter", NOW);
+    const presenterId = "presenter-video";
+    v3.media.presenterAssetId = presenterId;
+    v3.media.assets[presenterId] = {
+      id: presenterId,
+      name: "Presenter.mp4",
+      kind: "video",
+      mimeType: "video/mp4",
+      hash: "c".repeat(64),
+      byteLength: 4_096,
+      width: 1080,
+      height: 1920,
+      duration: 8,
+    };
+    v3.presenter.enabled = true;
+    v3.presenter.muted = false;
+    v3.master.audio.enabled = true;
+    const before = validateDriftProjectV3(v3);
+
+    const migrated = migrateDriftProjectV3ToV4(v3);
+    expect(asV3(migrated)).toEqual(before);
+    expect(migrated.presenter).toMatchObject({
+      enabled: true,
+      assetId: presenterId,
+      trackMode: "moving-and-pinned",
+      layoutMode: "legacy-perspective",
+      aspectMode: "custom",
+    });
+    expect(migrated.master.audio.enabled).toBe(true);
   });
 
   it("rejects unknown, future, and invalid compatibility fields", () => {
@@ -92,6 +165,61 @@ describe("Project V4", () => {
     expect(() => validateDriftProjectV3(project)).toThrow(/unknown field renderContract/u);
   });
 
+  it("requires export audio to come from the active unmuted pinned video", () => {
+    const project = createDefaultDriftProjectV4("pin-audio-v4", NOW);
+    const slideId = "slide";
+    const videoId = "presenter";
+    project.media = {
+      order: [slideId],
+      presenterAssetId: videoId,
+      assets: {
+        [slideId]: {
+          id: slideId,
+          name: "Slide.png",
+          kind: "image",
+          mimeType: "image/png",
+          hash: "a".repeat(64),
+          byteLength: 1_024,
+          width: 1920,
+          height: 1080,
+        },
+        [videoId]: {
+          id: videoId,
+          name: "Presenter.mp4",
+          kind: "video",
+          mimeType: "video/mp4",
+          hash: "b".repeat(64),
+          byteLength: 4_096,
+          width: 1080,
+          height: 1920,
+          duration: 8,
+        },
+      },
+    };
+    project.slides = {
+      [slideId]: { assetId: slideId, fit: "cover", focalX: 0.5, focalY: 0.5, scaleOffset: 0 },
+    };
+
+    project.presenter = { ...project.presenter, enabled: true, assetId: slideId };
+    expect(validateDriftProjectV4(project).presenter.assetId).toBe(slideId);
+    expect(() => validateDriftProjectV4({
+      ...project,
+      master: { ...project.master, audio: { ...project.master.audio, enabled: true } },
+    })).toThrow(/active unmuted pinned presenter video/u);
+
+    project.presenter = { ...project.presenter, enabled: true, assetId: videoId, muted: false };
+    project.master.audio.enabled = true;
+    expect(validateDriftProjectV4(project).master.audio.enabled).toBe(true);
+    expect(() => validateDriftProjectV4({
+      ...project,
+      presenter: { ...project.presenter, enabled: false },
+    })).toThrow(/active unmuted pinned presenter video/u);
+    expect(() => validateDriftProjectV4({
+      ...project,
+      presenter: { ...project.presenter, muted: true },
+    })).toThrow(ProjectValidationError);
+  });
+
   it("rejects inherited and accessor-backed creative data before V3 cloning can change its meaning", () => {
     const project = createDefaultDriftProjectV4("plain-v4", NOW);
     const inheritedCard = Object.create(project.card) as object;
@@ -100,6 +228,16 @@ describe("Project V4", () => {
     const accessorCard = { ...project.card };
     Object.defineProperty(accessorCard, "radius", { enumerable: true, get: () => 36 });
     expect(() => validateDriftProjectV4({ ...project, card: accessorCard })).toThrow(/enumerable data field/u);
+
+    const accessorPresenter = { ...project.presenter };
+    Object.defineProperty(accessorPresenter, "assetId", { enumerable: true, get: () => null });
+    expect(() => validateDriftProjectV4({ ...project, presenter: accessorPresenter })).toThrow(
+      /enumerable data field/u,
+    );
+    expect(() => validateDriftProjectV4({
+      ...project,
+      presenter: { ...project.presenter, trackMode: "ghost-track" },
+    })).toThrow(/project\.presenter\.trackMode/u);
 
     let deep: unknown = true;
     for (let index = 0; index < 20_000; index += 1) deep = { next: deep };

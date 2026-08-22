@@ -109,6 +109,9 @@ const AXES = ["horizontal", "vertical"] as const;
 const DIRECTIONS = [-1, 1] as const;
 const FLOWS = ["straight", "arc", "ribbon", "cylinder", "tunnel"] as const;
 const IMAGE_FITS = ["cover", "contain"] as const;
+const PRESENTER_TRACK_MODES = ["pinned-only", "moving-and-pinned"] as const;
+const PRESENTER_LAYOUT_MODES = ["safe-overlay", "legacy-perspective"] as const;
+const PRESENTER_ASPECT_MODES = ["source", "custom"] as const;
 const BACKGROUNDS = ["transparent", "solid", "gradient", "aura", "paper", "void"] as const;
 const THEMES = [
   "editorial-drift",
@@ -140,6 +143,7 @@ interface StudioSettingsVersions {
 function validateStudioSettingsWithVersions(
   value: unknown,
   versions: StudioSettingsVersions,
+  legacyPresenterDirection = false,
 ): StudioSettings {
   const source = record(value, "settings");
   literal(source.schemaVersion, "settings.schemaVersion", versions.schemaVersion);
@@ -183,8 +187,8 @@ function validateStudioSettingsWithVersions(
   }
   const presenterEnabled = boolean(presenter.enabled, "settings.presenter.enabled");
   const presenterAssetId = assetId(presenter.assetId, "settings.presenter.assetId");
-  if (presenterEnabled !== (presenterAssetId !== null)) {
-    invalid("settings.presenter.enabled", "must agree with whether pinned media is selected");
+  if (presenterEnabled && presenterAssetId === null) {
+    invalid("settings.presenter.enabled", "requires selected pinned media");
   }
 
   return {
@@ -248,18 +252,51 @@ function validateStudioSettingsWithVersions(
     presenter: {
       enabled: presenterEnabled,
       assetId: presenterAssetId,
+      trackMode: legacyPresenterDirection
+        ? "moving-and-pinned"
+        : oneOf(presenter.trackMode, "settings.presenter.trackMode", PRESENTER_TRACK_MODES),
+      layoutMode: legacyPresenterDirection
+        ? "legacy-perspective"
+        : oneOf(presenter.layoutMode, "settings.presenter.layoutMode", PRESENTER_LAYOUT_MODES),
+      aspectMode: legacyPresenterDirection
+        ? "custom"
+        : oneOf(presenter.aspectMode, "settings.presenter.aspectMode", PRESENTER_ASPECT_MODES),
       x: number(presenter.x, "settings.presenter.x", { min: 0, max: 1 }),
       y: number(presenter.y, "settings.presenter.y", { min: 0, max: 1 }),
       width: number(presenter.width, "settings.presenter.width", { min: 0.14, max: 0.82 }),
       aspectWidth: number(presenter.aspectWidth, "settings.presenter.aspectWidth", STUDIO_SETTINGS_LIMITS.aspectComponent),
       aspectHeight: number(presenter.aspectHeight, "settings.presenter.aspectHeight", STUDIO_SETTINGS_LIMITS.aspectComponent),
       fit: oneOf(presenter.fit, "settings.presenter.fit", IMAGE_FITS),
+      focalX: legacyPresenterDirection
+        ? 0.5
+        : number(presenter.focalX, "settings.presenter.focalX", { min: 0, max: 1 }),
+      focalY: legacyPresenterDirection
+        ? 0.5
+        : number(presenter.focalY, "settings.presenter.focalY", { min: 0, max: 1 }),
+      safeInset: legacyPresenterDirection
+        ? 0
+        : number(presenter.safeInset, "settings.presenter.safeInset", { min: 0, max: 0.25 }),
       radius: number(presenter.radius, "settings.presenter.radius", { min: 0, max: 180 }),
       smoothing: number(presenter.smoothing, "settings.presenter.smoothing", { min: 0, max: 1 }),
       borderWidth: number(presenter.borderWidth, "settings.presenter.borderWidth", { min: 0, max: 16 }),
       borderColor: hexColour(presenter.borderColor, "settings.presenter.borderColor"),
       borderOpacity: number(presenter.borderOpacity, "settings.presenter.borderOpacity", { min: 0, max: 1 }),
       shadowOpacity: number(presenter.shadowOpacity, "settings.presenter.shadowOpacity", { min: 0, max: 0.8 }),
+      shadowSoftness: legacyPresenterDirection
+        ? 48
+        : number(presenter.shadowSoftness, "settings.presenter.shadowSoftness", { min: 0, max: 256 }),
+      shadowOffsetX: legacyPresenterDirection
+        ? 12
+        : number(presenter.shadowOffsetX, "settings.presenter.shadowOffsetX", { min: -512, max: 512 }),
+      shadowOffsetY: legacyPresenterDirection
+        ? 18
+        : number(presenter.shadowOffsetY, "settings.presenter.shadowOffsetY", { min: -512, max: 512 }),
+      matteColor: legacyPresenterDirection
+        ? "#000000"
+        : hexColour(presenter.matteColor, "settings.presenter.matteColor"),
+      matteOpacity: legacyPresenterDirection
+        ? 1
+        : number(presenter.matteOpacity, "settings.presenter.matteOpacity", { min: 0, max: 1 }),
       muted: boolean(presenter.muted, "settings.presenter.muted"),
       gain: literal(presenter.gain, "settings.presenter.gain", STUDIO_SETTINGS_LIMITS.presenterGain),
       trimStart: literal(
@@ -306,5 +343,5 @@ export function validateStudioSettings(value: unknown): StudioSettings {
  * the live editor constants move forward.
  */
 export function validateLegacyStudioSettingsV1(value: unknown): StudioSettings {
-  return validateStudioSettingsWithVersions(value, LEGACY_STUDIO_V1_VERSIONS);
+  return validateStudioSettingsWithVersions(value, LEGACY_STUDIO_V1_VERSIONS, true);
 }

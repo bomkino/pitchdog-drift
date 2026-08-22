@@ -6,6 +6,7 @@ interface StageProps {
   frameRef: RefObject<HTMLDivElement | null>;
   settings: StudioSettings;
   assets: StudioAsset[];
+  pinnedAsset: StudioAsset | null;
   webglError: string | null;
   contextState: "ready" | "lost" | "restored";
   fps: number;
@@ -26,6 +27,7 @@ export function Stage({
   frameRef,
   settings,
   assets,
+  pinnedAsset,
   webglError,
   contextState,
   fps,
@@ -43,9 +45,12 @@ export function Stage({
   const transparent = settings.stage.transparent || settings.background.style === "transparent";
   const activeAsset = activeSlideIndex >= 0 ? assets[activeSlideIndex] : undefined;
   const themeName = settings.themeId.replaceAll("-", " ");
+  const pinDescription = settings.presenter.enabled && pinnedAsset
+    ? ` Protected still frame: ${pinnedAsset.name}.`
+    : "";
   const previewDescription = assets.length === 0
-    ? `Cinematic preview. No slides. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow. Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Drag or add images to begin.`
-    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow. Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
+    ? `Cinematic preview. No slides. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Drag or add images to begin.`
+    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
   return (
     <section className="stage-column" aria-label="Cinematic preview" aria-describedby="stage-preview-description" aria-busy={busy}>
       <p id="stage-preview-description" className="visually-hidden">{previewDescription}</p>

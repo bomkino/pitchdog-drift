@@ -100,6 +100,30 @@ describe("portable studio payload boundary", () => {
     expect(parsed.project.sound.exportEnabled).toBe(false);
   });
 
+  it("opens a legacy slide pin without letting the separate presenter video steal ownership", () => {
+    const settings = cloneSettings(DEFAULT_SETTINGS);
+    settings.presenter.enabled = true;
+    settings.presenter.assetId = slide.id;
+
+    const parsed = parseStudioProjectPayload({
+      settings,
+      slideAssetIds: [slide.id],
+      presenterAssetId: presenter.id,
+      descriptors: [slide, presenter],
+    }, context);
+
+    expect(parsed.sourceFormat).toBe("legacy-studio-v1");
+    expect(parsed.project.media.presenterAssetId).toBe(presenter.id);
+    expect(parsed.project.presenter).toMatchObject({
+      enabled: true,
+      assetId: slide.id,
+      trackMode: "moving-and-pinned",
+      layoutMode: "legacy-perspective",
+      aspectMode: "custom",
+    });
+    expect(parsed.project.master.audio.enabled).toBe(false);
+  });
+
   it("migrates Project V3, then writes and reads Project V4 without legacy version coupling", () => {
     const settings = cloneSettings(DEFAULT_SETTINGS);
     const project = migrateLegacyStudioProject({

@@ -205,32 +205,80 @@ export function ControlPanel({
           label="Keep one frame still"
           checked={settings.presenter.enabled}
           disabled={!settings.presenter.assetId}
-          hint={settings.presenter.assetId ? "Turn it off here, or choose another frame in Media." : "Choose an image or presenter video in Media first."}
-          onChange={(enabled) => patch("presenter", { enabled, assetId: enabled ? settings.presenter.assetId : null })}
+          hint={settings.presenter.assetId ? "Turning this off remembers the frame, so you can bring it back without choosing it again." : "Choose an image or presenter video in Media first."}
+          onChange={(enabled) => patch("presenter", { enabled })}
+        />
+        <Segmented
+          label="Carousel presence"
+          value={settings.presenter.trackMode}
+          options={[
+            { value: "pinned-only", label: "Still only" },
+            { value: "moving-and-pinned", label: "Still + moving" },
+          ]}
+          onChange={(trackMode) => patch("presenter", { trackMode })}
+        />
+        <Segmented
+          label="Layer"
+          value={settings.presenter.layoutMode}
+          options={[
+            { value: "safe-overlay", label: "Protected" },
+            { value: "legacy-perspective", label: "In scene" },
+          ]}
+          onChange={(layoutMode) => patch("presenter", { layoutMode })}
         />
         <RangeField label="Width" value={settings.presenter.width * 100} min={14} max={82} step={1} unit="%" onChange={(value) => patch("presenter", { width: value / 100 })} />
         <RangeField label="Horizontal position" value={settings.presenter.x * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("presenter", { x: value / 100 })} />
         <RangeField label="Vertical position" value={settings.presenter.y * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("presenter", { y: value / 100 })} />
-        <Segmented
-          label="Pinned ratio"
-          value={`${settings.presenter.aspectWidth}:${settings.presenter.aspectHeight}`}
-          options={[{ value: "9:16", label: "9:16" }, { value: "4:5", label: "4:5" }, { value: "1:1", label: "1:1" }, { value: "16:9", label: "16:9" }]}
-          onChange={(value) => {
-            const [aspectWidth, aspectHeight] = value.split(":").map(Number);
-            patch("presenter", { aspectWidth, aspectHeight });
-          }}
-        />
-        <div className="number-pair" aria-label="Custom pinned ratio">
-          <NumberField label="Pinned ratio width" value={settings.presenter.aspectWidth} min={1} max={64} onChange={(aspectWidth) => patch("presenter", { aspectWidth })} />
-          <NumberField label="Pinned ratio height" value={settings.presenter.aspectHeight} min={1} max={64} onChange={(aspectHeight) => patch("presenter", { aspectHeight })} />
-        </div>
+        {settings.presenter.layoutMode === "safe-overlay" ? (
+          <RangeField label="Safe inset" value={settings.presenter.safeInset * 100} min={0} max={25} step={0.5} decimals={1} unit="%" onChange={(value) => patch("presenter", { safeInset: value / 100 })} />
+        ) : null}
+        <Segmented label="Ratio" value={settings.presenter.aspectMode} options={[{ value: "source", label: "Use source" }, { value: "custom", label: "Custom" }]} onChange={(aspectMode) => patch("presenter", { aspectMode })} />
+        {settings.presenter.aspectMode === "custom" ? (
+          <>
+            <Segmented
+              label="Pinned ratio"
+              value={`${settings.presenter.aspectWidth}:${settings.presenter.aspectHeight}`}
+              options={[{ value: "9:16", label: "9:16" }, { value: "4:5", label: "4:5" }, { value: "1:1", label: "1:1" }, { value: "16:9", label: "16:9" }]}
+              onChange={(value) => {
+                const [aspectWidth, aspectHeight] = value.split(":").map(Number);
+                patch("presenter", { aspectWidth, aspectHeight });
+              }}
+            />
+            <div className="number-pair" aria-label="Custom pinned ratio">
+              <NumberField label="Pinned ratio width" value={settings.presenter.aspectWidth} min={1} max={64} onChange={(aspectWidth) => patch("presenter", { aspectWidth })} />
+              <NumberField label="Pinned ratio height" value={settings.presenter.aspectHeight} min={1} max={64} onChange={(aspectHeight) => patch("presenter", { aspectHeight })} />
+            </div>
+          </>
+        ) : null}
         <Segmented label="Pinned fit" value={settings.presenter.fit} options={[{ value: "cover", label: "Cover" }, { value: "contain", label: "Contain" }]} onChange={(fit) => patch("presenter", { fit })} />
+        {settings.presenter.fit === "cover" ? (
+          <>
+            <RangeField label="Pinned focal X" value={settings.presenter.focalX * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("presenter", { focalX: value / 100 })} />
+            <RangeField label="Pinned focal Y" value={settings.presenter.focalY * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("presenter", { focalY: value / 100 })} />
+          </>
+        ) : (
+          <>
+            <RangeField label="Matte" value={settings.presenter.matteOpacity * 100} min={0} max={100} step={1} unit="%" hint="Zero keeps unused Contain space truly transparent." onChange={(value) => patch("presenter", { matteOpacity: value / 100 })} />
+            {settings.presenter.matteOpacity > 0 ? <ColorField label="Matte colour" value={settings.presenter.matteColor} onChange={(matteColor) => patch("presenter", { matteColor })} /> : null}
+          </>
+        )}
         <RangeField label="Pinned radius" value={settings.presenter.radius} min={0} max={180} step={1} unit=" px" onChange={(radius) => patch("presenter", { radius })} />
         <RangeField label="Pinned smoothing" value={settings.presenter.smoothing * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("presenter", { smoothing: value / 100 })} />
         <RangeField label="Pinned border" value={settings.presenter.borderWidth} min={0} max={16} step={0.5} decimals={1} unit=" px" onChange={(borderWidth) => patch("presenter", { borderWidth })} />
-        <ColorField label="Pinned border colour" value={settings.presenter.borderColor} onChange={(borderColor) => patch("presenter", { borderColor })} />
-        <RangeField label="Pinned border presence" value={settings.presenter.borderOpacity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("presenter", { borderOpacity: value / 100 })} />
+        {settings.presenter.borderWidth > 0 ? (
+          <>
+            <ColorField label="Pinned border colour" value={settings.presenter.borderColor} onChange={(borderColor) => patch("presenter", { borderColor })} />
+            <RangeField label="Pinned border presence" value={settings.presenter.borderOpacity * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("presenter", { borderOpacity: value / 100 })} />
+          </>
+        ) : null}
         <RangeField label="Pinned shadow" value={settings.presenter.shadowOpacity * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("presenter", { shadowOpacity: value / 100 })} />
+        {settings.presenter.shadowOpacity > 0 ? (
+          <>
+            <RangeField label="Pinned shadow softness" value={settings.presenter.shadowSoftness} min={0} max={160} step={1} unit=" px" onChange={(shadowSoftness) => patch("presenter", { shadowSoftness })} />
+            <RangeField label="Pinned shadow X" value={settings.presenter.shadowOffsetX} min={-96} max={96} step={1} unit=" px" onChange={(shadowOffsetX) => patch("presenter", { shadowOffsetX })} />
+            <RangeField label="Pinned shadow Y" value={settings.presenter.shadowOffsetY} min={-96} max={96} step={1} unit=" px" onChange={(shadowOffsetY) => patch("presenter", { shadowOffsetY })} />
+          </>
+        ) : null}
         <SwitchField label="Mute presenter in export" checked={settings.presenter.muted} onChange={(muted) => patch("presenter", { muted })} />
       </InspectorGroup>
 

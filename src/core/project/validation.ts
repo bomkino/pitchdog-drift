@@ -9,6 +9,8 @@ import {
   type DriftProjectMigrationV4,
   type DriftProjectV3,
   type DriftProjectV4,
+  type PresenterSettings,
+  type PresenterSettingsV4,
   type ProjectDomain,
 } from "./schema";
 
@@ -407,6 +409,60 @@ function migrationV4(value: unknown): DriftProjectMigrationV4 | null {
   return { sourceFormat, migrator: DRIFT_PROJECT_V4_MIGRATOR };
 }
 
+const PRESENTER_V3_FIELDS = [
+  "enabled", "x", "y", "width", "aspectWidth", "aspectHeight", "fit", "radius", "smoothing",
+  "borderWidth", "borderColor", "borderOpacity", "muted", "gain", "trimStart", "startAt",
+] as const;
+
+const PRESENTER_V4_FIELDS = [
+  ...PRESENTER_V3_FIELDS,
+  "assetId", "trackMode", "layoutMode", "aspectMode", "focalX", "focalY", "safeInset",
+  "shadowOpacity", "shadowSoftness", "shadowOffsetX", "shadowOffsetY", "matteColor", "matteOpacity",
+] as const;
+
+function validatePresenterV4(value: unknown): PresenterSettingsV4 {
+  assertPlainDataTree(value, "project.presenter", { nodes: 0, active: new WeakSet() });
+  const presenter = object(value, "project.presenter", PRESENTER_V4_FIELDS);
+  boolean(presenter.enabled, "project.presenter.enabled");
+  optionalSafeString(presenter.assetId, "project.presenter.assetId", 512);
+  oneOf(presenter.trackMode, ["pinned-only", "moving-and-pinned"] as const, "project.presenter.trackMode");
+  oneOf(presenter.layoutMode, ["safe-overlay", "legacy-perspective"] as const, "project.presenter.layoutMode");
+  oneOf(presenter.aspectMode, ["source", "custom"] as const, "project.presenter.aspectMode");
+  oneOf(presenter.fit, ["cover", "contain"] as const, "project.presenter.fit");
+  boolean(presenter.muted, "project.presenter.muted");
+  colour(presenter.borderColor, "project.presenter.borderColor");
+  colour(presenter.matteColor, "project.presenter.matteColor");
+  numbers(presenter, "project.presenter", {
+    x: [0, 1], y: [0, 1], width: [0.05, 1], aspectWidth: [0.01, 100], aspectHeight: [0.01, 100],
+    radius: [0, 512], smoothing: [0, 1], borderWidth: [0, 32], borderOpacity: [0, 1],
+    gain: [0, 4], trimStart: [0, 86_400], startAt: [0, 86_400], focalX: [0, 1], focalY: [0, 1],
+    safeInset: [0, 0.25], shadowOpacity: [0, 0.8], shadowSoftness: [0, 256],
+    shadowOffsetX: [-512, 512], shadowOffsetY: [-512, 512], matteOpacity: [0, 1],
+  });
+  return structuredClone(value) as PresenterSettingsV4;
+}
+
+function presenterV3Compatibility(value: PresenterSettingsV4): PresenterSettings {
+  return {
+    enabled: false,
+    x: value.x,
+    y: value.y,
+    width: value.width,
+    aspectWidth: value.aspectWidth,
+    aspectHeight: value.aspectHeight,
+    fit: value.fit,
+    radius: value.radius,
+    smoothing: value.smoothing,
+    borderWidth: value.borderWidth,
+    borderColor: value.borderColor,
+    borderOpacity: value.borderOpacity,
+    muted: value.muted,
+    gain: value.gain,
+    trimStart: value.trimStart,
+    startAt: value.startAt,
+  };
+}
+
 export function validateDriftProjectV3(value: unknown): DriftProjectV3 {
   const project = object(value, "project", [
     "schema", "formatVersion", "projectId", "projectSeed", "createdAt", "updatedAt",
@@ -598,6 +654,7 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
 
   const migration = migrationV4(project.migration);
   const extensions = canonicalExtensions(project.extensions);
+  const presenter = validatePresenterV4(project.presenter);
   const v3Candidate = {
     schema: project.schema,
     formatVersion: DRIFT_PROJECT_VERSION,
@@ -615,12 +672,36 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
     atmosphere: project.atmosphere,
     lens: project.lens,
     sound: project.sound,
-    presenter: project.presenter,
+    presenter: presenterV3Compatibility(presenter),
     master: project.master,
     provenance: project.provenance,
   };
   assertPlainDataTree(v3Candidate, "project", { nodes: 0, active: new WeakSet() });
   const v3 = validateDriftProjectV3(v3Candidate);
+
+  const pinnedAssetId = presenter.assetId;
+  const pinnedAsset = pinnedAssetId === null ? null : v3.media.assets[pinnedAssetId];
+  if (pinnedAssetId !== null && !pinnedAsset) {
+    fail("project.presenter.assetId", "references missing media");
+  }
+  if (pinnedAsset?.kind === "image" && !v3.media.order.includes(pinnedAssetId!)) {
+    fail("project.presenter.assetId", "image pin must belong to the ordered deck");
+  }
+  if (pinnedAsset?.kind === "video" && pinnedAssetId !== v3.media.presenterAssetId) {
+    fail("project.presenter.assetId", "video pin must match project.media.presenterAssetId");
+  }
+  if (presenter.enabled && !pinnedAsset) {
+    fail("project.presenter.enabled", "requires pinned media");
+  }
+  if (v3.master.audio.enabled && (
+    !presenter.enabled
+    || presenter.muted
+    || !pinnedAsset
+    || pinnedAsset.kind !== "video"
+    || pinnedAssetId !== v3.media.presenterAssetId
+  )) {
+    fail("project.master.audio.enabled", "requires an active unmuted pinned presenter video");
+  }
 
   return {
     schema: v3.schema,
@@ -641,7 +722,7 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
     atmosphere: v3.atmosphere,
     lens: v3.lens,
     sound: v3.sound,
-    presenter: v3.presenter,
+    presenter,
     master: v3.master,
     provenance: v3.provenance,
     extensions,

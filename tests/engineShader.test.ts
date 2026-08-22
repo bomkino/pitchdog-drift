@@ -6,9 +6,10 @@ import {
   normalizeGrainSeed,
   resolveExportFrameIndex,
   resolveGrainFrame,
+  resolveMovingTrackAssets,
   selectRenderableItems,
 } from "../src/engine/CinematicCarousel";
-import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
+import { DEFAULT_SETTINGS, cloneSettings, type StudioAsset } from "../src/model";
 import { evaluateSlide, getLogicalSlotCount, getSlideGeometry, isPotentiallyVisible } from "../src/engine/evaluate";
 import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader } from "../src/engine/shaders";
 
@@ -55,6 +56,12 @@ describe("custom shader output contract", () => {
     expect(slideFragmentShader).toContain("combinedPremultiplied");
   });
 
+  it("gives safe Contain frames a truthful transparent matte while preserving legacy edge fill", () => {
+    expect(slideFragmentShader).toContain("uLegacyContainMatte");
+    expect(slideFragmentShader).toContain("sampled = vec4(uMatteColor, uMatteOpacity)");
+    expect(slideFragmentShader).toContain("sampled.rgb *= 0.2");
+  });
+
   it("casts shadows from the card mask instead of the expanded blur canvas", () => {
     expect(shadowFragmentShader).toContain("uCanvasSizePx");
     expect(shadowFragmentShader).toContain("uCardSizePx");
@@ -80,6 +87,41 @@ describe("custom shader output contract", () => {
     expect(normalized.every((seed) => Number.isInteger(seed) && seed >= 0 && seed < 4_093)).toBe(true);
     expect(new Set(normalized).size).toBe(seeds.length);
     expect(normalizeGrainSeed(4_294_967_295)).toBe(normalizeGrainSeed(4_294_967_295));
+  });
+});
+
+describe("pinned-only moving-track ownership", () => {
+  const assets = ["a", "b", "c"].map((id): StudioAsset => ({
+    id,
+    name: `${id}.png`,
+    kind: "image",
+    blob: new Blob([id], { type: "image/png" }),
+    mimeType: "image/png",
+    width: 16,
+    height: 9,
+    objectUrl: `blob:${id}`,
+  }));
+
+  it("removes only the protected image while retaining original source identity", () => {
+    expect(resolveMovingTrackAssets(assets, assets[1]!, {
+      enabled: true,
+      trackMode: "pinned-only",
+    }).map(({ asset, sourceIndex }) => [asset.id, sourceIndex])).toEqual([
+      ["a", 0],
+      ["c", 2],
+    ]);
+  });
+
+  it("keeps all moving images for compatibility mode, disabled pins, and presenter videos", () => {
+    const video = { ...assets[1]!, kind: "video" as const, mimeType: "video/mp4" };
+    for (const [presenterAsset, presenter] of [
+      [assets[1]!, { enabled: true, trackMode: "moving-and-pinned" as const }],
+      [assets[1]!, { enabled: false, trackMode: "pinned-only" as const }],
+      [video, { enabled: true, trackMode: "pinned-only" as const }],
+    ] as const) {
+      expect(resolveMovingTrackAssets(assets, presenterAsset, presenter).map(({ sourceIndex }) => sourceIndex))
+        .toEqual([0, 1, 2]);
+    }
   });
 });
 
@@ -121,6 +163,7 @@ describe("deterministic export frame identity", () => {
       pool: [],
       presenterAsset: null,
       presenterRequestGeneration: 0,
+      movingTrackAssets: () => [],
       disposed: false,
       contextLost: false,
       resolvePresenterTexture: vi.fn(),

@@ -227,6 +227,7 @@ export function createDefaultDriftProjectV4(
   const {
     schema,
     formatVersion: _formatVersion,
+    presenter,
     ...project
   } = createDefaultDriftProject(projectId, now, projectSeed);
 
@@ -236,6 +237,26 @@ export function createDefaultDriftProjectV4(
     renderContract: DRIFT_V1_COMPAT_RENDER_CONTRACT,
     migration: null,
     ...project,
+    presenter: {
+      ...presenter,
+      x: 1,
+      y: 1,
+      width: 0.32,
+      radius: 28,
+      assetId: null,
+      trackMode: "pinned-only",
+      layoutMode: "safe-overlay",
+      aspectMode: "source",
+      focalX: 0.5,
+      focalY: 0.5,
+      safeInset: 0.04,
+      shadowOpacity: 0.22,
+      shadowSoftness: 36,
+      shadowOffsetX: 0,
+      shadowOffsetY: 12,
+      matteColor: "#000000",
+      matteOpacity: 0,
+    },
     extensions: {},
   };
 }

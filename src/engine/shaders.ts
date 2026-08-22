@@ -37,6 +37,9 @@ export const slideFragmentShader = /* glsl */ `
   uniform float uBorderPx;
   uniform vec3 uBorderColor;
   uniform float uBorderOpacity;
+  uniform float uLegacyContainMatte;
+  uniform vec3 uMatteColor;
+  uniform float uMatteOpacity;
   uniform float uOpacity;
   uniform float uVelocity;
   uniform float uDistortion;
@@ -97,8 +100,12 @@ export const slideFragmentShader = /* glsl */ `
     bool outsideTexture = textureUv.x < 0.0 || textureUv.x > 1.0 || textureUv.y < 0.0 || textureUv.y > 1.0;
     vec4 sampled = texture2D(uMap, clamp(textureUv, 0.0, 1.0));
     if (uFit > 0.5 && outsideTexture) {
-      sampled.rgb *= 0.2;
-      sampled.a = 1.0;
+      if (uLegacyContainMatte > 0.5) {
+        sampled.rgb *= 0.2;
+        sampled.a = 1.0;
+      } else {
+        sampled = vec4(uMatteColor, uMatteOpacity);
+      }
     }
 
     // Imported artwork stays proof-safe. Motion may bend its geometry, but
