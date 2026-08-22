@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
 import { migrateLegacyStudioProject, type LegacyAssetDescriptor } from "../src/core/project/migrateLegacy";
+import { migrateDriftProjectV3ToV4 } from "../src/core/project/migrateV3ToV4";
 import {
   reconcileStudioProject,
   studioSettingsFromDriftProject,
@@ -79,7 +80,32 @@ function legacyProject() {
   };
 }
 
-describe("Project V3 studio projection", () => {
+describe("Project V3/V4 studio projection", () => {
+  it("keeps the V4 compatibility envelope intact through a visible studio edit", () => {
+    const { settings, project } = legacyProject();
+    const v4 = migrateDriftProjectV3ToV4(project);
+    v4.extensions = { "dog.pitch.test": { note: "preserve me" } };
+
+    expect(studioSettingsFromDriftProject(v4)).toMatchObject({
+      themeId: settings.themeId,
+      motion: { flow: settings.motion.flow },
+    });
+
+    const reconciled = reconcileStudioProject({
+      project: v4,
+      settings: { ...settings, motion: { ...settings.motion, speed: 0.52 } },
+      slideAssets: [v4.media.assets["slide-a"]!],
+      updatedAt: "2026-08-21T00:30:00.000Z",
+    });
+    expect(reconciled).toMatchObject({
+      formatVersion: 4,
+      renderContract: "drift-v1-compat/1",
+      migration: { sourceFormat: "project-v3", migrator: "drift-project-v4/1" },
+      extensions: { "dog.pitch.test": { note: "preserve me" } },
+      motion: { transport: { slidesPerSecond: 0.52 } },
+    });
+  });
+
   it("round-trips every legacy-rendered field without reapplying a mutable world", () => {
     const { settings, project } = legacyProject();
     const projected = studioSettingsFromDriftProject(project);

@@ -12,6 +12,7 @@ import { THEMES } from "../src/themes";
 import {
   STUDIO_SETTINGS_LIMITS,
   SettingsValidationError,
+  validateLegacyStudioSettingsV1,
   validateStudioSettings,
 } from "../src/lib/settingsValidation";
 
@@ -42,6 +43,16 @@ function expectInvalid(candidate: unknown, path: string): SettingsValidationErro
 }
 
 describe("validateStudioSettings", () => {
+  it("keeps the portable legacy reader pinned to the V1 engine contract", () => {
+    expect(validateLegacyStudioSettingsV1(cloneSettings(DEFAULT_SETTINGS))).toEqual(DEFAULT_SETTINGS);
+
+    const futureEngine = settings();
+    futureEngine.engineVersion = "2.0.0";
+    expect(() => validateLegacyStudioSettingsV1(futureEngine)).toThrow(
+      "settings.engineVersion: must equal 1.0.0",
+    );
+  });
+
   it("only clears pinned settings when the removed media owns the pin", () => {
     const pinnedSlide = cloneSettings(DEFAULT_SETTINGS);
     pinnedSlide.presenter.enabled = true;

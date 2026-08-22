@@ -9,17 +9,20 @@ import {
 import { ControlPanel } from "./components/ControlPanel";
 import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
-import { createDefaultDriftProject } from "./core/project/defaults";
+import { createDefaultDriftProjectV4 } from "./core/project/defaults";
 import {
   reconcileStudioProject,
   studioSettingsFromDriftProject,
 } from "./core/project/studioProjection";
-import type { AssetDescriptor, DriftProjectV3 } from "./core/project/schema";
+import type { AssetDescriptor, DriftProjectV4 } from "./core/project/schema";
 import { CinematicCarousel } from "./engine/CinematicCarousel";
 import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
 import { driftBuildIdentity } from "./lib/buildIdentity";
 import { createDemoSlides } from "./lib/demoSlides";
-import type { ExportProgress as EncoderProgress } from "./lib/exportStudio";
+import type {
+  ExportProgress as EncoderProgress,
+  RenderAtContext,
+} from "./lib/exportStudio";
 import {
   installNativeMacAppBridge,
   isNativeMacRuntime,
@@ -53,6 +56,7 @@ import {
   createDriftProjectPayload,
   parseStudioProjectPayload,
   type DriftProjectPayloadV3,
+  type DriftProjectPayloadV4,
   type LegacyStudioProjectPayload,
 } from "./lib/studioProjectPayload";
 import {
@@ -71,11 +75,18 @@ import { applyTheme, getTheme } from "./themes";
 const MAX_SLIDES = 200;
 const AUTOSAVE_DELAY_MS = 1_200;
 
-type StudioProjectPayload = LegacyStudioProjectPayload | DriftProjectPayloadV3;
+type StudioProjectPayload = LegacyStudioProjectPayload | DriftProjectPayloadV3 | DriftProjectPayloadV4;
 
 interface ProjectIdentity {
   projectId: string;
   createdAt: string;
+}
+
+interface PreparedProjectState {
+  project: DriftProjectV4;
+  settings: StudioSettings;
+  slides: StudioAsset[];
+  presenter: StudioAsset | null;
 }
 
 interface PickerWindow extends Window {
@@ -173,6 +184,11 @@ async function assetFromSnapshot(
   return { ...asset, hash: entry.sha256 };
 }
 
+function disposePreparedProjectState(prepared: PreparedProjectState): void {
+  prepared.slides.forEach(disposeAsset);
+  if (prepared.presenter) disposeAsset(prepared.presenter);
+}
+
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -182,10 +198,10 @@ export function App() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
-  const projectRef = useRef<DriftProjectV3 | null>(null);
+  const projectRef = useRef<DriftProjectV4 | null>(null);
   if (projectRef.current === null) {
     const now = new Date().toISOString();
-    projectRef.current = createDefaultDriftProject(makeLocalProjectId(), now);
+    projectRef.current = createDefaultDriftProjectV4(makeLocalProjectId(), now);
   }
   const identityRef = useRef<ProjectIdentity | null>(null);
   const recoverySnapshotRef = useRef<ProjectSnapshot<StudioProjectPayload> | null>(null);
@@ -281,11 +297,15 @@ export function App() {
     return task;
   }, [announce]);
 
-  const replaceProjectState = useCallback(async (snapshot: ProjectSnapshot<StudioProjectPayload>) => {
+  const prepareProjectState = useCallback(async (
+    snapshot: ProjectSnapshot<StudioProjectPayload>,
+  ): Promise<PreparedProjectState> => {
     const parsed = parseStudioProjectPayload(snapshot.payload, {
       projectId: snapshot.manifest.projectId,
       createdAt: snapshot.manifest.createdAt,
       updatedAt: snapshot.manifest.updatedAt,
+      engineVersion: snapshot.manifest.engineVersion,
+      themeVersion: snapshot.manifest.themeVersion,
       assets: snapshot.assets.map((entry) => ({
         id: entry.id,
         name: entry.name,
@@ -294,14 +314,6 @@ export function App() {
         sha256: entry.sha256,
       })),
     });
-    if (parsed.sourceFormat === "legacy-studio-v1") {
-      if (snapshot.manifest.engineVersion !== ENGINE_VERSION) {
-        throw new Error(`Legacy project engine ${snapshot.manifest.engineVersion} is not supported by ${ENGINE_VERSION}.`);
-      }
-      if (snapshot.manifest.themeVersion !== THEME_VERSION) {
-        throw new Error(`Legacy project theme library ${snapshot.manifest.themeVersion} is not supported by ${THEME_VERSION}.`);
-      }
-    }
 
     const project = parsed.project;
     const projectedSettings = studioSettingsFromDriftProject(project);
@@ -348,29 +360,46 @@ export function App() {
       }
     }
 
-    const previousAssets = assetsRef.current;
-    const previousPresenter = presenterRef.current;
-    previousAssets.forEach(disposeAsset);
-    if (previousPresenter) disposeAsset(previousPresenter);
-    projectRef.current = project;
-    settingsRef.current = projectedSettings;
-    assetsRef.current = slides;
-    presenterRef.current = nextPresenter;
+    return {
+      project,
+      settings: projectedSettings,
+      slides,
+      presenter: nextPresenter,
+    };
+  }, []);
+
+  const installPreparedProjectState = useCallback((prepared: PreparedProjectState) => {
+    assetsRef.current.forEach(disposeAsset);
+    if (presenterRef.current) disposeAsset(presenterRef.current);
+    projectRef.current = prepared.project;
+    settingsRef.current = prepared.settings;
+    assetsRef.current = prepared.slides;
+    presenterRef.current = prepared.presenter;
     // This exact tuple came from a verified snapshot. Loading it must not look
     // like a fresh edit to the dependency-driven autosave effect that follows.
     directPersistenceSnapshotRef.current = {
-      settings: projectedSettings,
-      assets: slides,
-      presenter: nextPresenter,
+      settings: prepared.settings,
+      assets: prepared.slides,
+      presenter: prepared.presenter,
     };
-    setSettings(projectedSettings);
-    setAssets(slides);
-    setPresenter(nextPresenter);
+    setSettings(prepared.settings);
+    setAssets(prepared.slides);
+    setPresenter(prepared.presenter);
     identityRef.current = {
-      projectId: project.projectId,
-      createdAt: project.createdAt,
+      projectId: prepared.project.projectId,
+      createdAt: prepared.project.createdAt,
     };
   }, []);
+
+  const replaceProjectState = useCallback(async (snapshot: ProjectSnapshot<StudioProjectPayload>) => {
+    const prepared = await prepareProjectState(snapshot);
+    try {
+      installPreparedProjectState(prepared);
+    } catch (error) {
+      disposePreparedProjectState(prepared);
+      throw error;
+    }
+  }, [installPreparedProjectState, prepareProjectState]);
 
   const persist = useCallback((
     nextSettings = settingsRef.current,
@@ -381,7 +410,7 @@ export function App() {
     const revision = reservedRevision ?? advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
     setSaveState("saving");
     const updatedAt = new Date().toISOString();
-    const baseProject = projectRef.current ?? createDefaultDriftProject(makeLocalProjectId(), updatedAt);
+    const baseProject = projectRef.current ?? createDefaultDriftProjectV4(makeLocalProjectId(), updatedAt);
     const nextProject = reconcileStudioProject({
       project: baseProject,
       settings: nextSettings,
@@ -443,7 +472,7 @@ export function App() {
         if (cancelled) return;
         if (saved) {
           await replaceProjectState(saved);
-          if (!cancelled) announce("Local project reopened with verified Project V3 media.", "good");
+          if (!cancelled) announce("Local project reopened with verified Project V4 media.", "good");
         } else {
           const demo = await createDemoSlides();
           if (cancelled) {
@@ -785,11 +814,15 @@ export function App() {
     setSettings(nextSettings);
   }, [markProjectDirty]);
 
-  const renderForExport = useCallback(async (time: number, frame?: { image: HTMLCanvasElement | OffscreenCanvas }) => {
+  const renderForExport = useCallback(async (
+    time: number,
+    frame?: { image: HTMLCanvasElement | OffscreenCanvas },
+    context?: RenderAtContext,
+  ) => {
     const engine = engineRef.current;
     if (!engine) throw new Error("Cinematic renderer is unavailable.");
     engine.setPresenterExportFrame(frame?.image ?? null);
-    await engine.renderAtAsync(time);
+    await engine.renderAtAsync(time, context?.frameIndex ?? null);
   }, []);
 
   const beginExport = useCallback(() => {
@@ -956,7 +989,7 @@ export function App() {
       const snapshot = await persist();
       const blob = await exportProject(snapshot);
       await downloadBlob(blob, `drift-project-${timestampSlug()}.pitched`);
-      announce("Portable Project V3 saved with original media and SHA-256 manifest.", "good");
+      announce("Portable Project V4 saved with original media and SHA-256 manifest.", "good");
     } catch (error) {
       announce(isAbortError(error) ? "Portable project save canceled." : error instanceof Error ? error.message : "Portable project could not be saved.", isAbortError(error) ? "quiet" : "error");
     }
@@ -969,62 +1002,69 @@ export function App() {
   const openPortableProjectFile = useCallback(async (file: File, propagateFailure = false) => {
     try {
       const verified = await importProject<StudioProjectPayload>(file);
-      const wasHydrated = hydratedRef.current;
-      const previous = wasHydrated
-        ? await persist()
-        : await (() => {
-            const updatedAt = new Date().toISOString();
-            const baseProject = projectRef.current ?? createDefaultDriftProject(makeLocalProjectId(), updatedAt);
-            const project = reconcileStudioProject({
-              project: baseProject,
-              settings: settingsRef.current,
-              slideAssets: assetsRef.current.map(describeProjectAsset),
-              presenterAsset: presenterRef.current ? describeProjectAsset(presenterRef.current) : null,
-              updatedAt,
-            });
-            projectRef.current = project;
-            return createProjectBundle({
-              payload: createDriftProjectPayload(project),
-              assets: [...assetsRef.current, ...(presenterRef.current ? [presenterRef.current] : [])].map((asset) => ({
-                id: asset.id,
-                name: asset.name,
-                blob: asset.blob,
-              })),
-              engineVersion: ENGINE_VERSION,
-              themeVersion: THEME_VERSION,
-              projectId: project.projectId,
-              createdAt: project.createdAt,
-              updatedAt: project.updatedAt,
-            });
-          })();
-      let replaced = false;
+      // Parse, validate, hash-match, and decode the complete candidate before
+      // the open project is saved, replaced, or otherwise mutated.
+      const prepared = await prepareProjectState(verified);
+      let preparedInstalled = false;
       try {
-        await replaceProjectState(verified);
-        replaced = true;
-        const saved = await persist();
-        identityRef.current = { projectId: saved.manifest.projectId, createdAt: saved.manifest.createdAt };
-        hydratedRef.current = true;
-        recoverySnapshotRef.current = null;
-      } catch (error) {
-        if (replaced) {
-          try {
-            await replaceProjectState(previous);
-            setSaveState(wasHydrated ? "saved" : "recovery");
-          } catch (rollbackError) {
-            throw new Error(
-              `Imported project could not be stored, and the open project could not be restored: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
-              { cause: error },
-            );
+        const wasHydrated = hydratedRef.current;
+        const previous = wasHydrated
+          ? await persist()
+          : await (() => {
+              const updatedAt = new Date().toISOString();
+              const baseProject = projectRef.current ?? createDefaultDriftProjectV4(makeLocalProjectId(), updatedAt);
+              const project = reconcileStudioProject({
+                project: baseProject,
+                settings: settingsRef.current,
+                slideAssets: assetsRef.current.map(describeProjectAsset),
+                presenterAsset: presenterRef.current ? describeProjectAsset(presenterRef.current) : null,
+                updatedAt,
+              });
+              projectRef.current = project;
+              return createProjectBundle({
+                payload: createDriftProjectPayload(project),
+                assets: [...assetsRef.current, ...(presenterRef.current ? [presenterRef.current] : [])].map((asset) => ({
+                  id: asset.id,
+                  name: asset.name,
+                  blob: asset.blob,
+                })),
+                engineVersion: ENGINE_VERSION,
+                themeVersion: THEME_VERSION,
+                projectId: project.projectId,
+                createdAt: project.createdAt,
+                updatedAt: project.updatedAt,
+              });
+            })();
+        try {
+          installPreparedProjectState(prepared);
+          preparedInstalled = true;
+          const saved = await persist();
+          identityRef.current = { projectId: saved.manifest.projectId, createdAt: saved.manifest.createdAt };
+          hydratedRef.current = true;
+          recoverySnapshotRef.current = null;
+        } catch (error) {
+          if (preparedInstalled) {
+            try {
+              await replaceProjectState(previous);
+              setSaveState(wasHydrated ? "saved" : "recovery");
+            } catch (rollbackError) {
+              throw new Error(
+                `Imported project could not be stored, and the open project could not be restored: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+                { cause: error },
+              );
+            }
           }
+          throw error;
         }
-        throw error;
+      } finally {
+        if (!preparedInstalled) disposePreparedProjectState(prepared);
       }
-      announce("Portable project verified, migrated when necessary, and copied into local Project V3 storage.", "good");
+      announce("Portable project verified, migrated when necessary, and copied into local Project V4 storage.", "good");
     } catch (error) {
       announce(error instanceof Error ? `Project rejected: ${error.message}` : "Project was rejected.", "error");
       if (propagateFailure) throw error;
     }
-  }, [announce, persist, replaceProjectState]);
+  }, [announce, installPreparedProjectState, persist, prepareProjectState, replaceProjectState]);
 
   const openPortableProject = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];

@@ -1,8 +1,11 @@
 import {
   DRIFT_PROJECT_SCHEMA,
   DRIFT_PROJECT_VERSION,
+  DRIFT_PROJECT_V4_VERSION,
+  DRIFT_V1_COMPAT_RENDER_CONTRACT,
   PROJECT_DOMAINS,
   type DriftProjectV3,
+  type DriftProjectV4,
   type RecipeProvenance,
 } from "./schema";
 
@@ -213,5 +216,26 @@ export function createDefaultDriftProject(
       },
     },
     provenance: createEmptyRecipeProvenance(),
+  };
+}
+
+export function createDefaultDriftProjectV4(
+  projectId: string,
+  now = new Date().toISOString(),
+  projectSeed = 17,
+): DriftProjectV4 {
+  const {
+    schema,
+    formatVersion: _formatVersion,
+    ...project
+  } = createDefaultDriftProject(projectId, now, projectSeed);
+
+  return {
+    schema,
+    formatVersion: DRIFT_PROJECT_V4_VERSION,
+    renderContract: DRIFT_V1_COMPAT_RENDER_CONTRACT,
+    migration: null,
+    ...project,
+    extensions: {},
   };
 }

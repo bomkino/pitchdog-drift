@@ -47,6 +47,38 @@ export function normalizeGrainSeed(seed: number): number {
   return ((integer % GRAIN_SEED_MODULUS) + GRAIN_SEED_MODULUS) % GRAIN_SEED_MODULUS;
 }
 
+/**
+ * Export frame identity is discrete authority, not a value to recover from a
+ * floating-point timestamp. Keep the nullable form for preview and legacy
+ * callers while rejecting ambiguous export identities at the engine boundary.
+ */
+export function resolveExportFrameIndex(frameIndex: number | null | undefined): number | null {
+  if (frameIndex === null || frameIndex === undefined) return null;
+  if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) {
+    throw new Error(`Export frame index must be a non-negative safe integer; received ${frameIndex}.`);
+  }
+  return frameIndex;
+}
+
+/**
+ * Film grain is the first legacy-renderer input governed by discrete frame
+ * identity. Existing callers retain the time-derived fallback until every
+ * render path supplies an explicit export frame index.
+ */
+export function resolveGrainFrame(
+  time: number,
+  fps: number,
+  exportMode: boolean,
+  reducedMotion: boolean,
+  exportFrameIndex: number | null = null,
+): number {
+  if (reducedMotion) return 0;
+  const explicitFrameIndex = resolveExportFrameIndex(exportFrameIndex);
+  if (exportMode && explicitFrameIndex !== null) return explicitFrameIndex;
+  const rate = exportMode ? fps : Math.min(30, fps);
+  return exportMode ? Math.round(time * rate) : Math.floor(time * rate);
+}
+
 interface EngineCallbacks {
   onError?: (message: string) => void;
   onContextState?: (state: "ready" | "lost" | "restored") => void;
@@ -616,15 +648,17 @@ export class CinematicCarousel {
     };
   }
 
-  renderAt(time: number): void {
+  renderAt(time: number, frameIndex: number | null = null): void {
+    const exportFrameIndex = resolveExportFrameIndex(frameIndex);
     const geometry = getSlideGeometry(this.settings);
     const slotCount = getLogicalSlotCount(this.assets.length, geometry);
     const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
     const velocity = velocityAtTime(this.settings, slotCount, geometry.stride, true);
-    this.renderInternal(time, distance, velocity, true);
+    this.renderInternal(time, distance, velocity, true, exportFrameIndex);
   }
 
-  async renderAtAsync(time: number): Promise<void> {
+  async renderAtAsync(time: number, frameIndex: number | null = null): Promise<void> {
+    const exportFrameIndex = resolveExportFrameIndex(frameIndex);
     const geometry = getSlideGeometry(this.settings);
     const slotCount = getLogicalSlotCount(this.assets.length, geometry);
     const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
@@ -657,7 +691,7 @@ export class CinematicCarousel {
     this.resolvePresenterTexture(
       currentPinnedRecord && pinnedImage ? { asset: pinnedImage, record: currentPinnedRecord } : undefined,
     );
-    this.renderAt(time);
+    this.renderAt(time, exportFrameIndex);
   }
 
   async captureStill(width: number, height: number, time = 0): Promise<Blob> {
@@ -713,7 +747,13 @@ export class CinematicCarousel {
     this.renderInternal(this.elapsed, this.motionPosition, this.motionVelocity, false);
   }
 
-  private renderInternal(time: number, distance: number, velocity: number, exportMode: boolean): void {
+  private renderInternal(
+    time: number,
+    distance: number,
+    velocity: number,
+    exportMode: boolean,
+    exportFrameIndex: number | null = null,
+  ): void {
     const geometry = getSlideGeometry(this.settings);
     const slotCount = getLogicalSlotCount(this.assets.length, geometry);
     const normalizedVelocity = this.reducedMotionPreview && !exportMode ? 0 : THREE.MathUtils.clamp(velocity / Math.max(1, geometry.stride), -1, 1);
@@ -754,7 +794,7 @@ export class CinematicCarousel {
     }
 
     this.updatePresenterGeometry();
-    this.updateBackground(time, exportMode);
+    this.updateBackground(time, exportMode, exportFrameIndex);
     if (this.renderCounter % 90 === 0) this.evictTextures(keepTextureKeys);
     this.renderCounter += 1;
 
@@ -896,7 +936,7 @@ export class CinematicCarousel {
     this.backgroundMaterial.uniforms.uSeed!.value = normalizeGrainSeed(background.seed);
   }
 
-  private updateBackground(time: number, exportMode: boolean): void {
+  private updateBackground(time: number, exportMode: boolean, exportFrameIndex: number | null = null): void {
     const reduced = exportMode ? this.settings.motion.reducedMotionOutput : this.reducedMotionPreview;
     let phase = reduced ? 0 : time * this.settings.background.motion * 0.72;
     if (exportMode && this.settings.motion.seamless && !reduced) {
@@ -906,12 +946,13 @@ export class CinematicCarousel {
     // Grain cadence is deliberately independent from the room's slow breath.
     // Export gets one deterministic plate per exact output frame. Preview caps
     // at 30 Hz for a quiet cinema cadence and freezes with Pause/reduced motion.
-    const grainRate = exportMode ? this.settings.output.fps : Math.min(30, this.settings.output.fps);
-    this.backgroundMaterial.uniforms.uGrainFrame!.value = reduced
-      ? 0
-      : exportMode
-        ? Math.round(time * grainRate)
-        : Math.floor(time * grainRate);
+    this.backgroundMaterial.uniforms.uGrainFrame!.value = resolveGrainFrame(
+      time,
+      this.settings.output.fps,
+      exportMode,
+      reduced,
+      exportFrameIndex,
+    );
     this.renderer.getDrawingBufferSize(this.backgroundResolution);
     this.backgroundMaterial.uniforms.uResolution!.value.copy(this.backgroundResolution);
   }

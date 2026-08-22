@@ -1,5 +1,8 @@
 export const DRIFT_PROJECT_SCHEMA = "dog.pitch.drift/project" as const;
 export const DRIFT_PROJECT_VERSION = 3 as const;
+export const DRIFT_PROJECT_V4_VERSION = 4 as const;
+export const DRIFT_V1_COMPAT_RENDER_CONTRACT = "drift-v1-compat/1" as const;
+export const DRIFT_PROJECT_V4_MIGRATOR = "drift-project-v4/1" as const;
 
 export const PROJECT_DOMAINS = [
   "identity",
@@ -33,6 +36,14 @@ export type PresenterTreatment = "protected" | "through-lens";
 export type SoundSource = "recorded" | "procedural";
 export type SoundGrammar = "dry" | "editorial" | "organic";
 export type WorldVariant = "restrained" | "directed" | "fever" | "custom";
+export type DriftProjectV4SourceFormat = "legacy-studio-v1" | "project-v3";
+export type DriftJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | DriftJsonValue[]
+  | { [key: string]: DriftJsonValue };
 
 export interface CompositionSettings {
   width: number;
@@ -284,6 +295,22 @@ export interface DriftProjectV3 {
   provenance: RecipeProvenance;
 }
 
+export interface DriftProjectMigrationV4 {
+  sourceFormat: DriftProjectV4SourceFormat;
+  migrator: typeof DRIFT_PROJECT_V4_MIGRATOR;
+}
+
+export interface DriftProjectV4 extends Omit<DriftProjectV3, "formatVersion"> {
+  formatVersion: typeof DRIFT_PROJECT_V4_VERSION;
+  renderContract: typeof DRIFT_V1_COMPAT_RENDER_CONTRACT;
+  migration: DriftProjectMigrationV4 | null;
+  extensions: Record<string, DriftJsonValue>;
+}
+
 export function cloneDriftProject(project: DriftProjectV3): DriftProjectV3 {
+  return structuredClone(project);
+}
+
+export function cloneDriftProjectV4(project: DriftProjectV4): DriftProjectV4 {
   return structuredClone(project);
 }

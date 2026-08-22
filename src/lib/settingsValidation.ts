@@ -120,16 +120,31 @@ const THEMES = [
 ] as const;
 const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
 
+const LEGACY_STUDIO_V1_VERSIONS = Object.freeze({
+  schemaVersion: 1,
+  engineVersion: "1.0.0",
+  shaderVersion: "1.0.0",
+} as const);
+
+interface StudioSettingsVersions {
+  schemaVersion: typeof SCHEMA_VERSION;
+  engineVersion: typeof ENGINE_VERSION;
+  shaderVersion: typeof SHADER_VERSION;
+}
+
 /**
  * Validates the complete current settings schema and rebuilds it field by
  * field. Unknown keys never cross the trust boundary; missing or malformed
  * known keys never receive a silent default.
  */
-export function validateStudioSettings(value: unknown): StudioSettings {
+function validateStudioSettingsWithVersions(
+  value: unknown,
+  versions: StudioSettingsVersions,
+): StudioSettings {
   const source = record(value, "settings");
-  literal(source.schemaVersion, "settings.schemaVersion", SCHEMA_VERSION);
-  literal(source.engineVersion, "settings.engineVersion", ENGINE_VERSION);
-  literal(source.shaderVersion, "settings.shaderVersion", SHADER_VERSION);
+  literal(source.schemaVersion, "settings.schemaVersion", versions.schemaVersion);
+  literal(source.engineVersion, "settings.engineVersion", versions.engineVersion);
+  literal(source.shaderVersion, "settings.shaderVersion", versions.shaderVersion);
 
   const stage = record(source.stage, "settings.stage");
   const motion = record(source.motion, "settings.motion");
@@ -173,9 +188,9 @@ export function validateStudioSettings(value: unknown): StudioSettings {
   }
 
   return {
-    schemaVersion: SCHEMA_VERSION,
-    engineVersion: ENGINE_VERSION,
-    shaderVersion: SHADER_VERSION,
+    schemaVersion: versions.schemaVersion,
+    engineVersion: versions.engineVersion,
+    shaderVersion: versions.shaderVersion,
     themeId: oneOf(source.themeId, "settings.themeId", THEMES),
     stage: {
       width: stageWidth,
@@ -275,4 +290,21 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       ),
     },
   };
+}
+
+export function validateStudioSettings(value: unknown): StudioSettings {
+  return validateStudioSettingsWithVersions(value, {
+    schemaVersion: SCHEMA_VERSION,
+    engineVersion: ENGINE_VERSION,
+    shaderVersion: SHADER_VERSION,
+  });
+}
+
+/**
+ * Reads the immutable settings contract written by the original portable
+ * project format. It must not start accepting a newer engine merely because
+ * the live editor constants move forward.
+ */
+export function validateLegacyStudioSettingsV1(value: unknown): StudioSettings {
+  return validateStudioSettingsWithVersions(value, LEGACY_STUDIO_V1_VERSIONS);
 }

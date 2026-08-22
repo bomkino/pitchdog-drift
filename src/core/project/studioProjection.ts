@@ -8,13 +8,17 @@ import {
   type StudioSettings,
   type ThemeId,
 } from "../../model";
-import { validateDriftProjectV3 } from "./validation";
+import { validateDriftProjectV3, validateDriftProjectV4 } from "./validation";
 import {
   cloneDriftProject,
+  cloneDriftProjectV4,
   type AssetDescriptor,
   type DriftProjectV3,
+  type DriftProjectV4,
   type SlideDirective,
 } from "./schema";
+
+type CompatibleDriftProject = DriftProjectV3 | DriftProjectV4;
 
 const LEGACY_FLOWS: readonly Flow[] = ["straight", "arc", "ribbon", "cylinder", "tunnel"];
 const LEGACY_BACKGROUNDS: readonly BackgroundStyle[] = [
@@ -38,21 +42,21 @@ function legacyFlow(value: string): Flow {
   return LEGACY_FLOWS.includes(value as Flow) ? value as Flow : "straight";
 }
 
-function legacyTheme(project: DriftProjectV3): ThemeId {
+function legacyTheme(project: CompatibleDriftProject): ThemeId {
   const candidate = project.provenance.world?.id;
   return candidate && LEGACY_THEMES.includes(candidate as ThemeId)
     ? candidate as ThemeId
     : "editorial-drift";
 }
 
-function legacyBackground(project: DriftProjectV3): BackgroundStyle {
+function legacyBackground(project: CompatibleDriftProject): BackgroundStyle {
   if (project.composition.alphaMode === "transparent" || !project.atmosphere.enabled) return "transparent";
   return LEGACY_BACKGROUNDS.includes(project.atmosphere.family as BackgroundStyle)
     ? project.atmosphere.family as BackgroundStyle
     : "aura";
 }
 
-function firstVisibleDirective(project: DriftProjectV3): SlideDirective | null {
+function firstVisibleDirective(project: CompatibleDriftProject): SlideDirective | null {
   for (const assetId of project.media.order) {
     const directive = project.slides[assetId];
     if (directive) return directive;
@@ -61,13 +65,16 @@ function firstVisibleDirective(project: DriftProjectV3): SlideDirective | null {
 }
 
 /**
- * Projects Project V3 through the renderer capabilities that exist on the
+ * Projects the V3 creative tree, including its V4 compatibility envelope,
+ * through the renderer capabilities that exist on the
  * current integration head. It is deliberately one-way and explicit: hidden
- * Project V3 domains remain authoritative and are never deleted merely because
+ * creative domains remain authoritative and are never deleted merely because
  * the legacy renderer cannot display them yet.
  */
-export function studioSettingsFromDriftProject(projectInput: DriftProjectV3): StudioSettings {
-  const project = validateDriftProjectV3(projectInput);
+export function studioSettingsFromDriftProject(projectInput: CompatibleDriftProject): StudioSettings {
+  const project = projectInput.formatVersion === 4
+    ? validateDriftProjectV4(projectInput)
+    : validateDriftProjectV3(projectInput);
   const background = legacyBackground(project);
   const presenterAssetId = project.media.presenterAssetId;
   const firstDirective = firstVisibleDirective(project);
@@ -161,7 +168,7 @@ function copyAsset(asset: AssetDescriptor): AssetDescriptor {
 }
 
 function directiveFor(
-  project: DriftProjectV3,
+  project: CompatibleDriftProject,
   assetId: string,
   settings: StudioSettings,
 ): SlideDirective {
@@ -176,22 +183,38 @@ function directiveFor(
   };
 }
 
-export interface ReconcileStudioProjectInput {
-  project: DriftProjectV3;
+interface ReconcileStudioProjectInputBase {
   settings: StudioSettings;
   slideAssets: readonly AssetDescriptor[];
   presenterAsset?: AssetDescriptor | null;
   updatedAt: string;
 }
 
+export interface ReconcileStudioProjectV3Input extends ReconcileStudioProjectInputBase {
+  project: DriftProjectV3;
+}
+
+export interface ReconcileStudioProjectV4Input extends ReconcileStudioProjectInputBase {
+  project: DriftProjectV4;
+}
+
+export type ReconcileStudioProjectInput =
+  | ReconcileStudioProjectV3Input
+  | ReconcileStudioProjectV4Input;
+
 /**
  * Reconciles the current studio's supported controls and media into Project V3
+ * or Project V4
  * without flattening domains that the legacy renderer cannot display yet.
  * Existing per-slide directives survive; newly imported slides receive the
  * visible global crop as their initial direction.
  */
-export function reconcileStudioProject(input: ReconcileStudioProjectInput): DriftProjectV3 {
-  const next = cloneDriftProject(validateDriftProjectV3(input.project));
+export function reconcileStudioProject(input: ReconcileStudioProjectV3Input): DriftProjectV3;
+export function reconcileStudioProject(input: ReconcileStudioProjectV4Input): DriftProjectV4;
+export function reconcileStudioProject(input: ReconcileStudioProjectInput): CompatibleDriftProject {
+  const next: CompatibleDriftProject = input.project.formatVersion === 4
+    ? cloneDriftProjectV4(validateDriftProjectV4(input.project))
+    : cloneDriftProject(validateDriftProjectV3(input.project));
   const { settings } = input;
   const presenter = input.presenterAsset ?? null;
   const allAssets = [...input.slideAssets, ...(presenter ? [presenter] : [])];
@@ -305,7 +328,9 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Drif
     };
   }
 
-  return validateDriftProjectV3(next);
+  return next.formatVersion === 4
+    ? validateDriftProjectV4(next)
+    : validateDriftProjectV3(next);
 }
 
 /** Current archive metadata remains explicit while the portable envelope moves. */

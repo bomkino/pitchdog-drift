@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  CinematicCarousel,
   assertExportSurfaceSupported,
   getShadowSupportMargin,
   normalizeGrainSeed,
+  resolveExportFrameIndex,
+  resolveGrainFrame,
   selectRenderableItems,
 } from "../src/engine/CinematicCarousel";
 import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
@@ -89,6 +92,50 @@ describe("export surface preflight", () => {
     expect(() => assertExportSurfaceSupported(8_193, 1_080, LIMITS)).toThrow(/exceeds this GPU's safe WebGL limit/);
     expect(() => assertExportSurfaceSupported(1_080.5, 1_920, LIMITS)).toThrow(/positive whole pixels/);
     expect(() => assertExportSurfaceSupported(0, 1_920, LIMITS)).toThrow(/positive whole pixels/);
+  });
+});
+
+describe("deterministic export frame identity", () => {
+  it("accepts only an exact nullable frame identity at the engine boundary", () => {
+    expect(resolveExportFrameIndex(undefined)).toBeNull();
+    expect(resolveExportFrameIndex(null)).toBeNull();
+    expect(resolveExportFrameIndex(0)).toBe(0);
+    expect(resolveExportFrameIndex(287)).toBe(287);
+    for (const invalid of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => resolveExportFrameIndex(invalid)).toThrow(/non-negative safe integer/);
+    }
+  });
+
+  it("uses explicit export identity for grain without reconstructing it from floating-point time", () => {
+    expect(resolveGrainFrame(0.000_001, 30, true, false, 287)).toBe(287);
+    expect(resolveGrainFrame(9_999.999, 30, true, false, 287)).toBe(287);
+    expect(resolveGrainFrame(17 / 30, 30, true, false)).toBe(17);
+    expect(resolveGrainFrame(17 / 30, 30, true, true, 17)).toBe(0);
+  });
+
+  it("preserves the explicit frame identity through asynchronous texture preparation", async () => {
+    const renderAt = vi.fn();
+    const fakeEngine = {
+      settings: cloneSettings(DEFAULT_SETTINGS),
+      assets: [],
+      pool: [],
+      presenterAsset: null,
+      presenterRequestGeneration: 0,
+      disposed: false,
+      contextLost: false,
+      resolvePresenterTexture: vi.fn(),
+      renderAt,
+    };
+    const renderAtAsync = CinematicCarousel.prototype.renderAtAsync as unknown as (
+      this: typeof fakeEngine,
+      time: number,
+      frameIndex?: number | null,
+    ) => Promise<void>;
+
+    await renderAtAsync.call(fakeEngine, 287 / 30, 287);
+
+    expect(renderAt).toHaveBeenCalledOnce();
+    expect(renderAt).toHaveBeenCalledWith(287 / 30, 287);
   });
 });
 

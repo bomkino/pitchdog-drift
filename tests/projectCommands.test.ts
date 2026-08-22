@@ -1,12 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { applyProjectCommand } from "../src/core/commands/projectCommand";
-import { createDefaultDriftProject } from "../src/core/project/defaults";
+import { applyProjectCommand, applyProjectV4Command } from "../src/core/commands/projectCommand";
+import { createDefaultDriftProject, createDefaultDriftProjectV4 } from "../src/core/project/defaults";
 import { createProjectRevisionState } from "../src/core/project/revisions";
 
 const NOW = "2026-08-21T00:00:00.000Z";
 const LATER = "2026-08-21T00:01:00.000Z";
 
 describe("project command ownership", () => {
+  it("gives V4 compatibility metadata an explicit, isolated command domain", () => {
+    const project = createDefaultDriftProjectV4("project-v4", NOW);
+    const applied = applyProjectV4Command(project, createProjectRevisionState(), {
+      id: "compatibility.extension",
+      source: "test",
+      ownedDomains: ["compatibility"],
+      apply: (candidate) => {
+        candidate.extensions["dog.pitch.test"] = { enabled: true };
+        return candidate;
+      },
+    }, LATER);
+
+    expect(applied.project.extensions).toEqual({ "dog.pitch.test": { enabled: true } });
+    expect(applied.receipt.changedPaths).toContain("extensions.dog.pitch.test");
+    expect(applied.receipt.preservedDomains).toContain("motion");
+    expect(applied.receipt.toRevision).toBe(1);
+
+    expect(() => applyProjectV4Command(project, createProjectRevisionState(), {
+      id: "dishonest-compatibility",
+      source: "test",
+      ownedDomains: ["compatibility"],
+      apply: (candidate) => {
+        candidate.motion.transport.slidesPerSecond = 0.5;
+        return candidate;
+      },
+    }, LATER)).toThrow(/outside its owned domains/u);
+  });
+
   it("records one owned creative decision and preserves every other domain", () => {
     const project = createDefaultDriftProject("project-1", NOW);
     const applied = applyProjectCommand(project, createProjectRevisionState(), {

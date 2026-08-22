@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
   audioOnlyFixturePath,
   fixturePath,
@@ -179,6 +180,13 @@ test("portable project survives a fresh browser context and reload", async ({ pa
   const download = await downloadPromise;
   const file = await download.path();
   expect(file).toBeTruthy();
+  const portableArchive = unzipSync(new Uint8Array(await readFile(file!)));
+  const portableManifest = JSON.parse(strFromU8(portableArchive["manifest.json"]!)) as Record<string, any>;
+  expect(portableManifest.payload.project).toMatchObject({
+    formatVersion: 4,
+    renderContract: "drift-v1-compat/1",
+    extensions: {},
+  });
 
   const fresh = await browser.newContext({
     baseURL: "http://127.0.0.1:5187",
@@ -198,6 +206,55 @@ test("portable project survives a fresh browser context and reload", async ({ pa
   } finally {
     await fresh.close();
   }
+});
+
+test("rejecting a future portable payload does not rewrite the open project", async ({ page }) => {
+  await waitForStudio(page);
+  await page.locator('input[accept^="image/png"]').setInputFiles(fixturePath);
+  await expect(page.locator(".asset-list li")).toHaveCount(1);
+  await expect(page.locator(".header-status")).toContainText("saved locally", { timeout: 10_000 });
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save portable project" }).click();
+  const downloaded = await downloadPromise;
+  const downloadedPath = await downloaded.path();
+  expect(downloadedPath).toBeTruthy();
+
+  const archive = unzipSync(new Uint8Array(await readFile(downloadedPath!)));
+  const manifest = JSON.parse(strFromU8(archive["manifest.json"]!)) as Record<string, any>;
+  manifest.payload.project.formatVersion = 99;
+  archive["manifest.json"] = strToU8(JSON.stringify(manifest));
+  const unsupported = Buffer.from(zipSync(archive, { level: 6 }));
+
+  await page.evaluate(() => {
+    const state = window as Window & { __driftRejectedImportWrites?: number };
+    state.__driftRejectedImportWrites = 0;
+    const originalPut = IDBObjectStore.prototype.put;
+    const originalClear = IDBObjectStore.prototype.clear;
+    IDBObjectStore.prototype.put = function put(value: unknown, key?: IDBValidKey) {
+      state.__driftRejectedImportWrites = (state.__driftRejectedImportWrites ?? 0) + 1;
+      return key === undefined
+        ? originalPut.call(this, value)
+        : originalPut.call(this, value, key);
+    };
+    IDBObjectStore.prototype.clear = function clear() {
+      state.__driftRejectedImportWrites = (state.__driftRejectedImportWrites ?? 0) + 1;
+      return originalClear.call(this);
+    };
+  });
+
+  await page.locator("input[accept*=pitched]").setInputFiles({
+    name: "future-project.pitched",
+    mimeType: "application/vnd.pitchdog.pitched+zip",
+    buffer: unsupported,
+  });
+  await expect(page.getByRole("alert")).toContainText("Project format 99 is not supported", { timeout: 30_000 });
+  await page.waitForTimeout(1_500);
+  expect(await page.evaluate(() => (
+    window as Window & { __driftRejectedImportWrites?: number }
+  ).__driftRejectedImportWrites)).toBe(0);
+  await expect(page.locator(".asset-list li")).toHaveCount(1);
+  await expect(page.locator(".asset-list li").first()).toContainText("slide.png");
 });
 
 test("an unsupported saved project is quarantined instead of overwritten by fallback demos", async ({ page }) => {
