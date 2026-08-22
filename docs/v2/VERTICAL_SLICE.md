@@ -106,6 +106,6 @@ At the pre-package evidence freeze, `npm run check` passed TypeScript, 280/280 s
 
 No clean implementation commit, exact-SHA package, fresh installation, candidate branch push, or candidate CI run existed at that snapshot. Later receipts must state those gates independently and name their exact source SHA.
 
-Those later gates are recorded for implementation source `dac20dd900c6d630340de727dba341a4d2351797` in the [23 August installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-23.md). That receipt does not widen this vertical-slice contract.
+Those later gates, including the migration-safe restored-pin repair, are recorded for implementation source `03669850ebda8eb3d064e03bddc94430af6071bb` in the [23 August installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-23.md). That receipt does not widen this vertical-slice contract.
 
 The [installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-22.md) describes older source `b7bb5a520a23755306bf2f07656f604fd90b7b65`. Its package and installation evidence remains historical and must not be used to claim these current V2 renderer and visual repairs are installed.

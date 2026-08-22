@@ -4,7 +4,7 @@ Started: 22 August 2026
 
 Method: capped builder–critic rounds for each material gate; failures repair the causal contract, not merely the assertion.
 
-Historical boundary: this receipt closes at implementation source `b7bb5a520a23755306bf2f07656f604fd90b7b65`. The later canonical Editorial renderer slice, 280/280 source suite, 31/31 browser suite, exact package, installation, push, and exact-head CI evidence are recorded in [`INSTALLED_CHECKPOINT_2026-08-23.md`](INSTALLED_CHECKPOINT_2026-08-23.md). Do not treat the older counts or open-gate list below as the latest checkpoint.
+Historical boundary: this receipt closes at implementation source `b7bb5a520a23755306bf2f07656f604fd90b7b65`. The later canonical Editorial renderer slice and restored-pin repair—282/282 source suite, 32/32 browser suite, exact package, installation, push, and GitHub run state—are recorded in [`INSTALLED_CHECKPOINT_2026-08-23.md`](INSTALLED_CHECKPOINT_2026-08-23.md). Do not treat the older counts or open-gate list below as the latest checkpoint.
 
 ## Outcome
 

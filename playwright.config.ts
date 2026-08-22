@@ -5,6 +5,9 @@ export default defineConfig({
   testMatch: "**/*.e2e.ts",
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
+  // Retries preserve the first failure's trace, but CI must never turn a
+  // flaky journey into a green conclusion merely because attempt two passed.
+  failOnFlakyTests: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   workers: 1,
   timeout: 120_000,

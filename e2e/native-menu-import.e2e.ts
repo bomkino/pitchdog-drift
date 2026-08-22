@@ -229,7 +229,7 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
       pickerCalls: [] as unknown[],
       releaseCount: 0,
       rejectMessage: null as string | null,
-      clientStates: [] as Array<{ saveState?: string }>,
+      clientStates: [] as Array<{ projectBusy?: boolean; saveState?: string }>,
     };
 
     Object.defineProperty(window, "__driftNativeTest", {
@@ -265,7 +265,7 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
     Object.defineProperty(window, "__driftNativeReportClientState", {
       configurable: false,
       writable: false,
-      value: (clientState: { saveState?: string }) => { state.clientStates.push(clientState); },
+      value: (clientState: { projectBusy?: boolean; saveState?: string }) => { state.clientStates.push(clientState); },
     });
     Object.defineProperty(window, "__driftNativeSaveBlob", {
       configurable: false,
@@ -303,6 +303,9 @@ test("File-menu Add Slides durably reloads one ordered native batch and releases
   const initialCount = await page.locator(".asset-list li").count();
   expect(initialCount).toBeGreaterThan(1);
 
+  const baselineClientStateCount = await page.evaluate(() => (
+    window as unknown as { __driftNativeTest: { clientStates: unknown[] } }
+  ).__driftNativeTest.clientStates.length);
   await page.evaluate(async () => {
     const state = (window as unknown as {
       __driftNativeTest: { appBridge: { command: (command: string) => boolean | void | Promise<boolean | void> } };
@@ -317,27 +320,40 @@ test("File-menu Add Slides durably reloads one ordered native batch and releases
   await expect(page.locator(".asset-list li").nth(1)).toContainText("menu-import-2.png");
   await expect(page.getByRole("alert")).toHaveCount(0);
 
-  const receipt = await page.evaluate(() => {
+  const readReceipt = () => page.evaluate((baselineCount) => {
     const state = (window as unknown as {
       __driftNativeTest: {
         pickerCalls: Array<{ multiple?: boolean; types?: unknown[] }>;
         releaseCount: number;
-        clientStates: Array<{ saveState?: string }>;
+        clientStates: Array<{ projectBusy?: boolean; saveState?: string }>;
       };
     }).__driftNativeTest;
+    const lastClientState = state.clientStates.at(-1);
     return {
       callCount: state.pickerCalls.length,
       multiple: state.pickerCalls[0]?.multiple,
       typeCount: state.pickerCalls[0]?.types?.length,
       releaseCount: state.releaseCount,
-      lastSaveState: state.clientStates.at(-1)?.saveState,
+      newClientReport: state.clientStates.length > baselineCount,
+      lastProjectBusy: lastClientState?.projectBusy,
+      lastSaveState: lastClientState?.saveState,
     };
-  });
-  expect(receipt).toEqual({
+  }, baselineClientStateCount);
+
+  // The menu command intentionally returns after activating the native input;
+  // decoding, IndexedDB commit, and React's final native-client report remain
+  // asynchronous. Require the exact durable receipt instead of sampling once
+  // after the cards happen to render.
+  await expect.poll(readReceipt, {
+    message: "native slide import must publish one fully saved and released batch",
+    timeout: 30_000,
+  }).toEqual({
     callCount: 1,
     multiple: true,
     typeCount: 1,
     releaseCount: 2,
+    newClientReport: true,
+    lastProjectBusy: false,
     lastSaveState: "saved",
   });
 

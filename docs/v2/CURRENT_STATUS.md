@@ -1,16 +1,16 @@
 # Drift V2 current status
 
-Updated: 22 August 2026
+Updated: 23 August 2026
 
 Branch: `codex/v2-directors-cut`
 
-Committed working base: `c5e3bc6d34983c886df9d9bcdaa726ec862f5941`
+Installed implementation source: `03669850ebda8eb3d064e03bddc94430af6071bb`
 
 Frozen public V1 base: `5fd145207235884790ba071c5d84bc3876ff4989`
 
-Latest exact package, installation, and GitHub evidence: [23 August installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-23.md), implementation source `dac20dd900c6d630340de727dba341a4d2351797`.
+Latest exact package, installation, and GitHub evidence: [23 August installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-23.md), implementation source `03669850ebda8eb3d064e03bddc94430af6071bb`. Both implementation-head Mac workflows passed. CI concluded success with one flaky browser retry, so exact-head CI is reopened until the hardening head passes cleanly.
 
-## Outcome in the pre-package candidate
+## Outcome in the current installed checkpoint
 
 The candidate source contains the first live **Editorial Drift `drift-v2/1` renderer slice**. It is deliberately enabled by default only under the isolated V2 development identity. Release/V1 startup remains on `drift-v1-compat/1`, and an imported compatibility project stays there until Editorial Drift is explicitly applied in V2 Dev.
 
@@ -36,14 +36,17 @@ The [vertical-slice contract](VERTICAL_SLICE.md) defines the narrow promise. The
 - Small edge fragments are hidden, then eased into visibility as enough of a card enters the physical stage.
 - `composition.alphaMode: opaque` now clears to an opaque black matte through entry and exit fades; transparent output still clears to alpha zero outside content. This change is V2-only.
 - Slide border defaults remain off. Grain remains a restrained, deterministic, background-only finishing plate held at an authored 12 fps cadence, not a claim of physical film simulation.
+- New pinned frames begin source-ratio, protected, and still-only. Historical custom pins remain untouched on open; an explicit Reset action repairs the legacy hybrid while preserving media identity, crop/focal direction, corners, and borders.
+- Applying Editorial Drift explicitly restores its opaque paper room. Transparent output remains selectable afterward rather than leaking into the authored World by accident.
+- V1 compatibility and V2 development browser journeys now run against separate build identities, ports, and storage namespaces.
 
-## Evidence available before packaging
+## Evidence for the installed repair checkpoint
 
-At the pre-package evidence freeze, the combined candidate passed `npm run check`: TypeScript, 280/280 unit and contract tests across 37 files, the native/source guards, and the V1 production Web build. The final uninterrupted real-browser suite passed 31/31 journeys after repairing a stale stage-layout observer race and making reusable controls uniquely addressable; that suite covered Project V4, renderer/export behavior, native-import races, recovery, WebGL fallback, alpha, accessibility, reduced motion, cancellation, and resource cleanup. The repaired stage path also held for five consecutive focused browser repetitions, while the corrected native admission, export lifecycle, and reduced-motion checks held for three consecutive repetitions each.
+The current repair passed `npm run check`: TypeScript, 282/282 unit and contract tests across 37 files, native/source guards, and the production Web build. The final uninterrupted browser suite passed 32/32 journeys in 8.8 minutes: 31 established V1-compatibility journeys plus one dedicated true-V2 journey covering build/storage identity, transparent-to-authored-World restoration, safe first pin, hostile legacy-style composition, and explicit reset. The repaired presenter-clock journey also held 5/5 under repetition without loosening any timing threshold or changing engine code.
 
 Focused evaluator, stage-geometry, pin-composition, shader/alpha, projection, World transaction, scaled-ratio, interaction-loop, and presenter-clock locks remain green. A real Chromium/WebGL2 pixel probe held opaque alpha at 255 at entry start, mid-entry, and entry end, while the equivalent transparent empty composition remained alpha zero. The real-video presenter journey passed three consecutive focused repetitions, covering running alignment, master wrap, pause, reduced motion, export freeze, resume, and independent slide-pin ownership. Full positive and negative deck-loop gestures returned byte-identical canvas hashes, proving that accumulated interaction wraps without emptying or flattening the finite card pool.
 
-Manual browser inspection covered authored 9:16, 16:9, protected-pin, and scaled 2160 × 3840 compositions at 1600 × 1000 viewport size. Those views showed intact ratios, restrained background-only grain, border-free slide defaults, and intentional pin routing. This is meaningful visual evidence, but not creative approval or a substitute for the packaged and installed-app matrix.
+Manual browser inspection recreated the historical bad state—a landscape source forced into a tall 9:16 pin and duplicated in the moving track—then verified that Reset produced a clean source-ratio protected still on the opaque paper/grain room. Earlier authored 9:16, 16:9, protected-pin, and scaled 2160 × 3840 views remain useful evidence. None of those browser views is owner creative approval or a substitute for an unlocked installed-app inspection.
 
 ## V2 CI and artifact boundary
 
@@ -83,12 +86,14 @@ This table records the state immediately before the candidate implementation com
 
 ## Installed-checkpoint history
 
-The [23 August installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-23.md) proves exact source `dac20dd900c6d630340de727dba341a4d2351797` through source, browser, package, `/Applications` installation, and branch-selected GitHub CI gates. It separately records the locked-screen limit and the product breadth still outside this slice.
+The [23 August installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-23.md) proves exact source `03669850ebda8eb3d064e03bddc94430af6071bb` through source, browser, package, `/Applications` installation, and both implementation-head Mac workflows. It preserves CI's flaky retry instead of treating the green conclusion as pristine, and separately records the locked-screen limit and the product breadth still outside this slice.
+
+The prior Editorial-slice installation at source `dac20dd900c6d630340de727dba341a4d2351797` remains recoverable from the timestamped ignored and hidden backup paths named in that receipt.
 
 The [installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-22.md) remains valid only for source `b7bb5a520a23755306bf2f07656f604fd90b7b65`. At this pre-package snapshot, `/Applications/Drift V2 Dev.app` represented that older isolated checkpoint. Its package and installed matrices cannot evidence the candidate renderer, pin, stage, edge, or alpha changes described above.
 
 ## Safe user boundary
 
-Keep using `/Applications/Drift.app` for real projects. It remains the production document app and has not been replaced or modified by this V2 work. Treat `/Applications/Drift V2 Dev.app` as an older disposable visual/export beta until a clean exact-SHA candidate is rebuilt, verified, and installed.
+Keep using `/Applications/Drift.app` for real projects. It remains the production document app and has not been replaced or modified by this V2 work. `/Applications/Drift V2 Dev.app` now contains exact source `03669850ebda8eb3d064e03bddc94430af6071bb`, but remains a disposable creative-development checkpoint rather than the production document app.
 
-Do not merge or advertise this checkpoint as “V2 complete.” Commit, package, install, push, exact-SHA CI, merge, signing, notarisation, release, publication, and human approval remain separate gates.
+Do not merge or advertise this checkpoint as “V2 complete.” The implementation is committed, packaged, installed, and pushed; clean exact-head CI, merge, signing, notarisation, release, publication, unlocked installed-interface export proof, and human approval remain separate gates.
