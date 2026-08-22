@@ -455,6 +455,47 @@ export function App() {
     return task;
   }, []);
 
+  const persistExactProject = useCallback((
+    project: DriftProjectV4,
+    exactAssets: readonly StudioAsset[],
+    exactPresenter: StudioAsset | null,
+  ) => {
+    const revision = advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
+    setSaveState("saving");
+    const payload = createDriftProjectPayload(project);
+    const projectAssets = [...exactAssets, ...(exactPresenter ? [exactPresenter] : [])].map((asset) => ({
+      id: asset.id,
+      name: asset.name,
+      blob: asset.blob,
+    }));
+    const task = saveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const snapshot = await saveProject({
+          payload,
+          assets: projectAssets,
+          engineVersion: ENGINE_VERSION,
+          themeVersion: THEME_VERSION,
+          projectId: project.projectId,
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt,
+        });
+        identityRef.current = {
+          projectId: snapshot.manifest.projectId,
+          createdAt: snapshot.manifest.createdAt,
+        };
+        if (ownsLocalSaveRevision(saveRevisionAuthorityRef.current, revision)) setSaveState("saved");
+        return snapshot;
+      });
+    saveQueueRef.current = task.then(
+      () => undefined,
+      () => {
+        if (ownsLocalSaveRevision(saveRevisionAuthorityRef.current, revision)) setSaveState("failed");
+      },
+    );
+    return task;
+  }, []);
+
   const markProjectDirty = useCallback(() => {
     if (!hydratedRef.current) return;
     advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
@@ -629,6 +670,10 @@ export function App() {
       announce(message, "error");
       if (options.propagateFailure) throw new Error(message);
     };
+    if (!hydratedRef.current) {
+      rejectImport("Recovery is locked. Open a verified project before adding slides; the preserved project will not be overwritten by fallback media.");
+      return;
+    }
     const startingAssets = assetsRef.current;
     const replacingStartingDemos = startingAssets.length > 0 && startingAssets.every((asset) => asset.demo);
     const retainedStartingAssets = replacingStartingDemos ? [] : startingAssets;
@@ -723,6 +768,9 @@ export function App() {
     options: { persistBeforeReply?: boolean; propagateFailure?: boolean } = {},
   ) => {
     try {
+      if (!hydratedRef.current) {
+        throw new Error("Recovery is locked. Open a verified project before adding a presenter; the preserved project will not be overwritten by fallback media.");
+      }
       const existingSlideBytes = projectAssetBytes(assetsRef.current);
       const violation = projectMediaViolation(file.size, existingSlideBytes);
       if (violation) throw new Error(`Presenter video was not added. ${violation}`);
@@ -1038,7 +1086,11 @@ export function App() {
         try {
           installPreparedProjectState(prepared);
           preparedInstalled = true;
-          const saved = await persist();
+          const saved = await persistExactProject(
+            prepared.project,
+            prepared.slides,
+            prepared.presenter,
+          );
           identityRef.current = { projectId: saved.manifest.projectId, createdAt: saved.manifest.createdAt };
           hydratedRef.current = true;
           recoverySnapshotRef.current = null;
@@ -1064,7 +1116,7 @@ export function App() {
       announce(error instanceof Error ? `Project rejected: ${error.message}` : "Project was rejected.", "error");
       if (propagateFailure) throw error;
     }
-  }, [announce, installPreparedProjectState, persist, prepareProjectState, replaceProjectState]);
+  }, [announce, installPreparedProjectState, persist, persistExactProject, prepareProjectState, replaceProjectState]);
 
   const openPortableProject = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];

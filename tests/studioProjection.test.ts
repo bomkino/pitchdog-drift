@@ -250,15 +250,46 @@ describe("Project V3/V4 studio projection", () => {
     });
   });
 
-  it("falls back visibly when a future path or atmosphere has no legacy renderer", () => {
+  it("falls back visibly without overwriting dormant future direction on an unrelated edit", () => {
     const { project } = legacyProject();
     project.motion.path.id = "figure-eight";
     project.atmosphere.family = "emulsion";
-    const projected = studioSettingsFromDriftProject(project);
+    project.provenance.world = {
+      id: "future-world",
+      version: 7,
+      fingerprint: "future-world:7",
+    };
+    const v4 = migrateDriftProjectV3ToV4(project);
+    const projected = studioSettingsFromDriftProject(v4);
 
     expect(projected.motion.flow).toBe("straight");
     expect(projected.background.style).toBe("aura");
-    expect(project.motion.path.id).toBe("figure-eight");
-    expect(project.atmosphere.family).toBe("emulsion");
+    expect(projected.themeId).toBe("editorial-drift");
+
+    const unrelatedEdit = cloneSettings(projected);
+    unrelatedEdit.motion.speed = 0.42;
+    const preserved = reconcileStudioProject({
+      project: v4,
+      settings: unrelatedEdit,
+      slideAssets: [v4.media.assets["slide-a"]!],
+      updatedAt: "2026-08-21T02:00:00.000Z",
+    });
+    expect(preserved.motion.path.id).toBe("figure-eight");
+    expect(preserved.atmosphere.family).toBe("emulsion");
+    expect(preserved.provenance.world?.id).toBe("future-world");
+
+    const explicitDirection = cloneSettings(projected);
+    explicitDirection.motion.flow = "ribbon";
+    explicitDirection.background.style = "paper";
+    explicitDirection.themeId = "tender-light";
+    const replaced = reconcileStudioProject({
+      project: v4,
+      settings: explicitDirection,
+      slideAssets: [v4.media.assets["slide-a"]!],
+      updatedAt: "2026-08-21T02:00:00.000Z",
+    });
+    expect(replaced.motion.path.id).toBe("ribbon");
+    expect(replaced.atmosphere.family).toBe("paper");
+    expect(replaced.provenance.world?.id).toBe("tender-light");
   });
 });

@@ -170,7 +170,7 @@ test("presenter playback obeys pause and export while removal preserves an unrel
   await expect(page.getByRole("button", { name: "Unpin Drift study 01.png" })).toBeVisible();
 });
 
-test("portable project survives a fresh browser context and reload", async ({ page, browser }) => {
+test("portable Project V4 survives a fresh context without flattening dormant direction", async ({ page, browser }) => {
   await waitForStudio(page);
   await page.locator('input[accept^="image/png"]').setInputFiles(fixturePath);
   await expect(page.locator(".asset-list li")).toHaveCount(1);
@@ -187,6 +187,15 @@ test("portable project survives a fresh browser context and reload", async ({ pa
     renderContract: "drift-v1-compat/1",
     extensions: {},
   });
+  portableManifest.payload.project.motion.path.id = "figure-eight";
+  portableManifest.payload.project.atmosphere.family = "emulsion";
+  portableManifest.payload.project.provenance.world = {
+    id: "future-world",
+    version: 7,
+    fingerprint: "future-world:7",
+  };
+  portableArchive["manifest.json"] = strToU8(JSON.stringify(portableManifest));
+  const futureDirectionProject = Buffer.from(zipSync(portableArchive, { level: 6 }));
 
   const fresh = await browser.newContext({
     baseURL: "http://127.0.0.1:5187",
@@ -195,7 +204,11 @@ test("portable project survives a fresh browser context and reload", async ({ pa
   const reopened = await fresh.newPage();
   try {
     await waitForStudio(reopened);
-    await reopened.locator("input[accept*=pitched]").setInputFiles(file!);
+    await reopened.locator("input[accept*=pitched]").setInputFiles({
+      name: "future-direction.pitched",
+      mimeType: "application/vnd.pitchdog.pitched+zip",
+      buffer: futureDirectionProject,
+    });
     await expect(reopened.getByText(PORTABLE_OPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
     await expect(reopened.locator(".asset-list li")).toHaveCount(1);
     await expect(reopened.locator(".asset-list li").first()).toContainText("slide.png");
@@ -203,6 +216,18 @@ test("portable project survives a fresh browser context and reload", async ({ pa
     await expect(reopened.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
     await expect(reopened.locator(".asset-list li")).toHaveCount(1);
     await expect(reopened.locator(".asset-list li").first()).toContainText("slide.png");
+    const preservedDownloadPromise = reopened.waitForEvent("download");
+    await reopened.getByRole("button", { name: "Save portable project" }).click();
+    const preservedDownload = await preservedDownloadPromise;
+    const preservedPath = await preservedDownload.path();
+    expect(preservedPath).toBeTruthy();
+    const preservedArchive = unzipSync(new Uint8Array(await readFile(preservedPath!)));
+    const preservedManifest = JSON.parse(strFromU8(preservedArchive["manifest.json"]!)) as Record<string, any>;
+    expect(preservedManifest.payload.project).toMatchObject({
+      motion: { path: { id: "figure-eight" } },
+      atmosphere: { family: "emulsion" },
+      provenance: { world: { id: "future-world", version: 7, fingerprint: "future-world:7" } },
+    });
   } finally {
     await fresh.close();
   }
@@ -258,6 +283,39 @@ test("rejecting a future portable payload does not rewrite the open project", as
 });
 
 test("an unsupported saved project is quarantined instead of overwritten by fallback demos", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "__DRIFT_NATIVE_MAC__", {
+      configurable: false,
+      writable: false,
+      value: Object.freeze({
+        bridgeVersion: 2,
+        platform: "macOS",
+        systemCodecsOnly: true,
+        documentAuthority: "appkit-issued-per-document",
+        webKitOutboundPolicyInstalled: true,
+        webKitOutboundPolicyVersion: 3,
+        nativeNetworkClientSurface: "none-shipped",
+        networkBoundary: "app-entitled-webkit-blocked",
+        networkClientEntitlementRequiredWhenSandboxed: true,
+      }),
+    });
+    Object.defineProperty(window, "__driftNativeInstallAppBridge", {
+      configurable: false,
+      writable: false,
+      value: (bridge: unknown) => {
+        Object.defineProperty(window, "__driftRecoveryBridge", {
+          configurable: true,
+          writable: true,
+          value: bridge,
+        });
+      },
+    });
+    Object.defineProperty(window, "__driftNativeReportClientState", {
+      configurable: false,
+      writable: false,
+      value: () => undefined,
+    });
+  });
   await waitForStudio(page);
   await page.locator('input[accept^="image/png"]').setInputFiles(fixturePath);
   await expect(page.locator(".asset-list li")).toHaveCount(1);
@@ -293,6 +351,54 @@ test("an unsupported saved project is quarantined instead of overwritten by fall
   await expect(page.getByRole("alert")).toContainText("Saved project could not reopen");
   await expect(page.getByText("recovery locked", { exact: true })).toBeVisible();
   await expect(page.locator(".asset-list li")).toHaveCount(8);
+  await page.evaluate(() => {
+    const state = window as Window & { __driftRecoveryWrites?: number };
+    state.__driftRecoveryWrites = 0;
+    const originalPut = IDBObjectStore.prototype.put;
+    const originalClear = IDBObjectStore.prototype.clear;
+    IDBObjectStore.prototype.put = function put(value: unknown, key?: IDBValidKey) {
+      state.__driftRecoveryWrites = (state.__driftRecoveryWrites ?? 0) + 1;
+      return key === undefined
+        ? originalPut.call(this, value)
+        : originalPut.call(this, value, key);
+    };
+    IDBObjectStore.prototype.clear = function clear() {
+      state.__driftRecoveryWrites = (state.__driftRecoveryWrites ?? 0) + 1;
+      return originalClear.call(this);
+    };
+  });
+  const blockedNativeImports = await page.evaluate(async ({ slideBase64, presenterBase64 }) => {
+    const decode = (encoded: string) => Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+    const bridge = (window as unknown as {
+      __driftRecoveryBridge: {
+        importFiles: (kind: "slides" | "presenter", files: readonly File[]) => Promise<void>;
+      };
+    }).__driftRecoveryBridge;
+    const messages: string[] = [];
+    try {
+      await bridge.importFiles("slides", [new File([decode(slideBase64)], "blocked.png", { type: "image/png" })]);
+    } catch (error) {
+      messages.push(error instanceof Error ? error.message : String(error));
+    }
+    try {
+      await bridge.importFiles("presenter", [new File([decode(presenterBase64)], "blocked.mp4", { type: "video/mp4" })]);
+    } catch (error) {
+      messages.push(error instanceof Error ? error.message : String(error));
+    }
+    return messages;
+  }, {
+    slideBase64: (await readFile(fixturePath)).toString("base64"),
+    presenterBase64: (await readFile(presenterFixturePath)).toString("base64"),
+  });
+  expect(blockedNativeImports).toEqual([
+    expect.stringContaining("Recovery is locked. Open a verified project before adding slides"),
+    expect.stringContaining("Recovery is locked. Open a verified project before adding a presenter"),
+  ]);
+  expect(await page.evaluate(() => (
+    window as Window & { __driftRecoveryWrites?: number }
+  ).__driftRecoveryWrites)).toBe(0);
+  await expect(page.locator(".asset-list li")).toHaveCount(8);
+  await expect(page.locator(".presenter-card")).toHaveCount(0);
   await page.waitForTimeout(2_000);
 
   const preserved = await page.evaluate(async () => {

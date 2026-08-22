@@ -215,6 +215,7 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
   const next: CompatibleDriftProject = input.project.formatVersion === 4
     ? cloneDriftProjectV4(validateDriftProjectV4(input.project))
     : cloneDriftProject(validateDriftProjectV3(input.project));
+  const previouslyProjected = studioSettingsFromDriftProject(next);
   const { settings } = input;
   const presenter = input.presenterAsset ?? null;
   const allAssets = [...input.slideAssets, ...(presenter ? [presenter] : [])];
@@ -247,7 +248,9 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
   };
   next.motion.path = {
     ...next.motion.path,
-    id: settings.motion.flow,
+    id: settings.motion.flow === previouslyProjected.motion.flow
+      ? next.motion.path.id
+      : settings.motion.flow,
     gap: settings.motion.gap,
     curvature: settings.motion.curvature,
     depth: settings.motion.depth,
@@ -278,7 +281,9 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
   next.lighting.shadowSoftness = settings.slide.shadowSoftness;
 
   next.atmosphere.enabled = next.composition.alphaMode === "opaque";
-  next.atmosphere.family = settings.background.style;
+  next.atmosphere.family = settings.background.style === previouslyProjected.background.style
+    ? next.atmosphere.family
+    : settings.background.style;
   next.atmosphere.intensity = settings.background.intensity;
   next.atmosphere.motion = settings.background.motion;
   next.atmosphere.grain = settings.background.grain;
@@ -320,7 +325,7 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
     },
   };
 
-  if (LEGACY_THEMES.includes(settings.themeId)) {
+  if (LEGACY_THEMES.includes(settings.themeId) && settings.themeId !== previouslyProjected.themeId) {
     next.provenance.world = {
       id: settings.themeId,
       version: 1,
