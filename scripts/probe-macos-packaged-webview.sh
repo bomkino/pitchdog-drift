@@ -95,6 +95,7 @@ import ctypes
 import hashlib
 import json
 import os
+import plistlib
 import re
 import secrets
 import signal
@@ -279,6 +280,39 @@ def matching_identities(executable: Path) -> set[ProcessIdentity]:
     }
 
 
+def bundle_identifier_for_executable(executable: Path) -> str | None:
+    if executable.parent.name != "MacOS" or executable.parent.parent.name != "Contents":
+        return None
+    bundle = executable.parent.parent.parent
+    if bundle.suffix.lower() != ".app":
+        return None
+    try:
+        with (bundle / "Contents" / "Info.plist").open("rb") as stream:
+            value = plistlib.load(stream).get("CFBundleIdentifier")
+    except (OSError, plistlib.InvalidFileException):
+        return None
+    return value if isinstance(value, str) and value else None
+
+
+def matching_bundle_identities(bundle_identifier: str) -> set[ProcessIdentity]:
+    matches: set[ProcessIdentity] = set()
+    for pid in all_pids():
+        path_before = process_path(pid)
+        start = process_start_identity(pid)
+        path_after = process_path(pid)
+        if path_before is None or path_before != path_after or start is None:
+            continue
+        if bundle_identifier_for_executable(path_before) != bundle_identifier:
+            continue
+        matches.add(ProcessIdentity(
+            pid=pid,
+            executablePath=str(path_before),
+            startSeconds=start[0],
+            startMicroseconds=start[1],
+        ))
+    return matches
+
+
 def identity_is_current(identity: ProcessIdentity) -> bool:
     return process_identity(identity.pid, Path(identity.executablePath)) == identity
 
@@ -369,6 +403,24 @@ def resolve_existing_executable_binding(value: object) -> Path | None:
 expected_app_executable_snapshot = executable_snapshot(expected_app_executable)
 if resolve_existing_executable_binding(str(expected_app_executable)) != expected_app_executable:
     raise RuntimeError("the executable-binding canonicalizer failed its exact-path self-test")
+preexisting_bundle_identities = matching_bundle_identities(expected_bundle_id)
+if preexisting_bundle_identities:
+    result: dict[str, object] = {
+        "schemaVersion": 1,
+        "variant": variant,
+        "passed": False,
+        "failures": [
+            "another running app with this bundle identifier blocks the single-instance packaged probe",
+        ],
+        "setupFailureClass": "identity-setup-failure",
+        "preexistingBundleProcesses": [
+            asdict(identity)
+            for identity in sorted(preexisting_bundle_identities, key=lambda value: value.pid)
+        ],
+    }
+    write_json_atomic(output, result)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    raise SystemExit(1)
 run_nonce = secrets.token_hex(32)
 probe_token = f"drift-{secrets.token_hex(16)}"
 probe_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

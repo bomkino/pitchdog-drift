@@ -858,6 +858,8 @@ requireMarkers("scripts/probe-macos-packaged-webview.sh", [
   "classify_variant",
   '"harness-binding-failure"',
   '"identity-setup-failure"',
+  "matching_bundle_identities(expected_bundle_id)",
+  "another running app with this bundle identifier blocks the single-instance packaged probe",
   '"diagnostic-setup-failure"',
   '"diagnostic-timeout"',
   '"completed-product-failure"',

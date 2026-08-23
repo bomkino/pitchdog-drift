@@ -81,6 +81,8 @@ Add a regression test whenever the broker is fixed. Do not replace byte evidence
 
 ## Packaged WebView gauntlet
 
+`LSMultipleInstancesProhibited` is part of the product contract. Before this gauntlet, save and gracefully quit any installed Drift build with the same bundle identifier. The harness must classify a pre-existing same-bundle process as an `identity-setup-failure` immediately; it must never wait for a false runtime timeout or terminate an app it did not launch.
+
 The executable `--webview-self-test` loads copied `Resources/Web/index.html`, never the development server. It must observe:
 
 - `file:` runtime;
