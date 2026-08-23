@@ -1,6 +1,7 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import {
   BACKGROUND_COMPOSITIONS,
+  BACKGROUND_FAMILY_LABELS,
   BACKGROUND_PALETTES,
   BACKGROUND_STUDIES,
   applyBackgroundStudy,
@@ -13,6 +14,7 @@ import {
   withBackgroundVariation,
   type OpaqueBackgroundStyle,
 } from "../backgrounds";
+import { ATMOSPHERE_HERO_STUDIES } from "../core/worlds/atmosphereAtlas";
 import type {
   DriftProjectV4,
   MotionCharacterId,
@@ -78,6 +80,7 @@ import {
   currentPublicVariant,
 } from "../core/worlds/authoredWorlds";
 import type { PublicWorldVariant, WorldId } from "../core/worlds/worldRegistry";
+import type { TactileRuntimeState } from "../sonic/tactileSound";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, Segmented, SelectField, SwitchField } from "./controls";
 
@@ -86,6 +89,14 @@ const MAX_OUTPUT_DURATION = 30;
 const MIN_BODY_DURATION = 0.25;
 const MAX_TRANSITION_DURATION = 2;
 const MAX_REPEAT_COUNT = 6;
+
+const HERO_BACKGROUND_STUDIES = ATMOSPHERE_HERO_STUDIES.flatMap((hero) => {
+  const study = BACKGROUND_STUDIES.find((entry) => {
+    const composition = BACKGROUND_COMPOSITIONS[entry.family][entry.composition];
+    return entry.family === hero.familyId && composition?.id === hero.compositionId;
+  });
+  return study ? [study] : [];
+});
 
 type TempoSelection = TempoCurvePresetId | "custom";
 
@@ -151,6 +162,16 @@ interface ControlPanelProps {
   v2Active: boolean;
   onSettings: (settings: StudioSettings) => void;
   onV2Project: (project: DriftProjectV4, message: string) => void;
+  onUndoV2: () => void;
+  onRedoV2: () => void;
+  canUndoV2: boolean;
+  canRedoV2: boolean;
+  onToggleV2Comparison: () => void;
+  canCompareV2: boolean;
+  comparingV2: boolean;
+  changeReceipt: string;
+  onAuditionSound: () => void;
+  sonicState: TactileRuntimeState;
   onTheme: (id: ThemeId) => void;
   onResetPinnedFrame: () => void;
   onExportStill: () => void;
@@ -168,6 +189,16 @@ export function ControlPanel({
   v2Active,
   onSettings,
   onV2Project,
+  onUndoV2,
+  onRedoV2,
+  canUndoV2,
+  canRedoV2,
+  onToggleV2Comparison,
+  canCompareV2,
+  comparingV2,
+  changeReceipt,
+  onAuditionSound,
+  sonicState,
   onTheme,
   onResetPinnedFrame,
   onExportStill,
@@ -178,6 +209,8 @@ export function ControlPanel({
   projectFilesEnabled,
   exporting,
 }: ControlPanelProps) {
+  const [backgroundQuery, setBackgroundQuery] = useState("");
+  const [backgroundFamily, setBackgroundFamily] = useState<"all" | OpaqueBackgroundStyle>("all");
   const patch = <K extends keyof StudioSettings>(key: K, values: Partial<StudioSettings[K]>) => {
     onSettings({
       ...settings,
@@ -228,6 +261,11 @@ export function ControlPanel({
     });
   };
   const stageRatio = worldRatioForDimensions(settings.stage.width, settings.stage.height);
+  const normalizedBackgroundQuery = backgroundQuery.trim().toLowerCase();
+  const filteredBackgroundStudies = BACKGROUND_STUDIES.filter((study) => (
+    (backgroundFamily === "all" || study.family === backgroundFamily)
+    && (!normalizedBackgroundQuery || `${study.name} ${study.genre} ${study.description}`.toLowerCase().includes(normalizedBackgroundQuery))
+  ));
   const stageLabel = `${settings.stage.width}:${settings.stage.height}`;
   const performanceTimeline = createPerformanceLifecycle(settings.performance);
   const performance = performanceTimeline.authoring;
@@ -352,6 +390,20 @@ export function ControlPanel({
             </button>
           ))}
         </div>
+        {v2Active ? (
+          <div className="direction-history" aria-label="Direction history and comparison">
+            <button type="button" onClick={onUndoV2} disabled={!canUndoV2} aria-label="Undo direction">Undo</button>
+            <button type="button" onClick={onRedoV2} disabled={!canRedoV2} aria-label="Redo direction">Redo</button>
+            <button
+              type="button"
+              data-active={comparingV2}
+              onClick={onToggleV2Comparison}
+              disabled={!canCompareV2}
+              aria-pressed={comparingV2}
+            >{comparingV2 ? "Before" : "A/B"}</button>
+            <small>{comparingV2 ? "Previewing the prior direction; saved state is untouched." : changeReceipt}</small>
+          </div>
+        ) : null}
         {v2Active && authoredWorld ? (
           <div className="world-director-strip">
             <Segmented
@@ -665,21 +717,66 @@ export function ControlPanel({
       ) : null}
 
       <InspectorGroup title="Atmosphere" eyebrow={settings.background.style}>
-        <SelectField
-          label="Background library · all 40"
-          value={backgroundStudy?.id ?? "custom"}
-          options={[
-            { value: "custom", label: opaqueBackground ? "Custom direction" : "Transparent" },
-            ...BACKGROUND_STUDIES.map((study) => ({
-              value: study.id,
-              label: `${study.genre} · ${study.name}`,
-            })),
-          ]}
-          onChange={(studyId) => {
-            const study = BACKGROUND_STUDIES.find((entry) => entry.id === studyId);
-            if (study) onSettings(applyBackgroundStudy(settings, study));
-          }}
-        />
+        {v2Active ? (
+          <>
+            <div className="background-hero-shelf" aria-label="Twelve hero backgrounds">
+              {HERO_BACKGROUND_STUDIES.map((study) => (
+                <button
+                  type="button"
+                  key={study.id}
+                  data-active={backgroundStudy?.id === study.id}
+                  onClick={() => onSettings(applyBackgroundStudy(settings, study))}
+                  title={study.description}
+                  style={{ "--background-a": study.background.colorA, "--background-b": study.background.accent } as CSSProperties}
+                >
+                  <span aria-hidden="true" />
+                  <small>{study.name}</small>
+                </button>
+              ))}
+            </div>
+            <details className="background-browser">
+              <summary>Browse all 40 backgrounds</summary>
+              <div className="background-browser-tools">
+                <label>
+                  <span>Search</span>
+                  <input value={backgroundQuery} onChange={(event) => setBackgroundQuery(event.target.value)} placeholder="Genre, mood, material…" />
+                </label>
+                <label>
+                  <span>Family</span>
+                  <select value={backgroundFamily} onChange={(event) => setBackgroundFamily(event.target.value as "all" | OpaqueBackgroundStyle)}>
+                    <option value="all">All five families</option>
+                    {Object.entries(BACKGROUND_FAMILY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+              </div>
+              <SelectField
+                label={`${filteredBackgroundStudies.length} matching background${filteredBackgroundStudies.length === 1 ? "" : "s"}`}
+                value={backgroundStudy?.id ?? "custom"}
+                options={[
+                  { value: "custom", label: opaqueBackground ? "Custom direction" : "Transparent" },
+                  ...filteredBackgroundStudies.map((study) => ({ value: study.id, label: `${study.genre} · ${study.name}` })),
+                ]}
+                onChange={(studyId) => {
+                  const study = BACKGROUND_STUDIES.find((entry) => entry.id === studyId);
+                  if (study) onSettings(applyBackgroundStudy(settings, study));
+                }}
+              />
+            </details>
+          </>
+        ) : (
+          <SelectField
+            label="Background library · all 40"
+            value={backgroundStudy?.id ?? "custom"}
+            options={[
+              { value: "custom", label: opaqueBackground ? "Custom direction" : "Transparent" },
+              ...BACKGROUND_STUDIES.map((study) => ({ value: study.id, label: `${study.genre} · ${study.name}` })),
+            ]}
+            onChange={(studyId) => {
+              const study = BACKGROUND_STUDIES.find((entry) => entry.id === studyId);
+              if (study) onSettings(applyBackgroundStudy(settings, study));
+            }}
+          />
+        )}
         <SelectField
           label="Background"
           value={settings.background.style}
@@ -768,6 +865,56 @@ export function ControlPanel({
           <RangeField label="Gate weave" value={project.lens.gateWeave * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Gate weave directed.", (next) => { next.lens.gateWeave = value / 100; next.lens.characterId = "custom"; })} />
           <RangeField label="Camera grain" value={project.lens.cameraGrain * 100} min={0} max={60} step={1} unit="%" onChange={(value) => directProject("Camera grain directed.", (next) => { next.lens.cameraGrain = value / 100; next.lens.characterId = "custom"; })} />
           <RangeField label="Lens vignette" value={project.lens.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Lens vignette directed.", (next) => { next.lens.vignette = value / 100; next.lens.characterId = "custom"; })} />
+        </InspectorGroup>
+      ) : null}
+
+      {v2Active ? (
+        <InspectorGroup title="Sound" eyebrow={project.sound.previewEnabled || project.sound.exportEnabled ? project.sound.grammar : "OFF"}>
+          <SwitchField
+            label="Hear tactile motion"
+            hint="Recorded CC0 paper, card, cloth, leather, wood and metal. Off by default."
+            checked={project.sound.previewEnabled}
+            onChange={(previewEnabled) => directProject(previewEnabled ? "Tactile preview enabled." : "Tactile preview muted.", (next) => { next.sound.previewEnabled = previewEnabled; })}
+          />
+          <SwitchField
+            label="Include sound in MP4"
+            hint="Renders one deterministic 48 kHz stereo effects master, then AAC."
+            checked={project.sound.exportEnabled}
+            onChange={(exportEnabled) => directProject(exportEnabled ? "Tactile export enabled." : "Tactile export muted.", (next) => {
+              next.sound.exportEnabled = exportEnabled;
+              next.master.audio.enabled = exportEnabled || (next.presenter.enabled && !next.presenter.muted);
+            })}
+          />
+          <Segmented
+            label="Material palette"
+            value={project.sound.material === "cinematic" || project.sound.material === "paper" ? project.sound.material : "studio"}
+            options={[
+              { value: "studio", label: "Studio" },
+              { value: "cinematic", label: "Cinema" },
+              { value: "paper", label: "Paper" },
+            ]}
+            onChange={(material) => directProject("Tactile material changed.", (next) => { next.sound.material = material; next.sound.source = "recorded"; })}
+          />
+          <Segmented
+            label="Grammar"
+            value={project.sound.grammar}
+            options={[
+              { value: "dry", label: "Dry" },
+              { value: "editorial", label: "Editorial" },
+              { value: "organic", label: "Organic" },
+            ]}
+            onChange={(grammar) => directProject("Tactile grammar changed.", (next) => { next.sound.grammar = grammar; })}
+          />
+          <RangeField label="Density" value={project.sound.density * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Tactile density directed.", (next) => { next.sound.density = value / 100; })} />
+          <RangeField label="Texture" value={project.sound.texture * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Tactile texture directed.", (next) => { next.sound.texture = value / 100; })} />
+          <NumberField label="Take" value={project.sound.take} min={1} max={999} step={1} onChange={(take) => directProject("Tactile take changed.", (next) => { next.sound.take = take; })} />
+          <RangeField label="Master" value={project.sound.masterLevel * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Tactile master level directed.", (next) => { next.sound.masterLevel = value / 100; })} />
+          <RangeField label="Motion" value={project.sound.motionLevel * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Tactile motion level directed.", (next) => { next.sound.motionLevel = value / 100; })} />
+          <RangeField label="Under voice" value={project.sound.underVoice * 100} min={0} max={100} step={1} unit="%" hint="Applied only when presenter speech shares the MP4." onChange={(value) => directProject("Under-voice level directed.", (next) => { next.sound.underVoice = value / 100; })} />
+          <div className="sound-audition-control">
+            <button type="button" onClick={onAuditionSound} disabled={!project.sound.previewEnabled || sonicState === "unavailable"}>Audition passage</button>
+            <small>{sonicState === "loading" ? "Loading local recordings…" : sonicState === "ready" ? "Recorded palette ready." : sonicState === "unavailable" ? "Web Audio unavailable." : "Sound stays silent until enabled."}</small>
+          </div>
         </InspectorGroup>
       ) : null}
 

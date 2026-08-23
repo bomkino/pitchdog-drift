@@ -765,14 +765,12 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
   if (presenter.enabled && !pinnedAsset) {
     fail("project.presenter.enabled", "requires pinned media");
   }
-  if (v3.master.audio.enabled && (
-    !presenter.enabled
-    || presenter.muted
-    || !pinnedAsset
-    || pinnedAsset.kind !== "video"
-    || pinnedAssetId !== v3.media.presenterAssetId
-  )) {
-    fail("project.master.audio.enabled", "requires an active unmuted pinned presenter video");
+  const hasPresenterAudio = presenter.enabled
+    && !presenter.muted
+    && pinnedAsset?.kind === "video"
+    && pinnedAssetId === v3.media.presenterAssetId;
+  if (v3.master.audio.enabled && !v3.sound.exportEnabled && !hasPresenterAudio) {
+    fail("project.master.audio.enabled", "requires presenter audio or exported sound");
   }
 
   return {

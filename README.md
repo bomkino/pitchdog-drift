@@ -12,9 +12,9 @@ Drift is pre-1.0 and currently source-first. Read the [project status](docs/STAT
 
 ## V2 development boundary
 
-The `codex/v2-directors-cut` branch is an isolated **Editorial Performance vertical slice**, not a finished donor-plan V2 or a release candidate. It adds a protected pinned-frame composition, deterministic opening/body/ending performance, body and full-scene repeats, authored tempo curves, reduced-motion output, held film grain, and an early registry for future Worlds. The registry is data and validation only: it does not mean eight rendered Worlds, forty live backgrounds, or the donor library has shipped.
+The `codex/v2-directors-cut` branch contains the integrated V2 Director's Cut candidate. It combines Project V4, one canonical renderer/export path, eight authored Worlds, sixteen portrait scenes, forty live backgrounds, editorial timing, space, material, analytical light, global optics, tactile sound, and a directable pinned frame. It is a local development candidate, not a public release or a claim of owner creative approval.
 
-V2 runs as `Drift V2 Dev.app` with a separate bundle identifier, WebKit store, cache, IndexedDB database, and sandbox. It deliberately does not own, open, or save real `.pitched` documents yet; use the installed V1 `Drift.app` for production projects. See the [vertical-slice contract](docs/v2/VERTICAL_SLICE.md), [current V2 status](docs/v2/CURRENT_STATUS.md), and [donor ledger](docs/v2/DONOR_LEDGER.yaml).
+V2 runs as `Drift V2 Dev.app` with a separate bundle identifier, WebKit store, cache, IndexedDB database, and sandbox. It deliberately does not own, open, or save real `.pitched` documents yet; use the installed V1 `Drift.app` for production projects. See the [current V2 status](docs/v2/CURRENT_STATUS.md), [requirement matrix](docs/v2/V2_REQUIREMENT_PHASE_MATRIX.md), and [donor ledger](docs/v2/DONOR_LEDGER.yaml).
 
 ```bash
 npm run dev                  # browser V2 Dev on 127.0.0.1:4174
@@ -37,8 +37,12 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - Custom stage, output, slide, and pinned-frame ratios.
 - Cover/contain fit, focal point, scale, spacing, depth, tilt, velocity bend, continuous corners, borders, and shadows.
 - Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL, with restrained world-only film grain.
-- Six authored motion worlds: Editorial Drift, Road Memory, Dread, Noir Contact, Tender Light, and Chrome Dream.
+- Eight authored V2 Worlds with three directing pressures, plus the preserved V1 theme library.
 - One optional pinned image or presenter video, off by default.
+- Independent pinned-frame size, X/Y position, safe inset, aspect, fit, focal point, matte, corners, border, shadow, timing, and track controls.
+- Four cuts, six performances, four motion characters, four pose cadences, six handcrafted stacks, entry/exit direction, exact repeats, and editable tempo envelopes.
+- Ten spatial paths, four material recipes, twelve light rigs, eight lens recipes, forty backgrounds, twenty palettes, and sixteen portrait-native scenes.
+- Optional deterministic tactile sound from 23 local CC0 recordings, with three palettes, three grammars, and presenter-under-voice mixing.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
 - Presenter audio at AAC-LC, 48 kHz stereo, with explicit priming, padding, and A/V-sync checks.
 - IndexedDB autosave and portable `.pitched` project bundles with SHA-256 asset verification.
@@ -142,7 +146,7 @@ Those checks are evidence for the tested runtime, not a substitute for physical 
 | Other WebGL2 browsers | Tested case by case | Capability-gated | Capability-gated | If canvas PNG is available | Yes |
 | No WebGL2 | DOM media strip | Blocked visibly | Blocked | Blocked | Yes |
 
-Drift ships no uploader, analytics client, or native network client. The packaged app separately tests its page-level outbound lockdown; the signed network-client entitlement remains app-wide and is documented as a residual risk. The current portable archive cap is 96 MiB, with 80 MiB total source assets and 64 MiB per asset. Those limits prevent a friendly local tool from becoming a memory bomb.
+Drift ships no uploader, analytics client, or native network client. V2 tactile-sound recordings are committed locally and require no runtime fetch. The packaged app separately tests its page-level outbound lockdown; the signed network-client entitlement remains app-wide and is documented as a residual risk. The current portable archive cap is 96 MiB, with 80 MiB total source assets and 64 MiB per asset. Those limits prevent a friendly local tool from becoming a memory bomb.
 
 ## Why the Mac app is not an Electron bundle
 

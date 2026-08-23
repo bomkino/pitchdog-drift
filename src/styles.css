@@ -981,6 +981,153 @@ a:focus-visible {
   line-height: 1.45;
 }
 
+.direction-history {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.047);
+}
+
+.direction-history button {
+  min-height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  color: #c7beb2;
+  background: rgba(255, 255, 255, 0.025);
+  font: inherit;
+  cursor: pointer;
+}
+
+.direction-history button[data-active="true"] {
+  border-color: rgba(225, 155, 106, 0.5);
+  color: #f0d0b8;
+  background: rgba(166, 96, 66, 0.16);
+}
+
+.direction-history button:disabled {
+  color: rgba(199, 190, 178, 0.28);
+  cursor: default;
+}
+
+.direction-history small {
+  grid-column: 1 / -1;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.background-hero-shelf {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.background-hero-shelf button {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 2px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.018);
+  text-align: left;
+  cursor: pointer;
+}
+
+.background-hero-shelf button > span {
+  width: 14px;
+  height: 20px;
+  border-radius: 1px;
+  background: linear-gradient(145deg, var(--background-a), var(--background-b));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.background-hero-shelf button small {
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+}
+
+.background-hero-shelf button[data-active="true"] {
+  border-color: rgba(225, 155, 106, 0.44);
+  color: #ecd3c1;
+  background: rgba(166, 96, 66, 0.1);
+}
+
+.background-browser {
+  margin-bottom: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.047);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.047);
+}
+
+.background-browser summary {
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.background-browser-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  padding-bottom: 8px;
+}
+
+.background-browser-tools label {
+  display: grid;
+  gap: 5px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.background-browser-tools input,
+.background-browser-tools select {
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 2px;
+  color: var(--ink);
+  background: #151412;
+  font: inherit;
+}
+
+.sound-audition-control {
+  display: grid;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.sound-audition-control button {
+  min-height: 40px;
+  border: 1px solid rgba(225, 155, 106, 0.32);
+  border-radius: 2px;
+  color: #d7cfc3;
+  background: rgba(166, 96, 66, 0.08);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sound-audition-control button:disabled {
+  color: rgba(215, 207, 195, 0.3);
+  cursor: default;
+}
+
+.sound-audition-control small {
+  color: var(--faint);
+  font-size: 11px;
+}
+
 .pin-reset-control {
   display: grid;
   gap: 6px;

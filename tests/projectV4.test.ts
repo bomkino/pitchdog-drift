@@ -252,7 +252,12 @@ describe("Project V4", () => {
     expect(() => validateDriftProjectV4({
       ...project,
       master: { ...project.master, audio: { ...project.master.audio, enabled: true } },
-    })).toThrow(/active unmuted pinned presenter video/u);
+    })).toThrow(/presenter audio or exported sound/u);
+
+    project.sound.exportEnabled = true;
+    project.master.audio.enabled = true;
+    expect(validateDriftProjectV4(project).master.audio.enabled).toBe(true);
+    project.sound.exportEnabled = false;
 
     project.presenter = { ...project.presenter, enabled: true, assetId: videoId, muted: false };
     project.master.audio.enabled = true;
@@ -260,7 +265,7 @@ describe("Project V4", () => {
     expect(() => validateDriftProjectV4({
       ...project,
       presenter: { ...project.presenter, enabled: false },
-    })).toThrow(/active unmuted pinned presenter video/u);
+    })).toThrow(/presenter audio or exported sound/u);
     expect(() => validateDriftProjectV4({
       ...project,
       presenter: { ...project.presenter, muted: true },

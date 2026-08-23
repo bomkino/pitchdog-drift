@@ -1,6 +1,7 @@
 import { unzipSync, zipSync } from "fflate";
 import {
   ALL_FORMATS,
+  AudioSample,
   AudioSampleSink,
   AudioSampleSource,
   BlobSource,
@@ -17,7 +18,6 @@ import {
   canEncodeVideo,
 } from "mediabunny";
 import type {
-  AudioSample,
   InputAudioTrack,
   InputVideoTrack,
   MaybePromise,
@@ -25,6 +25,7 @@ import type {
   Target,
   VideoSample,
 } from "mediabunny";
+import { renderMixedPresenterMaster } from "../sonic/renderMixedMaster";
 
 export const AVC_BITRATE = 16_000_000;
 export const AAC_BITRATE = 192_000;
@@ -207,6 +208,10 @@ export type Mp4ExportOptions = Readonly<{
   presenter?: Blob;
   /** Defaults true. Set false when the pinned presenter is muted. */
   includePresenterAudio?: boolean;
+  /** Exact-length 48 kHz stereo effects bed rendered from saved Project V4 state. */
+  soundtrack?: AudioBuffer;
+  /** Effects gain while presenter speech shares the track. Defaults to 0.5. */
+  soundtrackGainWhenMixed?: number;
   signal?: AbortSignal;
   onProgress?: ExportProgressHandler;
   target?: Mp4TargetAdapter;
@@ -229,6 +234,7 @@ export type Mp4ExportResult = Readonly<{
     sampleRate: typeof AUDIO_SAMPLE_RATE;
     channels: typeof AUDIO_CHANNELS;
     duration: number;
+    source: "presenter" | "sound-design" | "mixed";
   }>;
   verification: Mp4VerificationReport;
 }>;
@@ -1115,6 +1121,25 @@ export async function finalizeInterruptibly<T>(
   }
 }
 
+function validateSoundtrackBuffer(soundtrack: AudioBuffer, duration: number, gainWhenMixed: number): void {
+  if (!Number.isFinite(gainWhenMixed) || gainWhenMixed < 0 || gainWhenMixed > 1) {
+    throw invalidSettings("Soundtrack under-voice gain must be between 0 and 1.", { gainWhenMixed });
+  }
+  const expectedFrames = Math.round(duration * AUDIO_SAMPLE_RATE);
+  if (
+    soundtrack.sampleRate !== AUDIO_SAMPLE_RATE
+    || soundtrack.numberOfChannels !== AUDIO_CHANNELS
+    || soundtrack.length !== expectedFrames
+  ) {
+    throw invalidSettings("Soundtrack must exactly match the fixed-step 48 kHz stereo timeline.", {
+      expectedFrames,
+      actualFrames: soundtrack.length,
+      sampleRate: soundtrack.sampleRate,
+      channels: soundtrack.numberOfChannels,
+    });
+  }
+}
+
 export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportResult> {
   const target = options?.target ?? createBufferMp4Target();
   let targetAbortPromise: Promise<void> | null = null;
@@ -1174,6 +1199,11 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
   const framePlan = buildExportFramePlan(settings);
   const frameCount = framePlan.length;
   const encodedDuration = frameCount / settings.fps;
+  const soundtrack = options.soundtrack ?? null;
+  const soundtrackGainWhenMixed = options.soundtrackGainWhenMixed ?? 0.5;
+  if (soundtrack) validateSoundtrackBuffer(soundtrack, encodedDuration, soundtrackGainWhenMixed);
+  let hasPresenterAudio = false;
+  let hasOutputAudio = soundtrack !== null;
   const encoderConfigs: {
     video: VideoEncoderConfig | null;
     audio: AudioEncoderConfig | null;
@@ -1189,10 +1219,12 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
         encodedDuration,
       );
     }
-    assertPresenterAudioFpsSupported(settings.fps, presenter?.audioTrack != null);
+    hasPresenterAudio = presenter?.audioTrack != null;
+    hasOutputAudio = hasPresenterAudio || soundtrack !== null;
+    assertPresenterAudioFpsSupported(settings.fps, hasOutputAudio);
     throwIfAborted(options.signal);
 
-    if (presenter?.audioTrack) {
+    if (hasOutputAudio) {
       // Native WebCodecs AAC does not expose priming delay and can shift real
       // audio while inflating the MP4 duration. The bundled open-source FFmpeg
       // encoder is selected deliberately so this path is testable and stable.
@@ -1205,7 +1237,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       if (!aacSupported) {
         throw new ExportStudioError(
           "AAC_UNSUPPORTED",
-          "Presenter contains audio, but this browser cannot encode AAC. Audio will not be dropped silently.",
+          "This composition contains audio, but this browser cannot encode AAC. Sound will not be dropped silently.",
           { sampleRate: AUDIO_SAMPLE_RATE, channels: AUDIO_CHANNELS, bitrate: AAC_BITRATE },
         );
       }
@@ -1231,7 +1263,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
     });
 
     let audioSource: AudioSampleSource | null = null;
-    if (presenter?.audioTrack) {
+    if (hasOutputAudio) {
       const audioInputFrameLimit = getAacInputFrameLimit(encodedDuration);
       let acceptedAudioFrames = 0;
       audioSource = new AudioSampleSource({
@@ -1255,7 +1287,9 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
           encoderConfigs.audio = { ...config };
         },
       });
-      output.addAudioTrack(audioSource, { name: "Presenter audio" });
+      output.addAudioTrack(audioSource, {
+        name: hasPresenterAudio ? soundtrack ? "Presenter + sound design" : "Presenter audio" : "Sound design",
+      });
     }
 
     await output.start();
@@ -1288,22 +1322,28 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       },
       phase: "video",
       progressStart: 0.03,
-      progressEnd: presenter?.audioTrack ? 0.78 : 0.94,
+      progressEnd: hasOutputAudio ? 0.78 : 0.94,
     });
     videoSource.close();
 
-    if (presenter?.audioTrack && audioSource) {
-      await encodePresenterAudio(
-        presenter,
-        audioSource,
-        encodedDuration,
-        options.signal,
-        options.onProgress,
-      );
+    if (audioSource) {
+      if (hasPresenterAudio && presenter) {
+        await encodePresenterAudio(
+          presenter,
+          audioSource,
+          encodedDuration,
+          soundtrack,
+          soundtrackGainWhenMixed,
+          options.signal,
+          options.onProgress,
+        );
+      } else if (soundtrack) {
+        await encodeSoundtrackAudio(soundtrack, audioSource, encodedDuration, options.signal, options.onProgress);
+      }
       audioSource.close();
     }
 
-    assertEncoderConfigurations(encoderConfigs, settings, presenter?.audioTrack != null);
+    assertEncoderConfigurations(encoderConfigs, settings, hasOutputAudio);
     throwIfAborted(options.signal);
     report(options.onProgress, "finalizing", 0, 1, 0.97);
     await finalizeInterruptibly(
@@ -1335,7 +1375,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
     const verification = await verifyMp4Artifact(
       verificationBlob,
       settings,
-      presenter?.audioTrack !== null && presenter?.audioTrack !== undefined,
+      hasOutputAudio,
       options.signal,
     );
     throwIfAborted(options.signal);
@@ -1357,13 +1397,14 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       videoCodec: "avc",
       videoBitrate: AVC_BITRATE,
       verification,
-      audio: presenter?.audioTrack
+      audio: hasOutputAudio
         ? {
           codec: "aac",
           bitrate: AAC_BITRATE,
           sampleRate: AUDIO_SAMPLE_RATE,
           channels: AUDIO_CHANNELS,
           duration: verification.audio!.duration,
+          source: hasPresenterAudio ? soundtrack ? "mixed" : "presenter" : "sound-design",
         }
         : null,
     };
@@ -2280,11 +2321,38 @@ async function encodePresenterAudio(
   presenter: PreparedPresenter,
   source: AudioSampleSource,
   duration: number,
+  soundtrack: AudioBuffer | null,
+  soundtrackGain: number,
   signal?: AbortSignal,
   onProgress?: ExportProgressHandler,
 ): Promise<number> {
   const track = presenter.audioTrack;
   if (!track) return 0;
+
+  if (soundtrack) {
+    try {
+      const master = await renderMixedPresenterMaster({
+        track,
+        timelineStart: presenter.timelineStart,
+        duration,
+        soundtrack,
+        soundtrackGain,
+        signal,
+        onPresenterCoverage(coveredSeconds) {
+          report(onProgress, "audio", coveredSeconds, duration, 0.78 + 0.08 * Math.min(coveredSeconds / duration, 1));
+        },
+      });
+      throwIfAborted(signal);
+      return await encodeSoundtrackAudio(master, source, duration, signal, onProgress);
+    } catch (error) {
+      if (signal?.aborted) throw cancelledError(signal);
+      throw wrapError(
+        error,
+        "PRESENTER_DECODE_FAILED",
+        "Presenter audio and tactile sound could not be rendered as one continuous stereo master.",
+      );
+    }
+  }
   const sink = new AudioSampleSink(track);
   const rangeStart = presenter.timelineStart;
   const rangeEnd = rangeStart + duration;
@@ -2340,6 +2408,27 @@ async function encodePresenterAudio(
   }
 
   return Math.min(lastEnd, duration);
+}
+
+async function encodeSoundtrackAudio(
+  soundtrack: AudioBuffer,
+  source: AudioSampleSource,
+  duration: number,
+  signal?: AbortSignal,
+  onProgress?: ExportProgressHandler,
+): Promise<number> {
+  throwIfAborted(signal);
+  const samples = AudioSample.fromAudioBuffer(soundtrack, 0);
+  try {
+    for (const sample of samples) {
+      throwIfAborted(signal);
+      await source.add(sample);
+    }
+    report(onProgress, "audio", duration, duration, 0.95);
+    return duration;
+  } finally {
+    for (const sample of samples) sample.close();
+  }
 }
 
 async function canvasToPngBlob(canvas: ExportCanvas): Promise<Blob> {

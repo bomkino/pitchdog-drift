@@ -8,6 +8,11 @@ Changes intended for a future public release belong here. Nothing in this sectio
 
 ### Added
 
+- The complete V2 Director's Cut surface: eight authored Worlds, three directing pressures, sixteen portrait scenes, forty live backgrounds, twenty palettes, twelve light rigs, eight lens recipes, ten spatial paths, four material systems, and the full editorial motion library.
+- Independently controlled entry and exit performances, body/whole-scene repeat counts, and editable tempo envelopes including Fast · Slow · Fast.
+- Fine pinned-frame direction for position, size, safe inset, aspect, fit, focal point, matte, continuous corners, border, shadow, timing, track membership, presenter level, and mute.
+- Project V4 undo/redo, temporary non-mutating A/B comparison, domain locks, and visible change receipts.
+- Opt-in deterministic tactile sound from 23 provenance-locked CC0 recordings, with Studio/Cinema/Paper palettes, Dry/Editorial/Organic grammars, and one presenter-plus-sound export master.
 - An explicit **Reset pinned frame** recovery action for historical projects. It restores source ratio, protected layering, authored safe geometry, and still-only track membership without discarding the selected media, crop/focal direction, corners, or border.
 - A sandboxed, universal macOS application foundation with native menus, Finder-backed project and export workflows, rollback-aware destination writes, receipt-verified packaged assets, and a deterministic WKWebView export probe.
 - Durable native import completion: the Mac shell now waits for original media to reach project storage before reporting success or allowing termination.
@@ -16,6 +21,8 @@ Changes intended for a future public release belong here. Nothing in this sectio
 
 ### Changed
 
+- The background picker now leads with twelve curated hero studies and keeps all forty structures available through searchable family filters.
+- Slides now have a shared deformed rear shell for material thickness without intersecting the artwork face.
 - New V2 pins begin source-ratio, protected, and still-only. Reapplying Editorial Drift restores its opaque paper room; transparent output remains an explicit option afterward.
 - Browser CI now exercises V1 compatibility and the V2 development app through separate origins, build identities, and storage namespaces.
 - Browser CI retains one diagnostic retry but now fails the workflow if any journey is flaky; retries cannot manufacture a green gate.

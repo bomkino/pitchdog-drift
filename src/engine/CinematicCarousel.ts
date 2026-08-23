@@ -291,8 +291,10 @@ interface SlidePoolItem {
   group: THREE.Group;
   slide: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   shadow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  shell: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   material: THREE.ShaderMaterial;
   shadowMaterial: THREE.ShaderMaterial;
+  shellMaterial: THREE.ShaderMaterial;
   assetKey: string | null;
 }
 
@@ -526,6 +528,8 @@ export class CinematicCarousel {
   private presenterGroup: THREE.Group;
   private presenterSlide: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private presenterShadow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private presenterShell: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private presenterShellMaterial: THREE.ShaderMaterial;
   private presenterMaterial: THREE.ShaderMaterial;
   private presenterShadowMaterial: THREE.ShaderMaterial;
   private presenterVideo: HTMLVideoElement | null = null;
@@ -693,7 +697,7 @@ export class CinematicCarousel {
     this.scene.add(this.track);
 
     for (let index = 0; index < MAX_POOL_SIZE; index += 1) this.pool.push(this.createPoolItem(index));
-    ({ group: this.presenterGroup, slide: this.presenterSlide, shadow: this.presenterShadow, material: this.presenterMaterial, shadowMaterial: this.presenterShadowMaterial } = this.createPoolItem(1000, true));
+    ({ group: this.presenterGroup, slide: this.presenterSlide, shadow: this.presenterShadow, shell: this.presenterShell, material: this.presenterMaterial, shadowMaterial: this.presenterShadowMaterial, shellMaterial: this.presenterShellMaterial } = this.createPoolItem(1000, true));
     this.presenterGroup.renderOrder = 1000;
     this.presenterSlide.renderOrder = 1001;
     this.presenterShadow.renderOrder = 999;
@@ -720,17 +724,21 @@ export class CinematicCarousel {
     const group = new THREE.Group();
     const material = createSlideMaterial(this.placeholderTexture, !protectedOverlay);
     const shadowMaterial = createShadowMaterial(!protectedOverlay);
+    const shellMaterial = createSlideMaterial(this.placeholderTexture, !protectedOverlay);
     const slide = new THREE.Mesh(this.geometry, material);
     const shadow = new THREE.Mesh(this.geometry, shadowMaterial);
+    const shell = new THREE.Mesh(this.geometry, shellMaterial);
     // Composite the shadow plate beneath the complete artwork plate so crossing
     // paths retain depth without letting a later card muddy earlier artwork.
     shadow.renderOrder = index;
-    slide.renderOrder = MAX_POOL_SIZE + index;
+    shell.renderOrder = MAX_POOL_SIZE + index;
+    slide.renderOrder = MAX_POOL_SIZE * 2 + index;
     shadow.position.set(10, -14, -8);
-    group.add(shadow, slide);
+    shell.visible = !protectedOverlay;
+    group.add(shadow, shell, slide);
     group.visible = false;
     if (index < MAX_POOL_SIZE) this.track.add(group);
-    return { group, slide, shadow, material, shadowMaterial, assetKey: null };
+    return { group, slide, shadow, shell, material, shadowMaterial, shellMaterial, assetKey: null };
   }
 
   get capabilities(): EngineCapabilitySnapshot {
@@ -1715,6 +1723,10 @@ export class CinematicCarousel {
     const lighting = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT
       ? this.project.lighting
       : null;
+    const shellDepth = material ? Math.min(width, height) * material.thickness * 0.34 : 0;
+    item.shell.visible = shellDepth > 0.05 && renderedOpacity > 0.001;
+    item.shell.scale.set(width, height, 1);
+    item.shell.position.set(0, 0, -Math.max(0.01, shellDepth));
     uniforms.uSurface!.value = surfaceMode(material?.surface ?? "card");
     uniforms.uSlideSeed!.value = (visible.sourceIndex + 1) * 0.61803398875;
     uniforms.uTravelPhase!.value = travelPhase;
@@ -1743,6 +1755,39 @@ export class CinematicCarousel {
     uniforms.uFillIntensity!.value = lighting?.fillIntensity ?? 1;
     uniforms.uRimIntensity!.value = lighting?.rimIntensity ?? 0;
     uniforms.uArtworkProtection!.value = lighting?.artworkProtection ?? 1;
+
+    // The rear plate owns the same subdivided deformation and continuous
+    // corner field as the artwork. A rigid box can intersect a flexing face,
+    // exposing torn-looking patches; sharing the vertex field makes the
+    // authored thickness visible only at true perspective edges.
+    const shellUniforms = item.shellMaterial.uniforms;
+    shellUniforms.uPlaneAspect!.value = width / height;
+    shellUniforms.uTextureAspect!.value = 1;
+    shellUniforms.uFit!.value = 0;
+    shellUniforms.uFocal!.value.set(0.5, 0.5);
+    shellUniforms.uSizePx!.value.set(width, height);
+    shellUniforms.uRadiusPx!.value = Math.min(this.drawState.slide.radius, Math.min(width, height) / 2);
+    shellUniforms.uSmoothing!.value = this.drawState.slide.smoothing;
+    shellUniforms.uBorderPx!.value = Math.min(width, height);
+    shellUniforms.uBorderColor!.value.set(
+      material?.surface === "paper" ? "#b9aa94"
+        : material?.surface === "silk" ? "#362a34"
+          : material?.surface === "gel" ? "#1b3030"
+            : "#191612",
+    );
+    shellUniforms.uBorderOpacity!.value = 1;
+    shellUniforms.uOpacity!.value = renderedOpacity;
+    shellUniforms.uVelocity!.value = velocity;
+    shellUniforms.uAcceleration!.value = acceleration;
+    shellUniforms.uDistortion!.value = this.drawState.motion.distortion;
+    shellUniforms.uAxis!.value = this.drawState.motion.axis === "horizontal" ? 0 : 1;
+    shellUniforms.uPhase!.value = logicalIndex;
+    shellUniforms.uSurface!.value = surfaceMode(material?.surface ?? "card");
+    shellUniforms.uSlideSeed!.value = (visible.sourceIndex + 1) * 0.61803398875;
+    shellUniforms.uTravelPhase!.value = travelPhase;
+    shellUniforms.uPathBend!.value = visible.pathBend ?? 0;
+    shellUniforms.uMicrotexture!.value = 0;
+    shellUniforms.uLightingEnabled!.value = 0;
 
     const shadowUniforms = item.shadowMaterial.uniforms;
     shadowUniforms.uCanvasSizePx!.value.set(width + shadowMargin * 2, height + shadowMargin * 2);
@@ -2344,7 +2389,9 @@ export class CinematicCarousel {
     this.pool.forEach((item) => {
       item.material.dispose();
       item.shadowMaterial.dispose();
+      item.shellMaterial.dispose();
     });
+    this.presenterShellMaterial.dispose();
     this.presenterMaterial.dispose();
     this.presenterShadowMaterial.dispose();
     this.geometry.dispose();

@@ -4,96 +4,96 @@ Updated: 23 August 2026
 
 Branch: `codex/v2-directors-cut`
 
-Installed implementation source: `03669850ebda8eb3d064e03bddc94430af6071bb`
+Protected production V1 source: `5fd145207235884790ba071c5d84bc3876ff4989`
 
-Frozen public V1 base: `5fd145207235884790ba071c5d84bc3876ff4989`
+## Current outcome
 
-Latest exact package, installation, and GitHub evidence: [23 August installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-23.md), implementation source `03669850ebda8eb3d064e03bddc94430af6071bb`. Both implementation-head Mac workflows passed. CI concluded success with one flaky browser retry, so exact-head CI is reopened until the hardening head passes cleanly.
+The branch now contains the integrated V2 Director's Cut candidate described by the curated donor plan. It is no longer the earlier one-World vertical slice. Project V4 is the live V2 creative authority; preview, still, sequence, and MP4 export enter the same explicit-time evaluator and Three.js/WebGL2 draw graph.
 
-## Outcome in the current installed checkpoint
+The candidate remains an isolated development build. `/Applications/Drift.app` is protected production V1 and is not replaced, opened, or rewritten by V2 packaging. V2 Dev has a separate bundle identifier, executable, App Sandbox container, WebKit store, cache namespace, IndexedDB database, and document-ownership boundary.
 
-The candidate source contains the first live **Editorial Drift `drift-v2/1` renderer slice**. It is deliberately enabled by default only under the isolated V2 development identity. Release/V1 startup remains on `drift-v1-compat/1`, and an imported compatibility project stays there until Editorial Drift is explicitly applied in V2 Dev.
+## Integrated product surface
 
-For the V2 slice, validated Project V4 data enters one pure explicit-time evaluator, then one Project V4 adapter, then the existing Three.js/WebGL2 draw graph. Preview, requested PNG stills, and PNG sequence frames use that same evaluation and draw path. A sequence frame owns time as `frameIndex / fps`; preview and still callers supply an explicit time without inventing a frame identity.
+### Editorial direction
 
-This is meaningful renderer work, not the complete curated-donor V2. `StudioSettings` projection is still a compatibility bridge into parts of the draw graph. One World is authored; the other theme cards remain V1 studies. Materials, lighting, atmosphere atlas, global optics, sound, complete command/receipt/lock/undo authority, and the full Direct journey are not live V2 systems.
+- Four editorial cuts, six performances, four motion characters, four pose cadences, and six handcrafted motion stacks.
+- Independently toggleable entry and exit direction for the background, slides, and pin.
+- Body-only or whole-scene looping with an explicit repeat count.
+- Even, Fast · Slow · Fast, Slow Build, Rush & Settle, Read & Go, and three-point custom tempo envelopes.
+- Deterministic semantic events, fixed-step export time, pause truth, and authored reduced-motion output.
 
-The [vertical-slice contract](VERTICAL_SLICE.md) defines the narrow promise. The [requirement and phase matrix](V2_REQUIREMENT_PHASE_MATRIX.md) maps it against the full launch scope. The [donor ledger](DONOR_LEDGER.yaml) records source study only; no donor capability is claimed ported or at parity.
+### Space, material, light, and lens
 
-## What the current source implements
+- Ten spatial paths work in horizontal and vertical travel.
+- Card, Paper, Silk, and Gel material recipes, each with a truthful bypassable finish path.
+- A shared deformed rear shell gives slides material thickness without the face intersections rejected during visual review.
+- Twelve analytical light rigs and eight global lens recipes.
+- Clean lens bypass, bounded blur/diffusion/aberration/wear, protected presenter treatment, and one final output transform.
 
-- Project V4 accepts both `drift-v1-compat/1` and `drift-v2/1`; V1/V3 migration remains compatibility-first.
-- Fresh V2 Dev projects begin with the authored Editorial Drift 9:16 recipe. Applying Editorial Drift is the explicit upgrade transaction for an existing compatibility project in V2 Dev.
-- One V2 evaluator owns lifecycle, body tempo, repeats, pose cadence, semantic events, spatial placement, reduced motion, ordered media identity, and deterministic frame diagnostics.
-- The pinned-only image remains in Project V4 media identity but is removed from the moving track.
-- Preview, still, and sequence rendering converge on `CinematicCarousel.renderVisibleItems`; stills preserve requested time, while sequences reject a time that conflicts with their frame index.
-- Editorial Drift has authored recuts for 9:16, 4:5, 1:1, and 16:9. Supported ratio changes recompose the World recipe rather than stretching or cropping the previous one.
-- Ratio recognition is proportional rather than tied to one pixel size: scaled forms such as 2160 × 3840 remain authored 9:16, while an arbitrary ratio becomes Custom. Automatic recut fails closed unless the surviving Editorial recipe references and fingerprints still prove that the project is safe to recompose.
-- Hydrating or re-saving an unchanged Project V4 tuple is lossless even when current controls cannot expose all authored values. Media-only reconciliation can add or remove assets without flattening dormant card, atmosphere, lighting, presenter, or per-slide direction.
-- Presenter preview uses the authored master clock as authority while allowing ordinary video delivery to remain decoder-driven. It corrects real drift and master wraps, lands frozen states only after the seek has settled, and holds an under-length source on its last decodable frame rather than inventing a loop.
-- The stage preview fits both dimensions together, preserving the authored canvas ratio instead of letting independent CSS clamps distort wide compositions.
-- V2 pin avoidance is local to the collision neighborhood in both transport axes. Far-away cards retain their authored scale; approaching cards move into the clear cross-axis lane.
-- Small edge fragments are hidden, then eased into visibility as enough of a card enters the physical stage.
-- `composition.alphaMode: opaque` now clears to an opaque black matte through entry and exit fades; transparent output still clears to alpha zero outside content. This change is V2-only.
-- Slide border defaults remain off. Grain remains a restrained, deterministic, background-only finishing plate held at an authored 12 fps cadence, not a claim of physical film simulation.
-- New pinned frames begin source-ratio, protected, and still-only. Historical custom pins remain untouched on open; an explicit Reset action repairs the legacy hybrid while preserving media identity, crop/focal direction, corners, and borders.
-- Applying Editorial Drift explicitly restores its opaque paper room. Transparent output remains selectable afterward rather than leaking into the authored World by accident.
-- V1 compatibility and V2 development browser journeys now run against separate build identities, ports, and storage namespaces.
+### Atmosphere and Worlds
 
-## Evidence for the installed repair checkpoint
+- Forty live structural backgrounds across Solid, Gradient, Aura, Paper, and Void.
+- Twenty palettes, deterministic seeds and recuts, transparent bypass, and twelve curated hero studies.
+- Eight authored Worlds, each with Restrained, Directed, and Fever pressure levels.
+- Sixteen portrait-native scenes: two per World, with vertical travel in both directions represented across the library.
+- A compact hero shelf plus searchable, family-filtered access to the complete background atlas.
 
-The current repair passed `npm run check`: TypeScript, 282/282 unit and contract tests across 37 files, native/source guards, and the production Web build. The final uninterrupted browser suite passed 32/32 journeys in 8.8 minutes: 31 established V1-compatibility journeys plus one dedicated true-V2 journey covering build/storage identity, transparent-to-authored-World restoration, safe first pin, hostile legacy-style composition, and explicit reset. The repaired presenter-clock journey also held 5/5 under repetition without loosening any timing threshold or changing engine code.
+### Pinned slide and presenter
 
-Focused evaluator, stage-geometry, pin-composition, shader/alpha, projection, World transaction, scaled-ratio, interaction-loop, and presenter-clock locks remain green. A real Chromium/WebGL2 pixel probe held opaque alpha at 255 at entry start, mid-entry, and entry end, while the equivalent transparent empty composition remained alpha zero. The real-video presenter journey passed three consecutive focused repetitions, covering running alignment, master wrap, pause, reduced motion, export freeze, resume, and independent slide-pin ownership. Full positive and negative deck-loop gestures returned byte-identical canvas hashes, proving that accumulated interaction wraps without emptying or flattening the finite card pool.
+The optional pinned frame is off by default and has independent control over:
 
-Manual browser inspection recreated the historical bad state—a landscape source forced into a tall 9:16 pin and duplicated in the moving track—then verified that Reset produced a clean source-ratio protected still on the opaque paper/grain room. Earlier authored 9:16, 16:9, protected-pin, and scaled 2160 × 3840 views remain useful evidence. None of those browser views is owner creative approval or a substitute for an unlocked installed-app inspection.
+- still-only or still-plus-moving track membership;
+- protected overlay or in-scene composition;
+- width, horizontal position, vertical position, and safe inset;
+- source or custom aspect ratio;
+- cover or contain fit and focal X/Y;
+- matte colour and opacity;
+- corner radius and continuous-corner smoothing;
+- border width, colour, and opacity;
+- shadow opacity, softness, and X/Y offset;
+- presenter level, source trim, entry time, and mute.
 
-## V2 CI and artifact boundary
+Protected pin avoidance is local to the collision neighbourhood. Far-away cards retain their authored size; approaching cards yield into the clear cross-axis lane. Slide borders remain off by default, so imported artwork never acquires a translucent rectangular halo.
 
-The candidate adds a dedicated V2 development job to the existing macOS workflow. The two V1 jobs and every V1 release lane remain intact. The new job builds the V2 browser application, builds and verifies the isolated universal `Drift V2 Dev.app`, runs the packaged WKWebView matrix through the existing fail-closed scripts, and uploads a zipped development app with checkout, bundle-source, matrix, and SHA-256 evidence. Defining the job is not a CI pass or an uploaded artifact; neither exists until the workflow runs green on committed remote source.
+### Sound
 
-Pull-request and manual evidence have deliberately different scope. A pull-request run checks GitHub's synthetic `refs/pull/<n>/merge` commit; its app names that tested merge SHA, while its receipt separately records the feature-branch head. It proves proposed integration, not exact feature-head CI. Because the macOS workflow already exists on the default branch, it can be manually dispatched against a selected feature branch. That job accepts only a branch ref and asserts that the checkout equals the immutable event SHA, so a green `workflow_dispatch` run proves that exact selected branch head only. Neither lane proves merge to `main`, installation, Developer ID signing, notarisation, release, publication, or creative approval.
+- Sound is off by default for preview and export.
+- Twenty-three provenance-locked CC0 recordings feed Studio, Cinema, and Paper palettes.
+- Dry, Editorial, and Organic grammars plan deterministic body, air, contact, and optional landing events.
+- Density, texture, take, motion level, master level, and under-voice level are editable.
+- The preview audition and the exact 48 kHz stereo export master use the same semantic event plan.
+- MP4 export supports sound design alone or one presenter-plus-sound mixed master; audio is never added silently.
 
-## Pre-package gate snapshot
+### Director workflow and project truth
 
-This table records the state immediately before the candidate implementation commit. It is intentionally historical; later packaging, installation, push, or CI receipts must name their exact source SHA rather than rewriting this snapshot by implication.
+- Eight authored Worlds provide the fast path; Direct exposes the underlying motion, space, material, light, background, lens, sound, pin, and timing controls.
+- World application is deterministic and non-compounding, respects domain locks, and records changed domains.
+- Undo and redo retain up to 50 meaningful project states and coalesce continuous gestures.
+- Temporary A/B comparison never mutates autosave or export authority.
+- A visible change receipt names the creative domains affected by the latest operation.
+- Existing compatibility projects remain on `drift-v1-compat/1` until an explicit V2 World transaction.
 
-| Gate | Current state |
-| --- | --- |
-| Exact V1 source public on `main` | Verified at frozen base; not changed by the candidate |
-| Installed `/Applications/Drift.app` | Preserved and outside V2 mutation scope |
-| Live `drift-v2/1` evaluator | Implemented in the V2-first-slice candidate |
-| V2 Dev authored default | Implemented for fresh V2 development startup only |
-| Compatibility-project upgrade | Explicit Editorial Drift application in V2 Dev; no silent V1 migration |
-| Preview/still/sequence convergence | One evaluator and draw path; full automated source and browser suites pass |
-| Lossless Project V4 hydration | No-op, media-only, and hostile round-trip locks pass in the full source suite |
-| Canonical presenter preview clock | Unit locks, focused real-video journey 3/3, and full browser suite pass; packaged-app parity pending |
-| Authored ratio recognition and recut | Scaled 9:16, 4:5, 1:1, and 16:9 resolve correctly; recut fails closed after custom direction |
-| Horizontal and vertical composition | Implemented for the first slice; full hostile visual matrix pending |
-| Protected pin, stage ratio, edge reveal, opaque alpha | Source and browser locks pass; key manual browser views inspected; packaged-app visual/export review pending |
-| Eight live authored Worlds | Not implemented; one V2 World plus five compatibility studies |
-| Forty live backgrounds | Not implemented; metadata foundation only |
-| Complete V2 renderer domains and Direct journey | Not implemented |
-| Full candidate test suite | Green at the evidence freeze: `npm run check`, 280/280 source tests, and 31/31 real-browser journeys |
-| Clean source commit | Not yet created at this pre-package snapshot |
-| Exact-SHA V2 Dev package from this source | Not built |
-| V2 CI/package job | Defined in the candidate; not yet run or evidenced remotely at this snapshot |
-| `/Applications/Drift V2 Dev.app` matching this source | Not installed; the existing app is an older checkpoint |
-| Feature branch pushed | Candidate not yet pushed at this snapshot |
-| Exact-SHA CI | Not run for this source |
-| Merged to `main` | No |
-| Developer ID signed, notarised, stapled, released, or published | No |
+## Current evidence
 
-## Installed-checkpoint history
+- `npm run check`: passed, including TypeScript, 46 Vitest files, 319 tests, native source contracts, user-guide checks, hardening checks, and the production Web build.
+- V2 browser build: passed.
+- Real Chromium/WebGL2 visual inspection: passed for representative 9:16 and 16:9 Worlds, the background atlas, material thickness, animated grain, pin placement, A/B, undo/redo, and the sound control surface; browser console remained clean.
+- Source-level tactile-sound checks: all 23 decoded recordings match their declared byte counts and SHA-256 hashes; event planning and mixed-master behavior are deterministic under test.
 
-The [23 August installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-23.md) proves exact source `03669850ebda8eb3d064e03bddc94430af6071bb` through source, browser, package, `/Applications` installation, and both implementation-head Mac workflows. It preserves CI's flaky retry instead of treating the green conclusion as pristine, and separately records the locked-screen limit and the product breadth still outside this slice.
+These checks prove the local source candidate only. The exact committed source, package, `/Applications` installation, installed launch, and installed self-test must be recorded in a later exact-SHA receipt. Human owner approval, push, merge, signing, notarisation, public binary release, and publication are still separate gates.
 
-The prior Editorial-slice installation at source `dac20dd900c6d630340de727dba341a4d2351797` remains recoverable from the timestamped ignored and hidden backup paths named in that receipt.
+## Known limits
 
-The [installed checkpoint receipt](INSTALLED_CHECKPOINT_2026-08-22.md) remains valid only for source `b7bb5a520a23755306bf2f07656f604fd90b7b65`. At this pre-package snapshot, `/Applications/Drift V2 Dev.app` represented that older isolated checkpoint. Its package and installed matrices cannot evidence the candidate renderer, pin, stage, edge, or alpha changes described above.
+- V2 Dev deliberately does not open, save, register, or own real `.pitched` documents. Use `/Applications/Drift.app` for production projects and portable backups.
+- The development app is ad-hoc signed, not Developer ID signed or notarised.
+- The rear slide shell proves deformed back-face depth. It is not described as a volumetric physics simulation or a fully modelled solid at every grazing angle.
+- Automated visual checks catch corruption, alpha errors, console failures, and regressions. They are not a substitute for the owner's final taste decision.
+- Public GitHub state remains unchanged until an explicit push/merge gate is taken and verified.
 
-## Safe user boundary
+## Evidence trail
 
-Keep using `/Applications/Drift.app` for real projects. It remains the production document app and has not been replaced or modified by this V2 work. `/Applications/Drift V2 Dev.app` now contains exact source `03669850ebda8eb3d064e03bddc94430af6071bb`, but remains a disposable creative-development checkpoint rather than the production document app.
-
-Do not merge or advertise this checkpoint as “V2 complete.” The implementation is committed, packaged, installed, and pushed; clean exact-head CI, merge, signing, notarisation, release, publication, unlocked installed-interface export proof, and human approval remain separate gates.
+- [V2 requirement and phase matrix](V2_REQUIREMENT_PHASE_MATRIX.md)
+- [V2 Dev user guide](MACOS_V2_DEV_USER_GUIDE.md)
+- [Project V4 migration contract](V2_PROJECT_MIGRATION.md)
+- [Earlier installed checkpoint, source 0366985](INSTALLED_CHECKPOINT_2026-08-23.md)
+- [Until It Holds history](UNTIL_IT_HOLDS_RUN.md)

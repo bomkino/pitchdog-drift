@@ -30,6 +30,7 @@ import {
   type AssetDescriptor,
   type DriftProjectV4,
 } from "./core/project/schema";
+import { projectV4ChangePaths } from "./core/commands/projectCommand";
 import { validateDriftProjectV4 } from "./core/project/validation";
 import {
   applyEditorialDriftFoundation,
@@ -44,6 +45,11 @@ import { CinematicCarousel } from "./engine/CinematicCarousel";
 import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
 import { driftBuildIdentity } from "./lib/buildIdentity";
 import { createDemoSlides } from "./lib/demoSlides";
+import {
+  TactileSoundEngine,
+  renderTactileSoundtrack,
+  type TactileRuntimeState,
+} from "./sonic/tactileSound";
 import type {
   ExportProgress as EncoderProgress,
   RenderAtContext,
@@ -117,6 +123,15 @@ interface PreparedProjectState {
   slides: StudioAsset[];
   presenter: StudioAsset | null;
 }
+
+interface V2HistoryState {
+  past: DriftProjectV4[];
+  future: DriftProjectV4[];
+  lastGesture: { message: string; at: number } | null;
+}
+
+const MAX_V2_HISTORY = 50;
+const V2_GESTURE_COALESCE_MS = 480;
 
 interface PickerWindow extends Window {
   showDirectoryPicker?: (options?: { id?: string; mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
@@ -229,6 +244,7 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<CinematicCarousel | null>(null);
+  const sonicEngineRef = useRef<TactileSoundEngine | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const presenterInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -261,6 +277,7 @@ export function App() {
   const assetsRef = useRef<StudioAsset[]>([]);
   const presenterRef = useRef<StudioAsset | null>(null);
   const settingsRef = useRef<StudioSettings>(cloneSettings(initialSettings));
+  const v2HistoryRef = useRef<V2HistoryState>({ past: [], future: [], lastGesture: null });
   const nativeCommandRef = useRef<(command: NativeMacCommand) => boolean | void | Promise<boolean | void>>(() => false);
   const nativeImportRef = useRef<(
     kind: NativeMacImportKind,
@@ -284,6 +301,11 @@ export function App() {
   const [saveState, setSaveState] = useState<"loading" | "saving" | "saved" | "failed" | "recovery">("loading");
   const [projectBusy, setProjectBusy] = useState(false);
   const [mp4Supported, setMp4Supported] = useState<boolean | null>(null);
+  const [sonicState, setSonicState] = useState<TactileRuntimeState>("off");
+  const [, setV2HistoryVersion] = useState(0);
+  const [comparisonProject, setComparisonProject] = useState<DriftProjectV4 | null>(null);
+  const [comparisonActive, setComparisonActive] = useState(false);
+  const [changeReceipt, setChangeReceipt] = useState("No V2 direction changed yet.");
   const nativeMac = isNativeMacRuntime();
   const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
     __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
@@ -297,11 +319,12 @@ export function App() {
   presenterRef.current = presenter;
 
   const v2Active = liveProject.renderContract === DRIFT_V2_RENDER_CONTRACT;
+  const displayedProject = comparisonActive && comparisonProject ? comparisonProject : liveProject;
   const stagePresentation = useMemo(
     () => v2Active
-      ? stagePresentationFromProject(liveProject)
+      ? stagePresentationFromProject(displayedProject)
       : stagePresentationFromV1Settings(settings),
-    [liveProject, settings, v2Active],
+    [displayedProject, settings, v2Active],
   );
   const liveExportPlan = useMemo(
     () => v2Active
@@ -478,6 +501,11 @@ export function App() {
       projectId: prepared.project.projectId,
       createdAt: prepared.project.createdAt,
     };
+    v2HistoryRef.current = { past: [], future: [], lastGesture: null };
+    setV2HistoryVersion((version) => version + 1);
+    setComparisonProject(null);
+    setComparisonActive(false);
+    setChangeReceipt("Opened project · history starts here.");
   }, [publishLiveProject]);
 
   const replaceProjectState = useCallback(async (snapshot: ProjectSnapshot<StudioProjectPayload>) => {
@@ -680,13 +708,33 @@ export function App() {
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
-    if (liveProject.renderContract === DRIFT_V2_RENDER_CONTRACT) {
-      void engine.setV2ProjectState(liveProject, assets);
+    if (displayedProject.renderContract === DRIFT_V2_RENDER_CONTRACT) {
+      void engine.setV2ProjectState(displayedProject, assets);
       return;
     }
-    void engine.setV1CompatibilityState(settings, liveProject, assets);
-  }, [assets, liveProject, settings]);
+    void engine.setV1CompatibilityState(settings, displayedProject, assets);
+  }, [assets, displayedProject, settings]);
   useEffect(() => { void engineRef.current?.setPresenterAsset(activePinnedAsset); }, [activePinnedAsset]);
+
+  useEffect(() => {
+    const project = projectRef.current;
+    if (!project) return;
+    const sonic = new TactileSoundEngine(project, setSonicState, (message) => announce(message, "error"));
+    sonicEngineRef.current = sonic;
+    return () => {
+      sonic.dispose();
+      if (sonicEngineRef.current === sonic) sonicEngineRef.current = null;
+    };
+  }, [announce]);
+
+  useEffect(() => {
+    sonicEngineRef.current?.setProject(liveProject);
+  }, [liveProject]);
+
+  useEffect(() => {
+    if (activeSlideIndex < 0 || !liveProject.sound.previewEnabled || comparisonActive || paused) return;
+    void sonicEngineRef.current?.playPassage(activeSlideIndex + 1);
+  }, [activeSlideIndex, comparisonActive, liveProject.sound.previewEnabled, paused]);
 
   useEffect(() => {
     if (!hydratedRef.current) return;
@@ -1144,6 +1192,9 @@ export function App() {
       session = await beginExport(reservation);
       const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { createFileSystemMp4Target, exportMp4 } = await import("./lib/exportStudio");
+      const soundtrack = reservation.authority.project.sound.exportEnabled
+        ? await renderTactileSoundtrack(reservation.authority.project, session.controller.signal)
+        : null;
       const target = fileHandle ? await createFileSystemMp4Target(fileHandle, session.controller.signal) : undefined;
       const result = await exportMp4({
         canvas: session.engine.canvas,
@@ -1156,12 +1207,14 @@ export function App() {
         },
         presenter: pinnedVideo?.blob,
         includePresenterAudio: session.plan.presenter.includeAudio,
+        soundtrack: soundtrack ?? undefined,
+        soundtrackGainWhenMixed: reservation.authority.project.sound.underVoice,
         signal: session.controller.signal,
         onProgress: (progress) => setExportProgress(encoderProgress(progress)),
         target,
       });
       if (result.blob) await downloadBlob(result.blob, `drift-master-${timestampSlug()}.mp4`);
-      announce(`${result.width} × ${result.height} H.264 master verified: ${result.verification.frameCount} frames at ${result.fps} fps.`, "good");
+      announce(`${result.width} × ${result.height} H.264 master verified: ${result.verification.frameCount} frames at ${result.fps} fps${result.audio ? ` · ${result.audio.source} AAC` : ""}.`, "good");
     } catch (error) {
       announce(
         isAbortError(error) ? "MP4 export canceled." : error instanceof Error ? error.message : "MP4 export failed.",
@@ -1391,6 +1444,30 @@ export function App() {
     announce(`${theme.name} is now directing the scene.`);
   }, [announce, markProjectDirty, publishLiveProject, reconcileLiveProject, settingsForCurrentAuthority]);
 
+  const recordV2History = useCallback((
+    current: DriftProjectV4,
+    next: DriftProjectV4,
+    message: string,
+  ): string[] => {
+    const changedPaths = projectV4ChangePaths(current, next);
+    if (changedPaths.length === 0 || current.renderContract !== DRIFT_V2_RENDER_CONTRACT) return changedPaths;
+    const now = performance.now();
+    const history = v2HistoryRef.current;
+    const coalesced = history.lastGesture?.message === message
+      && now - history.lastGesture.at <= V2_GESTURE_COALESCE_MS;
+    if (!coalesced) {
+      history.past = [...history.past.slice(-(MAX_V2_HISTORY - 1)), structuredClone(current)];
+      setComparisonProject(structuredClone(current));
+    }
+    history.future = [];
+    history.lastGesture = { message, at: now };
+    setComparisonActive(false);
+    setV2HistoryVersion((version) => version + 1);
+    const domains = [...new Set(changedPaths.map((path) => path.split(/[.[]/, 1)[0]))];
+    setChangeReceipt(`${message} ${changedPaths.length} value${changedPaths.length === 1 ? "" : "s"} · ${domains.join(", ")}.`);
+    return changedPaths;
+  }, []);
+
   const updateSettings = useCallback((nextSettings: StudioSettings) => {
     const currentProject = projectRef.current;
     const currentSettings = settingsForCurrentAuthority();
@@ -1411,6 +1488,7 @@ export function App() {
         };
         const applied = applyEditorialDriftFoundation(source, ratio, new Date().toISOString());
         const projected = studioSettingsFromDriftProject(applied);
+        recordV2History(currentProject, applied, "Stage ratio recut.");
         publishLiveProject(applied);
         markProjectDirty();
         settingsRef.current = projected;
@@ -1426,19 +1504,93 @@ export function App() {
     }
     markProjectDirty();
     settingsRef.current = nextSettings;
-    reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
+    const nextProject = reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
+    if (currentProject) recordV2History(currentProject, nextProject, "Director control changed.");
     setSettings(nextSettings);
-  }, [announce, markProjectDirty, publishLiveProject, reconcileLiveProject, settingsForCurrentAuthority]);
+  }, [announce, markProjectDirty, publishLiveProject, reconcileLiveProject, recordV2History, settingsForCurrentAuthority]);
 
   const updateV2Project = useCallback((candidate: DriftProjectV4, message: string) => {
+    const current = projectRef.current;
+    if (!current) throw new Error("Project V4 creative authority is unavailable.");
     const next = validateDriftProjectV4(candidate);
+    const changedPaths = recordV2History(current, next, message);
+    if (changedPaths.length === 0) {
+      announce(`${message} No saved values changed.`);
+      return;
+    }
+    if (next.sound.previewEnabled && !current.sound.previewEnabled) {
+      sonicEngineRef.current?.setProject(next);
+      void sonicEngineRef.current?.unlock();
+    }
     const projected = studioSettingsFromDriftProject(next);
     publishLiveProject(next);
     markProjectDirty();
     settingsRef.current = projected;
     setSettings(projected);
     announce(message);
+  }, [announce, markProjectDirty, publishLiveProject, recordV2History]);
+
+  const restoreV2HistoryProject = useCallback((project: DriftProjectV4, message: string) => {
+    const next = validateDriftProjectV4(structuredClone(project));
+    const projected = studioSettingsFromDriftProject(next);
+    publishLiveProject(next);
+    markProjectDirty();
+    settingsRef.current = projected;
+    setSettings(projected);
+    setComparisonActive(false);
+    setComparisonProject(null);
+    setV2HistoryVersion((version) => version + 1);
+    setChangeReceipt(message);
+    announce(message);
   }, [announce, markProjectDirty, publishLiveProject]);
+
+  const undoV2Project = useCallback(() => {
+    const current = projectRef.current;
+    const history = v2HistoryRef.current;
+    const previous = history.past.at(-1);
+    if (!current || !previous) return;
+    history.past = history.past.slice(0, -1);
+    history.future = [structuredClone(current), ...history.future].slice(0, MAX_V2_HISTORY);
+    history.lastGesture = null;
+    restoreV2HistoryProject(previous, "Undid the last directing gesture.");
+  }, [restoreV2HistoryProject]);
+
+  const redoV2Project = useCallback(() => {
+    const current = projectRef.current;
+    const history = v2HistoryRef.current;
+    const next = history.future[0];
+    if (!current || !next) return;
+    history.future = history.future.slice(1);
+    history.past = [...history.past.slice(-(MAX_V2_HISTORY - 1)), structuredClone(current)];
+    history.lastGesture = null;
+    restoreV2HistoryProject(next, "Redid the directing gesture.");
+  }, [restoreV2HistoryProject]);
+
+  const toggleV2Comparison = useCallback(() => {
+    if (!comparisonProject) return;
+    setComparisonActive((active) => !active);
+  }, [comparisonProject]);
+
+  const auditionTactileSound = useCallback(() => {
+    const project = projectRef.current;
+    if (!project?.sound.previewEnabled) return;
+    sonicEngineRef.current?.setProject(project);
+    void sonicEngineRef.current?.playPassage(Math.max(1, activeSlideIndex + 1));
+  }, [activeSlideIndex]);
+
+  useEffect(() => {
+    const onHistoryKeyDown = (event: KeyboardEvent) => {
+      if (!v2Active || !event.metaKey || event.altKey || event.key.toLowerCase() !== "z") return;
+      if (exportProgress || projectBusy || abortRef.current || projectPendingRef.current > 0 || saveState === "loading") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input[type=text], input[type=number], textarea, [contenteditable=true]")) return;
+      event.preventDefault();
+      if (event.shiftKey) redoV2Project();
+      else undoV2Project();
+    };
+    window.addEventListener("keydown", onHistoryKeyDown);
+    return () => window.removeEventListener("keydown", onHistoryKeyDown);
+  }, [exportProgress, projectBusy, redoV2Project, saveState, undoV2Project, v2Active]);
 
   const exportInProgress = Boolean(exportProgress);
 
@@ -1632,6 +1784,16 @@ export function App() {
           v2Active={v2Active}
           onSettings={updateSettings}
           onV2Project={updateV2Project}
+          onUndoV2={undoV2Project}
+          onRedoV2={redoV2Project}
+          canUndoV2={v2HistoryRef.current.past.length > 0}
+          canRedoV2={v2HistoryRef.current.future.length > 0}
+          onToggleV2Comparison={toggleV2Comparison}
+          canCompareV2={Boolean(comparisonProject)}
+          comparingV2={comparisonActive}
+          changeReceipt={changeReceipt}
+          onAuditionSound={auditionTactileSound}
+          sonicState={sonicState}
           onTheme={onTheme}
           onResetPinnedFrame={resetPinnedFrame}
           onExportStill={exportStill}
