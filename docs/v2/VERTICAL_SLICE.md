@@ -1,5 +1,7 @@
 # Drift V2 Editorial Performance vertical slice
 
+> Historical foundation note. This records the earlier single-World slice and its then-valid exclusions. See [CURRENT_STATUS.md](CURRENT_STATUS.md) for the integrated finishing-sprint state.
+
 Updated: 22 August 2026
 
 This document defines one narrow **candidate promise**: inside the isolated V2 development identity, Drift can evaluate and draw one authored Editorial Drift World as a deterministic beginning, body, ending, and repeatable slide performance. It supports an optional protected still image or presenter video. It is not the complete curated-donor V2. Package, installation, and CI receipts must separately name the exact source they prove.

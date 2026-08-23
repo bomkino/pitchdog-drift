@@ -16,7 +16,7 @@ export default defineConfig({
   projects: [
     {
       name: "v1-compat",
-      testIgnore: "**/v2-ui.e2e.ts",
+      testIgnore: ["**/v2-ui.e2e.ts", "**/v2-long-export-qa.e2e.ts"],
       use: { baseURL: "http://127.0.0.1:5187" },
     },
     {

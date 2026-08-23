@@ -366,6 +366,7 @@ final class DriftAppDelegate: NSObject,
                   self.nativeBridge === bridge,
                   bridge.hasActiveDocument else { return }
             self.receivedAuthoritativeClientState = true
+            self.updateWindowDocumentState(bridge.clientState)
             self.updateWebRuntimeReadiness()
             self.refreshMenuState()
             self.deliverPendingProjectsIfPossible()
@@ -408,6 +409,7 @@ final class DriftAppDelegate: NSObject,
         if !window.setFrameUsingName(frameAutosaveName) { window.center() }
         window.makeKeyAndOrderFront(nil)
         self.window = window
+        updateWindowDocumentState(bridge.clientState)
 
         webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
         NSApp.activate(ignoringOtherApps: true)
@@ -427,13 +429,28 @@ final class DriftAppDelegate: NSObject,
         pendingProjectReply != nil
             || inFlightProjectReplyIdentifier != nil
             || nativeBridge?.clientState.hasProtectedWork == true
+            || nativeBridge?.clientState.hasUnsavedDocument == true
     }
 
     private var protectionReason: String {
         if pendingProjectReply != nil || inFlightProjectReplyIdentifier != nil {
             return "A Finder project is still being verified and copied into Drift’s local project store."
         }
+        if nativeBridge?.clientState.documentConflict == true {
+            return "The bound .pitched file changed outside Drift; Save As preserves both versions."
+        }
+        if nativeBridge?.clientState.documentDirty == true {
+            return "The current project has changes that are not in its bound .pitched document."
+        }
         return nativeBridge?.clientState.protectionReason ?? "Drift still has protected work."
+    }
+
+    private func updateWindowDocumentState(_ state: ClientState) {
+        guard let window else { return }
+        window.isDocumentEdited = state.documentDirty
+        let documentLabel = state.documentBound ? "Project" : "Untitled"
+        window.title = "\(driftApplicationDisplayName) — \(documentLabel)"
+        window.titleVisibility = .hidden
     }
 
     private func presentFatalError(_ message: String) {
@@ -829,8 +846,13 @@ final class DriftAppDelegate: NSObject,
         addPresenter.keyEquivalentModifierMask = [.command, .option]
         addPresenter.target = self
         menu.addItem(.separator())
-        let saveProject = menu.addItem(withTitle: "Save Portable Project…", action: #selector(savePortableProject(_:)), keyEquivalent: "s")
+        let saveProject = menu.addItem(withTitle: "Save Project", action: #selector(savePortableProject(_:)), keyEquivalent: "s")
         saveProject.target = self
+        let saveProjectAs = menu.addItem(withTitle: "Save Project As…", action: #selector(savePortableProjectAs(_:)), keyEquivalent: "s")
+        saveProjectAs.keyEquivalentModifierMask = [.command, .shift]
+        saveProjectAs.target = self
+        let revertProject = menu.addItem(withTitle: "Revert to Saved", action: #selector(revertPortableProject(_:)), keyEquivalent: "")
+        revertProject.target = self
         menu.addItem(.separator())
         let exportMP4 = menu.addItem(withTitle: "Export MP4 Master…", action: #selector(exportMP4(_:)), keyEquivalent: "e")
         exportMP4.target = self
@@ -929,10 +951,15 @@ final class DriftAppDelegate: NSObject,
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let exporting = nativeBridge?.clientState.exportInProgress == true
-        let protected = hasProtectedWork
+        let protected = nativeBridge?.clientState.hasProtectedWork == true
         switch menuItem.action {
-        case #selector(openProject(_:)), #selector(savePortableProject(_:)):
+        case #selector(openProject(_:)), #selector(savePortableProject(_:)), #selector(savePortableProjectAs(_:)):
             return driftAllowsExternalPortableProjects && webRuntimeReady && !protected
+        case #selector(revertPortableProject(_:)):
+            return driftAllowsExternalPortableProjects
+                && webRuntimeReady
+                && !protected
+                && nativeBridge?.clientState.documentRevertible == true
         case #selector(addSlides(_:)), #selector(addPresenter(_:)),
              #selector(exportMP4(_:)), #selector(exportStill(_:)),
              #selector(exportFrames(_:)), #selector(reload(_:)):
@@ -964,6 +991,20 @@ final class DriftAppDelegate: NSObject,
         }
         dispatchNativeCommand("save-project")
     }
+    @objc private func savePortableProjectAs(_ sender: Any?) {
+        guard driftAllowsExternalPortableProjects else {
+            presentDevelopmentProjectBoundary()
+            return
+        }
+        dispatchNativeCommand("save-project-as")
+    }
+    @objc private func revertPortableProject(_ sender: Any?) {
+        guard driftAllowsExternalPortableProjects else {
+            presentDevelopmentProjectBoundary()
+            return
+        }
+        dispatchNativeCommand("revert-project")
+    }
     @objc private func exportMP4(_ sender: Any?) { dispatchNativeCommand("export-mp4") }
     @objc private func exportStill(_ sender: Any?) { dispatchNativeCommand("export-still") }
     @objc private func exportFrames(_ sender: Any?) { dispatchNativeCommand("export-frames") }
@@ -975,8 +1016,8 @@ final class DriftAppDelegate: NSObject,
 
     private func presentDevelopmentProjectBoundary() {
         presentWarning(
-            title: "Production projects stay in Drift",
-            message: "Drift V2 Dev uses copied fixtures while its project model is changing. Open and save real .pitched work in Drift."
+            title: "Portable projects are unavailable",
+            message: "This build cannot open or save .pitched documents."
         )
     }
 
@@ -1045,6 +1086,10 @@ final class DriftAppDelegate: NSObject,
         Export active: \(state.exportInProgress)
         Project operation active: \(state.projectBusy)
         Local save state: \(state.saveState)
+        Native project bound: \(state.documentBound)
+        Native project dirty: \(state.documentDirty)
+        Native project revertible: \(state.documentRevertible)
+        Native project conflict: \(state.documentConflict)
         Recent notice signal: \(state.lastNotice ?? "none")
         Web content recovery remaining: \(webContentRecoveryPolicy.hasRemainingAttempt)
         Recovery stability countdown active: \(recoveryResetScheduled)

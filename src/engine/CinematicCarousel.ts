@@ -398,13 +398,16 @@ export function assertExportSurfaceSupported(
   }
 }
 
-function backgroundMode(style: string): number {
+export function backgroundMode(style: string): number {
   switch (style) {
     case "solid": return 0;
     case "gradient": return 1;
     case "aura": return 2;
     case "paper": return 3;
     case "void": return 4;
+    case "cutting-map": return 5;
+    case "grid": return 6;
+    case "wave": return 7;
     default: return 0;
   }
 }

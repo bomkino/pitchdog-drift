@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CinematicCarousel,
   assertExportSurfaceSupported,
+  backgroundMode,
   getShadowSupportMargin,
   normalizeGrainSeed,
   resolveCanvasClearAlpha,
@@ -26,6 +27,30 @@ const LIMITS = {
 };
 
 describe("custom shader output contract", () => {
+  it("assigns distinct renderer modes to every authored background family", () => {
+    expect([
+      "solid",
+      "gradient",
+      "aura",
+      "paper",
+      "void",
+      "cutting-map",
+      "grid",
+      "wave",
+    ].map(backgroundMode)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("keeps authored backgrounds aspect-aware, phase-driven, and on the shared alpha contract", () => {
+    expect(backgroundFragmentShader).toContain("p.x *= aspect");
+    expect(backgroundFragmentShader).toContain("uMode < 5.5");
+    expect(backgroundFragmentShader).toContain("uMode < 6.5");
+    expect(backgroundFragmentShader).toContain("cutting-map-0");
+    expect(backgroundFragmentShader).toContain("grid-0");
+    expect(backgroundFragmentShader).toContain("wave-0");
+    expect(backgroundFragmentShader).toContain("sin(uPhase)");
+    expect(backgroundFragmentShader).toContain("gl_FragColor.a = clamp(uOpacity, 0.0, 1.0)");
+  });
+
   it("encodes every custom material from linear light into the renderer output color space", () => {
     for (const shader of [slideFragmentShader, shadowFragmentShader]) {
       expect(shader).toContain("#include <colorspace_fragment>");
@@ -50,8 +75,8 @@ describe("custom shader output contract", () => {
     expect(slideFragmentShader).not.toContain("filmGrain");
     expect(backgroundFragmentShader).toContain("filmGrain");
     expect(backgroundFragmentShader).toContain("uGrainFrame");
-    expect(backgroundFragmentShader).toContain("pixel / 4.6");
-    expect(backgroundFragmentShader).toContain("pixel / 10.5");
+    expect(backgroundFragmentShader).toContain("pixel / 1.35");
+    expect(backgroundFragmentShader).toContain("pixel / 3.4");
     expect(backgroundFragmentShader).toContain("1.0 - exp(-8.0 * grainControl)");
     expect(backgroundFragmentShader).toContain("smoothstep(0.004, 0.040, displayLuminance)");
     expect(backgroundFragmentShader).toContain("p + seedShift");

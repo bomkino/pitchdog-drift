@@ -9,16 +9,20 @@ import {
   PORTABLE_OPENED_NOTICE,
   PORTABLE_SAVED_NOTICE,
   presenterFixturePath,
+  switchWorkspace,
   waitForStudio,
 } from "./studio.helpers";
 
 async function readSavedProject(page: import("@playwright/test").Page): Promise<Record<string, any>> {
+  const currentWorkspace = (await page.locator(".workspace-switcher button[aria-current=page]").textContent())?.trim() as "SLIDES" | "WORLD" | "DIRECT" | "MASTER" | undefined;
+  await switchWorkspace(page, "MASTER");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save portable project" }).click();
   const download = await downloadPromise;
   const path = await download.path();
   expect(path).toBeTruthy();
   const archive = unzipSync(new Uint8Array(await readFile(path!)));
+  if (currentWorkspace && currentWorkspace !== "MASTER") await switchWorkspace(page, currentWorkspace);
   return JSON.parse(strFromU8(archive["manifest.json"]!)).payload.project as Record<string, any>;
 }
 
@@ -316,6 +320,7 @@ test("portable Project V4 survives a fresh context without flattening dormant di
   await page.locator('input[accept^="image/png"]').setInputFiles(fixturePath);
   await expect(page.locator(".asset-list li")).toHaveCount(1);
   await expect(page.locator(".asset-list li").first()).toContainText("slide.png");
+  await switchWorkspace(page, "MASTER");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save portable project" }).click();
   const download = await downloadPromise;
@@ -354,9 +359,10 @@ test("portable Project V4 survives a fresh context without flattening dormant di
     await expect(reopened.locator(".asset-list li")).toHaveCount(1);
     await expect(reopened.locator(".asset-list li").first()).toContainText("slide.png");
     await reopened.reload();
-    await expect(reopened.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
+    await expect(reopened.locator(".header-status")).toContainText("saved locally", { timeout: 30_000 });
     await expect(reopened.locator(".asset-list li")).toHaveCount(1);
     await expect(reopened.locator(".asset-list li").first()).toContainText("slide.png");
+    await switchWorkspace(reopened, "MASTER");
     const preservedDownloadPromise = reopened.waitForEvent("download");
     await reopened.getByRole("button", { name: "Save portable project" }).click();
     const preservedDownload = await preservedDownloadPromise;
@@ -380,6 +386,7 @@ test("rejecting a future portable payload does not rewrite the open project", as
   await expect(page.locator(".asset-list li")).toHaveCount(1);
   await expect(page.locator(".header-status")).toContainText("saved locally", { timeout: 10_000 });
 
+  await switchWorkspace(page, "MASTER");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save portable project" }).click();
   const downloaded = await downloadPromise;
@@ -581,12 +588,33 @@ test("a slow older autosave cannot overwrite a newer imported project", async ({
   await expect(page.locator(".header-status")).toContainText("saved locally");
   await page.locator('input[accept^="image/png"]').setInputFiles(fixturePath);
   await expect(page.locator(".asset-list li")).toHaveCount(1);
+  await switchWorkspace(page, "MASTER");
+  await page.evaluate(() => {
+    const state = window as Window & { __driftInitialReleaseDigest?: () => void };
+    const subtle = crypto.subtle;
+    const original = subtle.digest.bind(subtle);
+    let first = true;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    state.__driftInitialReleaseDigest = release;
+    Object.defineProperty(subtle, "digest", {
+      configurable: true,
+      value: async (...args: Parameters<SubtleCrypto["digest"]>) => {
+        if (first) {
+          first = false;
+          await gate;
+        }
+        return original(...args);
+      },
+    });
+  });
   await page.getByLabel("Stage width").fill("1200");
   await expect(page.locator(".header-status")).toContainText("saving locally…");
   expect(await page.evaluate(() => {
     const event = new Event("beforeunload", { cancelable: true });
     return !window.dispatchEvent(event);
   })).toBe(true);
+  await page.evaluate(() => (window as Window & { __driftInitialReleaseDigest?: () => void }).__driftInitialReleaseDigest?.());
   await expect(page.locator(".header-status")).toContainText("saved locally", { timeout: 10_000 });
   expect(await page.evaluate(() => {
     const event = new Event("beforeunload", { cancelable: true });
@@ -628,6 +656,7 @@ test("a slow older autosave cannot overwrite a newer imported project", async ({
         },
       });
     });
+    await switchWorkspace(oldPage, "MASTER");
     await oldPage.getByLabel("Stage width").fill("1600");
     await oldPage.waitForFunction(() => (window as Window & { __driftDigestStarted?: boolean }).__driftDigestStarted === true, null, { timeout: 10_000 });
 

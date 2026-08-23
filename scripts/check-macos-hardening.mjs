@@ -327,7 +327,9 @@ requireMarkers("src/lib/nativeMac.ts", [
   "installedAppBridge === bridge",
 ]);
 requireMarkers("src/App.tsx", [
-  "openPortableProjectFile = useCallback(async (file: File, propagateFailure = false)",
+  "openPortableProjectFile = useCallback(async (",
+  "confirmNativeMacDocumentOpen(file)",
+  "abandonNativeMacDocumentOpen()",
   "if (propagateFailure) throw error",
   "openPortableProjectFile(file, true)",
 ]);

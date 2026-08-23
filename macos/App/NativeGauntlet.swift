@@ -3,6 +3,8 @@ import Foundation
 
 enum NativeGauntlet {
     static func run() throws {
+        try NativePortableProjectSession.runSelfTest()
+
         let sourceRevision = String(repeating: "a", count: 40)
         try require(
             driftCompleteSourceURL(for: sourceRevision).absoluteString

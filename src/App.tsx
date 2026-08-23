@@ -6,10 +6,22 @@ import {
   useState,
   type ChangeEvent,
 } from "react";
-import { ControlPanel } from "./components/ControlPanel";
+import { ControlPanel, type StudioWorkspace } from "./components/ControlPanel";
 import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
+import { CommandPalette } from "./components/CommandPalette";
 import { createDefaultDriftProjectV4 } from "./core/project/defaults";
+import { evaluateDeckSlideHealth } from "./core/media/slideHealth";
+import { resolveMovingMedia } from "./core/project/movingMedia";
+import type { StudioCommandDefinition } from "./core/commands/studioCommandRegistry";
+import {
+  createCustomPlatformGuide,
+  evaluatePresenterGuideOverlap,
+  getPlatformGuideProfile,
+  type NormalizedInsets,
+  type PlatformGuideProfileId,
+} from "./core/platformGuides";
+import { resolvePresenterOverlayLayout } from "./core/presenter/layout";
 import {
   assertExportAuthorityUnchanged,
   captureExportAuthority,
@@ -31,6 +43,12 @@ import {
   type DriftProjectV4,
 } from "./core/project/schema";
 import { projectV4ChangePaths } from "./core/commands/projectCommand";
+import {
+  beginProjectSave,
+  createProjectRevisionState,
+  recordProjectMutation,
+  type ProjectRevisionState,
+} from "./core/project/revisions";
 import { validateDriftProjectV4 } from "./core/project/validation";
 import {
   applyEditorialDriftFoundation,
@@ -41,7 +59,13 @@ import {
 } from "./core/worlds";
 import { createPerformanceLifecycle } from "./core/timeline/performanceLifecycle";
 import { defaultPerformanceStillTime } from "./core/timeline/renderTravel";
-import { CinematicCarousel } from "./engine/CinematicCarousel";
+import {
+  applyTimingResolution,
+  readTimingIntent,
+  resolveProjectTiming,
+  withTimingIntent,
+} from "./core/timeline/timingIntent";
+import { CinematicCarousel, getShadowSupportMargin } from "./engine/CinematicCarousel";
 import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
 import { driftBuildIdentity } from "./lib/buildIdentity";
 import { createDemoSlides } from "./lib/demoSlides";
@@ -51,14 +75,24 @@ import {
   type TactileRuntimeState,
 } from "./sonic/tactileSound";
 import type {
+  ExportCapabilityReport,
   ExportProgress as EncoderProgress,
   RenderAtContext,
 } from "./lib/exportStudio";
 import {
+  abandonNativeMacDocumentOpen,
+  completeNativeMacDocumentSave,
+  confirmNativeMacDocumentOpen,
   installNativeMacAppBridge,
   isNativeMacRuntime,
+  nativeMacDocumentClientState,
+  pickNativeMacFiles,
   reportNativeMacClientState,
+  revertNativeMacDocument,
+  saveNativeMacDocument,
+  saveNativeMacDocumentAs,
   saveNativeMacBlob,
+  NativeMacDocumentConflictError,
   type NativeMacCommand,
   type NativeMacImportKind,
 } from "./lib/nativeMac";
@@ -267,6 +301,8 @@ export function App() {
   const hydratedRef = useRef(false);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveRevisionAuthorityRef = useRef(createLocalSaveRevisionAuthority());
+  const documentRevisionRef = useRef<ProjectRevisionState>(createProjectRevisionState());
+  const documentSha256Ref = useRef<string | null>(null);
   const directPersistenceSnapshotRef = useRef<{
     settings: StudioSettings;
     assets: StudioAsset[];
@@ -295,12 +331,21 @@ export function App() {
   const [focusMode, setFocusMode] = useState(false);
   const [activeSlideIndex, setActiveSlideIndex] = useState(-1);
   const [activePanel, setActivePanel] = useState<"media" | "stage" | "director">("stage");
+  const [activeWorkspace, setActiveWorkspace] = useState<StudioWorkspace>("slides");
+  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
+  const [platformGuideId, setPlatformGuideId] = useState<PlatformGuideProfileId>("none");
+  const [customGuideInsets, setCustomGuideInsets] = useState<NormalizedInsets>({ top: 0.1, right: 0.08, bottom: 0.16, left: 0.08 });
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [notice, setNotice] = useState<string | null>("Loading local studio…");
   const [noticeKind, setNoticeKind] = useState<"quiet" | "good" | "error">("quiet");
   const [saveState, setSaveState] = useState<"loading" | "saving" | "saved" | "failed" | "recovery">("loading");
   const [projectBusy, setProjectBusy] = useState(false);
+  const [documentBound, setDocumentBound] = useState(false);
+  const [documentConflict, setDocumentConflict] = useState(false);
+  const [documentRevisionVersion, setDocumentRevisionVersion] = useState(0);
   const [mp4Supported, setMp4Supported] = useState<boolean | null>(null);
+  const [exportCapabilities, setExportCapabilities] = useState<ExportCapabilityReport | null>(null);
   const [sonicState, setSonicState] = useState<TactileRuntimeState>("off");
   const [, setV2HistoryVersion] = useState(0);
   const [comparisonProject, setComparisonProject] = useState<DriftProjectV4 | null>(null);
@@ -310,7 +355,7 @@ export function App() {
   const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
     __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
   }).__DRIFT_NATIVE_SELF_TEST_DB__;
-  const portableProjectFilesEnabled = !driftBuildIdentity.isDevelopment
+  const portableProjectFilesEnabled = !driftBuildIdentity.isDevelopment || nativeMac
     || (typeof nativeSelfTestDatabase === "string"
       && /^drift-project-self-test-[a-f0-9-]{36}$/.test(nativeSelfTestDatabase));
 
@@ -319,13 +364,33 @@ export function App() {
   presenterRef.current = presenter;
 
   const v2Active = liveProject.renderContract === DRIFT_V2_RENDER_CONTRACT;
+  const nativeDocumentState = useMemo(
+    () => nativeMacDocumentClientState(
+      documentRevisionRef.current,
+      documentBound,
+      documentConflict,
+    ),
+    [documentBound, documentConflict, documentRevisionVersion],
+  );
   const displayedProject = comparisonActive && comparisonProject ? comparisonProject : liveProject;
+  const slideHealth = useMemo(() => evaluateDeckSlideHealth(liveProject), [liveProject]);
+  const platformGuide = useMemo(
+    () => platformGuideId === "custom"
+      ? createCustomPlatformGuide(customGuideInsets)
+      : getPlatformGuideProfile(platformGuideId),
+    [customGuideInsets, platformGuideId],
+  );
   const stagePresentation = useMemo(
     () => v2Active
       ? stagePresentationFromProject(displayedProject)
       : stagePresentationFromV1Settings(settings),
     [displayedProject, settings, v2Active],
   );
+
+  useEffect(() => {
+    if (selectedSlideId && assets.some((asset) => asset.id === selectedSlideId)) return;
+    setSelectedSlideId(assets[0]?.id ?? null);
+  }, [assets, selectedSlideId]);
   const liveExportPlan = useMemo(
     () => v2Active
       ? exportPlanFromProject(liveProject)
@@ -338,6 +403,49 @@ export function App() {
     [allAssets, stagePresentation.pinnedAssetId],
   );
   const activePinnedAsset = stagePresentation.pinEnabled ? pinnedAsset : null;
+  const guideOverlaps = useMemo(() => {
+    if (
+      platformGuide.id === "none"
+      || !activePinnedAsset
+      || !settings.presenter.enabled
+      || settings.presenter.layoutMode !== "safe-overlay"
+    ) return [];
+    try {
+      const requestedShadowMargin = getShadowSupportMargin(
+        settings.presenter.shadowSoftness,
+        settings.presenter.shadowOpacity,
+      );
+      const layout = resolvePresenterOverlayLayout({
+        stage: { width: settings.stage.width, height: settings.stage.height },
+        source: { width: activePinnedAsset.width, height: activePinnedAsset.height },
+        customAspect: settings.presenter.aspectMode === "custom"
+          ? { width: settings.presenter.aspectWidth, height: settings.presenter.aspectHeight }
+          : null,
+        anchor: { x: settings.presenter.x, y: settings.presenter.y },
+        scale: Math.min(0.9, Math.max(0.12, settings.presenter.width)),
+        safeInset: Math.min(settings.stage.width, settings.stage.height) * settings.presenter.safeInset,
+        shadowExtents: {
+          top: Math.max(0, requestedShadowMargin - settings.presenter.shadowOffsetY),
+          right: Math.max(0, requestedShadowMargin + settings.presenter.shadowOffsetX),
+          bottom: Math.max(0, requestedShadowMargin + settings.presenter.shadowOffsetY),
+          left: Math.max(0, requestedShadowMargin - settings.presenter.shadowOffsetX),
+        },
+      });
+      const bounds = layout.frameBoundsPx;
+      return [{
+        ...evaluatePresenterGuideOverlap({
+          left: bounds.left / settings.stage.width,
+          top: bounds.top / settings.stage.height,
+          right: bounds.right / settings.stage.width,
+          bottom: bounds.bottom / settings.stage.height,
+        }, platformGuide),
+        subjectId: activePinnedAsset.id,
+        guideId: platformGuide.id,
+      }];
+    } catch {
+      return [];
+    }
+  }, [activePinnedAsset, platformGuide, settings.presenter, settings.stage.height, settings.stage.width]);
 
   const announce = useCallback((message: string, kind: "quiet" | "good" | "error" = "quiet") => {
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
@@ -616,6 +724,8 @@ export function App() {
   const markProjectDirty = useCallback(() => {
     if (!hydratedRef.current) return;
     advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
+    documentRevisionRef.current = recordProjectMutation(documentRevisionRef.current);
+    setDocumentRevisionVersion((version) => version + 1);
     setSaveState("saving");
   }, []);
 
@@ -774,13 +884,28 @@ export function App() {
       fps: liveExportPlan.fps,
       duration: liveExportPlan.duration,
     }))
-      .then((report) => live && setMp4Supported(report.mp4.supported))
-      .catch(() => live && setMp4Supported(false));
+      .then((report) => {
+        if (!live) return;
+        setExportCapabilities(report);
+        setMp4Supported(report.mp4.supported);
+      })
+      .catch(() => {
+        if (!live) return;
+        setExportCapabilities(null);
+        setMp4Supported(false);
+      });
     return () => { live = false; };
   }, [liveExportPlan.duration, liveExportPlan.fps, liveExportPlan.height, liveExportPlan.width]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (!exportProgress && !projectBusy && !abortRef.current && saveState !== "loading") {
+          setCommandPaletteOpen((open) => !open);
+        }
+        return;
+      }
       if (event.key === "Escape" && focusMode) {
         event.preventDefault();
         setFocusMode(false);
@@ -1302,32 +1427,72 @@ export function App() {
     }
   }, [announce, beginExport, endExport, renderForExport, reserveExport]);
 
-  const savePortableProjectNow = useCallback(async () => {
+  const savePortableProjectNow = useCallback(async (operation: "save" | "save-as" = "save") => {
     try {
+      let blob: Blob;
       if (!hydratedRef.current) {
         const recovery = recoverySnapshotRef.current;
         if (!recovery) {
           throw new Error("The locked saved project could not be read safely. Open a verified project to replace it; fallback demos will not overwrite it.");
         }
-        const recoveryBlob = await exportProject(recovery);
-        await downloadBlob(recoveryBlob, `drift-recovery-${timestampSlug()}.pitched`);
-        announce("Locked saved project re-verified and saved with its preserved manifest and media. Fallback demos were not written over it.", "good");
+        blob = await exportProject(recovery);
+      } else {
+        const snapshot = await persist();
+        blob = await exportProject(snapshot);
+      }
+
+      if (nativeMac) {
+        const started = beginProjectSave(documentRevisionRef.current);
+        documentRevisionRef.current = started.state;
+        setDocumentRevisionVersion((version) => version + 1);
+        const request = {
+          transactionId: `project-${globalThis.crypto.randomUUID()}`,
+          ticket: started.ticket,
+          blob,
+        };
+        const receipt = operation === "save-as"
+          ? await saveNativeMacDocumentAs(request)
+          : await saveNativeMacDocument(request);
+        if (!receipt) throw new DOMException("The native project document bridge is unavailable.", "NotSupportedError");
+        documentRevisionRef.current = completeNativeMacDocumentSave(
+          documentRevisionRef.current,
+          started.ticket,
+          receipt,
+        );
+        documentSha256Ref.current = receipt.sha256;
+        setDocumentBound(true);
+        setDocumentConflict(false);
+        setDocumentRevisionVersion((version) => version + 1);
+        announce(
+          hydratedRef.current
+            ? `Portable Project V4 ${operation === "save-as" ? "saved as a new document" : "saved"} with exact native readback.`
+            : "Locked saved project re-verified and saved without replacing fallback media.",
+          "good",
+        );
         return;
       }
-      const snapshot = await persist();
-      const blob = await exportProject(snapshot);
+
       await downloadBlob(blob, `drift-project-${timestampSlug()}.pitched`);
       announce("Portable Project V4 saved with original media and SHA-256 manifest.", "good");
     } catch (error) {
+      if (error instanceof NativeMacDocumentConflictError) setDocumentConflict(true);
       announce(isAbortError(error) ? "Portable project save canceled." : error instanceof Error ? error.message : "Portable project could not be saved.", isAbortError(error) ? "quiet" : "error");
     }
-  }, [announce, persist]);
+  }, [announce, nativeMac, persist]);
 
   const savePortableProject = useCallback(() => {
     void enqueueProjectOperation(savePortableProjectNow);
   }, [enqueueProjectOperation, savePortableProjectNow]);
 
-  const openPortableProjectFile = useCallback(async (file: File, propagateFailure = false) => {
+  const savePortableProjectAs = useCallback(() => {
+    void enqueueProjectOperation(() => savePortableProjectNow("save-as"));
+  }, [enqueueProjectOperation, savePortableProjectNow]);
+
+  const openPortableProjectFile = useCallback(async (
+    file: File,
+    propagateFailure = false,
+    bindNativeDocument = true,
+  ) => {
     try {
       const verified = await importProject<StudioProjectPayload>(file);
       // Parse, validate, hash-match, and decode the complete candidate before
@@ -1372,6 +1537,16 @@ export function App() {
             prepared.presenter,
           );
           identityRef.current = { projectId: saved.manifest.projectId, createdAt: saved.manifest.createdAt };
+          if (bindNativeDocument) {
+            const nativeReceipt = await confirmNativeMacDocumentOpen(file);
+            if (nativeReceipt) {
+              documentRevisionRef.current = createProjectRevisionState();
+              documentSha256Ref.current = nativeReceipt.sha256;
+              setDocumentBound(true);
+              setDocumentConflict(false);
+              setDocumentRevisionVersion((version) => version + 1);
+            }
+          }
           hydratedRef.current = true;
           recoverySnapshotRef.current = null;
         } catch (error) {
@@ -1393,10 +1568,56 @@ export function App() {
       }
       announce("Portable project verified, migrated when necessary, and copied into local Project V4 storage.", "good");
     } catch (error) {
+      if (bindNativeDocument) await abandonNativeMacDocumentOpen();
       announce(error instanceof Error ? `Project rejected: ${error.message}` : "Project was rejected.", "error");
       if (propagateFailure) throw error;
     }
   }, [announce, installPreparedProjectState, persist, persistExactProject, prepareProjectState, publishLiveProject, replaceProjectState, settingsForCurrentAuthority]);
+
+  const requestPortableProject = useCallback(() => {
+    void pickNativeMacFiles("project", false)
+      .then((files) => {
+        if (files === null) {
+          importInputRef.current?.click();
+          return;
+        }
+        const file = files[0];
+        if (file) void enqueueProjectOperation(() => openPortableProjectFile(file, true), true).catch(() => undefined);
+      })
+      .catch((error: unknown) => {
+        if (!isAbortError(error)) announce(error instanceof Error ? error.message : "Project could not be opened.", "error");
+      });
+  }, [announce, enqueueProjectOperation, openPortableProjectFile]);
+
+  const revertPortableProject = useCallback(() => {
+    void enqueueProjectOperation(async () => {
+      const expectedSha256 = documentSha256Ref.current;
+      if (!documentBound || !expectedSha256 || !nativeDocumentState.revertible) {
+        throw new DOMException("This project has no conflict-free saved document to revert to.", "InvalidStateError");
+      }
+      try {
+        const result = await revertNativeMacDocument({
+          transactionId: `revert-${globalThis.crypto.randomUUID()}`,
+          expectedSha256,
+        });
+        if (!result) throw new DOMException("The native project document bridge is unavailable.", "NotSupportedError");
+        const file = new File([result.blob], "Reverted Project.pitched", {
+          type: "application/vnd.pitchdog.pitched+zip",
+        });
+        await openPortableProjectFile(file, true, false);
+        documentRevisionRef.current = createProjectRevisionState();
+        documentSha256Ref.current = result.receipt.sha256;
+        setDocumentConflict(false);
+        setDocumentRevisionVersion((version) => version + 1);
+        announce("Reverted to the last native-verified .pitched bytes.", "good");
+      } catch (error) {
+        if (error instanceof NativeMacDocumentConflictError) setDocumentConflict(true);
+        throw error;
+      }
+    }, true).catch((error: unknown) => {
+      announce(error instanceof Error ? error.message : "Project could not be reverted.", "error");
+    });
+  }, [announce, documentBound, enqueueProjectOperation, nativeDocumentState.revertible, openPortableProjectFile]);
 
   const openPortableProject = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
@@ -1607,8 +1828,8 @@ export function App() {
     switch (command) {
     case "open-project":
       if (!portableProjectFilesEnabled) return false;
-      importInputRef.current?.click();
-      return Boolean(importInputRef.current);
+      requestPortableProject();
+      return true;
     case "add-slides":
       imageInputRef.current?.click();
       return Boolean(imageInputRef.current);
@@ -1618,6 +1839,14 @@ export function App() {
     case "save-project":
       if (!portableProjectFilesEnabled) return false;
       savePortableProject();
+      return true;
+    case "save-project-as":
+      if (!portableProjectFilesEnabled) return false;
+      savePortableProjectAs();
+      return true;
+    case "revert-project":
+      if (!portableProjectFilesEnabled || !nativeDocumentState.revertible) return false;
+      revertPortableProject();
       return true;
     case "export-mp4":
       void exportVideo();
@@ -1658,7 +1887,7 @@ export function App() {
     }
     if (kind === "project" && !portableProjectFilesEnabled) {
       throw new DOMException(
-        "Drift V2 Dev uses copied fixtures only. Open real .pitched work in Drift.",
+        "Portable project documents are unavailable in this build.",
         "NotAllowedError",
       );
     }
@@ -1687,8 +1916,9 @@ export function App() {
       projectBusy: projectBusy || saveState === "loading",
       saveState,
       lastNotice: notice,
+      document: nativeDocumentState,
     });
-  }, [exportInProgress, notice, projectBusy, saveState]);
+  }, [exportInProgress, nativeDocumentState, notice, projectBusy, saveState]);
 
   const capabilityLabel = webglError
     ? "DOM fallback"
@@ -1718,6 +1948,86 @@ export function App() {
             : "saved locally";
   const interactionBusy = Boolean(abortRef.current) || exportInProgress || projectBusy || saveState === "loading";
 
+  const runStudioCommand = (command: StudioCommandDefinition) => {
+    const { action } = command;
+    switch (action.type) {
+      case "workspace.switch":
+        setActiveWorkspace(action.workspace);
+        setActivePanel("director");
+        return;
+      case "world.select":
+      case "theme.select":
+        setActiveWorkspace("world");
+        setActivePanel("director");
+        return;
+      case "preview.pause.toggle":
+        togglePause();
+        return;
+      case "preview.focus.toggle":
+        setFocusMode((value) => !value);
+        return;
+      case "guide.toggle":
+        setPlatformGuideId((id) => id === "none" ? "instagram-combined" : "none");
+        setActiveWorkspace("master");
+        setActivePanel("director");
+        return;
+      case "comparison.toggle":
+        toggleV2Comparison();
+        return;
+      case "timing.mode.set": {
+        const current = projectRef.current;
+        if (!current) return;
+        const intent = { ...readTimingIntent(current).intent, mode: action.mode };
+        const withIntent = withTimingIntent(structuredClone(current), intent);
+        const resolution = resolveProjectTiming(withIntent, resolveMovingMedia(withIntent).count, intent);
+        updateV2Project(applyTimingResolution(withIntent, resolution), action.mode === "fixed-master" ? "Exact master length now owns timing." : "Reading pace now owns timing.");
+        return;
+      }
+      case "timing.close-at-cut": {
+        const current = projectRef.current;
+        if (!current) return;
+        const next = structuredClone(current);
+        const moving = resolveMovingMedia(next);
+        if (moving.count === 0) return;
+        const bodySeconds = createPerformanceLifecycle(next.performance).bodyCycles.reduce((total, body) => total + body.duration, 0);
+        next.motion.seamless.enabled = true;
+        next.motion.seamless.loops = Math.max(1, Math.min(100, Math.round(next.motion.transport.slidesPerSecond * bodySeconds / moving.count)));
+        const resolution = resolveProjectTiming(next, moving.count);
+        updateV2Project(applyTimingResolution(next, resolution), "Timeline closed at a complete deck pass.");
+        return;
+      }
+      case "media.slides.add":
+        imageInputRef.current?.click();
+        return;
+      case "media.presenter.add":
+        presenterInputRef.current?.click();
+        return;
+      case "media.pin-selected": {
+        const selected = assetsRef.current.find((asset) => asset.id === selectedSlideId) ?? null;
+        if (selected) pin(selected);
+        return;
+      }
+      case "media.pin-return":
+        pin(null);
+        return;
+      case "export.still":
+        void exportStill();
+        return;
+      case "export.sequence":
+        void exportFrames();
+        return;
+      case "export.mp4":
+        void exportVideo();
+        return;
+      case "history.undo":
+        undoV2Project();
+        return;
+      case "history.redo":
+        redoV2Project();
+        return;
+    }
+  };
+
   return (
     <main className="app" data-focus={focusMode} data-active-panel={activePanel} data-build-channel={driftBuildIdentity.channel} aria-busy={interactionBusy}>
       <header className="app-header">
@@ -1727,11 +2037,14 @@ export function App() {
           {driftBuildIdentity.isDevelopment ? <em className="dev-build-badge">V2 DEV</em> : null}
         </a>
         <p>Decks should move like they mean it.</p>
-        <div className="header-status">
-          <span className="capability-dot" data-ready={!webglError} />
-          <span>{capabilityLabel}</span>
-          <span className="header-divider" />
-          <span>{localSaveStatusLabel}</span>
+        <div className="header-actions">
+          <div className="header-status">
+            <span className="capability-dot" data-ready={!webglError} />
+            <span>{capabilityLabel}</span>
+            <span className="header-divider" />
+            <span>{localSaveStatusLabel}</span>
+          </div>
+          <button type="button" className="command-trigger" aria-label="Open command palette" onClick={() => setCommandPaletteOpen(true)} disabled={interactionBusy}>⌘K</button>
         </div>
       </header>
 
@@ -1748,6 +2061,8 @@ export function App() {
           assets={assets}
           presenter={presenter}
           pinnedAssetId={stagePresentation.pinEnabled ? stagePresentation.pinnedAssetId : null}
+          selectedAssetId={selectedSlideId}
+          slideHealth={slideHealth}
           imageInputRef={imageInputRef}
           presenterInputRef={presenterInputRef}
           onAddImages={addImages}
@@ -1755,6 +2070,11 @@ export function App() {
           onRemove={removeAsset}
           onReorder={reorder}
           onPin={pin}
+          onSelect={(assetId) => {
+            setSelectedSlideId(assetId);
+            setActiveWorkspace("slides");
+            setActivePanel("director");
+          }}
           onRemovePresenter={removePresenter}
           busy={interactionBusy}
         />
@@ -1770,6 +2090,7 @@ export function App() {
           paused={paused}
           focusMode={focusMode}
           activeSlideIndex={activeSlideIndex}
+          platformGuide={platformGuide}
           exportProgress={exportProgress}
           onTogglePause={togglePause}
           onStep={(amount) => engineRef.current?.stepSlides(amount)}
@@ -1779,6 +2100,20 @@ export function App() {
           busy={interactionBusy}
         />
         <ControlPanel
+          workspace={activeWorkspace}
+          onWorkspace={(nextWorkspace) => {
+            setActiveWorkspace(nextWorkspace);
+            setActivePanel("director");
+          }}
+          selectedSlideId={selectedSlideId}
+          selectedSlideHealth={selectedSlideId ? slideHealth[selectedSlideId] ?? null : null}
+          slideHealth={Object.values(slideHealth)}
+          platformGuideId={platformGuideId}
+          platformGuide={platformGuide}
+          guideOverlaps={guideOverlaps}
+          customGuideInsets={customGuideInsets}
+          onPlatformGuide={setPlatformGuideId}
+          onCustomGuideInsets={setCustomGuideInsets}
           settings={settings}
           project={liveProject}
           v2Active={v2Active}
@@ -1800,8 +2135,10 @@ export function App() {
           onExportVideo={exportVideo}
           onExportFrames={exportFrames}
           onExportProject={savePortableProject}
-          onImportProject={() => importInputRef.current?.click()}
+          onImportProject={requestPortableProject}
           projectFilesEnabled={portableProjectFilesEnabled}
+          exportCapabilities={exportCapabilities}
+          exportSurfaceSupported={!webglError && contextState !== "lost"}
           exporting={interactionBusy}
         />
       </div>
@@ -1814,6 +2151,14 @@ export function App() {
         disabled={interactionBusy || !portableProjectFilesEnabled}
         accept=".pitched,application/vnd.pitchdog.pitched+zip,application/zip"
         onChange={openPortableProject}
+      />
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        workspace={activeWorkspace}
+        disabled={interactionBusy}
+        onClose={() => setCommandPaletteOpen(false)}
+        onRun={runStudioCommand}
       />
 
       {notice ? (

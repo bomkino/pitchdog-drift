@@ -12,6 +12,20 @@ interface RangeFieldProps {
   onChange: (value: number) => void;
 }
 
+interface RangeNumberFieldProps {
+  label: string;
+  value: number;
+  softMin: number;
+  softMax: number;
+  hardMin: number;
+  hardMax: number;
+  step: number;
+  unit?: string;
+  decimals?: number;
+  hint?: string;
+  onChange: (value: number) => void;
+}
+
 export function RangeField({ label, value, min, max, step, unit = "", decimals = 0, hint, onChange }: RangeFieldProps) {
   const id = useId();
   const hintId = `${id}-hint`;
@@ -31,6 +45,103 @@ export function RangeField({ label, value, min, max, step, unit = "", decimals =
         value={value}
         onChange={(event) => onChange(Number(event.currentTarget.value))}
       />
+      {hint ? <small id={hintId}>{hint}</small> : null}
+    </div>
+  );
+}
+
+/**
+ * Keeps the everyday slider rail tasteful while allowing exact extreme values.
+ * The typed value is authoritative; values outside the soft rail pin its thumb
+ * to the nearest edge instead of being silently clamped back to the taste range.
+ */
+export function RangeNumberField({
+  label,
+  value,
+  softMin,
+  softMax,
+  hardMin,
+  hardMax,
+  step,
+  unit = "",
+  decimals = 0,
+  hint,
+  onChange,
+}: RangeNumberFieldProps) {
+  const id = useId();
+  const numberId = `${id}-number`;
+  const unitId = `${id}-unit`;
+  const hintId = `${id}-hint`;
+  const describedBy = [unit ? unitId : null, hint ? hintId : null].filter(Boolean).join(" ") || undefined;
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commitDraft = () => {
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+    const clamped = Math.min(hardMax, Math.max(hardMin, parsed));
+    const next = Number((hardMin + Math.round((clamped - hardMin) / step) * step).toFixed(6));
+    setDraft(String(next));
+    if (next !== value) onChange(next);
+  };
+
+  const railValue = Math.min(softMax, Math.max(softMin, value));
+
+  return (
+    <div className="control-field range-field range-number-field">
+      <span className="control-label">
+        <label htmlFor={id}>{label}</label>
+        <span className="range-number-input-wrap">
+          <input
+            id={numberId}
+            aria-label={`${label} exact value`}
+            aria-describedby={describedBy}
+            type="number"
+            inputMode="decimal"
+            min={hardMin}
+            max={hardMax}
+            step={step}
+            value={draft}
+            onChange={(event) => {
+              const nextDraft = event.currentTarget.value;
+              setDraft(nextDraft);
+              const next = event.currentTarget.valueAsNumber;
+              if (
+                Number.isFinite(next)
+                && next >= hardMin
+                && next <= hardMax
+                && !event.currentTarget.validity.stepMismatch
+              ) onChange(next);
+            }}
+            onBlur={commitDraft}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setDraft(String(value));
+              }
+            }}
+          />
+          {unit ? <small id={unitId}>{unit}</small> : null}
+        </span>
+      </span>
+      <input
+        id={id}
+        aria-describedby={hint ? hintId : undefined}
+        type="range"
+        min={softMin}
+        max={softMax}
+        step={step}
+        value={railValue}
+        onChange={(event) => onChange(Number(event.currentTarget.value))}
+      />
+      <small className="range-number-readout" aria-hidden="true">
+        {value.toFixed(decimals)}{unit}
+      </small>
       {hint ? <small id={hintId}>{hint}</small> : null}
     </div>
   );
@@ -204,12 +315,13 @@ interface InspectorGroupProps {
   title: string;
   eyebrow?: string;
   open?: boolean;
+  workspaces?: string;
   children: ReactNode;
 }
 
-export function InspectorGroup({ title, eyebrow, open = false, children }: InspectorGroupProps) {
+export function InspectorGroup({ title, eyebrow, open = false, workspaces, children }: InspectorGroupProps) {
   return (
-    <details className="inspector-group" open={open}>
+    <details className="inspector-group" data-workspaces={workspaces} open={open}>
       <summary>
         <span>{title}</span>
         {eyebrow ? <small>{eyebrow}</small> : null}

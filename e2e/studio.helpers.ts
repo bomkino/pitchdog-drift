@@ -14,3 +14,11 @@ export async function waitForStudio(page: Page): Promise<void> {
   await expect(page.locator(".asset-list li").first()).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-context", /ready|restored/);
 }
+
+export async function switchWorkspace(
+  page: Page,
+  name: "SLIDES" | "WORLD" | "DIRECT" | "MASTER",
+): Promise<void> {
+  const button = page.getByRole("button", { name, exact: true });
+  if (await button.getAttribute("aria-current") !== "page") await button.click();
+}

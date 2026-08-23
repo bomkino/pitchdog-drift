@@ -16,7 +16,16 @@ export type ImageFit = "cover" | "contain";
 export type PresenterTrackMode = "pinned-only" | "moving-and-pinned";
 export type PresenterLayoutMode = "safe-overlay" | "legacy-perspective";
 export type PresenterAspectMode = "source" | "custom";
-export type BackgroundStyle = "transparent" | "solid" | "gradient" | "aura" | "paper" | "void";
+export type BackgroundStyle =
+  | "transparent"
+  | "solid"
+  | "gradient"
+  | "aura"
+  | "paper"
+  | "void"
+  | "cutting-map"
+  | "grid"
+  | "wave";
 export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
 
 export interface StageSettings {

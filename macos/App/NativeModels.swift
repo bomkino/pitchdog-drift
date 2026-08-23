@@ -73,6 +73,7 @@ func driftBuildIdentityIsValid() -> Bool {
 
 var driftAllowsExternalPortableProjects: Bool {
     driftBuildChannel == "release"
+        || driftBuildChannel == "v2-dev"
         || CommandLine.arguments.contains("--webview-self-test")
         || CommandLine.arguments.contains("--native-self-test")
 }
@@ -251,9 +252,17 @@ struct ClientState {
     // Native diagnostics need only know whether one exists; never carry the
     // notice text across the privileged boundary.
     var lastNotice: String?
+    var documentBound = false
+    var documentDirty = true
+    var documentRevertible = false
+    var documentConflict = false
 
     var hasProtectedWork: Bool {
         exportInProgress || projectBusy || saveState == "saving" || saveState == "failed" || saveState == "recovery"
+    }
+
+    var hasUnsavedDocument: Bool {
+        documentDirty || documentConflict
     }
 
     var protectionReason: String {
@@ -278,6 +287,14 @@ struct ClientState {
                 : "present (content withheld)"
         } else if payload.keys.contains("lastNotice") {
             lastNotice = nil
+        }
+        if let document = payload["document"] as? JSONDictionary {
+            documentBound = document["bound"] as? Bool == true
+            documentDirty = document["dirty"] as? Bool != false
+            documentRevertible = document["revertible"] as? Bool == true
+            documentConflict = document["conflict"] as? Bool == true
+            if !documentBound { documentRevertible = false }
+            if documentConflict { documentRevertible = false }
         }
     }
 

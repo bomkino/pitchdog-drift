@@ -12,9 +12,9 @@ Drift is pre-1.0 and currently source-first. Read the [project status](docs/STAT
 
 ## V2 development boundary
 
-The `codex/v2-directors-cut` branch contains the integrated V2 Director's Cut candidate. It combines Project V4, one canonical renderer/export path, eight authored Worlds, sixteen portrait scenes, forty live backgrounds, editorial timing, space, material, analytical light, global optics, tactile sound, and a directable pinned frame. It is a local development candidate, not a public release or a claim of owner creative approval.
+The `codex/v2-directors-cut` branch contains the integrated V2 Director's Cut candidate. It combines Project V4, one canonical renderer/export path, eight authored Worlds, sixteen portrait scenes, sixty-four live backgrounds, editorial timing, space, material, analytical light, global optics, tactile sound, and a directable pinned frame. It is a local development candidate, not a public release or a claim of owner creative approval.
 
-V2 runs as `Drift V2 Dev.app` with a separate bundle identifier, WebKit store, cache, IndexedDB database, and sandbox. It deliberately does not own, open, or save real `.pitched` documents yet; use the installed V1 `Drift.app` for production projects. See the [current V2 status](docs/v2/CURRENT_STATUS.md), [requirement matrix](docs/v2/V2_REQUIREMENT_PHASE_MATRIX.md), and [donor ledger](docs/v2/DONOR_LEDGER.yaml).
+V2 runs as `Drift V2 Dev.app` with a separate bundle identifier, WebKit store, cache, IndexedDB database, and sandbox. It can open, save, save as, and revert user-selected `.pitched` documents, but deliberately does not register or own the `.pitched` Finder type; installed V1 `Drift.app` remains the default document owner. See the [current V2 status](docs/v2/CURRENT_STATUS.md), [requirement matrix](docs/v2/V2_REQUIREMENT_PHASE_MATRIX.md), and [donor ledger](docs/v2/DONOR_LEDGER.yaml).
 
 ```bash
 npm run dev                  # browser V2 Dev on 127.0.0.1:4174
@@ -41,7 +41,7 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - One optional pinned image or presenter video, off by default.
 - Independent pinned-frame size, X/Y position, safe inset, aspect, fit, focal point, matte, corners, border, shadow, timing, and track controls.
 - Four cuts, six performances, four motion characters, four pose cadences, six handcrafted stacks, entry/exit direction, exact repeats, and editable tempo envelopes.
-- Ten spatial paths, four material recipes, twelve light rigs, eight lens recipes, forty backgrounds, twenty palettes, and sixteen portrait-native scenes.
+- Ten spatial paths, four material recipes, twelve light rigs, eight lens recipes, sixty-four backgrounds across eight structural families, twenty palettes, and sixteen portrait-native scenes.
 - Optional deterministic tactile sound from 23 local CC0 recordings, with three palettes, three grammars, and presenter-under-voice mixing.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
 - Presenter audio at AAC-LC, 48 kHz stereo, with explicit priming, padding, and A/V-sync checks.

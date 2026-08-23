@@ -43,32 +43,23 @@ if (buildChannel === "release") {
 } else {
   requireMarkers([
     "# Drift V2 Dev for macOS — user guide",
-    "Drift V2 Dev does **not** open, save, register, or own `.pitched` documents.",
-    "Use `/Applications/Drift.app` for real projects and portable `.pitched` backups.",
+    "Drift V2 Dev can open, save, save as, and revert user-selected `.pitched` documents.",
+    "It does **not** register or own the `.pitched` Finder document type",
     "npm run build:mac:v2-dev",
     "npm run verify:mac:v2-dev",
     "build/macos/v2-dev/Drift V2 Dev.app",
-    "Portable-project Open and Save commands stay disabled.",
+    "Use **File → Open Project…** or **Command–O**",
+    "Use **File → Save Project**, **Command–S**, or **File → Save Project As…**",
+    "Finder document ownership remains with `Drift.app`",
     "Help → View Complete Source",
   ]);
   forbidMarkers([
     "Use **File → Save Portable Project…**",
-    "Use **File → Open Project…**",
+    "Portable-project Open and Save commands stay disabled.",
+    "does **not** open, save, register, or own",
     "Open With Drift",
-    "**Command–O:** Open `.pitched` project",
-    "**Command–S:** Save portable project",
     "Drag `Drift.app` from the disk image to Applications.",
   ]);
-  const unsafePitchedLine = guide
-    .split(/\r?\n/)
-    .find((line) => line.includes(".pitched") && ![
-      "does **not**",
-      "Use `/Applications/Drift.app`",
-      "ownership remains with `Drift.app`",
-    ].some((safeMarker) => line.includes(safeMarker)));
-  if (unsafePitchedLine) {
-    fail(`v2-dev guide contains an ownership-ambiguous .pitched line: ${JSON.stringify(unsafePitchedLine)}`);
-  }
 }
 
 console.log(`Verified ${buildChannel} macOS user guide: ${guidePath}`);

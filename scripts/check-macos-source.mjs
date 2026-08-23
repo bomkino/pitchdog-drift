@@ -34,6 +34,7 @@ const appSwift = [
   "macos/App/NativeFileBroker.swift",
   "macos/App/NativeGauntlet.swift",
   "macos/App/NativeModels.swift",
+  "macos/App/NativePortableProjectSession.swift",
   "macos/App/WebViewSelfTest.swift",
 ];
 const probes = [
@@ -149,6 +150,12 @@ requireMarkers("macos/NativeBridge.js", [
   "__driftNativeCall",
   "__driftNativeInstallAppBridge",
   "__driftNativeSaveBlob",
+  "__driftNativeDocumentTransaction",
+  "__driftNativeConfirmProjectOpen",
+  "__driftNativeAbandonProjectOpen",
+  "async function verifiedDocumentWrite(handle, blob, expectedSha256)",
+  "await writable.__driftReadStagedFile()",
+  "await writable.__driftCommit()",
   "function assertSafeLeafName",
   "await abortNativeSession(error)",
 ]);
@@ -184,7 +191,7 @@ const fileCommands = [
   "directory-remove-entry", "directory-release",
 ];
 const appCommands = [
-  "open-project", "add-slides", "add-presenter", "save-project", "export-mp4",
+  "open-project", "add-slides", "add-presenter", "save-project", "save-project-as", "revert-project", "export-mp4",
   "export-still", "export-frames", "toggle-playback", "previous-slide", "next-slide",
   "toggle-focus", "cancel-export",
 ];
@@ -213,12 +220,17 @@ requireMarkers("src/App.tsx", [
   "installNativeMacAppBridge",
   "reportNativeMacClientState",
   "saveNativeMacBlob",
+  "saveNativeMacDocument",
+  "saveNativeMacDocumentAs",
+  "revertNativeMacDocument",
+  "confirmNativeMacDocumentOpen(file)",
+  "abandonNativeMacDocumentOpen()",
   "selectProjectMediaWithinBudget(",
   "projectMediaViolation(file.size, existingSlideBytes)",
   "projectAssetBytes(",
   "imageInputRef={imageInputRef}",
   "presenterInputRef={presenterInputRef}",
-  "openPortableProjectFile = useCallback(async (file: File, propagateFailure = false)",
+  "openPortableProjectFile = useCallback(async (",
   "if (propagateFailure) throw error",
   "openPortableProjectFile(file, true)",
   "advanceLocalSaveRevision(saveRevisionAuthorityRef.current)",
@@ -678,21 +690,25 @@ requireMarkers("scripts/verify-macos-app.sh", [
 ]);
 requireMarkers("scripts/verify-macos-user-guide.mjs", [
   'buildChannel === "release"',
-  "Drift V2 Dev does **not** open, save, register, or own `.pitched` documents.",
+  "Drift V2 Dev can open, save, save as, and revert user-selected `.pitched` documents.",
+  "It does **not** register or own the `.pitched` Finder document type",
   "Use **File → Save Portable Project…**",
-  "Portable-project Open and Save commands stay disabled.",
+  "Use **File → Save Project**, **Command–S**, or **File → Save Project As…**",
   "guide contains forbidden",
 ]);
 requireMarkers("docs/v2/MACOS_V2_DEV_USER_GUIDE.md", [
   "# Drift V2 Dev for macOS — user guide",
-  "Drift V2 Dev does **not** open, save, register, or own `.pitched` documents.",
-  "Use `/Applications/Drift.app` for real projects and portable `.pitched` backups.",
-  "Portable-project Open and Save commands stay disabled.",
+  "Drift V2 Dev can open, save, save as, and revert user-selected `.pitched` documents.",
+  "It does **not** register or own the `.pitched` Finder document type",
+  "Use **File → Open Project…** or **Command–O**",
+  "Use **File → Save Project**, **Command–S**, or **File → Save Project As…**",
+  "Finder document ownership remains with `Drift.app`",
   "Help → View Complete Source",
 ]);
 forbidMarkers("docs/v2/MACOS_V2_DEV_USER_GUIDE.md", [
   "Use **File → Save Portable Project…**",
-  "Use **File → Open Project…**",
+  "Portable-project Open and Save commands stay disabled.",
+  "does **not** open, save, register, or own",
   "Open With Drift",
 ]);
 requireMarkers("macos/App/DriftAppDelegate.swift", [
@@ -702,6 +718,7 @@ requireMarkers("macos/App/DriftAppDelegate.swift", [
   'Bundle.main.object(forInfoDictionaryKey: "DriftSourceRevision") as? String',
 ]);
 requireMarkers("macos/App/NativeGauntlet.swift", [
+  "NativePortableProjectSession.runSelfTest()",
   "complete-source Help URL did not bind to the exact recorded revision",
   "malformed source revision escaped the repository-root fallback",
 ]);

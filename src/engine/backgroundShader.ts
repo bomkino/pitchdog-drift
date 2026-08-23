@@ -1,8 +1,11 @@
 import { auraBackgroundBranch } from "./backgroundShaders/aura";
+import { cuttingMapBackgroundBranch } from "./backgroundShaders/cuttingMap";
 import { gradientBackgroundBranch } from "./backgroundShaders/gradient";
+import { gridBackgroundBranch } from "./backgroundShaders/grid";
 import { paperBackgroundBranch } from "./backgroundShaders/paper";
 import { solidBackgroundBranch } from "./backgroundShaders/solid";
 import { voidBackgroundBranch } from "./backgroundShaders/void";
+import { waveBackgroundBranch } from "./backgroundShaders/wave";
 
 export const backgroundFragmentShader = /* glsl */ `
   precision highp float;
@@ -66,12 +69,12 @@ export const backgroundFragmentShader = /* glsl */ `
   }
 
   float filmGrain(vec2 pixel, float frame) {
-    // Keep both stocks above the single-pixel Nyquist trap. The canvas is
-    // routinely downsampled inside the studio, so sub-pixel noise turns into
-    // contour bands and moire even when the full-resolution master is sound.
-    float fine = grainValueNoise(pixel / 4.6, frame);
-    float clump = grainValueNoise(pixel / 10.5 + 41.0, frame + 17.0);
-    return ((fine - 0.5) * 0.82 + (clump - 0.5) * 0.18) * 2.0;
+    // Fine emulsion must read as texture, never as a field of square tiles.
+    // A restrained larger stock keeps the plate visible after downsampling;
+    // the fine stock carries most of the energy at native export resolution.
+    float fine = grainValueNoise(pixel / 1.35, frame);
+    float clump = grainValueNoise(pixel / 3.4 + 41.0, frame + 17.0);
+    return ((fine - 0.5) * 0.76 + (clump - 0.5) * 0.24) * 2.0;
   }
 
   float fbm(vec2 p) {
@@ -158,6 +161,9 @@ ${gradientBackgroundBranch}
 ${auraBackgroundBranch}
 ${paperBackgroundBranch}
 ${voidBackgroundBranch}
+${cuttingMapBackgroundBranch}
+${gridBackgroundBranch}
+${waveBackgroundBranch}
 
     // Shared treatment: aspect-correct vignette. Grain remains a distinct
     // finishing plate so paper texture, atmosphere and camera stock never blur

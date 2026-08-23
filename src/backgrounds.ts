@@ -4,7 +4,7 @@ import type { AtmosphereSettings } from "./core/project/schema";
 export type OpaqueBackgroundStyle = Exclude<BackgroundStyle, "transparent">;
 
 export const BACKGROUND_COMPOSITIONS_PER_FAMILY = 8;
-export const BACKGROUND_COMPOSITION_COUNT = BACKGROUND_COMPOSITIONS_PER_FAMILY * 5;
+export const BACKGROUND_COMPOSITION_COUNT = BACKGROUND_COMPOSITIONS_PER_FAMILY * 8;
 export const BACKGROUND_ATLAS_SEED_BASE = 10_000;
 export const BACKGROUND_VARIATION_COUNT = 100;
 
@@ -41,6 +41,9 @@ export const BACKGROUND_FAMILY_LABELS: Readonly<Record<OpaqueBackgroundStyle, st
   aura: "Luminous aura",
   paper: "Printed matter",
   void: "Darkroom void",
+  "cutting-map": "Cutting map",
+  grid: "Quiet grid",
+  wave: "Tidal wave",
 };
 
 export const BACKGROUND_COMPOSITIONS: Readonly<Record<OpaqueBackgroundStyle, readonly BackgroundComposition[]>> = {
@@ -93,6 +96,36 @@ export const BACKGROUND_COMPOSITIONS: Readonly<Record<OpaqueBackgroundStyle, rea
     { id: "rain-negative", name: "Rain negative", description: "Long diagonal rain scratches over a photographic negative." },
     { id: "chemical-burn", name: "Chemical burn", description: "An irregular emulsion burn with a luminous reaction edge." },
     { id: "black-tide", name: "Black tide", description: "Several submerged wave fronts rising through darkness." },
+  ],
+  "cutting-map": [
+    { id: "contour-notes", name: "Contour notes", description: "Fine topographic traces gathering around the reading corridor." },
+    { id: "folded-atlas", name: "Folded atlas", description: "A restrained map fold with offset regions and a softened spine." },
+    { id: "route-thread", name: "Route thread", description: "One patient route line crossing a field of quieter local marks." },
+    { id: "parcel-lines", name: "Parcel lines", description: "Irregular survey divisions held below the deck's visual pressure." },
+    { id: "registration-field", name: "Registration field", description: "Printer's crosses and trim marks drifting inside generous margins." },
+    { id: "coastline-proof", name: "Coastline proof", description: "A single eroded boundary with faint depth lines behind it." },
+    { id: "crop-window", name: "Crop window", description: "Editorial crop corners and a quiet off-centre proofing window." },
+    { id: "survey-drift", name: "Survey drift", description: "Measured bearings and contour arcs moving like handled field notes." },
+  ],
+  grid: [
+    { id: "modular-field", name: "Modular field", description: "A low-contrast modular grid with one gently weighted interval." },
+    { id: "offset-ledger", name: "Offset ledger", description: "Two registration systems meeting with a small deliberate offset." },
+    { id: "quiet-thirds", name: "Quiet thirds", description: "Broad compositional thirds with thin secondary subdivisions." },
+    { id: "baseline-rhythm", name: "Baseline rhythm", description: "Horizontal editorial rules interrupted by sparse vertical measures." },
+    { id: "coordinate-crosses", name: "Coordinate crosses", description: "Small coordinate crosses placed on a generous invisible lattice." },
+    { id: "broken-matrix", name: "Broken matrix", description: "A modular field with selected lines withheld to create breathing room." },
+    { id: "contact-columns", name: "Contact columns", description: "Tall photographic columns and slim gutters shaped for either axis." },
+    { id: "perspective-register", name: "Perspective register", description: "A shallow receding register that stays architectural, never game-like." },
+  ],
+  wave: [
+    { id: "tidal-horizon", name: "Tidal horizon", description: "One slow horizon swell with a faintly luminous leading edge." },
+    { id: "nested-swell", name: "Nested swell", description: "Several broad nested curves rising at different patient tempos." },
+    { id: "interference-bed", name: "Interference bed", description: "Two quiet wave systems meeting without hard moire or flicker." },
+    { id: "ribbon-current", name: "Ribbon current", description: "A soft current ribbon folding through the background plane." },
+    { id: "standing-wave", name: "Standing wave", description: "A restrained standing wave breathing around a stable centre line." },
+    { id: "radial-echo", name: "Radial echo", description: "Off-centre circular echoes diffused into photographic atmosphere." },
+    { id: "contour-current", name: "Contour current", description: "Flow lines bending around the focal corridor like water around stone." },
+    { id: "undertow-lines", name: "Undertow lines", description: "Long submerged bands pulling gently beneath a calm upper field." },
   ],
 };
 
@@ -292,6 +325,33 @@ export const BACKGROUND_STUDIES: readonly BackgroundStudy[] = [
   makeStudy("rain-negative", "Rain Negative", "void", "Noir", "Cyan rain scratches cutting through a blue-black negative.", "midnight-cyan", 5, 42, 0.86, 0.3, 0.24, 0.78),
   makeStudy("chemical-burn", "Chemical Burn", "void", "Experimental", "An acidic emulsion reaction opening inside darkroom green.", "chemical-green", 6, 58, 0.94, 0.22, 0.2, 0.72),
   makeStudy("black-tide", "Black Tide", "void", "Dread", "Several black wave fronts carrying a faint silver edge.", "silver-gelatin", 7, 95, 0.76, 0.12, 0.18, 0.82),
+
+  makeStudy("contour-notes-study", "Contour Notes", "cutting-map", "Editorial", "Fine survey traces gathered around a warm, legible reading corridor.", "daylight-paper", 0, 11, 0.42, 0.07, 0.14, 0.16),
+  makeStudy("folded-atlas-study", "Folded Atlas", "cutting-map", "Travel", "A dusk atlas opened along one softened off-centre fold.", "desert-film", 1, 36, 0.5, 0.08, 0.12, 0.28),
+  makeStudy("route-thread-study", "Route Thread", "cutting-map", "Journey", "One coral route carried through a field of quiet bearings.", "coral-broadcast", 2, 62, 0.46, 0.1, 0.1, 0.22),
+  makeStudy("parcel-lines-study", "Parcel Lines", "cutting-map", "Documentary", "Survey parcels receding into a graphite editorial ground.", "newsprint", 3, 27, 0.36, 0.05, 0.2, 0.34),
+  makeStudy("registration-field-study", "Registration Field", "cutting-map", "Print", "Sparse printer's marks held inside an old-paper proofing field.", "bone-ink", 4, 49, 0.38, 0.06, 0.16, 0.26),
+  makeStudy("coastline-proof-study", "Coastline Proof", "cutting-map", "Archive", "A cold eroded boundary with barely visible depth contours.", "alpine-blue", 5, 78, 0.44, 0.09, 0.12, 0.32),
+  makeStudy("crop-window-study", "Crop Window", "cutting-map", "Art direction", "An off-centre crop proof with disciplined negative space.", "silver-gelatin", 6, 18, 0.32, 0.04, 0.16, 0.38),
+  makeStudy("survey-drift-study", "Survey Drift", "cutting-map", "Field notes", "Measured arcs and bearings moving through moss-dark stock.", "forest-negative", 7, 91, 0.48, 0.11, 0.16, 0.42),
+
+  makeStudy("modular-field-study", "Modular Field", "grid", "Editorial", "A warm modular system with one interval quietly carrying weight.", "daylight-paper", 0, 15, 0.34, 0.05, 0.12, 0.12),
+  makeStudy("offset-ledger-study", "Offset Ledger", "grid", "Archive", "Two silver registration systems meeting just out of alignment.", "silver-gelatin", 1, 41, 0.4, 0.07, 0.18, 0.36),
+  makeStudy("quiet-thirds-study", "Quiet Thirds", "grid", "Composition", "Broad thirds and faint subdivisions held behind the work.", "bone-ink", 2, 70, 0.3, 0.04, 0.1, 0.18),
+  makeStudy("baseline-rhythm-study", "Baseline Rhythm", "grid", "Typography", "Editorial baselines crossing a compressed grey ink field.", "newsprint", 3, 25, 0.38, 0.06, 0.2, 0.32),
+  makeStudy("coordinate-crosses-study", "Coordinate Crosses", "grid", "Technical", "Small cyan coordinates floating through deep-blue space.", "midnight-cyan", 4, 57, 0.42, 0.09, 0.1, 0.46),
+  makeStudy("broken-matrix-study", "Broken Matrix", "grid", "Experimental", "A violet matrix with deliberate absences and long pauses.", "noir-violet", 5, 83, 0.46, 0.08, 0.12, 0.44),
+  makeStudy("contact-columns-study", "Contact Columns", "grid", "Photography", "Tall silver columns divided by slim, evidence-like gutters.", "silver-gelatin", 6, 32, 0.36, 0.05, 0.2, 0.4),
+  makeStudy("perspective-register-study", "Perspective Register", "grid", "Architecture", "A shallow oxide register receding without synthetic spectacle.", "oxide-red", 7, 96, 0.4, 0.07, 0.12, 0.48),
+
+  makeStudy("tidal-horizon-study", "Tidal Horizon", "wave", "Ocean", "One sea-glass swell crossing a nearly still dark horizon.", "ocean-emulsion", 0, 13, 0.48, 0.1, 0.1, 0.34),
+  makeStudy("nested-swell-study", "Nested Swell", "wave", "Tender", "Broad rose curves arriving at different patient tempos.", "rose-glass", 1, 39, 0.44, 0.12, 0.08, 0.24),
+  makeStudy("interference-bed-study", "Interference Bed", "wave", "Sound", "Two ultraviolet wave beds meeting as soft spectral pressure.", "ultraviolet", 2, 65, 0.46, 0.11, 0.08, 0.4),
+  makeStudy("ribbon-current-study", "Ribbon Current", "wave", "Travel", "A warm current folding slowly through blue desert shadow.", "desert-film", 3, 30, 0.5, 0.14, 0.1, 0.26),
+  makeStudy("standing-wave-study", "Standing Wave", "wave", "Minimal", "A pale standing wave breathing around a stable centre line.", "alpine-blue", 4, 54, 0.36, 0.08, 0.08, 0.3),
+  makeStudy("radial-echo-study", "Radial Echo", "wave", "Memory", "Off-centre silver echoes fading into photographic black.", "silver-gelatin", 5, 86, 0.42, 0.1, 0.14, 0.52),
+  makeStudy("contour-current-study", "Contour Current", "wave", "Documentary", "Moss-green flow lines bending around an open reading corridor.", "forest-negative", 6, 21, 0.4, 0.09, 0.12, 0.38),
+  makeStudy("undertow-lines-study", "Undertow Lines", "wave", "Noir", "Long sodium bands pulling quietly beneath an asphalt-dark field.", "sodium-night", 7, 74, 0.44, 0.12, 0.14, 0.5),
 ];
 
 function backgroundMatches(a: BackgroundSettings, b: BackgroundSettings): boolean {

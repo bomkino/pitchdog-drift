@@ -10,6 +10,7 @@
 export type TempoCurvePresetId =
   | "even"
   | "fast-slow-fast"
+  | "spin-then-read"
   | "slow-build"
   | "rush-and-settle"
   | "read-and-go";
@@ -82,6 +83,12 @@ export const TEMPO_CURVE_PRESETS: Readonly<Record<TempoCurvePresetId, TempoCurve
     "Arrive quickly, open a reading pocket, then leave with intent.",
     { start: 1.75, middle: 0.35, finish: 1.75 },
   ),
+  "spin-then-read": preset(
+    "spin-then-read",
+    "Spin then Read",
+    "Spend the opening pass quickly, then protect the remaining read.",
+    { start: 3, middle: 0.12, finish: 0.12 },
+  ),
   "slow-build": preset(
     "slow-build",
     "Slow Build",
@@ -105,6 +112,7 @@ export const TEMPO_CURVE_PRESETS: Readonly<Record<TempoCurvePresetId, TempoCurve
 export const TEMPO_CURVE_PRESET_ORDER: readonly TempoCurvePresetId[] = Object.freeze([
   "even",
   "fast-slow-fast",
+  "spin-then-read",
   "slow-build",
   "rush-and-settle",
   "read-and-go",
@@ -229,4 +237,40 @@ export function evaluateTempoCurve(curve: TempoCurve, normalizedTime: number): T
     velocity: rawVelocity * inverseArea,
     acceleration: acceleration === 0 ? 0 : acceleration,
   };
+}
+
+/**
+ * Deterministically inverts the monotonic analytical tempo curve. Exact
+ * endpoints remain exact; interior targets use a fixed bounded bisection so
+ * receipts never inherit frame-rate or wall-clock variability. Zero-speed
+ * handles and their flat progress intervals are supported.
+ */
+export function invertTempoCurveProgress(curve: TempoCurve, normalizedProgress: number): number {
+  if (
+    typeof normalizedProgress !== "number"
+    || !Number.isFinite(normalizedProgress)
+    || normalizedProgress < 0
+    || normalizedProgress > 1
+  ) {
+    throw new TypeError("Tempo progress must be a finite number between zero and one.");
+  }
+  if (normalizedProgress === 0) return 0;
+  if (normalizedProgress === 1) return 1;
+  // Even (and any other exact fixed point) should retain the caller's rational
+  // boundary instead of accumulating bisection noise in receipt windows.
+  if (
+    Math.abs(evaluateTempoCurve(curve, normalizedProgress).progress - normalizedProgress)
+    <= Number.EPSILON * 4
+  ) {
+    return normalizedProgress;
+  }
+
+  let lower = 0;
+  let upper = 1;
+  for (let iteration = 0; iteration < 64; iteration += 1) {
+    const midpoint = (lower + upper) * 0.5;
+    if (evaluateTempoCurve(curve, midpoint).progress < normalizedProgress) lower = midpoint;
+    else upper = midpoint;
+  }
+  return (lower + upper) * 0.5;
 }

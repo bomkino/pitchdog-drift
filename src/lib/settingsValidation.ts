@@ -10,13 +10,13 @@ import {
 export const STUDIO_SETTINGS_LIMITS = Object.freeze({
   stageDimension: Object.freeze({ min: 256, max: 8_192 }),
   aspectComponent: Object.freeze({ min: 1, max: 64 }),
-  outputDurationSeconds: Object.freeze({ min: 3, max: 30 }),
-  slideShadowSoftness: Object.freeze({ min: 4, max: 160 }),
+  outputDurationSeconds: Object.freeze({ min: 0.5, max: 300 }),
+  slideShadowSoftness: Object.freeze({ min: 0, max: 256 }),
   videoBitrate: 16_000_000,
   audioBitrate: 192_000,
-  presenterGain: 1,
-  presenterTrimStart: 0,
-  presenterStartAt: 0,
+  presenterGain: 2,
+  presenterTrimStart: 86_400,
+  presenterStartAt: 86_400,
   presenterAssetIdLength: 512,
 } as const);
 
@@ -115,7 +115,17 @@ const IMAGE_FITS = ["cover", "contain"] as const;
 const PRESENTER_TRACK_MODES = ["pinned-only", "moving-and-pinned"] as const;
 const PRESENTER_LAYOUT_MODES = ["safe-overlay", "legacy-perspective"] as const;
 const PRESENTER_ASPECT_MODES = ["source", "custom"] as const;
-const BACKGROUNDS = ["transparent", "solid", "gradient", "aura", "paper", "void"] as const;
+const BACKGROUNDS = [
+  "transparent",
+  "solid",
+  "gradient",
+  "aura",
+  "paper",
+  "void",
+  "cutting-map",
+  "grid",
+  "wave",
+] as const;
 const THEMES = [
   "editorial-drift",
   "road-memory",
@@ -234,20 +244,20 @@ function validateStudioSettingsWithVersions(
       axis: oneOf(motion.axis, "settings.motion.axis", AXES),
       direction: oneOf(motion.direction, "settings.motion.direction", DIRECTIONS),
       autoplay: boolean(motion.autoplay, "settings.motion.autoplay"),
-      speed: number(motion.speed, "settings.motion.speed", { min: 0, max: 1.5 }),
+      speed: number(motion.speed, "settings.motion.speed", { min: 0, max: 8 }),
       flow: oneOf(motion.flow, "settings.motion.flow", FLOWS),
-      gap: number(motion.gap, "settings.motion.gap", { min: 0, max: 1.2 }),
+      gap: number(motion.gap, "settings.motion.gap", { min: 0, max: 2.5 }),
       curvature: number(motion.curvature, "settings.motion.curvature", { min: 0, max: 1 }),
-      depth: number(motion.depth, "settings.motion.depth", { min: 0, max: 0.8 }),
-      tilt: number(motion.tilt, "settings.motion.tilt", { min: 0, max: 18 }),
+      depth: number(motion.depth, "settings.motion.depth", { min: 0, max: 1 }),
+      tilt: number(motion.tilt, "settings.motion.tilt", { min: -45, max: 45 }),
       distortion: number(motion.distortion, "settings.motion.distortion", { min: 0, max: 1 }),
-      focusScale: number(motion.focusScale, "settings.motion.focusScale", { min: 0, max: 0.24 }),
+      focusScale: number(motion.focusScale, "settings.motion.focusScale", { min: 0, max: 0.5 }),
       edgeFade: number(motion.edgeFade, "settings.motion.edgeFade", { min: 0, max: 1 }),
       dragSensitivity: number(motion.dragSensitivity, "settings.motion.dragSensitivity", { min: 0, max: 4 }),
       seamless: boolean(motion.seamless, "settings.motion.seamless"),
       seamlessLoops: number(motion.seamlessLoops, "settings.motion.seamlessLoops", {
         min: 1,
-        max: 6,
+        max: 100,
         integer: true,
       }),
       reducedMotionOutput,
@@ -255,13 +265,13 @@ function validateStudioSettingsWithVersions(
     slide: {
       aspectWidth: number(slide.aspectWidth, "settings.slide.aspectWidth", STUDIO_SETTINGS_LIMITS.aspectComponent),
       aspectHeight: number(slide.aspectHeight, "settings.slide.aspectHeight", STUDIO_SETTINGS_LIMITS.aspectComponent),
-      scale: number(slide.scale, "settings.slide.scale", { min: 0.24, max: 1.1 }),
+      scale: number(slide.scale, "settings.slide.scale", { min: 0.1, max: 1.6 }),
       fit: oneOf(slide.fit, "settings.slide.fit", IMAGE_FITS),
       focalX: number(slide.focalX, "settings.slide.focalX", { min: 0, max: 1 }),
       focalY: number(slide.focalY, "settings.slide.focalY", { min: 0, max: 1 }),
-      radius: number(slide.radius, "settings.slide.radius", { min: 0, max: 180 }),
+      radius: number(slide.radius, "settings.slide.radius", { min: 0, max: 512 }),
       smoothing: number(slide.smoothing, "settings.slide.smoothing", { min: 0, max: 1 }),
-      borderWidth: number(slide.borderWidth, "settings.slide.borderWidth", { min: 0, max: 16 }),
+      borderWidth: number(slide.borderWidth, "settings.slide.borderWidth", { min: 0, max: 32 }),
       borderColor: hexColour(slide.borderColor, "settings.slide.borderColor"),
       borderOpacity: number(slide.borderOpacity, "settings.slide.borderOpacity", { min: 0, max: 1 }),
       shadowOpacity: number(slide.shadowOpacity, "settings.slide.shadowOpacity", { min: 0, max: 0.8 }),
@@ -296,7 +306,7 @@ function validateStudioSettingsWithVersions(
         : oneOf(presenter.aspectMode, "settings.presenter.aspectMode", PRESENTER_ASPECT_MODES),
       x: number(presenter.x, "settings.presenter.x", { min: 0, max: 1 }),
       y: number(presenter.y, "settings.presenter.y", { min: 0, max: 1 }),
-      width: number(presenter.width, "settings.presenter.width", { min: 0.14, max: 0.82 }),
+      width: number(presenter.width, "settings.presenter.width", { min: 0.05, max: 1 }),
       aspectWidth: number(presenter.aspectWidth, "settings.presenter.aspectWidth", STUDIO_SETTINGS_LIMITS.aspectComponent),
       aspectHeight: number(presenter.aspectHeight, "settings.presenter.aspectHeight", STUDIO_SETTINGS_LIMITS.aspectComponent),
       fit: oneOf(presenter.fit, "settings.presenter.fit", IMAGE_FITS),
@@ -309,9 +319,9 @@ function validateStudioSettingsWithVersions(
       safeInset: legacyPresenterDirection
         ? 0
         : number(presenter.safeInset, "settings.presenter.safeInset", { min: 0, max: 0.25 }),
-      radius: number(presenter.radius, "settings.presenter.radius", { min: 0, max: 180 }),
+      radius: number(presenter.radius, "settings.presenter.radius", { min: 0, max: 512 }),
       smoothing: number(presenter.smoothing, "settings.presenter.smoothing", { min: 0, max: 1 }),
-      borderWidth: number(presenter.borderWidth, "settings.presenter.borderWidth", { min: 0, max: 16 }),
+      borderWidth: number(presenter.borderWidth, "settings.presenter.borderWidth", { min: 0, max: 32 }),
       borderColor: hexColour(presenter.borderColor, "settings.presenter.borderColor"),
       borderOpacity: number(presenter.borderOpacity, "settings.presenter.borderOpacity", { min: 0, max: 1 }),
       shadowOpacity: number(presenter.shadowOpacity, "settings.presenter.shadowOpacity", { min: 0, max: 0.8 }),
@@ -331,17 +341,9 @@ function validateStudioSettingsWithVersions(
         ? 1
         : number(presenter.matteOpacity, "settings.presenter.matteOpacity", { min: 0, max: 1 }),
       muted: boolean(presenter.muted, "settings.presenter.muted"),
-      gain: literal(presenter.gain, "settings.presenter.gain", STUDIO_SETTINGS_LIMITS.presenterGain),
-      trimStart: literal(
-        presenter.trimStart,
-        "settings.presenter.trimStart",
-        STUDIO_SETTINGS_LIMITS.presenterTrimStart,
-      ),
-      startAt: literal(
-        presenter.startAt,
-        "settings.presenter.startAt",
-        STUDIO_SETTINGS_LIMITS.presenterStartAt,
-      ),
+      gain: number(presenter.gain, "settings.presenter.gain", { min: 0, max: 2 }),
+      trimStart: number(presenter.trimStart, "settings.presenter.trimStart", { min: 0, max: 86_400 }),
+      startAt: number(presenter.startAt, "settings.presenter.startAt", { min: 0, max: 86_400 }),
     },
     performance,
     output: {

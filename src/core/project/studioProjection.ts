@@ -38,6 +38,9 @@ const LEGACY_BACKGROUNDS: readonly BackgroundStyle[] = [
   "aura",
   "paper",
   "void",
+  "cutting-map",
+  "grid",
+  "wave",
 ];
 const LEGACY_THEMES: readonly ThemeId[] = [
   "editorial-drift",

@@ -21,8 +21,8 @@ On macOS 13, named persistent WebKit stores are unavailable. The distinct App Sa
 ## Work rules
 
 - Keep `/Applications/Drift.app` installed and usable.
-- Use copied, rights-safe fixtures in V2 Dev. Do not open or save real `.pitched` work there.
-- V2 Dev rejects Finder project opens and disables portable project Open/Save outside its packaged verification harness.
+- Use copied, rights-safe fixtures for destructive tests. V2 Dev can open and save user-selected `.pitched` documents through native verified transactions.
+- V2 Dev does not register Finder ownership or accept Finder-open events. V1 remains the default `.pitched` application.
 - Slide and presenter imports remain available for disposable test material.
 - Production package, DMG, release, document association, and publication scripts remain release-only.
 - A V2 release candidate may regain the production identity only after explicit compatibility, migration, visual, native, and release approval.
@@ -44,6 +44,6 @@ build/macos/v2-dev/Drift V2 Dev.app
 
 ## What verification proves
 
-The V2 Dev verifier fails closed unless the signed app, generated plist, native runtime, compiled Web bundle, cache namespace, IndexedDB namespace, named WebKit store, executable name, and document-ownership policy all agree. The packaged WKWebView matrix also proves the page reports the same build and storage identity after boot and recovery.
+The V2 Dev verifier fails closed unless the signed app, generated plist, native runtime, compiled Web bundle, cache namespace, IndexedDB namespace, named WebKit store, executable name, and document-ownership policy all agree. The packaged WKWebView matrix also proves the page reports the same build and storage identity after boot and recovery. Native document transactions remain user-selected and path-private; they do not grant LaunchServices ownership.
 
 This is an isolation receipt, not a claim that Project V4, the V2 renderer, a cinematic World, or a public V2 release exists yet.

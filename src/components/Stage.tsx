@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { StagePresentation } from "../core/project/appPresentation";
 import type { ExportProgress, StudioAsset } from "../model";
 import { fitStagePreview, type StagePreviewSize } from "./stageGeometry";
+import type { PlatformGuideProfile } from "../core/platformGuides";
 
 interface StageProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -15,6 +16,7 @@ interface StageProps {
   paused: boolean;
   focusMode: boolean;
   activeSlideIndex: number;
+  platformGuide: PlatformGuideProfile;
   exportProgress: ExportProgress | null;
   onTogglePause: () => void;
   onStep: (amount: number) => void;
@@ -36,6 +38,7 @@ export function Stage({
   paused,
   focusMode,
   activeSlideIndex,
+  platformGuide,
   exportProgress,
   onTogglePause,
   onStep,
@@ -127,10 +130,39 @@ export function Stage({
         >
           <canvas ref={canvasRef} aria-hidden="true" data-testid="webgl-stage" />
           {transparent ? <div className="transparency-grid" aria-hidden="true" /> : null}
-          <div className="stage-guide top-left" aria-hidden="true" />
-          <div className="stage-guide top-right" aria-hidden="true" />
-          <div className="stage-guide bottom-left" aria-hidden="true" />
-          <div className="stage-guide bottom-right" aria-hidden="true" />
+          {platformGuide.id !== "none" ? (
+            <div className="platform-guide-overlay" data-profile={platformGuide.id} aria-hidden="true">
+              {platformGuide.obstructions.map((rect, index) => (
+                <div
+                  className="platform-obstruction"
+                  key={`${rect.x}:${rect.y}:${rect.width}:${rect.height}`}
+                  style={{
+                    left: `${rect.x * 100}%`,
+                    top: `${rect.y * 100}%`,
+                    width: `${rect.width * 100}%`,
+                    height: `${rect.height * 100}%`,
+                  }}
+                >
+                  {index === 0 ? <span>{platformGuide.label}</span> : null}
+                </div>
+              ))}
+              {platformGuide.safeInsets ? (
+                <div
+                  className="platform-safe-frame"
+                  style={{
+                    inset: `${platformGuide.safeInsets.top * 100}% ${platformGuide.safeInsets.right * 100}% ${platformGuide.safeInsets.bottom * 100}% ${platformGuide.safeInsets.left * 100}%`,
+                  }}
+                />
+              ) : null}
+              {platformGuide.id.startsWith("instagram") ? (
+                <>
+                  <div className="instagram-header-silhouette"><i /><i /><i /></div>
+                  <div className="instagram-reply-silhouette"><i /><i /></div>
+                  {platformGuide.id !== "instagram-story" ? <div className="instagram-action-rail"><i /><i /><i /><i /></div> : null}
+                </>
+              ) : null}
+            </div>
+          ) : null}
 
           {!webglError && assets.length === 0 ? (
             <div className="empty-stage">

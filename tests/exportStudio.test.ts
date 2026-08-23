@@ -63,7 +63,7 @@ describe("deterministic export timeline", () => {
 
   it("rejects settings outside frozen product bounds", () => {
     expectExportCode(
-      () => validateExportSettings({ width: 1080, height: 1920, fps: 30, duration: 2.99 }),
+      () => validateExportSettings({ width: 1080, height: 1920, fps: 30, duration: 0.499 }),
       "INVALID_SETTINGS",
     );
     expectExportCode(
@@ -103,7 +103,7 @@ describe("export safety checks", () => {
     await expect(exportMp4({
       canvas: { width: 1, height: 1 } as HTMLCanvasElement,
       renderAt: () => undefined,
-      settings: { width: 1080, height: 1920, fps: 30, duration: 2 },
+      settings: { width: 1080, height: 1920, fps: 30, duration: 0.4 },
       target,
     })).rejects.toMatchObject({ code: "INVALID_SETTINGS" });
     expect(abort).toHaveBeenCalledTimes(1);

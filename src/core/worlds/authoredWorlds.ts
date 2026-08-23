@@ -209,7 +209,10 @@ export function applyAuthoredWorld(
 
   if (unlocked(project, "composition")) {
     const size = WORLD_RATIO_DIMENSIONS[ratio];
-    project.composition = { ...project.composition, ...size };
+    // Choosing a World is an explicit scene operation. A prior transparent
+    // master must not silently suppress the atmosphere the user just chose;
+    // transparency remains available as a deliberate later override.
+    project.composition = { ...project.composition, ...size, alphaMode: "opaque" };
   }
   if (unlocked(project, "motion")) {
     applyEditorialCut(project, world.cutId);

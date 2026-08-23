@@ -42,6 +42,17 @@ describe("authored Worlds", () => {
     }
   });
 
+  it("restores an opaque room when a World is chosen after transparent output", () => {
+    const transparent = project();
+    transparent.composition.alphaMode = "transparent";
+    transparent.atmosphere.enabled = false;
+
+    const result = applyAuthoredWorld(transparent, "editorial-drift", "directed", "9:16");
+
+    expect(result.composition.alphaMode).toBe("opaque");
+    expect(result.atmosphere.enabled).toBe(true);
+  });
+
   it("is non-compounding and respects locked creative domains", () => {
     const first = applyAuthoredWorld(project(), "dread", "fever", "9:16", 1, 7);
     const second = applyAuthoredWorld(structuredClone(first), "dread", "fever", "9:16", 1, 7);

@@ -1,5 +1,5 @@
 export const voidBackgroundBranch = /* glsl */ `
-    } else {
+    } else if (uMode < 4.5) {
       // void-0 · Breathing slit / legacy void
       if (atlasVariant < 0.5) {
         float slit = exp(-abs(p.x + sin(p.y * 2.4 + uPhase) * 0.08) * 8.0);
@@ -70,5 +70,4 @@ export const voidBackgroundBranch = /* glsl */ `
         color = mix(uColorA, uColorB, (tideA * 0.14 + tideB * 0.18 + tideC * 0.22) * uIntensity);
         color = mix(color, uAccent, edgeA * 0.18 * uIntensity);
       }
-    }
 `;

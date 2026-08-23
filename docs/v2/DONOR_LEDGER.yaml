@@ -1,6 +1,42 @@
 schema_version: 1
-ledger_state: phase-0-source-review-partial
-updated: "2026-08-22"
+ledger_state: phase-5-live-reconciliation-partial
+updated: "2026-08-23"
+
+reconciled_source:
+  tracked_head: "627931d5c785e7561d8692b471cce4f91272479f"
+  last_source_tested_implementation: "39e6cd701dfddfebb02645789b2573e963ea4cbb"
+  working_tree_state: dirty-finishing-sprint-in-progress
+  donor_identity:
+    manifest_entries: 18
+    ledger_entries: 18
+    exact_pr_sha_matches: 18
+    locally_resolvable_commits: 18
+  provenance_boundary:
+    creative_donor_heads_merged_as_ancestors: []
+    inherited_native_heads_merged_as_ancestors:
+      - pr: 13
+        head: "6b346364a2a797c8424ccb9b803dad150090c3cd"
+    note: >-
+      Live similarity and named destinations do not prove that a specific donor
+      supplied their implementation. Creative feature commits do not record the
+      donor SHAs, so re-authoring provenance remains partial or unverified.
+  verification_boundary: >-
+    The 319-test source gate, browser inspection, packaged app, and exported
+    artifact evidence belong to implementation checkpoint 39e6cd7. The tracked
+    changes from 39e6cd7 to 627931d are documentation-only. New finishing-sprint
+    source and focused test files were inspected but were not executed during
+    this ledger reconciliation, so they remain source-present and unverified.
+  shared_artifacts:
+    - path: docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+      scope: prior exact-implementation source, browser, package, install, and representative visual evidence
+    - path: output/installed-v2-dev-39e6cd7.png
+      sha256: "0e1e145fb39cd1b0fe629add34586c74ab2cdeb436cb56f6e12f8001c8fbf207"
+      availability: local-ignored
+      scope: installed boot and layout only
+    - path: output/playwright/drift-v2-tactile-smoke.mp4
+      sha256: "03fc6735f8c5ad8fd4bb639700bf3532eae8760f833f167b2fb2a03f3091f85c"
+      availability: local-ignored
+      scope: one browser tactile H.264/AAC export, not installed-interface or listening approval
 
 authority:
   source_manifest: docs/mega-main/SOURCE_MANIFEST.yaml
@@ -32,15 +68,23 @@ authority:
     - 2d6378ba034e7e51646f505e5dd71a076e43e4d0:src/settingsHistory.ts
   scope_note: >-
     Partial exact-SHA source study was performed with git show for the files
-    listed above. Unlisted donor files remain unstudied. No capability is claimed
-    ported, integrated, visually or sonically equivalent, or at parity.
+    listed above. Unlisted donor files remain unstudied. Live V2 destinations are
+    recorded below without pretending that independently authored implementation
+    proves exact donor provenance, visual or sonic equivalence, or parity.
 
 status_contract:
-  allowed_current_status: frozen-not-ported
+  allowed_current_statuses:
+    - integrated-partial
+    - integrated-source-tested-unapproved
+    - not-integrated
+    - inherited-v1-invariant
   meaning: >-
-    Exact donor identity is frozen in the source manifest. Selected source files
-    may be studied, but no V2 product behavior is attributed to a donor until
-    re-authoring, tests, artifact evidence, and any required taste review exist.
+    Exact donor identity remains frozen in the source manifest. Integrated means
+    accepted semantics have a named live V2 destination; it does not mean donor
+    parity, owner approval, packaged proof, release, or exact provenance. Partial
+    preserves missing behavior or evidence. Source-tested-unapproved records a
+    prior passing source gate while keeping visual or listening approval open.
+    Native V1 invariants remain inherited and must not be re-merged into V2.
   graduation_requirements:
     - Record exact donor source files studied.
     - Re-author accepted semantics behind Project V4 and canonical V2 interfaces.
@@ -62,7 +106,7 @@ donors:
     head: "3012ea983de80106933f2cde788ce932128390d1"
     domain: editorial-cadence
     manifest_role: canonical editorial cadence and delivery donor
-    status: frozen-not-ported
+    status: integrated-expanded-unapproved
     source_study:
       state: selected-files-reviewed
       files:
@@ -81,17 +125,39 @@ donors:
       - Donor-owned legacy settings model.
       - Donor App.tsx, renderer, or exporter wholesale.
       - Any private timing path outside canonical FrameEvaluation.
-    planned_destinations:
-      - "Phase 1: Project V4 delivery receipts and commands"
-      - "Phase 2: explicit preview/export time interfaces"
-      - "Phase 3: src/core/timeline/** and src/core/events/**"
+    live_counts:
+      cadence_phases: 6
+      editorial_cuts: 4
+      performances: 6
+      motion_characters: 4
+      pose_cadences: 4
+      handcrafted_motion_stacks: 6
+    live_destinations:
+      - src/core/timeline/cadence.ts
+      - src/core/timeline/eventPlanner.ts
+      - src/core/timeline/evaluateV2Frame.ts
+      - src/core/timeline/deliveryReceipt.ts
+      - src/core/timeline/timingIntent.ts
+      - src/core/recipes/motion.ts
+      - src/components/ControlPanel.tsx
     evidence:
-      state: pending
+      state: prior-checkpoint-source-tested-current-worktree-unverified
+      focused_tests:
+        - tests/timelineCore.test.ts
+        - tests/semanticEvents.test.ts
+        - tests/v2FrameEvaluation.test.ts
+        - tests/motionRecipes.test.ts
+        - tests/deliveryReceipt.test.ts
+        - tests/timingIntent.test.ts
       required:
-        - Unit proof for cadence, endpoints, seams, and repair ownership.
-        - Browser proof for preview/export timestamp parity.
+        - Run the new delivery-receipt and timing-intent tests with the current dirty candidate.
         - Visual rhythm review on dense real-deck fixtures.
-      artifacts: []
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - Delivery Receipt, timing intent, and Close at Cut Tempo are source-present but were not run in this reconciliation.
+      - No dense real-deck rhythm approval or donor parity claim exists.
+      - Feature commits do not record PR 9 SHA, so exact implementation provenance remains unverified.
     known_intentional_differences:
       - Re-author against Project V4 and canonical FrameEvaluation; no donor runtime shell.
 
@@ -99,7 +165,7 @@ donors:
     head: "b66ed101ebc69b7a980ab5b1c0312f38029b0b75"
     domain: space-and-matter
     manifest_role: canonical paths, material, shell and preview-physics donor
-    status: frozen-not-ported
+    status: integrated-partial
     source_study:
       state: selected-files-reviewed
       files:
@@ -119,16 +185,33 @@ donors:
       - Source-generating scripts.
       - General-purpose physics engines, rigid-body dependencies, or stateful export cloth.
       - Donor renderer or settings authority.
-    planned_destinations:
-      - "Phase 2: canonical renderer inputs and interaction boundary"
-      - "Phase 4: src/core/spatial/**, src/core/recipes/**, and modular src/engine/**"
+    live_counts:
+      spatial_paths: 10
+      material_surfaces: 4
+      bounded_resident_slides: 24
+    live_destinations:
+      - src/core/spatial/spatial.ts
+      - src/core/recipes/material.ts
+      - src/core/recipes/motion.ts
+      - src/core/render/projectFrameAdapter.ts
+      - src/engine/CinematicCarousel.ts
+      - src/engine/shaders.ts
     evidence:
-      state: pending
+      state: prior-checkpoint-source-tested-partial
+      focused_tests:
+        - tests/spatialV3.test.ts
+        - tests/materialRecipes.test.ts
+        - tests/motionRecipes.test.ts
+        - tests/engineShader.test.ts
       required:
-        - Unit proof for finite paths, tangent banking, rebasing, and honest zero states.
         - Browser pixel proof for four materially distinct surfaces.
         - Packaged WebGL2 performance and resource-lifecycle proof.
-      artifacts: []
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - Prior browser evidence is representative and does not prove every path and surface combination.
+      - Long-session rebasing and packaged performance are not donor-parity evidence.
+      - Feature commits do not record PR 12 SHA, so exact implementation provenance remains partial.
     known_intentional_differences:
       - Stateless analytical export replaces donor-owned simulation or application state.
 
@@ -136,7 +219,7 @@ donors:
     head: "771a94e2a1b1f889c44b6ab4e31a402f88ce04d4"
     domain: cinematic-lighting
     manifest_role: canonical cinematic-lighting and analytical-shadow donor
-    status: frozen-not-ported
+    status: integrated-source-tested-unapproved
     source_study:
       state: selected-files-reviewed
       files:
@@ -155,24 +238,38 @@ donors:
       - Three.js shadow maps for the slide pool.
       - Extra light renders or unbounded scene growth.
       - Publishing every candidate rig without fixture and taste review.
-    planned_destinations:
-      - "Phase 5: modular lighting/shadow render passes under src/engine/**"
-      - "Phase 5: authored lighting recipes under src/core/recipes/**"
+    live_counts:
+      public_light_rigs: 12
+    live_destinations:
+      - src/core/recipes/lighting.ts
+      - src/core/render/projectFrameAdapter.ts
+      - src/engine/CinematicCarousel.ts
+      - src/engine/shaders.ts
+      - src/components/ControlPanel.tsx
     evidence:
-      state: pending
+      state: prior-checkpoint-source-tested-unapproved
+      focused_tests:
+        - tests/engineShader.test.ts
+        - tests/studioProjection.test.ts
+        - tests/authoredWorlds.test.ts
       required:
-        - Shader and unit proof for attachment, elevation, protection, closure, and bypass.
+        - Add focused registry proof that all twelve rigs are bounded and materially distinct.
         - Visual parity and taste review across ratios and fixture decks.
         - Packaged performance proof with no shadow-map or pool growth.
-      artifacts: []
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - ControlPanel exposes all twelve rigs, while individual fixture and taste gates remain open.
+      - No dedicated live lighting-registry test was found.
+      - Owner visual approval is not claimed.
     known_intentional_differences:
-      - Only individually approved rigs graduate to public UI.
+      - All twelve rigs are currently selectable; this is source-tested but not individual taste approval.
 
   - pr: 8
     head: "ff83b2303fa21be114dfeb25d1da165b839e0fcd"
     domain: background-atlas
     manifest_role: canonical background-atlas corpus donor
-    status: frozen-not-ported
+    status: integrated-partial
     source_study:
       state: selected-files-reviewed
       files:
@@ -180,35 +277,59 @@ donors:
         - src/backgroundDirectorModel.ts
         - src/engine/backgroundShader.ts
       note: >-
-        Review covered atlas records, directing metadata, and shader composition.
-        Family shader branches, tests, packaged compilation, and taste parity remain unreviewed.
+        Review covered atlas records, directing metadata, and all eight family shader branches.
+        Source compilation and representative WebGL proof are green; packaged and owner taste gates remain open.
     accepted_semantics:
-      - Five atmosphere families and forty structural compositions.
+      - Five donor atmosphere families and forty donor structural compositions.
+      - Three newly authored families—Cutting Map, Grid, and Wave—with eight restrained compositions each.
       - Authored palettes and treatments.
       - Deterministic seed, recut, transparency, closure, and test semantics.
     rejected_debris:
       - Palette-only duplicates.
       - Remote textures, framebuffer feedback, or unbounded noise work.
       - One endless inspector containing the full library.
-    planned_destinations:
-      - "Phase 6: one full-stage atmosphere pass under src/engine/**"
-      - "Phase 6: atmosphere recipes and search metadata under src/core/recipes/**"
-      - "Phase 6: progressive-disclosure library UI under src/components/**"
+    live_counts:
+      atmosphere_families: 8
+      structural_compositions: 64
+      authored_palettes: 20
+      authored_studies: 64
+      hero_studies: 12
+    live_destinations:
+      - src/backgrounds.ts
+      - src/core/worlds/atmosphereAtlas.ts
+      - src/engine/backgroundShader.ts
+      - src/engine/backgroundShaders/solid.ts
+      - src/engine/backgroundShaders/gradient.ts
+      - src/engine/backgroundShaders/aura.ts
+      - src/engine/backgroundShaders/paper.ts
+      - src/engine/backgroundShaders/void.ts
+      - src/engine/backgroundShaders/cuttingMap.ts
+      - src/engine/backgroundShaders/grid.ts
+      - src/engine/backgroundShaders/wave.ts
+      - src/components/ControlPanel.tsx
     evidence:
-      state: pending
+      state: current-source-focused-tested-representative-webgl
+      focused_tests:
+        - tests/backgrounds.test.ts
+        - tests/backgroundPhase.test.ts
+        - tests/worldRegistry.test.ts
+        - tests/engineShader.test.ts
       required:
-        - Packaged compilation and render proof for all forty compositions.
-        - Aspect, alpha, reduced-motion, seed, and loop-closure tests.
+        - Packaged compilation and render proof for all sixty-four compositions.
         - Visual proof that structures differ and remain subordinate to slides.
-      artifacts: []
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - Current WebGL evidence covers the three new families at 9:16 and Wave at 16:9, not all sixty-four rendered compositions.
+      - Owner visual approval is not claimed.
     known_intentional_differences:
-      - Shader organization remains undecided until monolithic and family variants are profiled.
+      - Cutting Map, Grid, and Wave are original Drift extensions rather than donor ports.
 
   - pr: 17
     head: "9ada43913ed797e64e9d0c24229e850cebd33e67"
     domain: director-journey
     manifest_role: canonical scene-lens and directing-journey donor
-    status: frozen-not-ported
+    status: integrated-partial
     source_study:
       state: selected-files-reviewed
       files:
@@ -228,16 +349,43 @@ donors:
       - Whole donor application shell.
       - Competing project, renderer, exporter, or navigation authority.
       - Any World behavior that silently changes protected project domains.
-    planned_destinations:
-      - "Phase 7: canonical global-lens pipeline"
-      - "Phase 9: Project V4 commands, receipts, Worlds, and src/components/** journey"
+    live_counts:
+      global_lens_recipes: 8
+      authored_worlds: 8
+      world_pressure_levels: 3
+      portrait_native_scenes: 16
+      director_workspaces: 4
+    live_destinations:
+      - src/core/recipes/lens.ts
+      - src/core/worlds/authoredWorlds.ts
+      - src/core/worlds/worldRegistry.ts
+      - src/core/commands/projectCommand.ts
+      - src/core/commands/studioCommandRegistry.ts
+      - src/core/preflight/evaluate.ts
+      - src/engine/lensShader.ts
+      - src/App.tsx
+      - src/components/CommandPalette.tsx
+      - src/components/ControlPanel.tsx
     evidence:
-      state: pending
+      state: prior-checkpoint-source-tested-current-worktree-partial
+      focused_tests:
+        - tests/lensRecipes.test.ts
+        - tests/authoredWorlds.test.ts
+        - tests/projectCommands.test.ts
+        - tests/appAuthorityContract.test.mjs
+        - tests/studioCommandRegistry.test.ts
+        - tests/preflight.test.ts
       required:
-        - Command ownership, lock, A/B, undo, and non-compounding tests.
-        - First-use browser and accessibility journey proof.
+        - Run and browser-check the new Slides, World, Direct, and Master workspace shell.
+        - Wire and browser-check objective preflight and Command-K before claiming the whole donor journey.
         - Real-deck visual approval for accepted World semantics.
-      artifacts: []
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - The four-workspace shell is source-present in the dirty worktree but was not run in this reconciliation.
+      - Objective preflight, the command registry, and CommandPalette are source-present; App wiring and browser proof were not observed in this reconciliation.
+      - worldRegistry.ts still declares registry-only and authoredRecipeId null while authoredWorlds.ts and the UI expose eight Worlds.
+      - Owner visual and accessibility journey approval is not claimed.
     known_intentional_differences:
       - V2 keeps its own shell and one Project V4 truth.
 
@@ -245,7 +393,7 @@ donors:
     head: "2d6378ba034e7e51646f505e5dd71a076e43e4d0"
     domain: optics-worlds-recovery-supplement
     manifest_role: supplemental global-optics, worlds, stress and recovery donor
-    status: frozen-not-ported
+    status: integrated-partial
     source_study:
       state: partial-selected-file-review
       files:
@@ -261,17 +409,29 @@ donors:
       - Any duplicate of PR 17 semantics without a distinct proven benefit.
       - Competing project model, renderer, lens graph, or recovery authority.
       - Whole donor application shell.
-    planned_destinations:
-      - "Phase 1: Project V4 transaction, undo, and recovery contracts"
-      - "Phase 7: deduplicated global-lens semantics"
-      - "Phase 9: deduplicated World semantics"
+    live_counts:
+      bounded_undo_states: 50
+    live_destinations:
+      - src/App.tsx
+      - src/core/commands/projectCommand.ts
+      - src/core/recipes/lens.ts
+      - src/core/worlds/authoredWorlds.ts
     evidence:
-      state: pending
+      state: prior-checkpoint-source-tested-partial
+      focused_tests:
+        - tests/projectCommands.test.ts
+        - tests/lensRecipes.test.ts
+        - tests/authoredWorlds.test.ts
+        - tests/appAuthorityContract.test.mjs
       required:
         - Source-level comparison against PR 17 before acceptance.
-        - Transaction, hostile-state, recovery, and optical bypass tests.
+        - Focused proof for the 50-state history bound and continuous-gesture coalescing.
         - Visual proof for any retained optical distinction.
-      artifacts: []
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - Only settingsHistory.ts was studied from the donor; attribution of other supplemental semantics remains unverified.
+      - No focused history-bound test or distinct retained PR 3 optical behavior was found.
     known_intentional_differences:
       - Supplemental ideas survive only when canonical donors leave a documented gap.
 
@@ -279,7 +439,7 @@ donors:
     head: "3af9836da5cf2b815ea4d95850780b45662cafba"
     domain: local-finish-world-library-supplement
     manifest_role: local finish, paths and world-library donor
-    status: frozen-not-ported
+    status: integrated-partial
     source_study:
       state: not-started
       files: []
@@ -291,16 +451,29 @@ donors:
       - Local effects that duplicate or leak into global lens ownership.
       - Duplicate paths or Worlds without structural distinction.
       - Whole donor UI, project model, or render path.
-    planned_destinations:
-      - "Phase 4: local material/finish modules"
-      - "Phase 9: deduplicated preflight, director-session, and World-library modules"
+    live_counts:
+      local_finish_recipes: 5
+      shared_spatial_paths: 10
+      authored_worlds: 8
+    live_destinations:
+      - src/core/recipes/material.ts
+      - src/core/spatial/spatial.ts
+      - src/core/worlds/authoredWorlds.ts
+      - src/components/ControlPanel.tsx
     evidence:
-      state: pending
+      state: prior-checkpoint-source-tested-provenance-unverified
+      focused_tests:
+        - tests/materialRecipes.test.ts
+        - tests/spatialV3.test.ts
+        - tests/authoredWorlds.test.ts
       required:
         - Source-level deduplication against PRs 12, 17, and 3.
-        - Clean-zero, alpha, ownership, and non-compounding tests.
         - Visual proof for each retained finish, path, or World distinction.
-      artifacts: []
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - Donor source study remains not-started; live similarity does not prove PR 4 provenance.
+      - Objective preflight is source-present, but no distinct PR 4 provenance or director-session capability has been established.
     known_intentional_differences:
       - Local finish stays clipped to slide material and separate from global lens.
 
@@ -308,7 +481,7 @@ donors:
     head: "dbac0c296a34c78b71b5eafa115fd178aa282f9b"
     domain: intent-first-directing-supplement
     manifest_role: intent-first journey, optics and atmosphere donor
-    status: frozen-not-ported
+    status: integrated-partial
     source_study:
       state: not-started
       files: []
@@ -320,16 +493,28 @@ donors:
       - Competing project model or hidden creative authority.
       - Recut derived from the previous recut instead of World baseline.
       - Generic control dumps or a second directing journey.
-    planned_destinations:
-      - "Phase 1: Project V4 domain commands, locks, transactions, and receipts"
-      - "Phase 9: creator-language controls in src/components/**"
+    live_counts:
+      authored_worlds: 8
+      world_pressure_levels: 3
+    live_destinations:
+      - src/core/commands/projectCommand.ts
+      - src/core/worlds/authoredWorlds.ts
+      - src/App.tsx
+      - src/components/ControlPanel.tsx
     evidence:
-      state: pending
+      state: prior-checkpoint-source-tested-provenance-unverified
+      focused_tests:
+        - tests/projectCommands.test.ts
+        - tests/authoredWorlds.test.ts
+        - tests/appAuthorityContract.test.mjs
       required:
-        - Determinism, lock ownership, rollback, and non-compounding tests.
         - Browser proof that receipts match exact changed and preserved fields.
         - UX review for plain-language control truth.
-      artifacts: []
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - Donor source study remains not-started; live command and World behavior does not prove PR 5 provenance.
+      - Objective preflight and Command-K sources are present, but current App wiring and browser proof were not observed.
     known_intentional_differences:
       - Concepts enter one canonical V2 journey and Project V4 model.
 
@@ -337,7 +522,7 @@ donors:
     head: "d29c79c1cfcd284055725dd9bf921578a4801082"
     domain: recorded-sound-foundation
     manifest_role: canonical recorded sound, provenance and mixed-master donor
-    status: frozen-not-ported
+    status: integrated-source-tested-unapproved
     source_study:
       state: not-started
       files: []
@@ -350,17 +535,38 @@ donors:
       - Unverified assets, licences, hashes, or treatments.
       - Runtime third-party requests.
       - Parallel export masters or donor-owned application architecture.
-    planned_destinations:
-      - "Phase 8: canonical semantic planner, sound graph, preview, and offline mix modules"
-      - "Phase 8: existing native AAC boundary and export orchestration"
-      - "Release: auditable third-party notices and sound provenance"
+    live_counts:
+      provenance_locked_recordings: 23
+      sound_palettes: 3
+      sample_rate_hz: 48000
+      channels: 2
+    live_destinations:
+      - src/sonic/assets/manifest.json
+      - src/sonic/assets/treatments.json
+      - src/sonic/catalog.ts
+      - src/sonic/embeddedRecordings.ts
+      - src/sonic/tactileSound.ts
+      - src/sonic/renderMixedMaster.ts
+      - src/lib/exportStudio.ts
+      - src/lib/macosAacEncoder.ts
+      - THIRD_PARTY_NOTICES.md
     evidence:
-      state: pending
+      state: prior-checkpoint-source-and-browser-tested-unapproved
+      focused_tests:
+        - tests/tactileSound.test.ts
+        - tests/semanticEvents.test.ts
+        - tests/exportStudio.test.ts
+        - tests/macosAacEncoder.test.ts
       required:
-        - Exact asset, licence, filename, hash, and treatment audit.
-        - Unit/browser/native proof for deterministic planning and one mixed master.
         - Listening parity with presenter speech and silence.
-      artifacts: []
+        - Save and decode one ordinary installed-interface sound MP4 through the native panel.
+      artifacts:
+        - output/playwright/drift-v2-tactile-smoke.mp4
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - The live recorded system is source- and browser-tested, but owner listening approval is open.
+      - The installed-interface Save-panel sound export remains unverified.
+      - Donor source study is still recorded as not-started, so PR 19 provenance is unverified.
     known_intentional_differences:
       - Recorded sound remains preferred; sound remains disabled by default.
 
@@ -368,7 +574,7 @@ donors:
     head: "db912237b681de3c148df5a343bd356d7f930db8"
     domain: editorial-micro-foley
     manifest_role: editorial micro-Foley grammar donor
-    status: frozen-not-ported
+    status: integrated-source-tested-unapproved
     source_study:
       state: not-started
       files: []
@@ -379,16 +585,26 @@ donors:
       - Vox assets, branding, music, or signature sequences.
       - Duplicated grammar already owned by PR 29.
       - Sound events tied to every delivery frame rather than semantic causes.
-    planned_destinations:
-      - "Phase 8: editorial recipes layered onto canonical PR 29 grammar"
-      - "Phase 8: canonical semantic event planner"
+    live_counts:
+      exported_sound_grammars: 3
+      semantic_layer_roles: 4
+    live_destinations:
+      - src/core/timeline/eventPlanner.ts
+      - src/sonic/tactileSound.ts
+      - src/sonic/catalog.ts
     evidence:
-      state: pending
+      state: prior-checkpoint-source-tested-unapproved
+      focused_tests:
+        - tests/semanticEvents.test.ts
+        - tests/tactileSound.test.ts
       required:
         - Source and listening comparison against PR 29.
-        - Deterministic event, seam, cancellation, and under-voice tests.
         - Listening proof that every retained recipe is materially distinct.
-      artifacts: []
+      artifacts:
+        - output/playwright/drift-v2-tactile-smoke.mp4
+    current_gaps:
+      - Editorial behavior shares one canonical planner; no per-donor implementation boundary is claimed.
+      - Donor source study and listening distinction remain unverified.
     known_intentional_differences:
       - Only semantics with distinct value survive; no referenced brand identity is imitated.
 
@@ -396,7 +612,7 @@ donors:
     head: "c4b0d93ca11f652b159c589b7fe6003b5701d6ec"
     domain: organic-sonic-grammar
     manifest_role: organic sonic grammar donor
-    status: frozen-not-ported
+    status: integrated-source-tested-unapproved
     source_study:
       state: not-started
       files: []
@@ -408,16 +624,30 @@ donors:
       - A second planner, graph, or export-audio authority.
       - Always-on density or sound without explicit unlock.
       - Interface cues entering exported masters.
-    planned_destinations:
-      - "Phase 8: canonical sound grammar, graph, dynamics, and orchestration modules"
-      - "Phase 8: one presenter-plus-Foley mixed-master path"
+    live_counts:
+      sound_grammars: 3
+      semantic_layer_roles: 4
+      mixed_master_paths: 1
+    live_destinations:
+      - src/core/timeline/eventPlanner.ts
+      - src/sonic/tactileSound.ts
+      - src/sonic/renderMixedMaster.ts
+      - src/lib/exportStudio.ts
     evidence:
-      state: pending
+      state: prior-checkpoint-source-and-browser-tested-unapproved
+      focused_tests:
+        - tests/semanticEvents.test.ts
+        - tests/tactileSound.test.ts
+        - tests/exportStudio.test.ts
       required:
-        - Deterministic graph, dynamics, seam, and mixed-master tests.
-        - Browser/native audio lifecycle and cancellation proof.
         - Listening proof for body, air, contact, landing, speed, and dialogue restraint.
-      artifacts: []
+        - Installed-interface native Save-panel proof for the mixed master.
+      artifacts:
+        - output/playwright/drift-v2-tactile-smoke.mp4
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - Donor source study remains not-started and PR 28 versus PR 29 attribution is unresolved.
+      - Owner listening approval and installed-interface mixed-master proof remain open.
     known_intentional_differences:
       - Recorded PR 19 corpus supplies canonical assets; PR 29 supplies grammar.
 
@@ -425,7 +655,7 @@ donors:
     head: "3a0e8b4c7cacf01248cd8eef4a062e25bc7e8f10"
     domain: procedural-foley
     manifest_role: procedural Foley source-provider donor
-    status: frozen-not-ported
+    status: not-integrated
     source_study:
       state: not-started
       files: []
@@ -435,15 +665,19 @@ donors:
       - Default public sound source without a defined-use listening win over recorded sound.
       - Source-generating workflow as product authority.
       - A second sound planner, graph, or mix path.
-    planned_destinations:
-      - "Phase 8: internal procedural fallback research behind canonical sound interfaces"
+    live_counts:
+      runtime_procedural_providers: 0
+    live_destinations: []
     evidence:
-      state: pending
+      state: not-integrated
+      focused_tests: []
       required:
         - Exact defined-use A/B against recorded sound.
         - Listening evidence that proves a material win before any graduation.
         - Determinism, licence, and offline-only checks for any retained fallback.
       artifacts: []
+    current_gaps:
+      - No defined-use win or approved procedural runtime provider exists.
     known_intentional_differences:
       - Procedural output is excluded from default public sound unless listening evidence changes disposition.
 
@@ -451,7 +685,7 @@ donors:
     head: "6b346364a2a797c8424ccb9b803dad150090c3cd"
     domain: native-chassis
     manifest_role: native sandbox, bridge, broker, AAC, packaging and lifecycle chassis
-    status: frozen-not-ported
+    status: inherited-v1-invariant
     v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
     source_study:
       state: not-started
@@ -463,17 +697,28 @@ donors:
       - Re-merging the donor during V2.
       - Moving creative truth or renderer ownership into AppKit.
       - Changing sandbox, bridge, signing, or lifecycle behavior without explicit native review.
-    planned_destinations:
-      - "All phases: preserve established macos/** and packaging-script boundaries"
-      - "Phase 8: extend only through existing native AAC contract"
-      - "Phase 10: exact-artifact native regression gauntlet"
+    live_destinations:
+      - macos/App/NativeBridgeHost.swift
+      - macos/App/NativeDocumentSession.swift
+      - macos/App/NativeFileBroker.swift
+      - macos/App/NativeAacEncoder.swift
+      - macos/NativeBridge.js
+      - scripts/check-macos-source.mjs
+      - scripts/check-macos-hardening.mjs
+      - scripts/probe-macos-packaged-webview.sh
     evidence:
-      state: pending
+      state: inherited-prior-checkpoint-tested
+      focused_tests:
+        - tests/nativeMac.test.ts
+        - tests/macosAacEncoder.test.ts
+        - e2e/native-menu-import.e2e.ts
       required:
-        - Source comparison proving V2 changes preserve inherited authority.
-        - Packaged sandbox, broker, AAC, signing, lifecycle, and cancellation tests.
-        - Exact-artifact native readback.
-      artifacts: []
+        - Re-run the native gauntlet on the eventual exact candidate after finishing-sprint changes settle.
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - Evidence belongs to installed implementation 39e6cd7, not the current dirty worktree.
+      - Inheritance is verified as a boundary, not a fresh V2 donor port.
     known_intentional_differences:
       - V2 extends inherited chassis through existing interfaces; it does not port donor source anew.
 
@@ -481,7 +726,7 @@ donors:
     head: "269e45da313b4fe90342704b08690783bdd621f2"
     domain: native-help-about-diagnostics
     manifest_role: native Help, About, diagnostics and product-fit donor
-    status: frozen-not-ported
+    status: inherited-v1-invariant
     v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
     source_study:
       state: not-started
@@ -492,14 +737,23 @@ donors:
       - Re-merging the donor during V2.
       - Stale product claims, developer identity leakage, or diagnostics that expose private data.
       - A competing help or diagnostics authority in Web UI.
-    planned_destinations:
-      - "Phase 10: existing native Help, About, and diagnostics boundary"
+    live_destinations:
+      - macos/App/DriftAppDelegate.swift
+      - macos/App/NativeGauntlet.swift
+      - macos/App/WebViewSelfTest.swift
+      - scripts/verify-macos-user-guide.mjs
+      - scripts/check-macos-source.mjs
     evidence:
-      state: pending
+      state: inherited-prior-checkpoint-tested
+      focused_tests:
+        - tests/macosUserGuideVerifier.test.mjs
       required:
-        - Packaged menu, Help, About, diagnostics, privacy, and identity checks.
-        - Accessibility and exact-build receipt readback.
-      artifacts: []
+        - Re-read Help, About, diagnostics, privacy, accessibility, and identity on the eventual exact candidate.
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - PR 21 SHA is not an ancestor of HEAD; preserved behavior does not prove exact donor provenance.
+      - Exact-candidate packaged menu and accessibility readback remain future gates.
     known_intentional_differences:
       - Copy and identity may change for V2 only after product truth is implemented and verified.
 
@@ -507,7 +761,7 @@ donors:
     head: "d1ee628c10b491884a331276a06f2fdd0fb93ab6"
     domain: native-dock-export-presence
     manifest_role: Dock export-presence donor
-    status: frozen-not-ported
+    status: inherited-v1-invariant
     v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
     source_study:
       state: not-started
@@ -518,14 +772,21 @@ donors:
       - Re-merging the donor during V2.
       - Progress UI detached from real export state.
       - Native export state becoming a second creative or timing authority.
-    planned_destinations:
-      - "Phase 2 and Phase 10: existing native export-presence boundary"
+    live_destinations:
+      - macos/App/DriftAppDelegate.swift
+      - macos/NativeBridge.js
+      - scripts/run-macos-export-probe.sh
     evidence:
-      state: pending
+      state: inherited-prior-checkpoint-tested
+      focused_tests:
+        - e2e/studio-export.e2e.ts
       required:
-        - Packaged Dock progress, completion, failure, cancellation, and recovery checks.
-        - Proof that native state mirrors canonical export state.
-      artifacts: []
+        - Re-run packaged Dock progress, failure, cancellation, and recovery on the eventual exact candidate.
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - PR 22 SHA is not an ancestor of HEAD; preserved behavior does not prove exact donor provenance.
+      - No fresh exact-dirty-worktree packaged Dock evidence was produced.
     known_intentional_differences:
       - No new native timing semantics; V2 reports canonical exporter state.
 
@@ -533,7 +794,7 @@ donors:
     head: "e2eca77b227dca20d501715b2d3d25e00ef8e326"
     domain: native-finder-reveal-sequence-rollback
     manifest_role: Finder reveal and PNG-sequence rollback truth donor
-    status: frozen-not-ported
+    status: inherited-v1-invariant
     v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
     source_study:
       state: not-started
@@ -545,14 +806,25 @@ donors:
       - Re-merging the donor during V2.
       - Success claims before destination readback.
       - Leaving partial sequence artifacts after failure or cancellation.
-    planned_destinations:
-      - "Phase 2 and Phase 10: existing native save/reveal and rollback boundary"
+    live_destinations:
+      - macos/App/DriftAppDelegate.swift
+      - macos/App/NativeBridgeHost+Finder.swift
+      - macos/App/NativeFileBroker.swift
+      - macos/App/NativeGauntlet.swift
+      - macos/NativeBridge.js
     evidence:
-      state: pending
+      state: inherited-prior-checkpoint-tested
+      focused_tests:
+        - tests/exportStudio.test.ts
+        - e2e/studio-export.e2e.ts
+        - e2e/native-menu-import.e2e.ts
       required:
-        - Packaged success, overwrite, failure, cancellation, rollback, and Finder-reveal checks.
-        - Destination artifact readback.
-      artifacts: []
+        - Re-run success, overwrite, failure, cancellation, rollback, reveal, and destination readback on the eventual exact candidate.
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - PR 24 SHA is not an ancestor of HEAD; preserved behavior does not prove exact donor provenance.
+      - Current source changes include export code, so prior package evidence cannot certify the future candidate.
     known_intentional_differences:
       - V2 render content may change; save/reveal/rollback truth may not weaken.
 
@@ -560,7 +832,7 @@ donors:
     head: "75a6265c6495d81b86219251000df0a0314a3ff2"
     domain: native-document-generation-authority
     manifest_role: native-issued document-generation authority donor
-    status: frozen-not-ported
+    status: inherited-v1-invariant
     v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
     source_study:
       state: not-started
@@ -571,14 +843,23 @@ donors:
       - Re-merging the donor during V2.
       - Browser-side generation claims that outrun native document authority.
       - Split ownership for Save, Save As, replacement, or generation identity.
-    planned_destinations:
-      - "Phase 1 and Phase 10: established native document-generation boundary"
+    live_destinations:
+      - macos/App/NativeDocumentSession.swift
+      - macos/App/NativeBridgeHost.swift
+      - macos/NativeBridge.js
     evidence:
-      state: pending
+      state: v2-dev-native-document-lifecycle-source-tested
+      focused_tests:
+        - tests/nativeMac.test.ts
+        - e2e/native-menu-import.e2e.ts
       required:
-        - Packaged Save, Save As, replacement, failure, and document-generation tests.
-        - Exact destination and generation readback.
-      artifacts: []
+        - Packaged V2 Dev Open, Save, Save As, Revert, failure, conflict, and exact destination readback using disposable fixtures.
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - V2 Dev now supports explicit user-selected .pitched Open/Save/Save As/Revert without claiming Finder ownership.
+      - Packaged-runtime document proof remains open for the current working source.
+      - PR 25 SHA is not an ancestor of HEAD; preserved authority does not prove exact donor provenance.
     known_intentional_differences:
       - Project V4 changes payload contract only; native document authority remains singular.
 
@@ -586,7 +867,7 @@ donors:
     head: "d7cc6bc1072365ac55de4a1f6c86248ef5337279"
     domain: native-pitched-document-identity
     manifest_role: .pitched Finder document-identity donor
-    status: frozen-not-ported
+    status: inherited-v1-invariant
     v2_disposition: preserve-inherited-v1-invariant-do-not-remerge
     source_study:
       state: not-started
@@ -597,15 +878,23 @@ donors:
       - Re-merging the donor during V2.
       - V2 development app claiming production .pitched ownership.
       - Changing LaunchServices identity before compatibility and release approval.
-    planned_destinations:
-      - "Phase 1: migration contract without V2 Dev Finder ownership"
-      - "Phase 10: approved release-candidate document identity and LaunchServices checks"
+    live_destinations:
+      - macos/Info.plist
+      - docs/v2/MACOS_V2_DEV_USER_GUIDE.md
+      - scripts/verify-macos-user-guide.mjs
+      - scripts/check-macos-source.mjs
     evidence:
-      state: pending
+      state: ownership-preserved-explicit-user-selection-enabled
+      focused_tests:
+        - tests/macosUserGuideVerifier.test.mjs
       required:
         - V1/V2 coexistence and Finder ownership proof.
-        - Packaged open/save/migration/LaunchServices regression checks.
+        - Production-candidate open/save/migration/LaunchServices regression checks.
         - Explicit release approval before any production identity change.
-      artifacts: []
+      artifacts:
+        - docs/v2/INSTALLED_DIRECTORS_CUT_2026-08-23.md
+    current_gaps:
+      - V2 Dev remains isolated from .pitched Finder ownership while permitting explicit in-app selection.
+      - PR 27 SHA is not an ancestor of HEAD; preserved behavior does not prove exact donor provenance.
     known_intentional_differences:
-      - V2 Dev remains unable to own or open real .pitched documents.
+      - V2 Dev can open user-selected .pitched documents but remains unable to register or own the Finder document type.

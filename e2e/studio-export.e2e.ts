@@ -8,6 +8,7 @@ import {
   PORTABLE_OPENED_NOTICE,
   PORTABLE_SAVED_NOTICE,
   presenterFixturePath,
+  switchWorkspace,
   waitForStudio,
 } from "./studio.helpers";
 
@@ -28,18 +29,19 @@ test("WebGL2 denial yields an explicit, usable DOM fallback", async ({ page }) =
   await page.goto("/");
   await expect(page.getByText("Cinematic renderer unavailable.")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/Cinematic export is blocked/)).toBeVisible();
+  await switchWorkspace(page, "MASTER");
   await expect(page.getByRole("button", { name: "Save portable project" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add slides" })).toBeVisible();
-  await page.getByRole("button", { name: "Export MP4 master" }).click();
-  await expect(page.getByRole("alert")).toContainText("Cinematic renderer is unavailable; export is blocked.");
+  await expect(page.getByRole("button", { name: "Export MP4 master" })).toBeDisabled();
   expect(await page.evaluate(() => (window as Window & { __driftSavePickerCalls?: number }).__driftSavePickerCalls)).toBe(0);
 });
 
 test("export lifecycle preserves playback truth and releases a failed GPU preflight", async ({ page }) => {
   await waitForStudio(page);
+  await switchWorkspace(page, "MASTER");
   await page.getByLabel("Stage width").fill("256");
   await page.getByLabel("Stage height").fill("256");
-  await page.getByLabel("Duration", { exact: true }).fill("3");
+  await page.getByLabel("Exact duration", { exact: true }).fill("3");
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
   await expect(page.locator(".stage-hud")).toContainText("256 × 256");
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
@@ -59,16 +61,24 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   // Cancellation needs a controlled in-flight encoder. At this tiny fixture
   // size an unconstrained sequence can legitimately finish before the pointer
   // reaches the button, which tests machine speed rather than cancellation.
+  // Force the deterministic ZIP lane; current Chromium exposes the directory
+  // picker and dismissing its native sheet is not an encoder cancellation.
   await page.evaluate(() => {
-    const originalToBlob = HTMLCanvasElement.prototype.toBlob;
-    HTMLCanvasElement.prototype.toBlob = function delayedToBlob(callback, type, quality) {
+    Object.defineProperty(window, "showDirectoryPicker", { configurable: true, value: undefined });
+  });
+  await page.locator("[data-testid=webgl-stage]").evaluate((element) => {
+    const canvas = element as HTMLCanvasElement;
+    const originalToBlob = canvas.toBlob.bind(canvas);
+    canvas.toBlob = function delayedToBlob(callback, type, quality) {
       return originalToBlob.call(this, (blob) => {
         window.setTimeout(() => callback(blob), 1_000);
       }, type, quality);
     };
   });
-  await page.getByRole("button", { name: "Export PNG sequence" }).click();
-  await expect(page.locator(".export-overlay")).toBeVisible();
+  await Promise.all([
+    page.locator(".export-overlay").waitFor({ state: "visible" }),
+    page.getByRole("button", { name: "Export PNG sequence" }).click(),
+  ]);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("Space");
   await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();

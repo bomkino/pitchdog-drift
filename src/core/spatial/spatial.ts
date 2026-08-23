@@ -183,10 +183,10 @@ export function applyPathCommand(id: string): ProjectCommand {
 
 export function deriveSlideGeometry(project: DriftCreativeState, sourceCount = project.media.order.length): SlideGeometry {
   const aspect = project.card.aspectWidth / Math.max(0.01, project.card.aspectHeight);
-  const width = project.composition.width * clamp(project.card.scale, 0.2, 1.25);
+  const width = project.composition.width * clamp(project.card.scale, 0.1, 1.6);
   const height = width / aspect;
   const extent = project.motion.transport.axis === "horizontal" ? width : height;
-  const stride = extent * (1 + clamp(project.motion.path.gap, 0, 1.5));
+  const stride = extent * (1 + clamp(project.motion.path.gap, 0, 2.5));
   const axisExtent = project.motion.transport.axis === "horizontal"
     ? project.composition.width
     : project.composition.height;

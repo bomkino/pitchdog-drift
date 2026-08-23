@@ -168,7 +168,7 @@ function motion(value: unknown): void {
   const transport = object(root.transport, "project.motion.transport", ["axis", "direction", "slidesPerSecond"]);
   oneOf(transport.axis, ["horizontal", "vertical"] as const, "project.motion.transport.axis");
   oneOf(transport.direction, [1, -1] as const, "project.motion.transport.direction");
-  finiteNumber(transport.slidesPerSecond, "project.motion.transport.slidesPerSecond", 0, 1.5);
+  finiteNumber(transport.slidesPerSecond, "project.motion.transport.slidesPerSecond", 0, 8);
 
   const cadence = object(root.cadence, "project.motion.cadence", [
     "cutId", "read", "anticipation", "carry", "impact", "settle", "land", "poseCadence",
@@ -196,13 +196,13 @@ function motion(value: unknown): void {
   const path = object(root.path, "project.motion.path", ["id", "gap", "curvature", "depth", "banking", "focusScale", "edgeFade"]);
   safeString(path.id, "project.motion.path.id");
   numbers(path, "project.motion.path", {
-    gap: [0, 1.5], curvature: [0, 1], depth: [0, 1], banking: [-45, 45],
+    gap: [0, 2.5], curvature: [0, 1], depth: [0, 1], banking: [-45, 45],
     focusScale: [0, 0.5], edgeFade: [0, 1],
   });
 
   const seamless = object(root.seamless, "project.motion.seamless", ["enabled", "loops"]);
   boolean(seamless.enabled, "project.motion.seamless.enabled");
-  finiteNumber(seamless.loops, "project.motion.seamless.loops", 1, 6, true);
+  finiteNumber(seamless.loops, "project.motion.seamless.loops", 1, 100, true);
 }
 
 function unitFields(value: UnknownRecord, path: string, fields: readonly string[]): void {
@@ -588,7 +588,7 @@ export function validateDriftProjectV3(value: unknown): DriftProjectV3 {
     "aspectWidth", "aspectHeight", "scale", "defaultFit", "radius", "smoothing", "borderWidth", "borderColor", "borderOpacity",
   ]);
   numbers(card, "project.card", {
-    aspectWidth: [0.01, 100], aspectHeight: [0.01, 100], scale: [0.2, 1.25],
+    aspectWidth: [0.01, 100], aspectHeight: [0.01, 100], scale: [0.1, 1.6],
     radius: [0, 512], smoothing: [0, 1], borderWidth: [0, 32], borderOpacity: [0, 1],
   });
   oneOf(card.defaultFit, ["cover", "contain"] as const, "project.card.defaultFit");
@@ -679,7 +679,7 @@ export function validateDriftProjectV3(value: unknown): DriftProjectV3 {
 
   const master = object(project.master, "project.master", ["fps", "duration", "reducedMotion", "video", "audio"]);
   oneOf(master.fps, [24, 25, 30, 50, 60] as const, "project.master.fps");
-  finiteNumber(master.duration, "project.master.duration", 3, 30);
+  finiteNumber(master.duration, "project.master.duration", 0.5, 300);
   boolean(master.reducedMotion, "project.master.reducedMotion");
   const video = object(master.video, "project.master.video", ["format", "bitrate"]);
   oneOf(video.format, ["h264"] as const, "project.master.video.format");

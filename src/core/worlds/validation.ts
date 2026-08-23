@@ -52,7 +52,7 @@ function validateRecipeWithV4(recipe: WorldRecipe, ratio: WorldRatioId): void {
 }
 
 export function assertAtmosphereAtlasIntegrity(): void {
-  invariant(ATMOSPHERE_FAMILIES.length === ATMOSPHERE_FAMILY_COUNT, "atlas must contain five families");
+  invariant(ATMOSPHERE_FAMILIES.length === ATMOSPHERE_FAMILY_COUNT, "atlas must contain eight families");
   unique(ATMOSPHERE_FAMILIES.map((family) => family.id), "atmosphere family IDs");
 
   for (const family of ATMOSPHERE_FAMILIES) {
@@ -64,7 +64,7 @@ export function assertAtmosphereAtlasIntegrity(): void {
   }
 
   const compositions = atmosphereCompositions();
-  invariant(compositions.length === ATMOSPHERE_COMPOSITION_COUNT, "atlas must contain forty compositions");
+  invariant(compositions.length === ATMOSPHERE_COMPOSITION_COUNT, "atlas must contain sixty-four compositions");
   unique(compositions.map((composition) => composition.id), "global atmosphere composition IDs");
 
   invariant(ATMOSPHERE_HERO_STUDIES.length === ATMOSPHERE_HERO_COUNT, "hero shelf must contain twelve studies");

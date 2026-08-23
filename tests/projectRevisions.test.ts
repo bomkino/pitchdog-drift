@@ -3,6 +3,8 @@ import {
   beginProjectSave,
   completeProjectSave,
   createProjectRevisionState,
+  projectDocumentCanRevert,
+  projectDocumentIsDirty,
   projectHasUnrecoveredWork,
   projectIsDirty,
   recordProjectMutation,
@@ -44,5 +46,25 @@ describe("native-safe project revisions", () => {
     state = recordProjectRecovery(state);
     expect(projectHasUnrecoveredWork(state)).toBe(false);
     expect(projectIsDirty(state)).toBe(true);
+  });
+
+  it("keeps untitled documents dirty and never offers a false revert target", () => {
+    const untitled = createProjectRevisionState();
+    expect(projectIsDirty(untitled)).toBe(false);
+    expect(projectDocumentIsDirty(untitled, false)).toBe(true);
+    expect(projectDocumentCanRevert(untitled, false)).toBe(false);
+
+    const edited = recordProjectMutation(untitled);
+    expect(projectDocumentIsDirty(edited, false)).toBe(true);
+    expect(projectDocumentCanRevert(edited, false)).toBe(false);
+  });
+
+  it("offers Revert only for changed bound documents without an unresolved conflict", () => {
+    const clean = createProjectRevisionState();
+    const dirty = recordProjectMutation(clean);
+
+    expect(projectDocumentCanRevert(clean, true)).toBe(false);
+    expect(projectDocumentCanRevert(dirty, true)).toBe(true);
+    expect(projectDocumentCanRevert(dirty, true, true)).toBe(false);
   });
 });

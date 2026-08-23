@@ -20,7 +20,7 @@ import {
 } from "../src/core/worlds";
 
 describe("V2 World registry foundation", () => {
-  it("keeps the curated five-by-eight atmosphere corpus exact", () => {
+  it("keeps the curated eight-by-eight atmosphere corpus exact", () => {
     expect(ATMOSPHERE_FAMILIES.map((family) => [
       family.id,
       family.compositions.map((composition) => composition.id),
@@ -30,8 +30,11 @@ describe("V2 World registry foundation", () => {
       ["aura", ["orbiting-bloom", "projector-halo", "aurora-veil", "stained-light", "liquid-caustic", "rose-chamber", "ice-bloom", "mandorla"]],
       ["paper", ["long-fibres", "contact-sheet", "risograph-cloud", "linen-drift", "newsprint", "silver-emulsion", "halftone-field", "dust-archive"]],
       ["void", ["breathing-slit", "eclipse", "ember-smoke", "abyssal-rays", "mineral-fog", "rain-negative", "chemical-burn", "black-tide"]],
+      ["cutting-map", ["contour-notes", "folded-atlas", "route-thread", "parcel-lines", "registration-field", "coastline-proof", "crop-window", "survey-drift"]],
+      ["grid", ["modular-field", "offset-ledger", "quiet-thirds", "baseline-rhythm", "coordinate-crosses", "broken-matrix", "contact-columns", "perspective-register"]],
+      ["wave", ["tidal-horizon", "nested-swell", "interference-bed", "ribbon-current", "standing-wave", "radial-echo", "contour-current", "undertow-lines"]],
     ]);
-    expect(atmosphereCompositions()).toHaveLength(40);
+    expect(atmosphereCompositions()).toHaveLength(64);
   });
 
   it("records the twelve candidate first-shelf studies named in the Director's Cut", () => {

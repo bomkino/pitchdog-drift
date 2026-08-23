@@ -50,8 +50,8 @@ async function ensureSoftwareAacEncoder(): Promise<void> {
   await softwareAacRegistration;
 }
 
-const MIN_DURATION_SECONDS = 3;
-const MAX_DURATION_SECONDS = 30;
+const MIN_DURATION_SECONDS = 0.5;
+const MAX_DURATION_SECONDS = 300;
 const MAX_EXPORT_DIMENSION = 8192;
 const MAX_EXPORT_FPS = 60;
 const ZIP_ENTRY_OVERHEAD_BYTES = 256;

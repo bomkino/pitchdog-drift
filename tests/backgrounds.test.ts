@@ -21,7 +21,16 @@ import {
 import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
 import { validateStudioSettings } from "../src/lib/settingsValidation";
 
-const FAMILIES: readonly OpaqueBackgroundStyle[] = ["solid", "gradient", "aura", "paper", "void"];
+const FAMILIES: readonly OpaqueBackgroundStyle[] = [
+  "solid",
+  "gradient",
+  "aura",
+  "paper",
+  "void",
+  "cutting-map",
+  "grid",
+  "wave",
+];
 
 describe("background atlas catalogue", () => {
   it("ships eight materially named compositions for every opaque family", () => {
@@ -52,6 +61,25 @@ describe("background atlas catalogue", () => {
       expect(studies).toHaveLength(BACKGROUND_COMPOSITIONS_PER_FAMILY);
       expect(studies.map((study) => study.composition).sort((a, b) => a - b))
         .toEqual(Array.from({ length: BACKGROUND_COMPOSITIONS_PER_FAMILY }, (_, index) => index));
+    }
+  });
+
+  it("keeps the three new family registries aligned with their authored studies", () => {
+    for (const family of ["cutting-map", "grid", "wave"] as const) {
+      const compositions = BACKGROUND_COMPOSITIONS[family];
+      const studies = BACKGROUND_STUDIES.filter((study) => study.family === family);
+
+      expect(compositions).toHaveLength(8);
+      expect(studies.map((study) => study.composition).sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+      expect(studies.every((study) => study.background.motion >= 0.04 && study.background.motion <= 0.14)).toBe(true);
+      expect(studies.every((study) => study.background.intensity <= 0.5)).toBe(true);
+
+      const transparent = cloneSettings(DEFAULT_SETTINGS);
+      transparent.stage.transparent = true;
+      transparent.background.style = "transparent";
+      const applied = applyBackgroundStudy(transparent, studies[0]!);
+      expect(applied.stage.transparent).toBe(false);
+      expect(applied.background.style).toBe(family);
     }
   });
 

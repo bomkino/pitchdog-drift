@@ -27,28 +27,31 @@ Feature flags describe build or session capability. They never become hidden cre
 | Lifecycle | Entry, exit, body/scene loops, repeat count, tempo envelopes | Integrated | Timeline and seam tests; browser control inspection |
 | Space | 10 paths, both axes, bounded pool, deterministic export | Integrated | Spatial tests and 9:16/16:9 visual runs |
 | Matter | Card/Paper/Silk/Gel, continuous corners, deformed rear shell | Integrated | Material tests and repaired visual inspection |
-| Atmosphere | 5 families, 40 structures, 20 palettes, 12 heroes, transparent bypass | Integrated | Atlas tests, compilation/build, searchable browser inspection |
+| Atmosphere | 8 families, 64 structures, 20 palettes, 12 heroes, transparent bypass | Integrated | Atlas tests, shader compilation, searchable browser inspection, representative 9:16/16:9 WebGL proof |
 | Light | 12 analytical rigs with protection and honest zero | Integrated | Recipe/frame tests and representative visual runs |
 | Lens | 8 recipes, clean bypass, bounded optical finish | Integrated | Lens tests, shader build, visual inspection |
 | Worlds | 8 Worlds, 3 pressure levels, deterministic non-compounding recut | Integrated | Recipe/lock/fingerprint tests and browser transactions |
 | Portrait | 16 true 9:16 scenes, two per World | Integrated | Registry tests and representative vertical runs |
 | Pin/presenter | Optional, protected, independently positioned and styled | Integrated | Projection/collision tests and manual upper-right pin run |
 | Sound | 23 CC0 sources, 3 palettes, 3 grammars, exact mixed master | Integrated | Hash/byte checks, event tests, mixed-master tests, browser audition |
-| Mac identity | Isolated V2 bundle, storage, sandbox, document boundary | Integrated and installed | Native contracts plus exact source/package/install receipt at `39e6cd7` |
+| Mac identity | Isolated V2 bundle, storage, sandbox, explicit user-selected documents without Finder ownership | Integrated in current source; last installed checkpoint is `39e6cd7` | Native contracts plus separate historical package/install receipt |
 
 ## Gauntlet state
 
 | Gate | State |
 | --- | --- |
 | Focused unit and contract checks | Green |
-| Complete local source check | Green: 46 files, 319 tests |
-| TypeScript and production Web build | Green |
+| Complete local source check | Green: 54 files / 382 tests plus native source, hardening, guides, and production build |
+| TypeScript and V2 Web build | Green |
+| Browser E2E | Green across all 38 cases: 37 uninterrupted plus the single transient-event repair rerun |
 | Representative Chromium/WebGL2 9:16 and 16:9 inspection | Green; no console errors |
 | Grain, border, shadow, alpha, pin, thickness visual repair loop | Green for inspected cases |
+| Thirty-five-capture optical atlas | Green with manifest, contact sheet, and SHA-256 inventory |
+| Long-export matrix | Green: 8/8 exact 24 fps plans; complete 30s/60s/180s V2 H.264 stress cases; strict Rec.709/readback/resource/cancellation checks |
 | Tactile-sound source provenance and deterministic planning | Green |
-| Exact clean source commit | Green: implementation source `39e6cd7` |
-| Exact-SHA V2 Dev package and packaged matrix | Green: 3/3 variants passed twice |
-| `/Applications/Drift V2 Dev.app` exact install and launch | Green: exact candidate bytes, normal launch, desktop inspection |
+| Exact clean source commit | Prior checkpoint `39e6cd7`; current finishing sprint is uncommitted |
+| Exact-SHA V2 Dev package and packaged matrix | Prior checkpoint green; current finishing sprint pending |
+| `/Applications/Drift V2 Dev.app` exact install and launch | Prior checkpoint green; current finishing sprint pending isolated replacement/readback |
 | Owner creative approval | Pending |
 | Feature-branch push and exact-head CI | Not performed |
 | Merge to `main` | Not performed |
@@ -73,4 +76,4 @@ Feature flags describe build or session capability. They never become hidden cre
 - No public binary distribution before third-party compliance, Developer ID signing, notarisation, Gatekeeper verification, and explicit publication authority.
 - No claim that visual or sonic taste is objectively proven by unit tests.
 
-The latest exact implementation and artifact state is recorded in [CURRENT_STATUS.md](CURRENT_STATUS.md) and the dated installed checkpoint receipts.
+The latest exact implementation and artifact state is recorded in [CURRENT_STATUS.md](CURRENT_STATUS.md), the [long-export receipt](LONG_EXPORT_QA_2026-08-23.md), and the dated installed checkpoint receipts.
