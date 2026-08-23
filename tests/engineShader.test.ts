@@ -50,6 +50,8 @@ describe("custom shader output contract", () => {
     expect(slideFragmentShader).not.toContain("filmGrain");
     expect(backgroundFragmentShader).toContain("filmGrain");
     expect(backgroundFragmentShader).toContain("uGrainFrame");
+    expect(backgroundFragmentShader).toContain("pixel / 4.6");
+    expect(backgroundFragmentShader).toContain("pixel / 10.5");
     expect(backgroundFragmentShader).toContain("1.0 - exp(-8.0 * grainControl)");
     expect(backgroundFragmentShader).toContain("smoothstep(0.004, 0.040, displayLuminance)");
     expect(backgroundFragmentShader).toContain("p + seedShift");

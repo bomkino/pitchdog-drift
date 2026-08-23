@@ -722,8 +722,10 @@ export class CinematicCarousel {
     const shadowMaterial = createShadowMaterial(!protectedOverlay);
     const slide = new THREE.Mesh(this.geometry, material);
     const shadow = new THREE.Mesh(this.geometry, shadowMaterial);
-    slide.renderOrder = index * 2 + 2;
-    shadow.renderOrder = index * 2 + 1;
+    // Composite the shadow plate beneath the complete artwork plate so crossing
+    // paths retain depth without letting a later card muddy earlier artwork.
+    shadow.renderOrder = index;
+    slide.renderOrder = MAX_POOL_SIZE + index;
     shadow.position.set(10, -14, -8);
     group.add(shadow, slide);
     group.visible = false;

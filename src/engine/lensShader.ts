@@ -103,12 +103,12 @@ export const lensFragmentShader = /* glsl */ `
     float vignette = smoothstep(0.94, 0.12, radiusSquared);
     colour *= mix(1.0 - uVignette * presence * 0.62, 1.0, vignette);
 
-    float fine = valueNoise(vUv * uResolution / 1.35, uGrainFrame);
-    float clump = valueNoise(vUv * uResolution / 3.4 + 41.0, uGrainFrame + 17.0);
-    float grain = ((fine - 0.5) * 0.76 + (clump - 0.5) * 0.24) * 2.0;
+    float fine = valueNoise(vUv * uResolution / 4.6, uGrainFrame);
+    float clump = valueNoise(vUv * uResolution / 10.5 + 41.0, uGrainFrame + 17.0);
+    float grain = ((fine - 0.5) * 0.82 + (clump - 0.5) * 0.18) * 2.0;
     float luma = dot(colour, vec3(0.2126, 0.7152, 0.0722));
     float grainToe = smoothstep(0.004, 0.04, luma);
-    colour += grain * uCameraGrain * presence * 0.055 * grainToe;
+    colour += grain * uCameraGrain * presence * 0.04 * grainToe;
 
     float alpha = max(center.a, max(max(softA.a, softB.a), max(softC.a, softD.a)));
     if (alpha <= 0.001) discard;

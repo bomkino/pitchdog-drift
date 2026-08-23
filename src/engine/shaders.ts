@@ -182,7 +182,15 @@ export const slideFragmentShader = /* glsl */ `
     // Imported artwork stays proof-safe. Motion may bend its geometry, but
     // atmospheric texture belongs to the surrounding world, never its pixels.
     sampled.rgb += abs(vWarp) * 0.025;
-    vec3 faceNormal = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
+    // Derivative normals on a moving subdivided card become infinite at steep
+    // perspective seams on some macOS GPUs. Even a bypassed light then carries
+    // NaNs into mix(), producing black stipple. Use a bounded analytical face
+    // response: the geometry still bends, while the light remains calm enough
+    // to protect artwork and typography.
+    float surfacePhase = (vUv.x + vUv.y) * 3.14159265 + uSlideSeed * 6.28318531;
+    vec2 surfaceSlope = vec2(sin(surfacePhase), cos(surfacePhase * 0.83))
+      * vSurfaceEnergy * (0.035 + uSheen * 0.055);
+    vec3 faceNormal = normalize(vec3(-surfaceSlope, 1.0));
     if (!gl_FrontFacing) faceNormal *= -1.0;
     vec3 lightDirection = normalize(uLightDirection);
     float key = max(0.0, dot(faceNormal, lightDirection));

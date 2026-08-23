@@ -66,9 +66,12 @@ export const backgroundFragmentShader = /* glsl */ `
   }
 
   float filmGrain(vec2 pixel, float frame) {
-    float fine = grainValueNoise(pixel / 1.35, frame);
-    float clump = grainValueNoise(pixel / 3.4 + 41.0, frame + 17.0);
-    return ((fine - 0.5) * 0.76 + (clump - 0.5) * 0.24) * 2.0;
+    // Keep both stocks above the single-pixel Nyquist trap. The canvas is
+    // routinely downsampled inside the studio, so sub-pixel noise turns into
+    // contour bands and moire even when the full-resolution master is sound.
+    float fine = grainValueNoise(pixel / 4.6, frame);
+    float clump = grainValueNoise(pixel / 10.5 + 41.0, frame + 17.0);
+    return ((fine - 0.5) * 0.82 + (clump - 0.5) * 0.18) * 2.0;
   }
 
   float fbm(vec2 p) {
@@ -168,7 +171,7 @@ ${voidBackgroundBranch}
     // devolving into single-pixel television snow.
     float displayLuminance = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
     float grainControl = clamp(uGrain, 0.0, 0.6);
-    float grainAmount = 0.035 * (1.0 - exp(-8.0 * grainControl)) / (1.0 - exp(-4.8));
+    float grainAmount = 0.026 * (1.0 - exp(-8.0 * grainControl)) / (1.0 - exp(-4.8));
     float grainToe = smoothstep(0.004, 0.040, displayLuminance);
     float grainResponse = mix(1.0, 1.0 - sqrt(clamp(displayLuminance, 0.0, 1.0)), 0.75);
     float grain = filmGrain(vUv * uResolution, uGrainFrame) * grainAmount * grainResponse * grainToe;

@@ -2,15 +2,26 @@ export const paperBackgroundBranch = /* glsl */ `
     } else if (uMode < 3.5) {
       // paper-0 · Long fibres / legacy paper
       if (atlasVariant < 0.5) {
-        float fibres = sin((p.y + sin(p.x * 19.0) * 0.015) * 620.0) * 0.5 + 0.5;
+        // Anisotropic, seeded value noise reads as stock under resampling;
+        // high-frequency sine fibres read as digital contour interference.
+        float fibres = valueNoise(vec2(p.x * 37.0, p.y * 110.0) + variationKey * 0.31);
+        float crossFibres = valueNoise(vec2(p.x * 84.0, p.y * 19.0) + variationKey * 0.57);
+        float paperCloud = valueNoise(p * 3.4 + variationKey + 91.0);
         color = mix(uColorA, uColorB, smoothstep(-0.45, 0.65, p.y));
-        color += (fibres - 0.5) * 0.018 * uIntensity;
+        color += (paperCloud - 0.5) * 0.014 * uIntensity;
+        color += ((fibres - 0.5) * 0.006 + (crossFibres - 0.5) * 0.004) * uIntensity;
       // paper-1 · Contact sheet
       } else if (atlasVariant < 1.5) {
-        float grid = max(gridLine(q.x + seedOffset.x, 4.0, 0.018), gridLine(q.y + seedOffset.y, 6.0, 0.014));
+        // A contact sheet is a quiet registration system, not wire fencing.
+        // Keep its cells aligned to the frame and let seed affect only the
+        // minute registration offset.
+        float grid = max(
+          gridLine(uv.x + seedOffset.x * 0.025, 4.0, 0.011),
+          gridLine(uv.y + seedOffset.y * 0.025, 6.0, 0.009)
+        );
         float emulsion = fbm(q * 4.2 + closedDrift * 0.03);
         color = mix(uColorA, uColorB, smoothstep(-0.6, 0.62, q.y) * 0.42);
-        color = mix(color, uAccent, grid * 0.2 * uIntensity);
+        color = mix(color, uAccent, grid * 0.065 * uIntensity);
         color += (emulsion - 0.5) * 0.055 * uIntensity;
       // paper-2 · Risograph cloud
       } else if (atlasVariant < 2.5) {
