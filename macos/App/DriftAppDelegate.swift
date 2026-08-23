@@ -144,6 +144,12 @@ final class DriftAppDelegate: NSObject,
     private var revealLastSavedFileItem: NSMenuItem?
     private var webContentRecoveryPolicy = WebContentRecoveryPolicy()
     private var navigationIdentity = NavigationIdentityTracker()
+    private let launchLifecycleSelfTest: Bool
+
+    init(launchLifecycleSelfTest: Bool = false) {
+        self.launchLifecycleSelfTest = launchLifecycleSelfTest
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard driftBuildIdentityIsValid() else {
@@ -410,6 +416,27 @@ final class DriftAppDelegate: NSObject,
         window.makeKeyAndOrderFront(nil)
         self.window = window
         updateWindowDocumentState(bridge.clientState)
+
+        if launchLifecycleSelfTest {
+            // Exercise the real NSApplicationDelegate path without loading or
+            // mutating a user's saved Web runtime. One run-loop turn proves
+            // that the delegate and its visible main window both survived.
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self,
+                      let window,
+                      self.window === window,
+                      window.isVisible,
+                      NSApp.activationPolicy() == .regular else {
+                    fputs("Drift app lifecycle self-test failed: the retained delegate did not own a visible regular-app window.\n", stderr)
+                    fflush(stderr)
+                    Darwin.exit(1)
+                }
+                print("Drift app lifecycle self-test passed: delegate retained and main window visible.")
+                fflush(stdout)
+                Darwin.exit(0)
+            }
+            return
+        }
 
         webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
         NSApp.activate(ignoringOtherApps: true)

@@ -335,6 +335,33 @@ fi
 
 "${EXECUTABLE}" --smoke-test
 "${EXECUTABLE}" --native-self-test
+python3 - "${EXECUTABLE}" <<'PY'
+from __future__ import annotations
+
+import subprocess
+import sys
+
+executable = sys.argv[1]
+expected = "Drift app lifecycle self-test passed: delegate retained and main window visible."
+try:
+    result = subprocess.run(
+        [executable, "--app-lifecycle-self-test"],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=20,
+    )
+except subprocess.TimeoutExpired as error:
+    raise SystemExit("Drift.app verification failed: normal AppKit launch did not settle within 20 seconds.") from error
+
+if result.returncode != 0 or expected not in result.stdout.splitlines():
+    diagnostics = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
+    raise SystemExit(
+        "Drift.app verification failed: normal AppKit launch did not retain a visible main window."
+        + (f"\n{diagnostics}" if diagnostics else "")
+    )
+print(expected)
+PY
 
 run_packaged_webview_self_test() {
   # One coordinator owns exact-process selection, external WebContent

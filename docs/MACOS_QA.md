@@ -40,6 +40,7 @@ Expected facts:
 - The exact packaged app produces zero token-bearing TCP and UDP hits against isolated loopback listeners while the production WebKit policy is installed.
 - Build manifest byte-checks every executable/resource except itself.
 - Native smoke, broker, AAC, packaged-WebView, typed-command, and recovery self-tests pass.
+- The normal AppKit launch path—not a test-only delegate—retains its application delegate and presents a visible regular-app main window within 20 seconds. This gate runs before the packaged-WebView matrix so a healthy test harness cannot hide a windowless product launch.
 - DMG verifies and its SHA-256 receipt matches.
 - Normal pull-request CI does not upload a public app or DMG.
 
