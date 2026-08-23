@@ -162,10 +162,12 @@ const host = requireMarkers("macos/App/NativeBridgeHost.swift", [
   "failPendingRepliesForTeardown()",
   "static func runReplyLifecycleSelfTest() throws",
   "broker.registerSavePanelFile(",
+  "Drift native JavaScript callback failed [%@]",
 ]);
 forbidMarkers("macos/App/NativeBridgeHost.swift", [
   "let descriptors = try urls.map { try self.broker.registerFile($0, mode: .readOnly) }",
   "resetCapabilitiesForDocumentBoot",
+  "completionError.localizedDescription",
 ]);
 const invalidationStart = host.indexOf("func invalidateDocument()");
 const invalidationEnd = host.indexOf("var hasActiveDocument", invalidationStart);

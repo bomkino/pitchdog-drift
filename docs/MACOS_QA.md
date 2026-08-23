@@ -81,6 +81,8 @@ Add a regression test whenever the broker is fixed. Do not replace byte evidence
 
 ## Packaged WebView gauntlet
 
+`LSMultipleInstancesProhibited` is part of the product contract. Before this gauntlet, save and gracefully quit any installed Drift build with the same bundle identifier. The harness must classify a pre-existing same-bundle process as an `identity-setup-failure` immediately; it must never wait for a false runtime timeout or terminate an app it did not launch.
+
 The executable `--webview-self-test` loads copied `Resources/Web/index.html`, never the development server. It must observe:
 
 - `file:` runtime;
@@ -228,7 +230,7 @@ Test presenter MP4, MOV, WebM, audio-only media, unsupported codec, corrupt meta
 
 ## Portable project journey
 
-- Save a `.pitched` project through File → Save Portable Project.
+- Save a `.pitched` project through File → Save Project, then exercise Save Project As.
 - Cancel the native panel and verify no destination and no false success.
 - Open through app control, File menu, Finder double-click, app-icon drop, and Open With.
 - Open while the application is launching; import must queue until ready.

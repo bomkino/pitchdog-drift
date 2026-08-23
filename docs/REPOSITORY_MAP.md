@@ -14,7 +14,7 @@ This repository contains one cinematic studio with two runtime shells. Source, g
 | `e2e/` | real-browser user journeys and falsification cases |
 | `scripts/` | build, verification, packaging, codec, evidence, and non-publishing release lanes |
 | `.github/workflows/` | CI orchestration for the same scripts |
-| `docs/` | product contract, architecture, threat model, QA, user, and release truth |
+| `docs/` | indexed product, architecture, threat-model, QA, user, roadmap, build-story, and release truth |
 | `docs/v2/` | living V2 architecture and compatibility boundaries; never release proof by itself |
 
 The canonical native Swift graph is `macos/App/*.swift`. Root-level or duplicate Swift implementations are forbidden by the source contract.
@@ -57,6 +57,7 @@ Use Node.js from `.nvmrc`.
 ```bash
 npm ci
 npm run check
+npm run setup:e2e
 npm run test:e2e
 npm run build:mac
 ```

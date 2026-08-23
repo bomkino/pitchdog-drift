@@ -10,14 +10,12 @@ import {
 
 describe("studio command registry", () => {
   it("maps every required command family to stable action tokens", () => {
-    expect(STUDIO_COMMAND_REGISTRY).toHaveLength(22);
+    expect(STUDIO_COMMAND_REGISTRY).toHaveLength(20);
     expect(STUDIO_COMMAND_REGISTRY.map(({ id }) => id)).toEqual([
       "workspace.slides",
       "workspace.world",
       "workspace.direct",
       "workspace.master",
-      "world.select",
-      "theme.select",
       "preview.pause.toggle",
       "preview.focus.toggle",
       "guide.toggle",
@@ -50,17 +48,9 @@ describe("studio command registry", () => {
     expect(studioCommandById("missing")).toBeNull();
   });
 
-  it("keeps world and legacy theme choices as explicit parameterized groups", () => {
-    expect(studioCommandById("world.select")).toMatchObject({
-      workspace: "world",
-      action: { type: "world.select" },
-      parameter: { name: "worldId", source: "authored-worlds", required: true },
-    });
-    expect(studioCommandById("theme.select")).toMatchObject({
-      workspace: "world",
-      action: { type: "theme.select" },
-      parameter: { name: "themeId", source: "legacy-themes", required: true },
-    });
+  it("never advertises a command that still needs an uncollected parameter", () => {
+    expect(STUDIO_COMMAND_REGISTRY.every((entry) => !("parameter" in entry))).toBe(true);
+    expect(searchStudioCommands("film world").map(({ id }) => id)).toEqual(["workspace.world"]);
   });
 
   it("searches and ranks deterministically with stable authored tie breaks", () => {
@@ -90,7 +80,7 @@ describe("studio command registry", () => {
     expect(() => searchStudioCommands("", { limit: -1 })).toThrow(/non-negative safe integer/);
   });
 
-  it("rejects duplicate ids and malformed parameter ownership", () => {
+  it("rejects duplicate ids", () => {
     const duplicate: StudioCommandDefinition = {
       ...STUDIO_COMMAND_REGISTRY[0]!,
       label: "A duplicate identity",
@@ -100,15 +90,6 @@ describe("studio command registry", () => {
       duplicate,
     ])).toThrow("Duplicate studio command id: workspace.slides");
 
-    const wrongParameter: StudioCommandDefinition = {
-      id: "world.invalid",
-      label: "Invalid World",
-      keywords: ["invalid"],
-      workspace: "world",
-      action: { type: "world.select" },
-      parameter: { name: "themeId", source: "legacy-themes", required: true },
-    };
-    expect(() => validateStudioCommandRegistry([wrongParameter])).toThrow(/authored-worlds worldId/);
   });
 
   it("exposes deeply frozen static definitions", () => {

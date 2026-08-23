@@ -21,6 +21,9 @@ describe("App Project V4 authority contract", () => {
     expect(appSource).toContain("stagePresentation.pinnedAssetId");
     expect(appSource).toContain("session.plan.requireTransparentPixels");
     expect(appSource).toContain("session.plan.presenter.includeAudio");
+    expect(appSource).toContain("await installPreviewAuthority(engine");
+    expect(appSource).toContain("project: displayedProject");
+    expect(appSource).toContain("pinnedAsset: activePinnedAsset");
     expect(appSource).not.toContain("const output = settingsRef.current.output");
     expect(appSource).not.toContain("settingsRef.current.presenter.enabled && pinnedAsset");
   });

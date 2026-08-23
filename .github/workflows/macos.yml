@@ -2,7 +2,7 @@ name: macOS standalone app
 
 on:
   push:
-    branches: [main, feat/native-macos-studio, integration/mega-main-native, mm/native-foundation-gate]
+    branches: [main]
     paths:
       - "macos/**"
       - "scripts/build-macos-app.sh"

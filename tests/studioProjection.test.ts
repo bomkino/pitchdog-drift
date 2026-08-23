@@ -568,6 +568,42 @@ describe("Project V3/V4 studio projection", () => {
     expect(studioSettingsFromDriftProject(migrated).presenter.assetId).toBe(slideA.id);
   });
 
+  it("does not erase an authored sound master when presenter media changes", () => {
+    const migrated = migrateLegacyStudioProjectToV4({
+      projectId: "sound-survives-presenter",
+      createdAt: "2026-08-21T03:30:00.000Z",
+      updatedAt: "2026-08-21T03:30:00.000Z",
+      settings: cloneSettings(DEFAULT_SETTINGS),
+      slideAssets: [slideA],
+    });
+    migrated.sound.exportEnabled = true;
+    migrated.master.audio.enabled = true;
+    const settings = studioSettingsFromDriftProject(migrated);
+    settings.presenter.enabled = true;
+    settings.presenter.assetId = presenter.id;
+
+    const withPresenter = reconcileStudioProject({
+      project: migrated,
+      settings,
+      slideAssets: [migrated.media.assets[slideA.id]!],
+      presenterAsset: presenter,
+      updatedAt: "2026-08-21T03:31:00.000Z",
+    });
+    expect(withPresenter.sound.exportEnabled).toBe(true);
+    expect(withPresenter.master.audio.enabled).toBe(true);
+
+    settings.presenter.enabled = false;
+    const withoutPresenterAudio = reconcileStudioProject({
+      project: withPresenter,
+      settings,
+      slideAssets: [withPresenter.media.assets[slideA.id]!],
+      presenterAsset: presenter,
+      updatedAt: "2026-08-21T03:32:00.000Z",
+    });
+    expect(withoutPresenterAudio.sound.exportEnabled).toBe(true);
+    expect(withoutPresenterAudio.master.audio.enabled).toBe(true);
+  });
+
   it("repairs a restored V3-era hybrid only after Reset and persists the safe pin without flattening the project", () => {
     const settings = cloneSettings(DEFAULT_SETTINGS);
     settings.stage = { width: 1080, height: 1920, transparent: false };

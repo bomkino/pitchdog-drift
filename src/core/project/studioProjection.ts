@@ -420,9 +420,6 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
   const outputWidthChanged = settings.output.width !== previouslyProjected.output.width;
   const outputHeightChanged = settings.output.height !== previouslyProjected.output.height;
   const presenterMediaChanged = next.media.presenterAssetId !== (presenter?.id ?? null);
-  const presenterControlsChanged = settings.presenter.enabled !== previouslyProjected.presenter.enabled
-    || settings.presenter.assetId !== previouslyProjected.presenter.assetId
-    || settings.presenter.muted !== previouslyProjected.presenter.muted;
   const settingsUnchanged = JSON.stringify(settings) === JSON.stringify(previouslyProjected);
   const worldControlChanges = changedWorldControls(settings, previouslyProjected);
 
@@ -627,11 +624,9 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
       bitrate: settings.output.videoBitrate,
     },
     audio: {
-      enabled: presenterMediaChanged || presenterControlsChanged
-        ? next.formatVersion === 4
-          ? pinAsset?.kind === "video" && pinId === presenter?.id && settings.presenter.enabled && !settings.presenter.muted
-          : presenter !== null && settings.presenter.enabled && !settings.presenter.muted
-        : next.master.audio.enabled,
+      enabled: next.sound.exportEnabled || (next.formatVersion === 4
+        ? pinAsset?.kind === "video" && pinId === presenter?.id && settings.presenter.enabled && !settings.presenter.muted
+        : presenter !== null && settings.presenter.enabled && !settings.presenter.muted),
       bitrate: settings.output.audioBitrate,
     },
   };

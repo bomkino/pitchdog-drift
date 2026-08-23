@@ -272,6 +272,24 @@ describe("Project V4", () => {
     })).toThrow(ProjectValidationError);
   });
 
+  it("rejects project bitrates the fixed encoders cannot honour", () => {
+    const project = createDefaultDriftProjectV4("fixed-bitrate-v4", NOW);
+    expect(() => validateDriftProjectV4({
+      ...project,
+      master: {
+        ...project.master,
+        video: { ...project.master.video, bitrate: 44_000_000 },
+      },
+    })).toThrow(/project\.master\.video\.bitrate/u);
+    expect(() => validateDriftProjectV4({
+      ...project,
+      master: {
+        ...project.master,
+        audio: { ...project.master.audio, bitrate: 256_000 },
+      },
+    })).toThrow(/project\.master\.audio\.bitrate/u);
+  });
+
   it("rejects inherited and accessor-backed creative data before V3 cloning can change its meaning", () => {
     const project = createDefaultDriftProjectV4("plain-v4", NOW);
     const inheritedCard = Object.create(project.card) as object;

@@ -158,6 +158,8 @@ A malicious filesystem can still race metadata checks. App Sandbox and user-sele
 
 **Countermeasure:** process termination aborts every native write and AAC session before presenting Reload/Quit. Reload uses persistent app-container storage. No staged file is labelled complete. Automated recovery is exercised once; a second termination fails rather than looping green by retry.
 
+Native callback failures write only a stable error class such as `SecurityError` to unified logging. User-controlled filenames and localized error prose stay out of background diagnostics; the foreground alert remains the deliberate place for actionable detail.
+
 ### Malicious `.pitched` archive
 
 **Threat:** oversized, contradictory, duplicate, traversal, or hash-mismatched archive mutates the current project.

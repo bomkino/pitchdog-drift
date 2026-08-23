@@ -21,7 +21,7 @@ Changes intended for a future public release belong here. Nothing in this sectio
 
 ### Changed
 
-- The background picker now leads with twelve curated hero studies and keeps all forty structures available through searchable family filters.
+- The background picker now leads with twelve curated hero studies and keeps all sixty-four backgrounds across eight structural families available through searchable filters.
 - Slides now have a shared deformed rear shell for material thickness without intersecting the artwork face.
 - New V2 pins begin source-ratio, protected, and still-only. Reapplying Editorial Drift restores its opaque paper room; transparent output remains an explicit option afterward.
 - Browser CI now exercises the shipping V2 identity and the isolated V2 development identity through separate origins and storage namespaces. Explicit V1-import journeys preserve compatibility coverage.
@@ -44,3 +44,10 @@ Changes intended for a future public release belong here. Nothing in this sectio
 - Escape now exits full-frame focus even when the exit control owns keyboard focus, then restores focus to the initiating control.
 - Recovery saves can no longer be overtaken by older autosaves, and native multi-file imports report completion only after their exact persisted revision succeeds.
 - Browser and packaged-app recovery probes now distinguish durable success from a merely delivered native message.
+- Command search no longer advertises Film World and V1-theme choices it cannot complete; the truthful World workspace command remains searchable.
+- A/B comparison pixels are restored after MP4, still, sequence, cancellation, and failed export paths, so the canvas cannot silently disagree with the visible Before/After state.
+- Native slide and presenter imports now persist their staged project before replacing live media or acknowledging Finder; a persistence failure leaves the prior project and media usable.
+- Project validation now rejects unsurfaced bitrate values instead of accepting numbers the fixed H.264/AAC encoders would ignore.
+- Presenter edits no longer disable an independently enabled tactile-sound master.
+- Pinning media now opens and focuses its placement controls, accidental media removal requires an explicit second click, and macOS Reduce Motion visibly identifies a preview-only hold.
+- Native callback diagnostics log stable error classes instead of user-controlled filenames or localized error prose.

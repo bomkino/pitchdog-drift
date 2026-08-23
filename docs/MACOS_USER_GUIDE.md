@@ -47,7 +47,7 @@ Current limits:
 - 80 MiB total portable-project media;
 - 96 MiB portable archive input.
 
-A larger or unsupported file fails visibly rather than partially entering the project. Reorder with drag, arrow controls, or keyboard focus. Removing a slide changes the current project only; it never deletes the source file in Finder.
+A larger or unsupported file fails visibly rather than partially entering the project. Reorder with drag, arrow controls, or keyboard focus. Removal is deliberately two-step: click **×**, then **YES**. Press Escape to keep the media. Removing a slide changes the current project only; it never deletes the source file in Finder.
 
 Use **File → Add Presenter Video…** or the Presenter control for one MP4, MOV, or WebM video. The presenter can stay pinned while the deck moves. Container support does not guarantee that every embedded codec can be decoded. Drift validates the video before mutating the project.
 
@@ -58,6 +58,15 @@ The editor has three surfaces:
 - **Media** — slide order, removal, presenter media, and pinned-frame ownership.
 - **Stage** — the live WebGL composition. Drag or use the wheel to move; Space plays or pauses; previous/next commands step the track; F toggles full-frame focus.
 - **Director** — stage/output ratios, path, pace, spacing, depth, tilt, optical bend, focal point, continuous corners, borders, shadows, background, pinned-frame placement, and output settings.
+
+Director is split into four short journeys rather than one wall of controls:
+
+- **Slides** — crop the selected slide and place the optional pinned frame.
+- **World** — choose an authored Film World, portrait scene, pressure, and background.
+- **Direct** — shape movement, lifecycle, tempo, material, light, lens, and sound.
+- **Master** — set timing ownership, platform guides, output, preflight, and export.
+
+Choosing **Keep still** opens **Slides → Pinned frame** immediately. That is where you set position, size, source/custom ratio, fit, focal point, safe inset, corners, border, matte, shadow, audio, and whether the same media also appears in the moving track.
 
 Native menu equivalents exist for the important actions. They use the renderer’s reported state rather than guessing from the visible interface. Commands disable while Drift is hashing media, replacing a project, saving protected state, or exporting.
 
@@ -72,7 +81,7 @@ App full-frame focus and macOS full screen are separate:
 
 Drift autosaves the current project and original media into sandboxed app-container storage. That protects the current Mac. It is not a collaboration format or durable external backup.
 
-Use **File → Save Portable Project…** to create a `.pitched` archive. The archive contains:
+Use **File → Save Project** or **Command–S** to save the current `.pitched` document. The first explicit save asks for a Finder destination. Use **File → Save Project As…** to create a separate copy. The archive contains:
 
 - a versioned manifest;
 - engine and theme versions;
@@ -222,7 +231,7 @@ JavaScript receives opaque permission tokens, leaf filenames, MIME types, sizes,
 - **Command–O:** Open `.pitched` project
 - **Shift–Command–O:** Add slides
 - **Option–Command–O:** Add presenter video
-- **Command–S:** Save portable project
+- **Command–S:** Save project
 - **Command–E:** Export MP4 master
 - **Shift–Command–E:** Export PNG still
 - **Option–Command–E:** Export PNG sequence

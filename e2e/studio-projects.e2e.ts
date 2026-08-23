@@ -328,6 +328,8 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
   await page.getByRole("button", { name: "Keep Drift study 01.png still" }).click();
   await expect(firstSlide).toHaveAttribute("data-pinned", "true");
   await page.getByRole("button", { name: "Remove presenter video" }).click();
+  await expect(page.locator(".presenter-card")).toHaveCount(1);
+  await page.getByRole("button", { name: /^Confirm removal of / }).click();
   await expect(page.locator(".presenter-card")).toHaveCount(0);
   await expect(firstSlide).toHaveAttribute("data-pinned", "true");
   await expect(page.getByRole("button", { name: "Return Drift study 01.png to the carousel" })).toBeVisible();

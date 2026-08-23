@@ -14,6 +14,7 @@ import {
   type PresenterSettingsV4,
   type ProjectDomain,
 } from "./schema";
+import { DRIFT_AAC_BITRATE, DRIFT_H264_BITRATE } from "./masterContract";
 import {
   createPerformanceLifecycle,
   type PerformanceLifecycleAuthoring,
@@ -683,10 +684,10 @@ export function validateDriftProjectV3(value: unknown): DriftProjectV3 {
   boolean(master.reducedMotion, "project.master.reducedMotion");
   const video = object(master.video, "project.master.video", ["format", "bitrate"]);
   oneOf(video.format, ["h264"] as const, "project.master.video.format");
-  finiteNumber(video.bitrate, "project.master.video.bitrate", 100_000, 200_000_000, true);
+  finiteNumber(video.bitrate, "project.master.video.bitrate", DRIFT_H264_BITRATE, DRIFT_H264_BITRATE, true);
   const audio = object(master.audio, "project.master.audio", ["enabled", "bitrate"]);
   boolean(audio.enabled, "project.master.audio.enabled");
-  finiteNumber(audio.bitrate, "project.master.audio.bitrate", 32_000, 512_000, true);
+  finiteNumber(audio.bitrate, "project.master.audio.bitrate", DRIFT_AAC_BITRATE, DRIFT_AAC_BITRATE, true);
   if (audio.enabled && !sound.exportEnabled && (presenterId === null || presenter.muted === true)) {
     fail("project.master.audio.enabled", "requires presenter audio or exported sound");
   }

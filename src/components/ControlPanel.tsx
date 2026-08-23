@@ -203,6 +203,7 @@ interface ControlPanelProps {
   sonicState: TactileRuntimeState;
   onTheme: (id: ThemeId) => void;
   onResetPinnedFrame: () => void;
+  pinEditorRequestId: number;
   onExportStill: () => void;
   onExportVideo: () => void;
   onExportFrames: () => void;
@@ -243,6 +244,7 @@ export function ControlPanel({
   sonicState,
   onTheme,
   onResetPinnedFrame,
+  pinEditorRequestId,
   onExportStill,
   onExportVideo,
   onExportFrames,
@@ -1205,7 +1207,7 @@ export function ControlPanel({
         </InspectorGroup>
       ) : null}
 
-      <InspectorGroup title="Pinned frame" eyebrow={settings.presenter.enabled ? "ON" : "OFF"} workspaces="slides">
+      <InspectorGroup title="Pinned frame" eyebrow={settings.presenter.enabled ? "ON" : "OFF"} openRequestId={pinEditorRequestId} workspaces="slides">
         <SwitchField
           label="Keep one frame still"
           checked={settings.presenter.enabled}

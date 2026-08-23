@@ -1,8 +1,41 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { waitForStudio } from "./studio.helpers";
 
 async function ensureInspectorOpen(group: Locator): Promise<void> {
   if (await group.getAttribute("open") === null) await group.locator("summary").click();
+}
+
+async function sampleStagePixels(page: Page, canvas: Locator): Promise<number[]> {
+  const png = await canvas.screenshot();
+  return page.evaluate(async (base64) => {
+    const binary = atob(base64);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const surface = document.createElement("canvas");
+    surface.width = bitmap.width;
+    surface.height = bitmap.height;
+    const context = surface.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Screenshot sampling canvas is unavailable.");
+    context.drawImage(bitmap, 0, 0);
+    const samples: number[] = [];
+    for (let y = 1; y <= 15; y += 1) {
+      for (let x = 1; x <= 15; x += 1) {
+        const rgba = context.getImageData(
+          Math.floor(bitmap.width * x / 16),
+          Math.floor(bitmap.height * y / 16),
+          1,
+          1,
+        ).data;
+        samples.push(...rgba);
+      }
+    }
+    bitmap.close();
+    return samples;
+  }, png.toString("base64"));
+}
+
+function pixelDistance(left: number[], right: number[]): number {
+  return left.reduce((total, value, index) => total + Math.abs(value - right[index]!), 0);
 }
 
 test("shipping and development identities restore the authored V2 room and repair a legacy-style pinned frame", async ({ page }, testInfo) => {
@@ -41,7 +74,8 @@ test("shipping and development identities restore the authored V2 room and repai
   const pinnedGroup = page.locator("details").filter({
     has: page.locator("summary", { hasText: "Pinned frame" }),
   });
-  await ensureInspectorOpen(pinnedGroup);
+  await expect(pinnedGroup).toHaveAttribute("open", "");
+  await expect(pinnedGroup.locator("summary")).toBeFocused();
 
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   const carouselPresence = page.getByRole("group", { name: "Carousel presence", exact: true });
@@ -121,6 +155,39 @@ test("Reading Pace, platform guides, preflight, and Command-K use the settled V2
   await expect(page.getByRole("heading", { name: "Choose the weather." })).toBeVisible();
 });
 
+test("comparison pixels return after a still export instead of keeping live direction", async ({ page }) => {
+  await waitForStudio(page);
+  await page.getByRole("button", { name: "WORLD", exact: true }).click();
+  await page.getByRole("button", { name: /Dread/ }).click();
+  const compare = page.getByRole("button", { name: "A/B", exact: true });
+  await expect(compare).toBeEnabled();
+  await compare.click();
+  await expect(page.getByRole("button", { name: "Before", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".stage-topline").first()).toContainText("editorial drift");
+  await page.getByRole("button", { name: "Pause preview" }).click();
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const canvas = page.locator("[data-testid=webgl-stage]");
+  const before = await sampleStagePixels(page, canvas);
+  await page.getByRole("button", { name: "Before", exact: true }).click();
+  await expect(page.locator(".stage-topline").first()).toContainText("dread");
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const live = await sampleStagePixels(page, canvas);
+  await page.getByRole("button", { name: "A/B", exact: true }).click();
+  await expect(page.locator(".stage-topline").first()).toContainText("editorial drift");
+
+  await page.getByRole("button", { name: "MASTER", exact: true }).click();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
+  expect(await (await download).path()).toBeTruthy();
+
+  await page.getByRole("button", { name: "WORLD", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Before", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".stage-topline").first()).toContainText("editorial drift");
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const after = await sampleStagePixels(page, canvas);
+  expect(pixelDistance(after, before)).toBeLessThan(pixelDistance(after, live));
+});
+
 test("Command-K traps keyboard focus, exposes active results, and restores its trigger", async ({ page }) => {
   await waitForStudio(page);
   const trigger = page.getByRole("button", { name: "Open command palette" });
@@ -130,6 +197,12 @@ test("Command-K traps keyboard focus, exposes active results, and restores its t
   await expect(dialog).toBeVisible();
   await expect(search).toBeFocused();
   await expect(search).toHaveAttribute("aria-activedescendant", /studio-command-/);
+
+  await search.fill("choose film world");
+  await expect(dialog.getByText("No command.")).toBeVisible();
+  await search.fill("film world");
+  await expect(dialog.getByRole("option", { name: /Switch to World/ })).toBeVisible();
+  await search.fill("");
 
   await page.keyboard.press("Shift+Tab");
   await expect(dialog.locator(":focus")).toHaveCount(1);

@@ -6,14 +6,15 @@ import {
   SHADER_VERSION,
   type StudioSettings,
 } from "../model";
+import { DRIFT_AAC_BITRATE, DRIFT_H264_BITRATE } from "../core/project/masterContract";
 
 export const STUDIO_SETTINGS_LIMITS = Object.freeze({
   stageDimension: Object.freeze({ min: 256, max: 8_192 }),
   aspectComponent: Object.freeze({ min: 1, max: 64 }),
   outputDurationSeconds: Object.freeze({ min: 0.5, max: 300 }),
   slideShadowSoftness: Object.freeze({ min: 0, max: 256 }),
-  videoBitrate: 16_000_000,
-  audioBitrate: 192_000,
+  videoBitrate: DRIFT_H264_BITRATE,
+  audioBitrate: DRIFT_AAC_BITRATE,
   presenterGain: 2,
   presenterTrimStart: 86_400,
   presenterStartAt: 86_400,
