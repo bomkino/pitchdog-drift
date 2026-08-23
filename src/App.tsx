@@ -43,6 +43,7 @@ import {
   type DriftProjectV4,
 } from "./core/project/schema";
 import { projectV4ChangePaths } from "./core/commands/projectCommand";
+import { installPreviewAuthority } from "./core/render/previewAuthority";
 import {
   beginProjectSave,
   createProjectRevisionState,
@@ -322,10 +323,12 @@ export function App() {
   const [contextState, setContextState] = useState<"ready" | "lost" | "restored">("ready");
   const [fps, setFps] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [activeSlideIndex, setActiveSlideIndex] = useState(-1);
   const [activePanel, setActivePanel] = useState<"media" | "stage" | "director">("stage");
   const [activeWorkspace, setActiveWorkspace] = useState<StudioWorkspace>("slides");
+  const [pinEditorRequestId, setPinEditorRequestId] = useState(0);
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [platformGuideId, setPlatformGuideId] = useState<PlatformGuideProfileId>("none");
   const [customGuideInsets, setCustomGuideInsets] = useState<NormalizedInsets>({ top: 0.1, right: 0.08, bottom: 0.16, left: 0.08 });
@@ -715,13 +718,17 @@ export function App() {
     return task;
   }, []);
 
+  const recordDocumentMutation = useCallback(() => {
+    documentRevisionRef.current = recordProjectMutation(documentRevisionRef.current);
+    setDocumentRevisionVersion((version) => version + 1);
+  }, []);
+
   const markProjectDirty = useCallback(() => {
     if (!hydratedRef.current) return;
     advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
-    documentRevisionRef.current = recordProjectMutation(documentRevisionRef.current);
-    setDocumentRevisionVersion((version) => version + 1);
+    recordDocumentMutation();
     setSaveState("saving");
-  }, []);
+  }, [recordDocumentMutation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -798,7 +805,10 @@ export function App() {
     });
     resize.observe(frame);
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const applyMotion = () => engine.setReducedMotionPreview(motion.matches);
+    const applyMotion = () => {
+      setPrefersReducedMotion(motion.matches);
+      engine.setReducedMotionPreview(motion.matches);
+    };
     applyMotion();
     motion.addEventListener("change", applyMotion);
     return () => {
@@ -996,21 +1006,49 @@ export function App() {
       rejectImport(`This version supports up to ${MAX_SLIDES} moving slides; ${rejected} selected file${rejected === 1 ? " was" : "s were"} rejected.`);
       return;
     }
-    if (replacingDemos) current.forEach(disposeAsset);
     const next = [...retained, ...accepted];
     const nextSettings = settingsForCurrentAuthority();
     const nextPresenter = presenterRef.current;
     if (options.persistBeforeReply) {
+      const baseProject = projectRef.current;
+      if (!baseProject) {
+        accepted.forEach(disposeAsset);
+        rejectImport("Project V4 creative authority is unavailable.");
+        return;
+      }
+      const nextProject = reconcileStudioProject({
+        project: baseProject,
+        settings: nextSettings,
+        slideAssets: next.map(describeProjectAsset),
+        presenterAsset: nextPresenter ? describeProjectAsset(nextPresenter) : null,
+        updatedAt: new Date().toISOString(),
+      });
+      try {
+        await persistExactProject(nextProject, next, nextPresenter);
+      } catch (error) {
+        accepted.forEach(disposeAsset);
+        const message = error instanceof Error ? `Local save failed: ${error.message}` : "Local save failed.";
+        announce(message, "error");
+        if (options.propagateFailure) throw error;
+        return;
+      }
       directPersistenceSnapshotRef.current = {
         settings: nextSettings,
         assets: next,
         presenter: nextPresenter,
       };
+      recordDocumentMutation();
+      assetsRef.current = next;
+      publishLiveProject(nextProject);
+      setAssets(next);
+      if (replacingDemos) current.forEach(disposeAsset);
+    } else {
+      if (replacingDemos) current.forEach(disposeAsset);
+      markProjectDirty();
+      assetsRef.current = next;
+      reconcileLiveProject(nextSettings, next, nextPresenter);
+      setAssets(next);
     }
-    markProjectDirty();
-    assetsRef.current = next;
-    reconcileLiveProject(nextSettings, next, nextPresenter);
-    setAssets(next);
     const usedBytes = projectAssetBytes([
       ...next,
       ...(presenterRef.current ? [presenterRef.current] : []),
@@ -1019,16 +1057,7 @@ export function App() {
       `${accepted.length} slide${accepted.length === 1 ? "" : "s"} added${rejected ? `; ${rejected} rejected by format, count, decode, or project-media budget` : ""}. ${formatProjectMiB(usedBytes)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
       rejected ? "quiet" : "good",
     );
-    if (options.persistBeforeReply) {
-      try {
-        await persist(nextSettings, next, nextPresenter);
-      } catch (error) {
-        const message = error instanceof Error ? `Local save failed: ${error.message}` : "Local save failed.";
-        announce(message, "error");
-        if (options.propagateFailure) throw error;
-      }
-    }
-  }, [announce, markProjectDirty, persist, reconcileLiveProject, settingsForCurrentAuthority]);
+  }, [announce, markProjectDirty, persistExactProject, publishLiveProject, reconcileLiveProject, recordDocumentMutation, settingsForCurrentAuthority]);
 
   const addImages = useCallback((files: File[]) => {
     void enqueueProjectOperation(() => addImagesNow(files));
@@ -1038,6 +1067,7 @@ export function App() {
     file: File,
     options: { persistBeforeReply?: boolean; propagateFailure?: boolean } = {},
   ) => {
+    let decodedPresenter: StudioAsset | null = null;
     try {
       if (!hydratedRef.current) {
         throw new Error("Recovery is locked. Open a verified project before adding a presenter; the preserved project will not be overwritten by fallback media.");
@@ -1047,10 +1077,8 @@ export function App() {
       if (violation) throw new Error(`Presenter video was not added. ${violation}`);
 
       const next = await videoFileToAsset(file);
+      decodedPresenter = next;
       const previous = presenterRef.current;
-      if (previous) disposeAsset(previous);
-      presenterRef.current = next;
-      setPresenter(next);
 
       const currentSettings = settingsForCurrentAuthority();
       const currentPin = currentSettings.presenter;
@@ -1070,28 +1098,48 @@ export function App() {
             },
       };
       if (options.persistBeforeReply) {
+        const baseProject = projectRef.current;
+        if (!baseProject) throw new Error("Project V4 creative authority is unavailable.");
+        const nextProject = reconcileStudioProject({
+          project: baseProject,
+          settings: nextSettings,
+          slideAssets: assetsRef.current.map(describeProjectAsset),
+          presenterAsset: describeProjectAsset(next),
+          updatedAt: new Date().toISOString(),
+        });
+        await persistExactProject(nextProject, assetsRef.current, next);
         directPersistenceSnapshotRef.current = {
           settings: nextSettings,
           assets: assetsRef.current,
           presenter: next,
         };
+        recordDocumentMutation();
+        presenterRef.current = next;
+        settingsRef.current = nextSettings;
+        publishLiveProject(nextProject);
+        setPresenter(next);
+        setSettings(nextSettings);
+        if (previous) disposeAsset(previous);
+      } else {
+        if (previous) disposeAsset(previous);
+        presenterRef.current = next;
+        setPresenter(next);
+        markProjectDirty();
+        settingsRef.current = nextSettings;
+        reconcileLiveProject(nextSettings, assetsRef.current, next);
+        setSettings(nextSettings);
       }
-      markProjectDirty();
-      settingsRef.current = nextSettings;
-      reconcileLiveProject(nextSettings, assetsRef.current, next);
-      setSettings(nextSettings);
+      decodedPresenter = null;
       announce(
         `${selectedSlideStillExists ? "Presenter video added; the selected still image was kept." : "Presenter video added and kept still."} Audio will be checked—not silently dropped—at export. ${formatProjectMiB(existingSlideBytes + next.blob.size)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
         "good",
       );
-      if (options.persistBeforeReply) {
-        await persist(nextSettings, assetsRef.current, next);
-      }
     } catch (error) {
+      if (decodedPresenter) disposeAsset(decodedPresenter);
       announce(error instanceof Error ? error.message : "Presenter video could not be opened.", "error");
       if (options.propagateFailure) throw error;
     }
-  }, [announce, markProjectDirty, persist, reconcileLiveProject, settingsForCurrentAuthority]);
+  }, [announce, markProjectDirty, persistExactProject, publishLiveProject, reconcileLiveProject, recordDocumentMutation, settingsForCurrentAuthority]);
 
   const addPresenter = useCallback((file: File) => {
     void enqueueProjectOperation(() => addPresenterNow(file));
@@ -1142,7 +1190,16 @@ export function App() {
     settingsRef.current = nextSettings;
     reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
     setSettings(nextSettings);
-  }, [markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
+    if (asset) {
+      if (asset.kind === "image") setSelectedSlideId(asset.id);
+      setActiveWorkspace("slides");
+      setActivePanel("director");
+      setPinEditorRequestId((requestId) => requestId + 1);
+      announce(`${asset.name} will stay still. Pinned-frame controls are open.`);
+    } else {
+      announce("Pinned media returned to its moving track.");
+    }
+  }, [announce, markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const resetPinnedFrame = useCallback(() => {
     const current = settingsForCurrentAuthority();
@@ -1267,14 +1324,28 @@ export function App() {
     return { engine, controller, surface, plan, pinnedAsset: pinned };
   }, []);
 
-  const endExport = useCallback((
+  const endExport = useCallback(async (
     reservation: { controller: AbortController },
     surface?: { restore: () => void },
   ) => {
-    surface?.restore();
-    if (abortRef.current === reservation.controller) abortRef.current = null;
-    setExportProgress(null);
-  }, []);
+    try {
+      surface?.restore();
+      const engine = engineRef.current;
+      if (engine) {
+        await installPreviewAuthority(engine, {
+          project: displayedProject,
+          settings,
+          assets,
+          pinnedAsset: activePinnedAsset,
+        });
+      }
+    } catch {
+      announce("Export finished, but the live preview could not be restored. Reload Drift before directing further.", "error");
+    } finally {
+      if (abortRef.current === reservation.controller) abortRef.current = null;
+      setExportProgress(null);
+    }
+  }, [activePinnedAsset, announce, assets, displayedProject, settings]);
 
   const exportVideo = useCallback(async () => {
     if (!engineRef.current) {
@@ -1340,7 +1411,7 @@ export function App() {
         isAbortError(error) ? "quiet" : "error",
       );
     } finally {
-      endExport(reservation, session?.surface);
+      await endExport(reservation, session?.surface);
     }
   }, [announce, beginExport, endExport, mp4Supported, nativeMac, renderForExport, reserveExport]);
 
@@ -1376,7 +1447,7 @@ export function App() {
     } catch (error) {
       announce(isAbortError(error) ? "PNG save canceled." : error instanceof Error ? error.message : "PNG capture failed.", isAbortError(error) ? "quiet" : "error");
     } finally {
-      if (reservation) endExport(reservation, session?.surface);
+      if (reservation) await endExport(reservation, session?.surface);
     }
   }, [announce, beginExport, endExport, renderForExport, reserveExport]);
 
@@ -1417,7 +1488,7 @@ export function App() {
     } catch (error) {
       announce(isAbortError(error) ? "PNG sequence export canceled." : error instanceof Error ? error.message : "PNG sequence export failed.", isAbortError(error) ? "quiet" : "error");
     } finally {
-      if (reservation) endExport(reservation, session?.surface);
+      if (reservation) await endExport(reservation, session?.surface);
     }
   }, [announce, beginExport, endExport, renderForExport, reserveExport]);
 
@@ -1949,11 +2020,6 @@ export function App() {
         setActiveWorkspace(action.workspace);
         setActivePanel("director");
         return;
-      case "world.select":
-      case "theme.select":
-        setActiveWorkspace("world");
-        setActivePanel("director");
-        return;
       case "preview.pause.toggle":
         togglePause();
         return;
@@ -2082,6 +2148,7 @@ export function App() {
           contextState={contextState}
           fps={fps}
           paused={paused}
+          reducedMotionPreview={prefersReducedMotion}
           focusMode={focusMode}
           activeSlideIndex={activeSlideIndex}
           platformGuide={platformGuide}
@@ -2125,6 +2192,7 @@ export function App() {
           sonicState={sonicState}
           onTheme={onTheme}
           onResetPinnedFrame={resetPinnedFrame}
+          pinEditorRequestId={pinEditorRequestId}
           onExportStill={exportStill}
           onExportVideo={exportVideo}
           onExportFrames={exportFrames}

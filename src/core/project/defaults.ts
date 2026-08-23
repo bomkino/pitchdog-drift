@@ -10,6 +10,7 @@ import {
   type RecipeProvenance,
 } from "./schema";
 import { createDefaultPerformanceLifecycle } from "../../model";
+import { DRIFT_AAC_BITRATE, DRIFT_H264_BITRATE } from "./masterContract";
 
 export function createEmptyRecipeProvenance(): RecipeProvenance {
   return {
@@ -210,11 +211,11 @@ export function createDefaultDriftProject(
       reducedMotion: false,
       video: {
         format: "h264",
-        bitrate: 16_000_000,
+        bitrate: DRIFT_H264_BITRATE,
       },
       audio: {
         enabled: false,
-        bitrate: 192_000,
+        bitrate: DRIFT_AAC_BITRATE,
       },
     },
     provenance: createEmptyRecipeProvenance(),

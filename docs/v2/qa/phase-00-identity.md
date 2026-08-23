@@ -74,7 +74,7 @@ A normal launch of each installed app produced separate sandbox containers, sepa
 
 | Surface | Drift V1 | Drift V2 Dev |
 | --- | --- | --- |
-| Container | `/Users/kay/Library/Containers/dog.pitch.drift` | `/Users/kay/Library/Containers/dog.pitch.drift.v2.dev` |
+| Container | `~/Library/Containers/dog.pitch.drift` | `~/Library/Containers/dog.pitch.drift.v2.dev` |
 | WebKit store root | `Data/Library/WebKit/WebsiteData/Default` | `Data/Library/WebKit/WebsiteDataStore/7a519e77-39a8-4baf-89a0-314590bf3d24` |
 | Physical IndexedDB directory | `.../IndexedDB/BB024735CD6AF91AC8A316E8D3C49E8CE7467FC6D996C9113F8A4A4A03EE2732` | `.../IndexedDB/7B7981EB8820997C9C2510756CDDEBCC6EDFE430FF46D9BCE52F4F2B7A464127` |
 | `IDBDatabaseInfo.DatabaseName` | `pitchdog-drift` | `pitchdog-drift-v2-dev` |

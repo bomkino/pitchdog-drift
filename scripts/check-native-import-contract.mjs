@@ -45,7 +45,7 @@ requireMarkers("src/lib/nativeMac.ts", [
   "handle._release",
   "if (bridge.importFiles) await bridge.importFiles(kind, selected)",
 ]);
-requireMarkers("src/App.tsx", [
+const app = requireMarkers("src/App.tsx", [
   "replacingStartingDemos",
   "current.every((asset) => asset.demo)",
   "if (replacingDemos) current.forEach(disposeAsset)",
@@ -53,10 +53,25 @@ requireMarkers("src/App.tsx", [
   "advanceLocalSaveRevision(saveRevisionAuthorityRef.current)",
   "ownsLocalSaveRevision(saveRevisionAuthorityRef.current, revision)",
   "persistBeforeReply: true, propagateFailure: true",
-  "await persist(nextSettings, next, nextPresenter)",
-  "await persist(nextSettings, assetsRef.current, next)",
+  "await persistExactProject(nextProject, next, nextPresenter)",
+  "await persistExactProject(nextProject, assetsRef.current, next)",
+  "recordDocumentMutation()",
+  "accepted.forEach(disposeAsset)",
   "importFiles: (kind, files) => nativeImportRef.current(kind, files)",
 ]);
+const slidesStart = app.indexOf("const addImagesNow");
+const presenterStart = app.indexOf("const addPresenterNow", slidesStart);
+const slidesBody = app.slice(slidesStart, presenterStart);
+const presenterEnd = app.indexOf("const addPresenter =", presenterStart);
+const presenterBody = app.slice(presenterStart, presenterEnd);
+if (
+  slidesBody.indexOf("await persistExactProject(nextProject, next, nextPresenter)")
+  > slidesBody.indexOf("assetsRef.current = next")
+) fail("native slide import mutates live media before durable persistence");
+if (
+  presenterBody.indexOf("await persistExactProject(nextProject, assetsRef.current, next)")
+  > presenterBody.indexOf("presenterRef.current = next")
+) fail("native presenter import mutates live media before durable persistence");
 requireMarkers("tests/nativeFileInputBridge.test.ts", [
   "routes portable projects to the project panel",
   "routes every supported presenter spelling",

@@ -199,6 +199,8 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   await expect(pinnedSwitch).toBeDisabled();
   await page.getByRole("button", { name: "Keep Drift study 02.png still" }).click();
+  await expect(pinnedGroup).toHaveAttribute("open", "");
+  await expect(pinnedGroup.locator("summary")).toBeFocused();
   await expect(pinnedSwitch).toBeEnabled();
   await expect(pinnedSwitch).toBeChecked();
   await pinnedSwitch.click();
@@ -211,6 +213,8 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
 test("reduced motion yields a stable rendered interval without animated grain", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await waitForStudio(page);
+  await expect(page.getByText("OS MOTION HOLD · MASTER UNCHANGED", { exact: true })).toBeVisible();
+  await expect(page.getByText("OS MOTION HOLD · MASTER UNCHANGED", { exact: true })).toHaveAttribute("title", /Export still follows/);
   // Element screenshots include DOM layers painted over the canvas. Hide the
   // live FPS counter and timed notices so their independent updates cannot
   // impersonate WebGL motion in this exact-pixel assertion.
@@ -301,8 +305,14 @@ test("handles empty, one, twelve, and corrupt moving-slide inputs", async ({ pag
   page.on("pageerror", (error) => errors.push(error.message));
   await waitForStudio(page);
 
-  const remove = page.locator('button[aria-label^="Remove "]');
-  while (await remove.count()) await remove.first().click({ force: true });
+  while (await page.locator(".asset-list li").count()) {
+    const count = await page.locator(".asset-list li").count();
+    const row = page.locator(".asset-list li").first();
+    await row.getByRole("button", { name: /^Remove / }).click({ force: true });
+    await expect(page.locator(".asset-list li")).toHaveCount(count);
+    await row.getByRole("button", { name: /^Confirm removal of / }).click({ force: true });
+    await expect(page.locator(".asset-list li")).toHaveCount(count - 1);
+  }
   await expect(page.getByText("A film needs frames.")).toBeVisible();
   await expect(page.locator(".asset-list li")).toHaveCount(0);
 

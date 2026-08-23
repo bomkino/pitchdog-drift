@@ -354,10 +354,12 @@ requireMarkers("macos/App/NativeBridgeHost.swift", [
   "Host teardown did not fail an external import exactly once before its late callback.",
   "return await callable(...functionArguments)",
   "broker.registerSavePanelFile(",
+  "Drift native JavaScript callback failed [%@]",
 ]);
 forbidMarkers("macos/App/NativeBridgeHost.swift", [
   '"networkEntitlements": false',
   "resetCapabilitiesForDocumentBoot",
+  "completionError.localizedDescription",
 ]);
 requireMarkers("macos/App/NativeDocumentSession.swift", [
   "final class NativeDocumentSession",
@@ -692,7 +694,7 @@ requireMarkers("scripts/verify-macos-user-guide.mjs", [
   'buildChannel === "release"',
   "Drift V2 Dev can open, save, save as, and revert user-selected `.pitched` documents.",
   "It does **not** register or own the `.pitched` Finder document type",
-  "Use **File → Save Portable Project…**",
+  "Use **File → Save Project** or **Command–S**",
   "Use **File → Save Project**, **Command–S**, or **File → Save Project As…**",
   "guide contains forbidden",
 ]);
@@ -883,7 +885,7 @@ forbidMarkers("scripts/probe-macos-packaged-webview.sh", [
 ]);
 
 requireMarkers(".github/workflows/macos.yml", [
-  "mm/native-foundation-gate",
+  "branches: [main]",
   'for SOURCE in macos/App/*.swift',
   '-framework CryptoKit',
   '-framework Security',
@@ -894,7 +896,7 @@ requireMarkers(".github/workflows/macos.yml", [
   'DRIFT_SKIP_APP_BUILD: "1"',
 ]);
 requireMarkers(".github/workflows/macos-runtime.yml", [
-  "mm/native-foundation-gate",
+  "branches: [main]",
   "probe-macos-codecs.sh",
   "probe-macos-aac.sh",
   "run-macos-export-probe.sh",
@@ -919,7 +921,7 @@ forbidMarkers(".github/workflows/macos-release.yml", [
   "${REQUESTED_COMMIT,,}",
 ]);
 requireMarkers(".github/workflows/ci.yml", [
-  "mm/native-foundation-gate",
+  "branches: [main]",
   "source_head_sha=$DRIFT_SOURCE_HEAD_SHA",
   "tested_commit_sha=$TESTED_COMMIT_SHA",
 ]);

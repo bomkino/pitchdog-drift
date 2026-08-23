@@ -36,7 +36,7 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - Drag, wheel, keyboard, autoplay, pause, reverse, inertia, and seamless-output lock.
 - Custom stage, output, slide, and pinned-frame ratios.
 - Cover/contain fit, focal point, scale, spacing, depth, tilt, velocity bend, continuous corners, borders, and shadows.
-- Transparent, solid, gradient, aura, paper, and void backgrounds drawn in GLSL, with restrained world-only film grain.
+- Transparent output plus sixty-four solid, gradient, aura, paper, void, cutting-map, quiet-grid, and tidal-wave backgrounds drawn in GLSL, with restrained world-only film grain.
 - Eight authored V2 Worlds with three directing pressures, plus the preserved V1 theme library.
 - One optional pinned image or presenter video, off by default.
 - Independent pinned-frame size, X/Y position, safe inset, aspect, fit, focal point, matte, corners, border, shadow, timing, and track controls.
@@ -64,6 +64,7 @@ Then open the local URL Vite prints.
 
 ```bash
 npm run check      # TypeScript, Vitest, source contracts, production build
+npm run setup:e2e  # Install the local Chromium runtime once
 npm run test:e2e   # Real-browser media, WebGL, fallback, and portability gauntlet
 ```
 
@@ -87,7 +88,7 @@ npm run verify:mac             # bundle, manifest, signature, native and WebView
 npm run package:mac:dmg        # local drag-to-Applications disk image
 ```
 
-Read [the repository map](docs/REPOSITORY_MAP.md), [Mac architecture](docs/MACOS_APP.md), [user guide](docs/MACOS_USER_GUIDE.md), [product contract](docs/MACOS_PRODUCT_CONTRACT.md), [threat model](docs/MACOS_THREAT_MODEL.md), [QA gauntlet](docs/MACOS_QA.md), and [release boundary](docs/MACOS_RELEASE.md).
+Start with [the documentation map](docs/README.md), then read [the repository map](docs/REPOSITORY_MAP.md), [Mac architecture](docs/MACOS_APP.md), [user guide](docs/MACOS_USER_GUIDE.md), [product contract](docs/MACOS_PRODUCT_CONTRACT.md), [threat model](docs/MACOS_THREAT_MODEL.md), [QA gauntlet](docs/MACOS_QA.md), and [release boundary](docs/MACOS_RELEASE.md).
 
 ## Mac codec truth
 
@@ -180,7 +181,7 @@ Slides are borderless by default. Five worlds rely on silhouette, spacing, and a
 
 ## Contributing
 
-Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), and never attach confidential deck material to a public report.
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), and never attach confidential deck material to a public report. The [Codex build story](docs/CODEX_BUILD_STORY.md) explains how human art direction, agentic implementation, and falsifiable evidence fit together; the [roadmap](docs/ROADMAP.md) names work that is actually open rather than inventing busywork.
 
 ## Freedom, assets, and marks
 

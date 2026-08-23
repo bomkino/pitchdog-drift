@@ -14,6 +14,7 @@ interface StageProps {
   contextState: "ready" | "lost" | "restored";
   fps: number;
   paused: boolean;
+  reducedMotionPreview: boolean;
   focusMode: boolean;
   activeSlideIndex: number;
   platformGuide: PlatformGuideProfile;
@@ -36,6 +37,7 @@ export function Stage({
   contextState,
   fps,
   paused,
+  reducedMotionPreview,
   focusMode,
   activeSlideIndex,
   platformGuide,
@@ -55,8 +57,8 @@ export function Stage({
     ? ` Protected still frame: ${pinnedAsset.name}.`
     : "";
   const previewDescription = assets.length === 0
-    ? `Cinematic preview. No slides. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Drag or add images to begin.`
-    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
+    ? `Cinematic preview. No slides. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${reducedMotionPreview ? "held by the Mac Reduce Motion setting" : paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Drag or add images to begin.`
+    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${reducedMotionPreview ? "held by the Mac Reduce Motion setting" : paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
 
   useLayoutEffect(() => {
     const well = wellRef.current;
@@ -209,7 +211,11 @@ export function Stage({
         </button>
         <button type="button" disabled={busy} onClick={() => onStep(1)} aria-label="Next slide">→</button>
         <span className="transport-divider" />
-        <span className="transport-copy">Drag · wheel · space</span>
+        {reducedMotionPreview ? (
+          <span className="transport-copy motion-hold-status" title="macOS Reduce Motion is holding the live preview. Export still follows the Reduce Motion choice saved in Master.">
+            OS MOTION HOLD · MASTER UNCHANGED
+          </span>
+        ) : <span className="transport-copy">Drag · wheel · space</span>}
         <button type="button" disabled={busy} className="focus-button" onClick={onToggleFocus}>{focusMode ? "Exit full frame" : "Full frame"}</button>
       </div>
     </section>

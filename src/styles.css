@@ -634,6 +634,14 @@ a:focus-visible {
   cursor: default;
 }
 
+.asset-actions button[data-confirm-remove="true"],
+.presenter-card button[data-confirm-remove="true"] {
+  color: #f2b09a;
+  background: rgba(166, 64, 42, 0.18);
+  font: 700 9px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.04em;
+}
+
 .presenter-slot {
   flex: 0 0 auto;
   padding-top: 20px;
@@ -1025,6 +1033,12 @@ a:focus-visible {
 .transport-copy {
   color: var(--faint);
   font-size: 11px;
+}
+
+.motion-hold-status {
+  color: #bba37b;
+  font: 9px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.05em;
 }
 
 .transport .focus-button {

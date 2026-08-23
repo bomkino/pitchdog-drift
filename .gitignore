@@ -29,3 +29,4 @@ artifacts/ci-*/
 # Private construction handovers may contain workspace or unreleased context.
 # Keep them local unless a maintainer explicitly curates a public version.
 Handover/
+plans/

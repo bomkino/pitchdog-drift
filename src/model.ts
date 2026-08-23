@@ -3,6 +3,7 @@ import {
   TRANSITION_PRESETS,
   type PerformanceLifecycleAuthoring,
 } from "./core/timeline/performanceLifecycle";
+import { DRIFT_AAC_BITRATE, DRIFT_H264_BITRATE } from "./core/project/masterContract";
 
 export const SCHEMA_VERSION = 1 as const;
 export const ENGINE_VERSION = "1.0.0";
@@ -328,8 +329,8 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     height: 1920,
     fps: 30,
     duration: 8,
-    videoBitrate: 16_000_000,
-    audioBitrate: 192_000,
+    videoBitrate: DRIFT_H264_BITRATE,
+    audioBitrate: DRIFT_AAC_BITRATE,
   },
 };
 

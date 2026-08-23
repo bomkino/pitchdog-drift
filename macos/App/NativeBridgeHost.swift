@@ -1317,7 +1317,8 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
                     }
                 }
                 if let completionError {
-                    NSLog("Drift native JavaScript callback failed: %@", completionError.localizedDescription)
+                    let stableName = (completionError as? BridgeFailure)?.name ?? "Error"
+                    NSLog("Drift native JavaScript callback failed [%@]", stableName)
                 }
                 completion?(completionError)
             }

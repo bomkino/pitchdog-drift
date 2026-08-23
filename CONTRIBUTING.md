@@ -38,10 +38,11 @@ Small, coherent pull requests are easier to falsify than bundles of unrelated po
 ```bash
 npm ci
 npm run check
+npm run setup:e2e
 npm run test:e2e
 ```
 
-`npm run check` covers TypeScript, focused tests, the production browser build, and the native source contract. The Playwright suite exercises real Chromium behavior.
+`npm run check` covers TypeScript, focused tests, the production browser build, and the native source contract. `npm run setup:e2e` installs the Chromium runtime once; the Playwright suite then exercises real browser behavior.
 
 On macOS 13.3 or newer:
 

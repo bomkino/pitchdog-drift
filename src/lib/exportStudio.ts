@@ -26,6 +26,7 @@ import type {
   VideoSample,
 } from "mediabunny";
 import { renderMixedPresenterMaster } from "../sonic/renderMixedMaster";
+import { DRIFT_AAC_BITRATE, DRIFT_H264_BITRATE } from "../core/project/masterContract";
 import {
   DEFAULT_EXPORT_SETTINGS,
   DEFAULT_ZIP_MEMORY_LIMIT_BYTES,
@@ -47,8 +48,8 @@ export {
   type ExportSettings,
 } from "./exportContract";
 
-export const AVC_BITRATE = 16_000_000;
-export const AAC_BITRATE = 192_000;
+export const AVC_BITRATE = DRIFT_H264_BITRATE;
+export const AAC_BITRATE = DRIFT_AAC_BITRATE;
 export const AUDIO_SAMPLE_RATE = 48_000;
 export const AUDIO_CHANNELS = 2;
 export const AAC_SAMPLES_PER_PACKET = 1024;

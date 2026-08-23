@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -54,6 +55,24 @@ export function MediaLibrary({
 }: MediaLibraryProps) {
   const draggedId = useRef<string | null>(null);
   const [pickerError, setPickerError] = useState<string | null>(null);
+  const [removeCandidate, setRemoveCandidate] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (removeCandidate === null) return;
+    const present = removeCandidate.startsWith("slide:")
+      ? assets.some((asset) => removeCandidate === `slide:${asset.id}`)
+      : presenter !== null && removeCandidate === `presenter:${presenter.id}`;
+    if (!present || busy) setRemoveCandidate(null);
+  }, [assets, busy, presenter, removeCandidate]);
+
+  const requestRemoval = (key: string, remove: () => void) => {
+    if (removeCandidate !== key) {
+      setRemoveCandidate(key);
+      return;
+    }
+    setRemoveCandidate(null);
+    remove();
+  };
 
   const addImages = (event: ChangeEvent<HTMLInputElement>) => {
     setPickerError(null);
@@ -195,7 +214,22 @@ export function MediaLibrary({
               >
                 {pinnedAssetId === asset.id ? "↻" : "⌖"}
               </button>
-              <button type="button" disabled={busy} onClick={() => onRemove(asset.id)} aria-label={`Remove ${asset.name}`} title="Remove from project">×</button>
+              <button
+                type="button"
+                disabled={busy}
+                data-confirm-remove={removeCandidate === `slide:${asset.id}`}
+                onClick={() => requestRemoval(`slide:${asset.id}`, () => onRemove(asset.id))}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setRemoveCandidate(null);
+                  }
+                }}
+                aria-label={removeCandidate === `slide:${asset.id}` ? `Confirm removal of ${asset.name}` : `Remove ${asset.name}`}
+                title={removeCandidate === `slide:${asset.id}` ? "Click YES to remove · Escape to keep" : "Remove from project"}
+              >
+                {removeCandidate === `slide:${asset.id}` ? "YES" : "×"}
+              </button>
             </span>
           </li>
         ))}
@@ -222,7 +256,22 @@ export function MediaLibrary({
             >
               {pinnedAssetId === presenter.id ? "Return" : "Keep still"}
             </button>
-            <button type="button" disabled={busy} onClick={onRemovePresenter} aria-label="Remove presenter video">×</button>
+            <button
+              type="button"
+              disabled={busy}
+              data-confirm-remove={removeCandidate === `presenter:${presenter.id}`}
+              onClick={() => requestRemoval(`presenter:${presenter.id}`, onRemovePresenter)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setRemoveCandidate(null);
+                }
+              }}
+              aria-label={removeCandidate === `presenter:${presenter.id}` ? `Confirm removal of ${presenter.name}` : "Remove presenter video"}
+              title={removeCandidate === `presenter:${presenter.id}` ? "Click YES to remove · Escape to keep" : "Remove presenter video"}
+            >
+              {removeCandidate === `presenter:${presenter.id}` ? "YES" : "×"}
+            </button>
           </div>
         ) : (
           <button type="button" className="empty-presenter" disabled={busy} onClick={requestPresenter}>

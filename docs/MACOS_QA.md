@@ -228,7 +228,7 @@ Test presenter MP4, MOV, WebM, audio-only media, unsupported codec, corrupt meta
 
 ## Portable project journey
 
-- Save a `.pitched` project through File → Save Portable Project.
+- Save a `.pitched` project through File → Save Project, then exercise Save Project As.
 - Cancel the native panel and verify no destination and no false success.
 - Open through app control, File menu, Finder double-click, app-icon drop, and Open With.
 - Open while the application is launching; import must queue until ready.
