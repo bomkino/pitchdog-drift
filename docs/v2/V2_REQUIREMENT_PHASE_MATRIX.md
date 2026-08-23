@@ -34,7 +34,7 @@ Feature flags describe build or session capability. They never become hidden cre
 | Portrait | 16 true 9:16 scenes, two per World | Integrated | Registry tests and representative vertical runs |
 | Pin/presenter | Optional, protected, independently positioned and styled | Integrated | Projection/collision tests and manual upper-right pin run |
 | Sound | 23 CC0 sources, 3 palettes, 3 grammars, exact mixed master | Integrated | Hash/byte checks, event tests, mixed-master tests, browser audition |
-| Mac identity | Isolated V2 bundle, storage, sandbox, document boundary | Integrated from prior foundation | Native source contracts; exact new package/install receipt pending |
+| Mac identity | Isolated V2 bundle, storage, sandbox, document boundary | Integrated and installed | Native contracts plus exact source/package/install receipt at `39e6cd7` |
 
 ## Gauntlet state
 
@@ -46,9 +46,9 @@ Feature flags describe build or session capability. They never become hidden cre
 | Representative Chromium/WebGL2 9:16 and 16:9 inspection | Green; no console errors |
 | Grain, border, shadow, alpha, pin, thickness visual repair loop | Green for inspected cases |
 | Tactile-sound source provenance and deterministic planning | Green |
-| Exact clean source commit | Pending at this document revision |
-| Exact-SHA V2 Dev package and packaged matrix | Pending |
-| `/Applications/Drift V2 Dev.app` exact install and launch | Pending |
+| Exact clean source commit | Green: implementation source `39e6cd7` |
+| Exact-SHA V2 Dev package and packaged matrix | Green: 3/3 variants passed twice |
+| `/Applications/Drift V2 Dev.app` exact install and launch | Green: exact candidate bytes, normal launch, desktop inspection |
 | Owner creative approval | Pending |
 | Feature-branch push and exact-head CI | Not performed |
 | Merge to `main` | Not performed |

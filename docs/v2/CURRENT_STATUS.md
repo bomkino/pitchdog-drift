@@ -6,6 +6,8 @@ Branch: `codex/v2-directors-cut`
 
 Protected production V1 source: `5fd145207235884790ba071c5d84bc3876ff4989`
 
+Installed V2 Director's Cut source: `39e6cd701dfddfebb02645789b2573e963ea4cbb`
+
 ## Current outcome
 
 The branch now contains the integrated V2 Director's Cut candidate described by the curated donor plan. It is no longer the earlier one-World vertical slice. Project V4 is the live V2 creative authority; preview, still, sequence, and MP4 export enter the same explicit-time evaluator and Three.js/WebGL2 draw graph.
@@ -80,12 +82,15 @@ Protected pin avoidance is local to the collision neighbourhood. Far-away cards 
 - Real Chromium/WebGL2 visual inspection: passed for representative 9:16 and 16:9 Worlds, the background atlas, material thickness, animated grain, pin placement, A/B, undo/redo, and the sound control surface; browser console remained clean.
 - Source-level tactile-sound checks: all 23 decoded recordings match their declared byte counts and SHA-256 hashes; event planning and mixed-master behavior are deterministic under test.
 
-These checks prove the local source candidate only. The exact committed source, package, `/Applications` installation, installed launch, and installed self-test must be recorded in a later exact-SHA receipt. Human owner approval, push, merge, signing, notarisation, public binary release, and publication are still separate gates.
+The exact implementation source is committed, packaged, installed for all local users at `/Applications/Drift V2 Dev.app`, launched normally, and desktop-inspected. The packaged WKWebView matrix passed all three variants twice. A real browser tactile MP4 completed the internal exporter verification and decoded as H.264 plus 48 kHz stereo AAC. The exact hashes, recovery copies, and state boundary are recorded in the [Director's Cut installed receipt](INSTALLED_DIRECTORS_CUT_2026-08-23.md).
+
+Human owner approval, push of the Director's Cut commits, exact-head remote CI, merge, Developer ID signing, notarisation, public binary release, and publication are still separate gates and have not been performed.
 
 ## Known limits
 
 - V2 Dev deliberately does not open, save, register, or own real `.pitched` documents. Use `/Applications/Drift.app` for production projects and portable backups.
 - The development app is ad-hoc signed, not Developer ID signed or notarised.
+- The browser exporter produced and decoded a tactile H.264/AAC artifact. An ordinary installed-interface sound MP4 has not yet been saved through the native Save panel and decoded.
 - The rear slide shell proves deformed back-face depth. It is not described as a volumetric physics simulation or a fully modelled solid at every grazing angle.
 - Automated visual checks catch corruption, alpha errors, console failures, and regressions. They are not a substitute for the owner's final taste decision.
 - Public GitHub state remains unchanged until an explicit push/merge gate is taken and verified.
@@ -95,5 +100,6 @@ These checks prove the local source candidate only. The exact committed source, 
 - [V2 requirement and phase matrix](V2_REQUIREMENT_PHASE_MATRIX.md)
 - [V2 Dev user guide](MACOS_V2_DEV_USER_GUIDE.md)
 - [Project V4 migration contract](V2_PROJECT_MIGRATION.md)
+- [Director's Cut installed checkpoint, source 39e6cd7](INSTALLED_DIRECTORS_CUT_2026-08-23.md)
 - [Earlier installed checkpoint, source 0366985](INSTALLED_CHECKPOINT_2026-08-23.md)
 - [Until It Holds history](UNTIL_IT_HOLDS_RUN.md)
