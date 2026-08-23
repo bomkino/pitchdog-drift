@@ -164,7 +164,9 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
       });
       const video = (engine as unknown as { presenterVideo: HTMLVideoElement }).presenterVideo;
       const clock = engine as unknown as {
+        animationFrame: number;
         elapsed: number;
+        exportActive: boolean;
         performanceTimeline: { totalDuration: number };
         presenterPendingSeekTarget: number | null;
         renderPreview(): void;
@@ -248,7 +250,15 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
       surface.restore();
       surface = null;
       const restoredElapsedStart = clock.elapsed;
-      await delay(250);
+      const restoredSchedulerArmed = clock.animationFrame !== 0;
+      const restoredExportActive = clock.exportActive;
+      // Linux SwiftShader can service a headless rAF far later than its media
+      // timers. Prove that the scheduler is armed, then allow an actual frame
+      // instead of treating a fixed 250 ms wall-clock nap as one.
+      const restoredDeadline = performance.now() + 2_500;
+      while (clock.elapsed - restoredElapsedStart <= 0.1 && performance.now() < restoredDeadline) {
+        await delay(20);
+      }
       // The preview contract is evaluated at paint time: rAF advances the
       // authored master clock, while the browser decoder coasts between
       // paints. Sample immediately after a real paint so scheduler jitter is
@@ -276,6 +286,8 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
         exportDelta,
         exportPausedFlag,
         restoredElapsedDelta,
+        restoredSchedulerArmed,
+        restoredExportActive,
         restoredClockError,
         restoredPausedFlag: video.paused,
       };
@@ -300,6 +312,8 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
   expect(playback.reducedMotionPausedFlag).toBe(true);
   expect(Math.abs(playback.exportDelta)).toBeLessThan(0.05);
   expect(playback.exportPausedFlag).toBe(true);
+  expect(playback.restoredSchedulerArmed).toBe(true);
+  expect(playback.restoredExportActive).toBe(false);
   expect(playback.restoredElapsedDelta).toBeGreaterThan(0.1);
   expect(playback.restoredClockError, JSON.stringify(playback)).toBeLessThan(0.06);
   expect(playback.restoredPausedFlag).toBe(false);
@@ -344,6 +358,12 @@ test("portable Project V4 survives a fresh context without flattening dormant di
   };
   portableArchive["manifest.json"] = strToU8(JSON.stringify(portableManifest));
   const futureDirectionProject = Buffer.from(zipSync(portableArchive, { level: 6 }));
+
+  // Two continuously painting 1440×900 WebGL stages can starve a second
+  // software-rendered Linux context before it reaches React hydration. The
+  // source page has finished its only job; close it before proving fresh-store
+  // portability so the test measures persistence, not GPU contention.
+  await page.close();
 
   const fresh = await browser.newContext({
     baseURL: "http://127.0.0.1:5187",
@@ -627,6 +647,11 @@ test("a slow older autosave cannot overwrite a newer imported project", async ({
   const targetDownload = await downloadPromise;
   const targetPath = await targetDownload.path();
   expect(targetPath).toBeTruthy();
+
+  // The downloaded bytes are now independent of the source page. Release its
+  // active WebGL stage before opening the competing storage context; otherwise
+  // Linux SwiftShader can starve the context this race is meant to exercise.
+  await page.close();
 
   const oldContext = await browser.newContext({
     baseURL: "http://127.0.0.1:5187",

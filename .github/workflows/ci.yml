@@ -16,7 +16,11 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # The complete single-worker WebGL matrix is 19 minutes on the reference
+    # Mac and reached 24m23s on Linux SwiftShader before the old 25-minute job
+    # ceiling killed it. Keep one worker for GPU isolation and leave evidence
+    # headroom for checkout, browser installation, and failure preservation.
+    timeout-minutes: 35
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -70,7 +74,7 @@ jobs:
           retention-days: 14
 
       - name: Preserve failure evidence
-        if: failure()
+        if: ${{ always() && (failure() || cancelled()) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-failure-evidence-${{ github.run_id }}
