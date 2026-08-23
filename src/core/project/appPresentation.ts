@@ -37,6 +37,15 @@ function readableLabel(value: string | null | undefined, fallback: string): stri
   return (value ?? fallback).replaceAll("-", " ");
 }
 
+function readableWorldLabel(value: string | null | undefined): string {
+  // Authored recuts use IDs such as editorial-drift/9:16. Ratio provenance is
+  // useful internally, while Film Worlds use world/dread. App chrome and
+  // assistive descriptions need the identity rather than either namespace.
+  const parts = value?.split("/") ?? [];
+  const identity = parts[0] === "world" ? parts[1] : parts[0];
+  return readableLabel(identity, "custom direction");
+}
+
 /**
  * The V2 app chrome reads only the saved creative tree. This intentionally
  * does not pass through StudioSettings: Stage and export must describe the
@@ -48,7 +57,7 @@ export function stagePresentationFromProject(project: DriftProjectV4): StagePres
     width: project.composition.width,
     height: project.composition.height,
     transparent: project.composition.alphaMode === "transparent",
-    directionLabel: readableLabel(project.provenance.world?.id, "custom direction"),
+    directionLabel: readableWorldLabel(project.provenance.world?.id),
     axis: project.motion.transport.axis,
     pathLabel: readableLabel(project.motion.path.id, "custom path"),
     pinnedAssetId,

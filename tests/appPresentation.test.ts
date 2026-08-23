@@ -31,6 +31,20 @@ describe("app Project V4 presentation authority", () => {
     });
   });
 
+  it("keeps authored recut IDs out of human-facing direction labels", () => {
+    const project = createDefaultDriftProjectV4("app-world-label", NOW, 17);
+    project.provenance.world = {
+      id: "editorial-drift/9:16",
+      version: 2,
+      fingerprint: "test",
+    };
+
+    expect(stagePresentationFromProject(project).directionLabel).toBe("editorial drift");
+
+    project.provenance.world.id = "world/dread";
+    expect(stagePresentationFromProject(project).directionLabel).toBe("dread");
+  });
+
   it("builds V2 export truth from composition, master, performance, and presenter domains", () => {
     const project = createDefaultDriftProjectV4("app-export-authority", NOW, 19);
     project.composition = { ...project.composition, width: 2160, height: 3840, alphaMode: "transparent" };

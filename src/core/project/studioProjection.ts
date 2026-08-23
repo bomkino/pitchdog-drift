@@ -259,6 +259,78 @@ function mediaTupleMatchesProject(
   });
 }
 
+function sameProjectedValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/**
+ * Maps visible compatibility controls to the authored World domains they can
+ * actually edit. Reconciliation may update media, presenter, master, or
+ * lifecycle without gaining authority to flatten unrelated visual domains.
+ */
+function changedWorldControls(
+  settings: StudioSettings,
+  previous: StudioSettings,
+): Readonly<Record<(typeof WORLD_RECIPE_DOMAINS)[number], boolean>> {
+  return {
+    motion: !sameProjectedValue({
+      axis: settings.motion.axis,
+      direction: settings.motion.direction,
+      speed: settings.motion.speed,
+      flow: settings.motion.flow,
+      gap: settings.motion.gap,
+      curvature: settings.motion.curvature,
+      depth: settings.motion.depth,
+      tilt: settings.motion.tilt,
+      focusScale: settings.motion.focusScale,
+      edgeFade: settings.motion.edgeFade,
+      seamless: settings.motion.seamless,
+      seamlessLoops: settings.motion.seamlessLoops,
+    }, {
+      axis: previous.motion.axis,
+      direction: previous.motion.direction,
+      speed: previous.motion.speed,
+      flow: previous.motion.flow,
+      gap: previous.motion.gap,
+      curvature: previous.motion.curvature,
+      depth: previous.motion.depth,
+      tilt: previous.motion.tilt,
+      focusScale: previous.motion.focusScale,
+      edgeFade: previous.motion.edgeFade,
+      seamless: previous.motion.seamless,
+      seamlessLoops: previous.motion.seamlessLoops,
+    }),
+    card: !sameProjectedValue({
+      aspectWidth: settings.slide.aspectWidth,
+      aspectHeight: settings.slide.aspectHeight,
+      scale: settings.slide.scale,
+      fit: settings.slide.fit,
+      radius: settings.slide.radius,
+      smoothing: settings.slide.smoothing,
+      borderWidth: settings.slide.borderWidth,
+      borderColor: settings.slide.borderColor,
+      borderOpacity: settings.slide.borderOpacity,
+    }, {
+      aspectWidth: previous.slide.aspectWidth,
+      aspectHeight: previous.slide.aspectHeight,
+      scale: previous.slide.scale,
+      fit: previous.slide.fit,
+      radius: previous.slide.radius,
+      smoothing: previous.slide.smoothing,
+      borderWidth: previous.slide.borderWidth,
+      borderColor: previous.slide.borderColor,
+      borderOpacity: previous.slide.borderOpacity,
+    }),
+    material: settings.motion.distortion !== previous.motion.distortion,
+    lighting: settings.slide.shadowOpacity !== previous.slide.shadowOpacity
+      || settings.slide.shadowSoftness !== previous.slide.shadowSoftness,
+    atmosphere: settings.stage.transparent !== previous.stage.transparent
+      || !sameProjectedValue(settings.background, previous.background),
+    // No compatibility-era StudioSettings control projects the V2 lens.
+    lens: false,
+  };
+}
+
 /**
  * A recipe reference may survive only while its resolved domain still hashes
  * to the authored value. Unrelated project-owned edits keep truthful per-domain
@@ -351,16 +423,42 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
   const presenterControlsChanged = settings.presenter.enabled !== previouslyProjected.presenter.enabled
     || settings.presenter.assetId !== previouslyProjected.presenter.assetId
     || settings.presenter.muted !== previouslyProjected.presenter.muted;
+  const settingsUnchanged = JSON.stringify(settings) === JSON.stringify(previouslyProjected);
+  const worldControlChanges = changedWorldControls(settings, previouslyProjected);
 
   // The compatibility projection is intentionally lossy: disabled effects,
   // per-slide crops, and source-aspect presenters all hide authored Project V4
   // values. Opening or saving an unchanged project must therefore be a literal
   // no-op for creative state. Only its caller-owned timestamp may advance.
   if (
-    JSON.stringify(settings) === JSON.stringify(previouslyProjected)
+    settingsUnchanged
     && mediaTupleMatchesProject(next, input.slideAssets, presenter)
   ) {
     next.updatedAt = input.updatedAt;
+    return next.formatVersion === 4
+      ? validateDriftProjectV4(next)
+      : validateDriftProjectV3(next);
+  }
+
+  // Replacing only slide media must not round-trip the project's authored V2
+  // domains through the deliberately lossy StudioSettings projection. Doing
+  // so used to rewrite atmosphere composition during first-run demo hydration
+  // and falsely dissolve an untouched Editorial Drift World into "Custom".
+  // Presenter changes take the full path because they also own audio state.
+  if (settingsUnchanged && !presenterMediaChanged) {
+    const allAssets = [...input.slideAssets, ...(presenter ? [presenter] : [])];
+    const assets = Object.fromEntries(allAssets.map((asset) => [asset.id, copyAsset(asset)]));
+    const order = input.slideAssets.map((asset) => asset.id);
+    next.updatedAt = input.updatedAt;
+    next.media = {
+      order,
+      presenterAssetId: presenter?.id ?? null,
+      assets,
+    };
+    next.slides = Object.fromEntries(order.map((assetId) => [
+      assetId,
+      directiveFor(next, assetId, settings, false),
+    ]));
     return next.formatVersion === 4
       ? validateDriftProjectV4(next)
       : validateDriftProjectV3(next);
@@ -537,6 +635,17 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
       bitrate: settings.output.audioBitrate,
     },
   };
+
+  // The projection above also services V1 compatibility and is intentionally
+  // lossy. Restore every World domain whose visible controls did not change so
+  // a pin, presenter, output, lifecycle, or media edit cannot silently rewrite
+  // authored direction or dissolve truthful recipe provenance.
+  if (!worldControlChanges.motion) next.motion = structuredClone(input.project.motion);
+  if (!worldControlChanges.card) next.card = structuredClone(input.project.card);
+  if (!worldControlChanges.material) next.material = structuredClone(input.project.material);
+  if (!worldControlChanges.lighting) next.lighting = structuredClone(input.project.lighting);
+  if (!worldControlChanges.atmosphere) next.atmosphere = structuredClone(input.project.atmosphere);
+  if (!worldControlChanges.lens) next.lens = structuredClone(input.project.lens);
 
   invalidateDriftedWorldRecipes(next);
 

@@ -5,11 +5,18 @@ async function ensureInspectorOpen(group: Locator): Promise<void> {
   if (await group.getAttribute("open") === null) await group.locator("summary").click();
 }
 
-test("V2 app restores its authored room and repairs a legacy-style pinned frame", async ({ page }) => {
+test("shipping and development identities restore the authored V2 room and repair a legacy-style pinned frame", async ({ page }, testInfo) => {
   await waitForStudio(page);
 
-  await expect(page.locator("html")).toHaveAttribute("data-drift-build-channel", "v2-dev");
-  await expect(page.locator("html")).toHaveAttribute("data-drift-storage-namespace", "pitchdog-drift-v2-dev");
+  const production = testInfo.project.name === "production";
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-drift-build-channel",
+    production ? "release" : "v2-dev",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-drift-storage-namespace",
+    production ? "pitchdog-drift" : "pitchdog-drift-v2-dev",
+  );
   await page.getByRole("button", { name: "WORLD", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Choose the weather." })).toBeVisible();
 
@@ -30,6 +37,7 @@ test("V2 app restores its authored room and repairs a legacy-style pinned frame"
 
   await page.getByRole("button", { name: "SLIDES", exact: true }).click();
   await page.getByRole("button", { name: "Keep Drift study 01.png still" }).click();
+  await expect(page.locator(".stage-topline").first()).toContainText("editorial drift");
   const pinnedGroup = page.locator("details").filter({
     has: page.locator("summary", { hasText: "Pinned frame" }),
   });

@@ -10,7 +10,7 @@ import { ControlPanel, type StudioWorkspace } from "./components/ControlPanel";
 import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
 import { CommandPalette } from "./components/CommandPalette";
-import { createDefaultDriftProjectV4 } from "./core/project/defaults";
+import { createInitialDriftProjectV4 } from "./core/project/initialProject";
 import { evaluateDeckSlideHealth } from "./core/media/slideHealth";
 import { resolveMovingMedia } from "./core/project/movingMedia";
 import type { StudioCommandDefinition } from "./core/commands/studioCommandRegistry";
@@ -186,10 +186,7 @@ function makeLocalProjectId(): string {
 }
 
 function createInitialProject(projectId: string, now: string): DriftProjectV4 {
-  const project = createDefaultDriftProjectV4(projectId, now);
-  return driftBuildIdentity.isDevelopment
-    ? applyEditorialDriftFoundation(project, "9:16", now)
-    : project;
+  return createInitialDriftProjectV4(projectId, now);
 }
 
 function describeProjectAsset(asset: StudioAsset): AssetDescriptor {
@@ -289,13 +286,10 @@ export function App() {
     const now = new Date().toISOString();
     projectRef.current = createInitialProject(makeLocalProjectId(), now);
   }
-  // V1/release startup must retain the exact frozen studio defaults. The raw
-  // Project V4 compatibility scaffold deliberately contains dormant richer
-  // domains whose projection is not pixel-equivalent to V1. V2 Dev alone
-  // starts from its explicitly applied Editorial Drift V2 recipe.
-  const initialSettings = driftBuildIdentity.isDevelopment
-    ? studioSettingsFromDriftProject(projectRef.current)
-    : cloneSettings(DEFAULT_SETTINGS);
+  // New documents in every shipping identity begin from the same authored V2
+  // foundation. Imported and previously saved V1 documents keep their frozen
+  // compatibility renderer until the user explicitly applies a V2 World.
+  const initialSettings = studioSettingsFromDriftProject(projectRef.current);
   const identityRef = useRef<ProjectIdentity | null>(null);
   const recoverySnapshotRef = useRef<ProjectSnapshot<StudioProjectPayload> | null>(null);
   const hydratedRef = useRef(false);
@@ -1633,7 +1627,7 @@ export function App() {
 
   const onTheme = useCallback((id: ThemeId) => {
     const currentProject = projectRef.current;
-    if (driftBuildIdentity.isDevelopment && id === "editorial-drift" && currentProject) {
+    if (id === "editorial-drift" && currentProject) {
       const { width, height } = stagePresentationFromProject(currentProject);
       const authoredRatio = worldRatioForDimensions(width, height);
       const ratio = authoredRatio ?? nearestWorldRatioForDimensions(width, height);

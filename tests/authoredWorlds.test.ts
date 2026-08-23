@@ -5,7 +5,12 @@ import {
   AUTHORED_WORLDS,
   applyAuthoredWorld,
 } from "../src/core/worlds/authoredWorlds";
-import { PUBLIC_WORLD_VARIANTS, WORLD_RATIO_IDS } from "../src/core/worlds/worldRegistry";
+import { recipeFingerprint } from "../src/core/recipes/fingerprint";
+import {
+  PUBLIC_WORLD_VARIANTS,
+  WORLD_RATIO_IDS,
+  WORLD_RECIPE_DOMAINS,
+} from "../src/core/worlds/worldRegistry";
 
 function project() {
   return createDefaultDriftProjectV4("authored-worlds", "2026-08-23T00:00:00.000Z");
@@ -37,6 +42,15 @@ describe("authored Worlds", () => {
           expect(result.provenance.world?.id).toBe(`world/${world.id}`);
           expect(result.provenance.worldVariant).toBe(variant);
           expect(result.motion.transport.axis).toBe(ratio === "9:16" || ratio === "4:5" ? "vertical" : "horizontal");
+          for (const domain of WORLD_RECIPE_DOMAINS) {
+            const reference = result.provenance.recipes[domain];
+            expect(reference).not.toBeNull();
+            expect(reference?.fingerprint).toBe(recipeFingerprint(
+              reference!.id,
+              reference!.version,
+              result[domain],
+            ));
+          }
         }
       }
     }

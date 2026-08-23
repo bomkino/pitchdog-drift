@@ -15,8 +15,8 @@ export default defineConfig({
   reporter: process.env.CI ? "github" : "list",
   projects: [
     {
-      name: "v1-compat",
-      testIgnore: ["**/v2-ui.e2e.ts", "**/v2-long-export-qa.e2e.ts"],
+      name: "production",
+      testIgnore: "**/v2-long-export-qa.e2e.ts",
       use: { baseURL: "http://127.0.0.1:5187" },
     },
     {
@@ -38,8 +38,8 @@ export default defineConfig({
   },
   webServer: [
     {
-      // Every established browser journey keeps proving the V1 compatibility
-      // app, origin, and local-project namespace.
+      // The shipping identity must exercise the current V2 product. Individual
+      // journeys still import explicit V1 projects to prove compatibility.
       command: "npm run dev:v1 -- --port 5187",
       url: "http://127.0.0.1:5187",
       reuseExistingServer: !process.env.CI,

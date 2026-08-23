@@ -1,6 +1,6 @@
 import { resolveMovingMedia } from "../project/movingMedia";
 import type { DriftProjectV4, PoseCadence } from "../project/schema";
-import { getExportFrameCount, type ExportSettings } from "../../lib/exportStudio";
+import { getExportFrameCount, type ExportSettings } from "../../lib/exportContract";
 import { poseCadenceFps } from "./master";
 import type { PerformanceLifecycleTimeline } from "./performanceLifecycle";
 import { evaluateTempoCurve, invertTempoCurveProgress } from "./tempoCurve";

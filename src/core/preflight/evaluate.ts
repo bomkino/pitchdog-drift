@@ -4,7 +4,7 @@ import {
   estimatePngZipMemoryBytes,
   validateExportSettings,
   type ExportSettings,
-} from "../../lib/exportStudio";
+} from "../../lib/exportContract";
 import type {
   GuideOverlapFact,
   MediaFailureFact,

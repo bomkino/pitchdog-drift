@@ -21,6 +21,7 @@ import { applyPathRecipe } from "../spatial/spatial";
 import {
   PUBLIC_WORLD_VARIANTS,
   WORLD_IDENTITIES,
+  WORLD_RECIPE_DOMAINS,
   WORLD_RATIO_DIMENSIONS,
   type PublicWorldVariant,
   type WorldId,
@@ -257,17 +258,27 @@ export function applyAuthoredWorld(
     project.presenter.y = portraitScene.presenterAnchor.y;
   }
 
+  const sceneId = portrait ? portraitScene.id : "landscape";
+  for (const domain of WORLD_RECIPE_DOMAINS) {
+    if (!unlocked(project, domain)) continue;
+    project.provenance.recipes[domain] = recipeReference(
+      `world/${world.id}/${domain}/${variant}/${ratio}/${sceneId}/${recut}`,
+      AUTHORED_WORLD_VERSION,
+      project[domain],
+    );
+  }
+
   project.provenance.world = recipeReference(`world/${world.id}`, AUTHORED_WORLD_VERSION, {
     variant,
     ratio,
-    scene: portrait ? portraitScene.id : "landscape",
+    scene: sceneId,
     recut,
   });
   project.provenance.worldVariant = variant as WorldVariant;
   project.extensions["dog.pitch.drift.world-scene"] = {
     worldId: world.id,
     ratio,
-    sceneId: portrait ? portraitScene.id : "landscape",
+    sceneId,
     sceneName: portrait ? portraitScene.name : `${world.name} Landscape`,
     recut,
   };

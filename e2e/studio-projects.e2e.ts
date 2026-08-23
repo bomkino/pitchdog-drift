@@ -330,7 +330,9 @@ test("portable Project V4 survives a fresh context without flattening dormant di
   const portableManifest = JSON.parse(strFromU8(portableArchive["manifest.json"]!)) as Record<string, any>;
   expect(portableManifest.payload.project).toMatchObject({
     formatVersion: 4,
-    renderContract: "drift-v1-compat/1",
+    // A brand-new shipping project now owns the current V2 renderer. Explicit
+    // imported legacy projects remain covered by the compatibility journeys.
+    renderContract: "drift-v2/1",
     extensions: {},
   });
   portableManifest.payload.project.motion.path.id = "figure-eight";

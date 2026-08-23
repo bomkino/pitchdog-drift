@@ -29,6 +29,9 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   const atmosphere = page.locator("details").filter({ has: page.locator("summary", { hasText: "Atmosphere" }) });
   if (await atmosphere.getAttribute("open") === null) await atmosphere.locator("summary").click();
   const background = page.getByRole("combobox", { name: "Background", exact: true });
+  // The restrained Editorial Drift foundation opens on Long Fibres paper.
+  // Choosing the richer Editorial Drift Film World later is a separate,
+  // explicit authored scene operation and moves to Orbiting Bloom/Aura.
   await expect(background).toHaveValue("paper");
 
   await switchWorkspace(page, "DIRECT");
@@ -66,12 +69,15 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await expect(previewDescription).toContainText("dread.");
   await switchWorkspace(page, "MASTER");
   await page.getByLabel("Stage width").fill("1200");
-  await expect(page.locator(".stage-hud")).toContainText("1200 × 1920");
+  // A Film World is an explicit authored recut. Dread read the prior custom
+  // master as landscape and established its 16:9 scene before this subsequent
+  // custom-width edit.
+  await expect(page.locator(".stage-hud")).toContainText("1200 × 1080");
 
   await switchWorkspace(page, "WORLD");
   await background.selectOption("transparent");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "true");
-  await page.getByRole("button", { name: /Road Memory/ }).click();
+  await page.getByRole("button", { name: /Sunstruck Atlas/ }).click();
   await expect(background).toHaveValue("gradient");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "false");
 
@@ -152,7 +158,10 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   const axis = page.getByRole("group", { name: "Flow axis" });
   const vertical = axis.getByRole("radio", { name: "Vertical" });
   await page.getByRole("button", { name: "DIRECT", exact: true }).focus();
-  for (let step = 0; step < 12 && !(await vertical.evaluate((element) => document.activeElement === element)); step += 1) {
+  // Traverse the real current panel instead of assuming the shorter V1 panel's
+  // historical control count. Failing after a full cycle still catches a
+  // missing or unreachable radio without coupling the test to panel density.
+  for (let step = 0; step < 48 && !(await vertical.evaluate((element) => document.activeElement === element)); step += 1) {
     await page.keyboard.press("Tab");
   }
   await expect(vertical).toBeFocused();

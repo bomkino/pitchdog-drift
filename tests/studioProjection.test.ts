@@ -398,6 +398,63 @@ describe("Project V3/V4 studio projection", () => {
     expect(reconciled.material.finish.localSmear).toBe(0.04);
   });
 
+  it("preserves authored World identity when only the slide-media tuple changes", () => {
+    const world = applyEditorialDriftFoundation(
+      createDefaultDriftProjectV4("world-new-media", "2026-08-21T02:45:00.000Z"),
+      "9:16",
+      "2026-08-21T02:45:00.000Z",
+    );
+    const reconciled = reconcileStudioProject({
+      project: world,
+      settings: studioSettingsFromDriftProject(world),
+      slideAssets: [slideB],
+      updatedAt: "2026-08-21T02:46:00.000Z",
+    });
+
+    expect(reconciled.media.order).toEqual([slideB.id]);
+    expect(reconciled.provenance.world).toEqual(world.provenance.world);
+    expect(reconciled.provenance.worldVariant).toBe("restrained");
+    expect(reconciled.provenance.recipes).toEqual(world.provenance.recipes);
+    expect(reconciled.atmosphere).toEqual(world.atmosphere);
+    expect(reconciled.material).toEqual(world.material);
+  });
+
+  it("does not let pin controls flatten unrelated authored World domains", () => {
+    const foundation = applyEditorialDriftFoundation(
+      createDefaultDriftProjectV4("world-pin", "2026-08-21T02:47:00.000Z"),
+      "9:16",
+      "2026-08-21T02:47:00.000Z",
+    );
+    const withMedia = reconcileStudioProject({
+      project: foundation,
+      settings: studioSettingsFromDriftProject(foundation),
+      slideAssets: [slideB],
+      updatedAt: "2026-08-21T02:48:00.000Z",
+    });
+    const settings = studioSettingsFromDriftProject(withMedia);
+    settings.presenter = {
+      ...settings.presenter,
+      enabled: true,
+      assetId: slideB.id,
+      x: 0.91,
+      y: 0.62,
+      width: 0.28,
+    };
+
+    const pinned = reconcileStudioProject({
+      project: withMedia,
+      settings,
+      slideAssets: [slideB],
+      updatedAt: "2026-08-21T02:49:00.000Z",
+    });
+
+    expect(pinned.presenter).toMatchObject({ enabled: true, assetId: slideB.id, x: 0.91, y: 0.62, width: 0.28 });
+    expect(pinned.provenance).toEqual(withMedia.provenance);
+    for (const domain of ["motion", "card", "material", "lighting", "atmosphere", "lens"] as const) {
+      expect(pinned[domain]).toEqual(withMedia[domain]);
+    }
+  });
+
   it("makes an unchanged hydrated V4 tuple lossless even when visible controls hide authored values", () => {
     const project = createDefaultDriftProjectV4(
       "lossless-hydration",

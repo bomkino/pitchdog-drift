@@ -18,6 +18,7 @@ import {
   type TransitionTreatment,
 } from "../core/timeline/performanceLifecycle";
 import {
+  defaultPerformanceStillTime,
   evaluatePerformanceTravel,
   loopPerformanceTime,
 } from "../core/timeline/renderTravel";
@@ -776,6 +777,9 @@ export class CinematicCarousel {
       ...state.performance,
       reducedMotion: true,
     });
+    if (this.reducedMotionPreview) {
+      this.presenterReducedMotionMasterTime = defaultPerformanceStillTime(this.reducedPerformanceTimeline);
+    }
     this.updateCamera();
     this.updateSettingsUniforms();
     this.updatePresenterGeometry();
@@ -1026,7 +1030,9 @@ export class CinematicCarousel {
 
   setReducedMotionPreview(reduced: boolean): void {
     if (reduced && !this.reducedMotionPreview) {
-      this.presenterReducedMotionMasterTime = this.previewMasterTime();
+      // Reduced motion is a stable composition preview, not an arbitrarily
+      // frozen entry/exit frame. Land at the first body's authored midpoint.
+      this.presenterReducedMotionMasterTime = defaultPerformanceStillTime(this.reducedPerformanceTimeline);
     } else if (!reduced) {
       this.presenterReducedMotionMasterTime = null;
     }
@@ -1312,7 +1318,7 @@ export class CinematicCarousel {
     if (this.contextLost || this.disposed || this.exportActive) return;
     if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
       this.normalizeV2InteractionPosition();
-      const previewTime = loopPerformanceTime(this.elapsed, this.performanceTimeline.totalDuration);
+      const previewTime = this.previewMasterTime();
       this.syncPresenterPlayback(previewTime);
       try {
         const evaluation = evaluateProjectFrame({
@@ -1332,7 +1338,9 @@ export class CinematicCarousel {
     const timeline = this.reducedMotionPreview
       ? this.reducedPerformanceTimeline
       : this.performanceTimeline;
-    const performanceTime = loopPerformanceTime(this.elapsed, timeline.totalDuration);
+    const performanceTime = this.reducedMotionPreview
+      ? this.previewMasterTime()
+      : loopPerformanceTime(this.elapsed, timeline.totalDuration);
     this.syncPresenterPlayback(performanceTime);
     const settings = this.requireV1Settings();
     const geometry = getSlideGeometry(settings);
@@ -2244,6 +2252,10 @@ export class CinematicCarousel {
   }
 
   private previewMasterTime(): number {
+    if (this.reducedMotionPreview) {
+      return this.presenterReducedMotionMasterTime
+        ?? defaultPerformanceStillTime(this.reducedPerformanceTimeline);
+    }
     return loopPerformanceTime(this.elapsed, this.performanceTimeline.totalDuration);
   }
 
