@@ -80,8 +80,16 @@ jobs:
             test_file: e2e/studio-projects.e2e.ts
           - suite: renderer
             test_file: e2e/studio-renderer.e2e.ts
-          - suite: studio-ui
+          # The first Studio UI journey deliberately destroys and restores a
+          # WebGL context. Linux SwiftShader can leave that worker unable to
+          # create the next browser context even though the recovery journey
+          # itself passed, so keep the destructive lifecycle probe isolated.
+          - suite: studio-ui-context-loss
             test_file: e2e/studio-ui.e2e.ts
+            test_grep: boots WebGL2
+          - suite: studio-ui-rest
+            test_file: e2e/studio-ui.e2e.ts
+            test_grep_invert: boots WebGL2
           - suite: v2-ui
             test_file: e2e/v2-ui.e2e.ts
     steps:
@@ -124,7 +132,20 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run real-browser gauntlet suite
-        run: npx playwright test "${{ matrix.test_file }}"
+        env:
+          TEST_FILE: ${{ matrix.test_file }}
+          TEST_GREP: ${{ matrix.test_grep || '' }}
+          TEST_GREP_INVERT: ${{ matrix.test_grep_invert || '' }}
+        run: |
+          set -euo pipefail
+          ARGS=("$TEST_FILE")
+          if [[ -n "$TEST_GREP" ]]; then
+            ARGS+=(--grep "$TEST_GREP")
+          fi
+          if [[ -n "$TEST_GREP_INVERT" ]]; then
+            ARGS+=(--grep-invert "$TEST_GREP_INVERT")
+          fi
+          npx playwright test "${ARGS[@]}"
 
       - name: Preserve checkout evidence
         if: always()
