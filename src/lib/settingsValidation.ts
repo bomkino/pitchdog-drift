@@ -1,5 +1,7 @@
 import {
+  createCompatibilityPerformanceLifecycle,
   ENGINE_VERSION,
+  fitPerformanceLifecycleToDuration,
   SCHEMA_VERSION,
   SHADER_VERSION,
   type StudioSettings,
@@ -8,12 +10,13 @@ import {
 export const STUDIO_SETTINGS_LIMITS = Object.freeze({
   stageDimension: Object.freeze({ min: 256, max: 8_192 }),
   aspectComponent: Object.freeze({ min: 1, max: 64 }),
-  outputDurationSeconds: Object.freeze({ min: 3, max: 30 }),
+  outputDurationSeconds: Object.freeze({ min: 0.5, max: 300 }),
+  slideShadowSoftness: Object.freeze({ min: 0, max: 256 }),
   videoBitrate: 16_000_000,
   audioBitrate: 192_000,
-  presenterGain: 1,
-  presenterTrimStart: 0,
-  presenterStartAt: 0,
+  presenterGain: 2,
+  presenterTrimStart: 86_400,
+  presenterStartAt: 86_400,
   presenterAssetIdLength: 512,
 } as const);
 
@@ -109,7 +112,20 @@ const AXES = ["horizontal", "vertical"] as const;
 const DIRECTIONS = [-1, 1] as const;
 const FLOWS = ["straight", "arc", "ribbon", "cylinder", "tunnel"] as const;
 const IMAGE_FITS = ["cover", "contain"] as const;
-const BACKGROUNDS = ["transparent", "solid", "gradient", "aura", "paper", "void"] as const;
+const PRESENTER_TRACK_MODES = ["pinned-only", "moving-and-pinned"] as const;
+const PRESENTER_LAYOUT_MODES = ["safe-overlay", "legacy-perspective"] as const;
+const PRESENTER_ASPECT_MODES = ["source", "custom"] as const;
+const BACKGROUNDS = [
+  "transparent",
+  "solid",
+  "gradient",
+  "aura",
+  "paper",
+  "void",
+  "cutting-map",
+  "grid",
+  "wave",
+] as const;
 const THEMES = [
   "editorial-drift",
   "road-memory",
@@ -120,16 +136,32 @@ const THEMES = [
 ] as const;
 const OUTPUT_FPS = [24, 25, 30, 50, 60] as const;
 
+const LEGACY_STUDIO_V1_VERSIONS = Object.freeze({
+  schemaVersion: 1,
+  engineVersion: "1.0.0",
+  shaderVersion: "1.0.0",
+} as const);
+
+interface StudioSettingsVersions {
+  schemaVersion: typeof SCHEMA_VERSION;
+  engineVersion: typeof ENGINE_VERSION;
+  shaderVersion: typeof SHADER_VERSION;
+}
+
 /**
  * Validates the complete current settings schema and rebuilds it field by
  * field. Unknown keys never cross the trust boundary; missing or malformed
  * known keys never receive a silent default.
  */
-export function validateStudioSettings(value: unknown): StudioSettings {
+function validateStudioSettingsWithVersions(
+  value: unknown,
+  versions: StudioSettingsVersions,
+  legacyPresenterDirection = false,
+): StudioSettings {
   const source = record(value, "settings");
-  literal(source.schemaVersion, "settings.schemaVersion", SCHEMA_VERSION);
-  literal(source.engineVersion, "settings.engineVersion", ENGINE_VERSION);
-  literal(source.shaderVersion, "settings.shaderVersion", SHADER_VERSION);
+  literal(source.schemaVersion, "settings.schemaVersion", versions.schemaVersion);
+  literal(source.engineVersion, "settings.engineVersion", versions.engineVersion);
+  literal(source.shaderVersion, "settings.shaderVersion", versions.shaderVersion);
 
   const stage = record(source.stage, "settings.stage");
   const motion = record(source.motion, "settings.motion");
@@ -161,6 +193,11 @@ export function validateStudioSettings(value: unknown): StudioSettings {
   if (outputWidth !== stageWidth || outputHeight !== stageHeight) {
     invalid("settings.output", "dimensions must match the stage dimensions");
   }
+  const outputDuration = number(
+    output.duration,
+    "settings.output.duration",
+    STUDIO_SETTINGS_LIMITS.outputDurationSeconds,
+  );
   const stageTransparent = boolean(stage.transparent, "settings.stage.transparent");
   const backgroundStyle = oneOf(background.style, "settings.background.style", BACKGROUNDS);
   if (stageTransparent !== (backgroundStyle === "transparent")) {
@@ -168,14 +205,35 @@ export function validateStudioSettings(value: unknown): StudioSettings {
   }
   const presenterEnabled = boolean(presenter.enabled, "settings.presenter.enabled");
   const presenterAssetId = assetId(presenter.assetId, "settings.presenter.assetId");
-  if (presenterEnabled !== (presenterAssetId !== null)) {
-    invalid("settings.presenter.enabled", "must agree with whether pinned media is selected");
+  if (presenterEnabled && presenterAssetId === null) {
+    invalid("settings.presenter.enabled", "requires selected pinned media");
+  }
+  const reducedMotionOutput = boolean(
+    motion.reducedMotionOutput,
+    "settings.motion.reducedMotionOutput",
+  );
+  let performance: StudioSettings["performance"];
+  if (legacyPresenterDirection || source.performance === undefined) {
+    performance = createCompatibilityPerformanceLifecycle(outputDuration, reducedMotionOutput);
+  } else {
+    try {
+      performance = fitPerformanceLifecycleToDuration(
+        source.performance as StudioSettings["performance"],
+        outputDuration,
+        reducedMotionOutput,
+      );
+    } catch (error) {
+      invalid(
+        "settings.performance",
+        error instanceof Error ? error.message : "must be valid lifecycle authoring",
+      );
+    }
   }
 
   return {
-    schemaVersion: SCHEMA_VERSION,
-    engineVersion: ENGINE_VERSION,
-    shaderVersion: SHADER_VERSION,
+    schemaVersion: versions.schemaVersion,
+    engineVersion: versions.engineVersion,
+    shaderVersion: versions.shaderVersion,
     themeId: oneOf(source.themeId, "settings.themeId", THEMES),
     stage: {
       width: stageWidth,
@@ -186,38 +244,42 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       axis: oneOf(motion.axis, "settings.motion.axis", AXES),
       direction: oneOf(motion.direction, "settings.motion.direction", DIRECTIONS),
       autoplay: boolean(motion.autoplay, "settings.motion.autoplay"),
-      speed: number(motion.speed, "settings.motion.speed", { min: 0, max: 1.5 }),
+      speed: number(motion.speed, "settings.motion.speed", { min: 0, max: 8 }),
       flow: oneOf(motion.flow, "settings.motion.flow", FLOWS),
-      gap: number(motion.gap, "settings.motion.gap", { min: 0, max: 1.2 }),
+      gap: number(motion.gap, "settings.motion.gap", { min: 0, max: 2.5 }),
       curvature: number(motion.curvature, "settings.motion.curvature", { min: 0, max: 1 }),
-      depth: number(motion.depth, "settings.motion.depth", { min: 0, max: 0.8 }),
-      tilt: number(motion.tilt, "settings.motion.tilt", { min: 0, max: 18 }),
+      depth: number(motion.depth, "settings.motion.depth", { min: 0, max: 1 }),
+      tilt: number(motion.tilt, "settings.motion.tilt", { min: -45, max: 45 }),
       distortion: number(motion.distortion, "settings.motion.distortion", { min: 0, max: 1 }),
-      focusScale: number(motion.focusScale, "settings.motion.focusScale", { min: 0, max: 0.24 }),
+      focusScale: number(motion.focusScale, "settings.motion.focusScale", { min: 0, max: 0.5 }),
       edgeFade: number(motion.edgeFade, "settings.motion.edgeFade", { min: 0, max: 1 }),
       dragSensitivity: number(motion.dragSensitivity, "settings.motion.dragSensitivity", { min: 0, max: 4 }),
       seamless: boolean(motion.seamless, "settings.motion.seamless"),
       seamlessLoops: number(motion.seamlessLoops, "settings.motion.seamlessLoops", {
         min: 1,
-        max: 6,
+        max: 100,
         integer: true,
       }),
-      reducedMotionOutput: boolean(motion.reducedMotionOutput, "settings.motion.reducedMotionOutput"),
+      reducedMotionOutput,
     },
     slide: {
       aspectWidth: number(slide.aspectWidth, "settings.slide.aspectWidth", STUDIO_SETTINGS_LIMITS.aspectComponent),
       aspectHeight: number(slide.aspectHeight, "settings.slide.aspectHeight", STUDIO_SETTINGS_LIMITS.aspectComponent),
-      scale: number(slide.scale, "settings.slide.scale", { min: 0.24, max: 1.1 }),
+      scale: number(slide.scale, "settings.slide.scale", { min: 0.1, max: 1.6 }),
       fit: oneOf(slide.fit, "settings.slide.fit", IMAGE_FITS),
       focalX: number(slide.focalX, "settings.slide.focalX", { min: 0, max: 1 }),
       focalY: number(slide.focalY, "settings.slide.focalY", { min: 0, max: 1 }),
-      radius: number(slide.radius, "settings.slide.radius", { min: 0, max: 180 }),
+      radius: number(slide.radius, "settings.slide.radius", { min: 0, max: 512 }),
       smoothing: number(slide.smoothing, "settings.slide.smoothing", { min: 0, max: 1 }),
-      borderWidth: number(slide.borderWidth, "settings.slide.borderWidth", { min: 0, max: 16 }),
+      borderWidth: number(slide.borderWidth, "settings.slide.borderWidth", { min: 0, max: 32 }),
       borderColor: hexColour(slide.borderColor, "settings.slide.borderColor"),
       borderOpacity: number(slide.borderOpacity, "settings.slide.borderOpacity", { min: 0, max: 1 }),
       shadowOpacity: number(slide.shadowOpacity, "settings.slide.shadowOpacity", { min: 0, max: 0.8 }),
-      shadowSoftness: number(slide.shadowSoftness, "settings.slide.shadowSoftness", { min: 4, max: 96 }),
+      shadowSoftness: number(
+        slide.shadowSoftness,
+        "settings.slide.shadowSoftness",
+        STUDIO_SETTINGS_LIMITS.slideShadowSoftness,
+      ),
     },
     background: {
       style: backgroundStyle,
@@ -233,36 +295,62 @@ export function validateStudioSettings(value: unknown): StudioSettings {
     presenter: {
       enabled: presenterEnabled,
       assetId: presenterAssetId,
+      trackMode: legacyPresenterDirection
+        ? "moving-and-pinned"
+        : oneOf(presenter.trackMode, "settings.presenter.trackMode", PRESENTER_TRACK_MODES),
+      layoutMode: legacyPresenterDirection
+        ? "legacy-perspective"
+        : oneOf(presenter.layoutMode, "settings.presenter.layoutMode", PRESENTER_LAYOUT_MODES),
+      aspectMode: legacyPresenterDirection
+        ? "custom"
+        : oneOf(presenter.aspectMode, "settings.presenter.aspectMode", PRESENTER_ASPECT_MODES),
       x: number(presenter.x, "settings.presenter.x", { min: 0, max: 1 }),
       y: number(presenter.y, "settings.presenter.y", { min: 0, max: 1 }),
-      width: number(presenter.width, "settings.presenter.width", { min: 0.14, max: 0.82 }),
+      width: number(presenter.width, "settings.presenter.width", { min: 0.05, max: 1 }),
       aspectWidth: number(presenter.aspectWidth, "settings.presenter.aspectWidth", STUDIO_SETTINGS_LIMITS.aspectComponent),
       aspectHeight: number(presenter.aspectHeight, "settings.presenter.aspectHeight", STUDIO_SETTINGS_LIMITS.aspectComponent),
       fit: oneOf(presenter.fit, "settings.presenter.fit", IMAGE_FITS),
-      radius: number(presenter.radius, "settings.presenter.radius", { min: 0, max: 180 }),
+      focalX: legacyPresenterDirection
+        ? 0.5
+        : number(presenter.focalX, "settings.presenter.focalX", { min: 0, max: 1 }),
+      focalY: legacyPresenterDirection
+        ? 0.5
+        : number(presenter.focalY, "settings.presenter.focalY", { min: 0, max: 1 }),
+      safeInset: legacyPresenterDirection
+        ? 0
+        : number(presenter.safeInset, "settings.presenter.safeInset", { min: 0, max: 0.25 }),
+      radius: number(presenter.radius, "settings.presenter.radius", { min: 0, max: 512 }),
       smoothing: number(presenter.smoothing, "settings.presenter.smoothing", { min: 0, max: 1 }),
-      borderWidth: number(presenter.borderWidth, "settings.presenter.borderWidth", { min: 0, max: 16 }),
+      borderWidth: number(presenter.borderWidth, "settings.presenter.borderWidth", { min: 0, max: 32 }),
       borderColor: hexColour(presenter.borderColor, "settings.presenter.borderColor"),
       borderOpacity: number(presenter.borderOpacity, "settings.presenter.borderOpacity", { min: 0, max: 1 }),
       shadowOpacity: number(presenter.shadowOpacity, "settings.presenter.shadowOpacity", { min: 0, max: 0.8 }),
+      shadowSoftness: legacyPresenterDirection
+        ? 48
+        : number(presenter.shadowSoftness, "settings.presenter.shadowSoftness", { min: 0, max: 256 }),
+      shadowOffsetX: legacyPresenterDirection
+        ? 12
+        : number(presenter.shadowOffsetX, "settings.presenter.shadowOffsetX", { min: -512, max: 512 }),
+      shadowOffsetY: legacyPresenterDirection
+        ? 18
+        : number(presenter.shadowOffsetY, "settings.presenter.shadowOffsetY", { min: -512, max: 512 }),
+      matteColor: legacyPresenterDirection
+        ? "#000000"
+        : hexColour(presenter.matteColor, "settings.presenter.matteColor"),
+      matteOpacity: legacyPresenterDirection
+        ? 1
+        : number(presenter.matteOpacity, "settings.presenter.matteOpacity", { min: 0, max: 1 }),
       muted: boolean(presenter.muted, "settings.presenter.muted"),
-      gain: literal(presenter.gain, "settings.presenter.gain", STUDIO_SETTINGS_LIMITS.presenterGain),
-      trimStart: literal(
-        presenter.trimStart,
-        "settings.presenter.trimStart",
-        STUDIO_SETTINGS_LIMITS.presenterTrimStart,
-      ),
-      startAt: literal(
-        presenter.startAt,
-        "settings.presenter.startAt",
-        STUDIO_SETTINGS_LIMITS.presenterStartAt,
-      ),
+      gain: number(presenter.gain, "settings.presenter.gain", { min: 0, max: 2 }),
+      trimStart: number(presenter.trimStart, "settings.presenter.trimStart", { min: 0, max: 86_400 }),
+      startAt: number(presenter.startAt, "settings.presenter.startAt", { min: 0, max: 86_400 }),
     },
+    performance,
     output: {
       width: outputWidth,
       height: outputHeight,
       fps: oneOf(output.fps, "settings.output.fps", OUTPUT_FPS),
-      duration: number(output.duration, "settings.output.duration", STUDIO_SETTINGS_LIMITS.outputDurationSeconds),
+      duration: outputDuration,
       videoBitrate: literal(
         output.videoBitrate,
         "settings.output.videoBitrate",
@@ -275,4 +363,21 @@ export function validateStudioSettings(value: unknown): StudioSettings {
       ),
     },
   };
+}
+
+export function validateStudioSettings(value: unknown): StudioSettings {
+  return validateStudioSettingsWithVersions(value, {
+    schemaVersion: SCHEMA_VERSION,
+    engineVersion: ENGINE_VERSION,
+    shaderVersion: SHADER_VERSION,
+  });
+}
+
+/**
+ * Reads the immutable settings contract written by the original portable
+ * project format. It must not start accepting a newer engine merely because
+ * the live editor constants move forward.
+ */
+export function validateLegacyStudioSettingsV1(value: unknown): StudioSettings {
+  return validateStudioSettingsWithVersions(value, LEGACY_STUDIO_V1_VERSIONS, true);
 }

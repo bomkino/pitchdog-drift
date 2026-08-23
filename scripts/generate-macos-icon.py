@@ -61,7 +61,7 @@ def deterministic_noise(x: int, y: int, size: int) -> float:
     return (value / 0xFFFFFFFF) * 2.0 - 1.0
 
 
-def render(size: int) -> bytes:
+def render(size: int, variant: str = "release") -> bytes:
     pixels = bytearray(size * size * 4)
     antialias = 1.35 / size
 
@@ -132,6 +132,19 @@ def render(size: int) -> bytes:
             grain = deterministic_noise(pixel_x, pixel_y, size) * (0.018 if size >= 64 else 0.009)
             rgb = tuple(clamp(channel + grain) for channel in rgb)
 
+            if variant == "v2-dev":
+                # A precise registration mark makes the side-by-side developer
+                # app impossible to mistake for the production Dock icon.
+                shell_keyline = 1.0 - smoothstep(
+                    0.011 - antialias,
+                    0.011 + antialias,
+                    abs(shell_distance),
+                )
+                rgb = blend(rgb, (0.30, 0.46, 0.98), shell_keyline * 0.92)
+                marker_distance = rounded_box_sdf(x - 0.322, y + 0.318, 0.070, 0.052, 0.012)
+                marker = 1.0 - smoothstep(-antialias, antialias, marker_distance)
+                rgb = blend(rgb, (0.98, 0.25, 0.14), marker * 0.98)
+
             index = (pixel_y * size + pixel_x) * 4
             pixels[index] = round(rgb[0] * 255)
             pixels[index + 1] = round(rgb[1] * 255)
@@ -163,11 +176,15 @@ def write_png(path: Path, size: int, rgba: bytes) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: generate-macos-icon.py OUTPUT.iconset", file=sys.stderr)
+    if len(sys.argv) not in (2, 3):
+        print("usage: generate-macos-icon.py OUTPUT.iconset [release|v2-dev]", file=sys.stderr)
         return 2
 
     output = Path(sys.argv[1]).resolve()
+    variant = sys.argv[2] if len(sys.argv) == 3 else "release"
+    if variant not in {"release", "v2-dev"}:
+        print(f"unsupported icon variant: {variant}", file=sys.stderr)
+        return 2
     output.mkdir(parents=True, exist_ok=True)
 
     names = {
@@ -189,7 +206,7 @@ def main() -> int:
         if size in rendered:
             shutil.copyfile(rendered[size], target)
             continue
-        write_png(target, size, render(size))
+        write_png(target, size, render(size, variant))
         rendered[size] = target
 
     return 0

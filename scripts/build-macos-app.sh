@@ -4,8 +4,43 @@ umask 022
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="${DRIFT_MACOS_OUTPUT_DIR:-${ROOT_DIR}/build/macos}"
-APP_NAME="Drift"
-APP_BUNDLE="${OUTPUT_DIR}/${APP_NAME}.app"
+APP_VARIANT="${DRIFT_MACOS_APP_VARIANT:-release}"
+
+case "${APP_VARIANT}" in
+  release)
+    APP_BUNDLE_NAME="Drift"
+    APP_DISPLAY_NAME="Drift"
+    APP_EXECUTABLE_NAME="Drift"
+    BUNDLE_IDENTIFIER="dog.pitch.drift"
+    BUILD_CHANNEL="release"
+    CACHE_NAMESPACE="Drift"
+    STORAGE_NAMESPACE="pitchdog-drift"
+    WEBSITE_DATA_STORE_IDENTIFIER="default"
+    OWNS_PORTABLE_PROJECTS="1"
+    PORTABLE_PROJECT_OWNERSHIP="registered"
+    USER_GUIDE_SOURCE="${ROOT_DIR}/docs/MACOS_USER_GUIDE.md"
+    ;;
+  v2-dev)
+    APP_BUNDLE_NAME="Drift V2 Dev"
+    APP_DISPLAY_NAME="Drift V2 Dev"
+    APP_EXECUTABLE_NAME="DriftV2Dev"
+    BUNDLE_IDENTIFIER="dog.pitch.drift.v2.dev"
+    BUILD_CHANNEL="v2-dev"
+    CACHE_NAMESPACE="DriftV2Dev"
+    STORAGE_NAMESPACE="pitchdog-drift-v2-dev"
+    WEBSITE_DATA_STORE_IDENTIFIER="7A519E77-39A8-4BAF-89A0-314590BF3D24"
+    OWNS_PORTABLE_PROJECTS="0"
+    PORTABLE_PROJECT_OWNERSHIP="absent"
+    USER_GUIDE_SOURCE="${ROOT_DIR}/docs/v2/MACOS_V2_DEV_USER_GUIDE.md"
+    ;;
+  *)
+    echo "Unsupported DRIFT_MACOS_APP_VARIANT: ${APP_VARIANT}" >&2
+    exit 1
+    ;;
+esac
+
+APP_NAME="${APP_EXECUTABLE_NAME}"
+APP_BUNDLE="${OUTPUT_DIR}/${APP_BUNDLE_NAME}.app"
 CONTENTS_DIR="${APP_BUNDLE}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
@@ -45,17 +80,18 @@ if [[ "${OUTPUT_DIR}" != /* ]]; then
   exit 1
 fi
 
-python3 - "${ROOT_DIR}/build" "${APP_BUNDLE}" <<'PY'
+python3 - "${ROOT_DIR}/build" "${APP_BUNDLE}" "${APP_BUNDLE_NAME}.app" <<'PY'
 from pathlib import Path
 import sys
 
 allowed = Path(sys.argv[1]).resolve()
 target = Path(sys.argv[2]).resolve()
+expected_name = sys.argv[3]
 try:
     relative = target.relative_to(allowed)
 except ValueError:
     raise SystemExit(f"Refusing unsafe Mac app output outside the repository build root: {target}")
-if not relative.parts or target.name != "Drift.app":
+if not relative.parts or target.name != expected_name:
     raise SystemExit(f"Refusing unsafe Mac app output target: {target}")
 PY
 
@@ -86,7 +122,7 @@ fi
 # ships one classic IIFE entry so signed file:// production boot is the same
 # topology already proven by the deterministic WKWebView export harness.
 rm -rf dist
-npm run build:mac:web
+DRIFT_BUILD_CHANNEL="${BUILD_CHANNEL}" npm run build:mac:web
 
 if [[ ! -f dist/index.html ]]; then
   echo "dist/index.html is missing after the macOS web build." >&2
@@ -140,25 +176,42 @@ node scripts/stage-macos-runtime-licenses.mjs stage "${THIRD_PARTY_LICENSE_DIR}"
 cp \
   docs/MACOS_APP.md \
   docs/MACOS_PRODUCT_CONTRACT.md \
-  docs/MACOS_USER_GUIDE.md \
   docs/MACOS_QA.md \
   docs/MACOS_THREAT_MODEL.md \
   docs/MACOS_RELEASE.md \
   docs/MACOS_RELEASE_CHECKLIST.md \
   "${DOCS_DIR}/"
+cp "${USER_GUIDE_SOURCE}" "${DOCS_DIR}/MACOS_USER_GUIDE.md"
+node scripts/verify-macos-user-guide.mjs "${BUILD_CHANNEL}" "${DOCS_DIR}/MACOS_USER_GUIDE.md"
 
 PACKAGE_VERSION="$(node -p "require('./package.json').version")"
 BUILD_NUMBER="${DRIFT_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || printf '1')}"
 SOURCE_REVISION="${DRIFT_SOURCE_REVISION:-${GIT_HEAD}}"
 plutil -replace CFBundleShortVersionString -string "${PACKAGE_VERSION}" "${CONTENTS_DIR}/Info.plist"
 plutil -replace CFBundleVersion -string "${BUILD_NUMBER}" "${CONTENTS_DIR}/Info.plist"
+plutil -replace CFBundleDisplayName -string "${APP_DISPLAY_NAME}" "${CONTENTS_DIR}/Info.plist"
+plutil -replace CFBundleName -string "${APP_DISPLAY_NAME}" "${CONTENTS_DIR}/Info.plist"
+plutil -replace CFBundleExecutable -string "${APP_EXECUTABLE_NAME}" "${CONTENTS_DIR}/Info.plist"
+plutil -replace CFBundleIdentifier -string "${BUNDLE_IDENTIFIER}" "${CONTENTS_DIR}/Info.plist"
+plutil -replace DriftBuildChannel -string "${BUILD_CHANNEL}" "${CONTENTS_DIR}/Info.plist"
+plutil -replace DriftCacheNamespace -string "${CACHE_NAMESPACE}" "${CONTENTS_DIR}/Info.plist"
+plutil -replace DriftExpectedBundleIdentifier -string "${BUNDLE_IDENTIFIER}" "${CONTENTS_DIR}/Info.plist"
+plutil -replace DriftStorageNamespace -string "${STORAGE_NAMESPACE}" "${CONTENTS_DIR}/Info.plist"
+plutil -replace DriftWebsiteDataStoreIdentifier -string "${WEBSITE_DATA_STORE_IDENTIFIER}" "${CONTENTS_DIR}/Info.plist"
+if [[ "${OWNS_PORTABLE_PROJECTS}" == "1" ]]; then
+  plutil -replace DriftOwnsPortableProjects -bool true "${CONTENTS_DIR}/Info.plist"
+else
+  plutil -replace DriftOwnsPortableProjects -bool false "${CONTENTS_DIR}/Info.plist"
+  plutil -remove CFBundleDocumentTypes "${CONTENTS_DIR}/Info.plist"
+  plutil -remove UTExportedTypeDeclarations "${CONTENTS_DIR}/Info.plist"
+fi
 plutil -replace LSMinimumSystemVersion -string "${MINIMUM_MACOS}" "${CONTENTS_DIR}/Info.plist"
 plutil -replace DriftSourceRevision -string "${SOURCE_REVISION}" "${CONTENTS_DIR}/Info.plist"
 plutil -lint "${CONTENTS_DIR}/Info.plist" "${ENTITLEMENTS}"
 
-ICONSET_DIR="${TEMP_DIR}/${APP_NAME}.iconset"
-python3 scripts/generate-macos-icon.py "${ICONSET_DIR}"
-iconutil -c icns "${ICONSET_DIR}" -o "${RESOURCES_DIR}/${APP_NAME}.icns"
+ICONSET_DIR="${TEMP_DIR}/Drift.iconset"
+python3 scripts/generate-macos-icon.py "${ICONSET_DIR}" "${APP_VARIANT}"
+iconutil -c icns "${ICONSET_DIR}" -o "${RESOURCES_DIR}/Drift.icns"
 
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 SOURCE_FILES=(macos/App/*.swift)
@@ -206,7 +259,16 @@ chmod 0755 "${MACOS_DIR}/${APP_NAME}"
 find "${RESOURCES_DIR}" -type f -exec chmod 0644 {} +
 
 cat > "${RESOURCES_DIR}/BuildReceipt.txt" <<EOF
-app_name=Drift
+app_name=${APP_DISPLAY_NAME}
+app_variant=${APP_VARIANT}
+executable_name=${APP_EXECUTABLE_NAME}
+bundle_identifier=${BUNDLE_IDENTIFIER}
+build_channel=${BUILD_CHANNEL}
+cache_namespace=${CACHE_NAMESPACE}
+storage_namespace=${STORAGE_NAMESPACE}
+website_data_store_identifier=${WEBSITE_DATA_STORE_IDENTIFIER}
+portable_project_ownership=${PORTABLE_PROJECT_OWNERSHIP}
+user_guide_profile=${APP_VARIANT}
 version=${PACKAGE_VERSION}
 build_number=${BUILD_NUMBER}
 source_revision=${SOURCE_REVISION}

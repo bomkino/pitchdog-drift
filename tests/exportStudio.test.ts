@@ -3,6 +3,7 @@ import {
   DEFAULT_EXPORT_SETTINGS,
   DEFAULT_ZIP_MEMORY_LIMIT_BYTES,
   ExportStudioError,
+  assertPngTransparencyCoverage,
   assessPresenterAvSync,
   assertPresenterAudioFpsSupported,
   assertPngZipMemoryBudget,
@@ -11,6 +12,7 @@ import {
   createFileSystemMp4Target,
   estimatePngZipMemoryBytes,
   exportMp4,
+  exportPngSequence,
   finalizeInterruptibly,
   getAacInputFrameLimit,
   getAudioTrimWindow,
@@ -18,6 +20,8 @@ import {
   inspectPngHeader,
   inspectRgbaAlpha,
   makePngFrameFilename,
+  mergePngAlphaCoverage,
+  resolvePngStillTime,
   resolvePresenterAudioEnabled,
   validateExportSettings,
   verifyPngZipEntries,
@@ -59,7 +63,7 @@ describe("deterministic export timeline", () => {
 
   it("rejects settings outside frozen product bounds", () => {
     expectExportCode(
-      () => validateExportSettings({ width: 1080, height: 1920, fps: 30, duration: 2.99 }),
+      () => validateExportSettings({ width: 1080, height: 1920, fps: 30, duration: 0.499 }),
       "INVALID_SETTINGS",
     );
     expectExportCode(
@@ -78,6 +82,12 @@ describe("deterministic export timeline", () => {
     expectExportCode(() => makePngFrameFilename(240, 240), "INVALID_SETTINGS");
     expectExportCode(() => makePngFrameFilename(0, 1, "../escape"), "INVALID_SETTINGS");
   });
+
+  it("defaults stills to the master midpoint while preserving explicit frame zero", () => {
+    expect(resolvePngStillTime(3)).toBe(1.5);
+    expect(resolvePngStillTime(3, 0)).toBe(0);
+    expectExportCode(() => resolvePngStillTime(3, 3.01), "INVALID_SETTINGS");
+  });
 });
 
 describe("export safety checks", () => {
@@ -93,7 +103,7 @@ describe("export safety checks", () => {
     await expect(exportMp4({
       canvas: { width: 1, height: 1 } as HTMLCanvasElement,
       renderAt: () => undefined,
-      settings: { width: 1080, height: 1920, fps: 30, duration: 2 },
+      settings: { width: 1080, height: 1920, fps: 30, duration: 0.4 },
       target,
     })).rejects.toMatchObject({ code: "INVALID_SETTINGS" });
     expect(abort).toHaveBeenCalledTimes(1);
@@ -168,43 +178,87 @@ describe("export safety checks", () => {
     expect(abortCount).toBe(0);
   });
 
-  it("neutralizes a file when stream close commits while abort is queued", async () => {
+  it("keeps an existing file byte-identical until a verified native stage explicitly commits", async () => {
+    let destination = new Uint8Array([9, 8, 7]);
+    const original = [...destination];
+    const staged = new Uint8Array([1, 2, 3, 4]);
+    let stageAborts = 0;
+    let commits = 0;
+
+    const makeWritable = () => Object.assign(new WritableStream(), {
+      async __driftReadStagedFile() {
+        return new File([staged], "master.mp4", { type: "video/mp4" });
+      },
+      async __driftCommit() {
+        commits += 1;
+        destination = staged.slice();
+      },
+      async __driftAbortStaged() {
+        stageAborts += 1;
+      },
+    });
+    const fileHandle = {
+      createWritable: vi.fn(async () => makeWritable()),
+    } as unknown as FileSystemFileHandle;
+
+    const rejected = await createFileSystemMp4Target(fileHandle);
+    const rejectedTarget = rejected.target as unknown as {
+      _start(): void;
+      _finalize(): Promise<void>;
+    };
+    rejectedTarget._start();
+    await rejectedTarget._finalize();
+    expect([...destination]).toEqual(original);
+    await expect(rejected.verificationBlob?.()).resolves.toMatchObject({ size: staged.byteLength });
+    await rejected.abort(new Error("semantic verification failed"));
+    expect([...destination]).toEqual(original);
+    expect(stageAborts).toBe(1);
+    expect(commits).toBe(0);
+
+    const accepted = await createFileSystemMp4Target(fileHandle);
+    const acceptedTarget = accepted.target as unknown as {
+      _start(): void;
+      _finalize(): Promise<void>;
+    };
+    acceptedTarget._start();
+    await acceptedTarget._finalize();
+    expect([...destination]).toEqual(original);
+    await accepted.commit?.();
+    expect([...destination]).toEqual([...staged]);
+    expect(commits).toBe(1);
+    expect(fileHandle.createWritable).toHaveBeenCalledWith({
+      keepExistingData: false,
+      __driftDeferCommit: true,
+    });
+  });
+
+  it("cancels while a native stream is sealing without publishing or neutralizing its destination", async () => {
+    let destination = new Uint8Array([7, 7, 7]);
+    const original = [...destination];
     let markCloseStarted: () => void = () => undefined;
     let releaseClose: () => void = () => undefined;
-    const closeStarted = new Promise<void>((resolve) => {
-      markCloseStarted = resolve;
-    });
-    const closeGate = new Promise<void>((resolve) => {
-      releaseClose = resolve;
-    });
-    const writable = new WritableStream({
+    const closeStarted = new Promise<void>((resolve) => { markCloseStarted = resolve; });
+    const closeGate = new Promise<void>((resolve) => { releaseClose = resolve; });
+    let stageAborts = 0;
+    const writable = Object.assign(new WritableStream({
       close() {
         markCloseStarted();
         return closeGate;
       },
+    }), {
+      async __driftReadStagedFile() {
+        return new File([new Uint8Array([1])], "master.mp4", { type: "video/mp4" });
+      },
+      async __driftCommit() {
+        destination = new Uint8Array([1]);
+      },
+      async __driftAbortStaged() {
+        stageAborts += 1;
+      },
     });
-    const truncations: number[] = [];
-    let cleanupClosed = false;
-    let createCount = 0;
-    const fileHandle = {
-      async createWritable() {
-        createCount += 1;
-        if (createCount === 1) return writable;
-        return {
-          async truncate(size: number) {
-            truncations.push(size);
-          },
-          async close() {
-            cleanupClosed = true;
-          },
-        };
-      },
-      async getFile() {
-        return new File([], "cancelled.mp4");
-      },
-    } as unknown as FileSystemFileHandle;
-
-    const adapter = await createFileSystemMp4Target(fileHandle);
+    const adapter = await createFileSystemMp4Target({
+      createWritable: vi.fn(async () => writable),
+    } as unknown as FileSystemFileHandle);
     const target = adapter.target as unknown as {
       _start(): void;
       _finalize(): Promise<void>;
@@ -212,14 +266,138 @@ describe("export safety checks", () => {
     target._start();
     const finalization = target._finalize();
     await closeStarted;
-    const rollback = Promise.resolve(adapter.abort(new Error("cancel during close")));
+    const rollback = Promise.resolve(adapter.abort(new Error("cancel while sealing")));
 
     releaseClose();
     await Promise.all([finalization, rollback]);
 
-    expect(createCount).toBe(2);
-    expect(truncations).toEqual([0]);
-    expect(cleanupClosed).toBe(true);
+    expect([...destination]).toEqual(original);
+    expect(stageAborts).toBe(1);
+  });
+
+  it("buffers ordinary File System Access output until verification accepts the replacement", async () => {
+    let destination = new Uint8Array();
+    let lastModified = 100;
+    const original = [...destination];
+    let pendingWrite: Blob | null = null;
+    let probeAborts = 0;
+    const fileHandle = {
+      async getFile() {
+        return new File([destination], "master.mp4", {
+          type: "video/mp4",
+          lastModified,
+        });
+      },
+      async createWritable(options: FileSystemCreateWritableOptions & { __driftDeferCommit?: boolean }) {
+        if (options.__driftDeferCommit) {
+          return {
+            async abort() { probeAborts += 1; },
+          };
+        }
+        return {
+          async write(value: Blob) { pendingWrite = value; },
+          async close() {
+            destination = new Uint8Array(await pendingWrite!.arrayBuffer());
+            lastModified += 1;
+          },
+          async abort() { pendingWrite = null; },
+        };
+      },
+    } as unknown as FileSystemFileHandle;
+    const adapter = await createFileSystemMp4Target(fileHandle);
+    const target = adapter.target as unknown as {
+      _start(): void;
+      _write(bytes: Uint8Array, position: number): void;
+      _finalize(): Promise<void>;
+    };
+    target._start();
+    target._write(new Uint8Array([1, 4, 9]), 0);
+    await target._finalize();
+    await adapter.complete("video/mp4");
+
+    expect(probeAborts).toBe(1);
+    expect([...destination]).toEqual(original);
+    expect(await adapter.verificationBlob?.()).toMatchObject({ size: 3 });
+    expect([...destination]).toEqual(original);
+
+    await adapter.abort(new Error("semantic verification failed"));
+    expect([...destination]).toEqual(original);
+    expect(() => adapter.verificationBlob?.()).toThrow("before the file stage finalized");
+
+    const accepted = await createFileSystemMp4Target(fileHandle);
+    const acceptedTarget = accepted.target as unknown as {
+      _start(): void;
+      _write(bytes: Uint8Array, position: number): void;
+      _finalize(): Promise<void>;
+    };
+    acceptedTarget._start();
+    acceptedTarget._write(new Uint8Array([1, 4, 9]), 0);
+    await acceptedTarget._finalize();
+    await accepted.complete("video/mp4");
+
+    await accepted.commit?.();
+    expect([...destination]).toEqual([1, 4, 9]);
+    expect(probeAborts).toBe(2);
+  });
+
+  it("refuses an existing browser destination because File System Access cannot replace it atomically", async () => {
+    const destination = new Uint8Array([5, 5, 5]);
+    let probeAborts = 0;
+    const fileHandle = {
+      async getFile() {
+        return new File([destination], "existing.mp4", {
+          type: "video/mp4",
+          lastModified: 100,
+        });
+      },
+      async createWritable() {
+        return { async abort() { probeAborts += 1; } };
+      },
+    } as unknown as FileSystemFileHandle;
+
+    await expect(createFileSystemMp4Target(fileHandle)).rejects.toMatchObject({
+      code: "TARGET_FINALIZE_FAILED",
+    });
+    expect([...destination]).toEqual([5, 5, 5]);
+    expect(probeAborts).toBe(1);
+  });
+
+  it("rejects a browser commit if another process replaces the selected empty destination", async () => {
+    let destination = new Uint8Array();
+    let lastModified = 100;
+    let pendingWrite: Blob | null = null;
+    const fileHandle = {
+      async getFile() {
+        return new File([destination], "master.mp4", {
+          type: "video/mp4",
+          lastModified,
+        });
+      },
+      async createWritable(options: FileSystemCreateWritableOptions & { __driftDeferCommit?: boolean }) {
+        if (options.__driftDeferCommit) return { async abort() {} };
+        return {
+          async write(value: Blob) { pendingWrite = value; },
+          async close() { destination = new Uint8Array(await pendingWrite!.arrayBuffer()); },
+          async abort() { pendingWrite = null; },
+        };
+      },
+    } as unknown as FileSystemFileHandle;
+    const adapter = await createFileSystemMp4Target(fileHandle);
+    const target = adapter.target as unknown as {
+      _start(): void;
+      _write(bytes: Uint8Array, position: number): void;
+      _finalize(): Promise<void>;
+    };
+    target._start();
+    target._write(new Uint8Array([1, 4, 9]), 0);
+    await target._finalize();
+    await adapter.complete("video/mp4");
+
+    destination = new Uint8Array([7, 8, 9]);
+    lastModified += 1;
+
+    await expect(adapter.commit?.()).rejects.toMatchObject({ code: "TARGET_FINALIZE_FAILED" });
+    expect([...destination]).toEqual([7, 8, 9]);
   });
 
   it("refuses default-master ZIP before allocating unsafe memory", () => {
@@ -261,6 +439,107 @@ describe("export safety checks", () => {
       hasVisiblePixels: true,
       hasTransparentPixels: false,
     });
+  });
+
+  it("allows an authored fully transparent still without pretending it has visible content", () => {
+    expect(() => assertPngTransparencyCoverage({
+      hasVisiblePixels: false,
+      hasTransparentPixels: true,
+    }, "still")).not.toThrow();
+
+    expectExportCode(
+      () => assertPngTransparencyCoverage({
+        hasVisiblePixels: true,
+        hasTransparentPixels: false,
+      }, "still"),
+      "PNG_ALPHA_MISSING",
+    );
+  });
+
+  it("checks transparency and visible content across a sequence, not inside every lifecycle frame", () => {
+    const transparentEntry = {
+      hasVisiblePixels: false,
+      hasTransparentPixels: true,
+    };
+    const opaqueBody = {
+      hasVisiblePixels: true,
+      hasTransparentPixels: false,
+    };
+    const coverage = mergePngAlphaCoverage(transparentEntry, opaqueBody);
+
+    expect(coverage).toEqual({
+      hasVisiblePixels: true,
+      hasTransparentPixels: true,
+    });
+    expect(() => assertPngTransparencyCoverage(coverage, "sequence")).not.toThrow();
+    expectExportCode(
+      () => assertPngTransparencyCoverage(transparentEntry, "sequence"),
+      "PNG_ALPHA_MISSING",
+    );
+    expectExportCode(
+      () => assertPngTransparencyCoverage(opaqueBody, "sequence"),
+      "PNG_ALPHA_MISSING",
+    );
+  });
+
+  it("exports a sequence whose fully transparent lifecycle frame is followed by visible content", async () => {
+    const decodedFrames = [
+      new Uint8ClampedArray([0, 0, 0, 0]),
+      new Uint8ClampedArray([255, 255, 255, 255]),
+      new Uint8ClampedArray([255, 255, 255, 128]),
+    ];
+
+    class FakeOffscreenCanvas {
+      width: number;
+      height: number;
+      private decodedAlpha = new Uint8ClampedArray([0, 0, 0, 0]);
+
+      constructor(width: number, height: number) {
+        this.width = width;
+        this.height = height;
+      }
+
+      async convertToBlob(): Promise<Blob> {
+        const header = Uint8Array.from(pngHeader(this.width, this.height, 6));
+        return new Blob([header.buffer], { type: "image/png" });
+      }
+
+      getContext(): Pick<CanvasRenderingContext2D, "clearRect" | "drawImage" | "getImageData"> {
+        return {
+          clearRect: () => undefined,
+          drawImage: (bitmap: CanvasImageSource) => {
+            this.decodedAlpha = (bitmap as unknown as {
+              decodedAlpha: Uint8ClampedArray<ArrayBuffer>;
+            }).decodedAlpha;
+          },
+          getImageData: () => ({ data: this.decodedAlpha }) as ImageData,
+        };
+      }
+    }
+
+    vi.stubGlobal("OffscreenCanvas", FakeOffscreenCanvas);
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({
+      width: 1,
+      height: 1,
+      decodedAlpha: decodedFrames.shift(),
+      close: () => undefined,
+    })));
+
+    try {
+      const result = await exportPngSequence({
+        canvas: new FakeOffscreenCanvas(1, 1) as unknown as OffscreenCanvas,
+        renderAt: () => undefined,
+        settings: { width: 1, height: 1, fps: 1, duration: 3 },
+        destination: "zip",
+        requireTransparentPixels: true,
+      });
+
+      expect(result.frameCount).toBe(3);
+      expect(result.blob?.size).toBeGreaterThan(0);
+      expect(decodedFrames).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("round-trips the exact PNG ZIP entry set and bytes", () => {

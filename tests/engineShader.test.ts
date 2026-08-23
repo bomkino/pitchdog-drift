@@ -1,13 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  CinematicCarousel,
   assertExportSurfaceSupported,
+  backgroundMode,
   getShadowSupportMargin,
   normalizeGrainSeed,
+  resolveCanvasClearAlpha,
+  resolveExportFrameIndex,
+  resolveGrainFrame,
+  resolveMovingTrackAssets,
+  resolvePresenterPreviewClock,
   selectRenderableItems,
 } from "../src/engine/CinematicCarousel";
-import { DEFAULT_SETTINGS, cloneSettings } from "../src/model";
+import { DRIFT_V2_RENDER_CONTRACT } from "../src/core/project/schema";
+import { createDefaultDriftProjectV4 } from "../src/core/project/defaults";
+import { DEFAULT_SETTINGS, cloneSettings, type StudioAsset } from "../src/model";
 import { evaluateSlide, getLogicalSlotCount, getSlideGeometry, isPotentiallyVisible } from "../src/engine/evaluate";
 import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader } from "../src/engine/shaders";
+import { createPerformanceLifecycle } from "../src/core/timeline/performanceLifecycle";
 
 const LIMITS = {
   maxTextureSize: 8_192,
@@ -17,6 +27,30 @@ const LIMITS = {
 };
 
 describe("custom shader output contract", () => {
+  it("assigns distinct renderer modes to every authored background family", () => {
+    expect([
+      "solid",
+      "gradient",
+      "aura",
+      "paper",
+      "void",
+      "cutting-map",
+      "grid",
+      "wave",
+    ].map(backgroundMode)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("keeps authored backgrounds aspect-aware, phase-driven, and on the shared alpha contract", () => {
+    expect(backgroundFragmentShader).toContain("p.x *= aspect");
+    expect(backgroundFragmentShader).toContain("uMode < 5.5");
+    expect(backgroundFragmentShader).toContain("uMode < 6.5");
+    expect(backgroundFragmentShader).toContain("cutting-map-0");
+    expect(backgroundFragmentShader).toContain("grid-0");
+    expect(backgroundFragmentShader).toContain("wave-0");
+    expect(backgroundFragmentShader).toContain("sin(uPhase)");
+    expect(backgroundFragmentShader).toContain("gl_FragColor.a = clamp(uOpacity, 0.0, 1.0)");
+  });
+
   it("encodes every custom material from linear light into the renderer output color space", () => {
     for (const shader of [slideFragmentShader, shadowFragmentShader]) {
       expect(shader).toContain("#include <colorspace_fragment>");
@@ -41,6 +75,8 @@ describe("custom shader output contract", () => {
     expect(slideFragmentShader).not.toContain("filmGrain");
     expect(backgroundFragmentShader).toContain("filmGrain");
     expect(backgroundFragmentShader).toContain("uGrainFrame");
+    expect(backgroundFragmentShader).toContain("pixel / 1.35");
+    expect(backgroundFragmentShader).toContain("pixel / 3.4");
     expect(backgroundFragmentShader).toContain("1.0 - exp(-8.0 * grainControl)");
     expect(backgroundFragmentShader).toContain("smoothstep(0.004, 0.040, displayLuminance)");
     expect(backgroundFragmentShader).toContain("p + seedShift");
@@ -50,6 +86,12 @@ describe("custom shader output contract", () => {
   it("composites an intentional border independently from transparent artwork alpha", () => {
     expect(slideFragmentShader).toContain("borderAlpha + sampled.a * (1.0 - borderAlpha)");
     expect(slideFragmentShader).toContain("combinedPremultiplied");
+  });
+
+  it("gives safe Contain frames a truthful transparent matte while preserving legacy edge fill", () => {
+    expect(slideFragmentShader).toContain("uLegacyContainMatte");
+    expect(slideFragmentShader).toContain("sampled = vec4(uMatteColor, uMatteOpacity)");
+    expect(slideFragmentShader).toContain("sampled.rgb *= 0.2");
   });
 
   it("casts shadows from the card mask instead of the expanded blur canvas", () => {
@@ -80,6 +122,59 @@ describe("custom shader output contract", () => {
   });
 });
 
+describe("canvas alpha invariant", () => {
+  it("keeps V2 opaque through lifecycle fades while preserving transparent and compatibility clears", () => {
+    const opaque = createDefaultDriftProjectV4("alpha-invariant", undefined, undefined, DRIFT_V2_RENDER_CONTRACT);
+    opaque.composition.alphaMode = "opaque";
+
+    const transparent = structuredClone(opaque);
+    transparent.composition.alphaMode = "transparent";
+
+    const compatibility = structuredClone(opaque);
+    compatibility.renderContract = "drift-v1-compat/1";
+
+    expect(resolveCanvasClearAlpha(opaque)).toBe(1);
+    expect(resolveCanvasClearAlpha(transparent)).toBe(0);
+    expect(resolveCanvasClearAlpha(compatibility)).toBe(0);
+    expect(resolveCanvasClearAlpha(null)).toBe(0);
+  });
+});
+
+describe("pinned-only moving-track ownership", () => {
+  const assets = ["a", "b", "c"].map((id): StudioAsset => ({
+    id,
+    name: `${id}.png`,
+    kind: "image",
+    blob: new Blob([id], { type: "image/png" }),
+    mimeType: "image/png",
+    width: 16,
+    height: 9,
+    objectUrl: `blob:${id}`,
+  }));
+
+  it("removes only the protected image while retaining original source identity", () => {
+    expect(resolveMovingTrackAssets(assets, assets[1]!, {
+      enabled: true,
+      trackMode: "pinned-only",
+    }).map(({ asset, sourceIndex }) => [asset.id, sourceIndex])).toEqual([
+      ["a", 0],
+      ["c", 2],
+    ]);
+  });
+
+  it("keeps all moving images for compatibility mode, disabled pins, and presenter videos", () => {
+    const video = { ...assets[1]!, kind: "video" as const, mimeType: "video/mp4" };
+    for (const [presenterAsset, presenter] of [
+      [assets[1]!, { enabled: true, trackMode: "moving-and-pinned" as const }],
+      [assets[1]!, { enabled: false, trackMode: "pinned-only" as const }],
+      [video, { enabled: true, trackMode: "pinned-only" as const }],
+    ] as const) {
+      expect(resolveMovingTrackAssets(assets, presenterAsset, presenter).map(({ sourceIndex }) => sourceIndex))
+        .toEqual([0, 1, 2]);
+    }
+  });
+});
+
 describe("export surface preflight", () => {
   it("accepts a surface at the conservative GPU boundary", () => {
     expect(() => assertExportSurfaceSupported(8_192, 8_192, LIMITS)).not.toThrow();
@@ -89,6 +184,121 @@ describe("export surface preflight", () => {
     expect(() => assertExportSurfaceSupported(8_193, 1_080, LIMITS)).toThrow(/exceeds this GPU's safe WebGL limit/);
     expect(() => assertExportSurfaceSupported(1_080.5, 1_920, LIMITS)).toThrow(/positive whole pixels/);
     expect(() => assertExportSurfaceSupported(0, 1_920, LIMITS)).toThrow(/positive whole pixels/);
+  });
+});
+
+describe("deterministic export frame identity", () => {
+  it("accepts only an exact nullable frame identity at the engine boundary", () => {
+    expect(resolveExportFrameIndex(undefined)).toBeNull();
+    expect(resolveExportFrameIndex(null)).toBeNull();
+    expect(resolveExportFrameIndex(0)).toBe(0);
+    expect(resolveExportFrameIndex(287)).toBe(287);
+    for (const invalid of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => resolveExportFrameIndex(invalid)).toThrow(/non-negative safe integer/);
+    }
+  });
+
+  it("uses explicit export identity for grain without reconstructing it from floating-point time", () => {
+    expect(resolveGrainFrame(0.000_001, 30, true, false, 287)).toBe(114);
+    expect(resolveGrainFrame(9_999.999, 30, true, false, 287)).toBe(114);
+    expect(resolveGrainFrame(17 / 30, 30, true, false)).toBe(6);
+    expect(resolveGrainFrame(17 / 30, 30, true, true, 17)).toBe(0);
+  });
+
+  it("holds deterministic grain plates at a handcrafted 12 fps cadence", () => {
+    expect(Array.from({ length: 10 }, (_, frame) => resolveGrainFrame(frame / 30, 30, true, false, frame)))
+      .toEqual([0, 0, 0, 1, 1, 2, 2, 2, 3, 3]);
+    expect(resolveGrainFrame(23 / 24, 24, true, false, 23)).toBe(11);
+    expect(resolveGrainFrame(59 / 60, 60, true, false, 59)).toBe(11);
+  });
+
+  it("preserves the explicit frame identity through asynchronous texture preparation", async () => {
+    const renderAt = vi.fn();
+    const settings = cloneSettings(DEFAULT_SETTINGS);
+    const fakeEngine = {
+      drawState: settings,
+      requireV1Settings: () => settings,
+      performanceTimeline: createPerformanceLifecycle(settings.performance),
+      assets: [],
+      pool: [],
+      presenterAsset: null,
+      presenterRequestGeneration: 0,
+      movingTrackAssets: () => [],
+      disposed: false,
+      contextLost: false,
+      assertExplicitFrameRendererAvailable: vi.fn(),
+      resolvePresenterTexture: vi.fn(),
+      setTextureDemand: vi.fn(),
+      renderAt,
+    };
+    const renderAtAsync = CinematicCarousel.prototype.renderAtAsync as unknown as (
+      this: typeof fakeEngine,
+      time: number,
+      frameIndex?: number | null,
+    ) => Promise<void>;
+
+    await renderAtAsync.call(fakeEngine, 287 / 30, 287);
+
+    expect(renderAt).toHaveBeenCalledOnce();
+    expect(renderAt).toHaveBeenCalledWith(287 / 30, 287);
+  });
+});
+
+describe("canonical presenter preview clock", () => {
+  const base = {
+    masterTime: 1.25,
+    previousMasterTime: 1.2,
+    videoTime: 1.23,
+    videoDuration: 2,
+    masterFps: 30,
+    exact: false,
+  };
+
+  it("lets running playback coast only within one master frame", () => {
+    expect(resolvePresenterPreviewClock(base)).toEqual({
+      targetTime: 1.25,
+      shouldSeek: false,
+      wrapped: false,
+    });
+    expect(resolvePresenterPreviewClock({ ...base, videoTime: 1.1 })).toMatchObject({
+      targetTime: 1.25,
+      shouldSeek: true,
+      wrapped: false,
+    });
+  });
+
+  it("corrects master loops but holds an under-length source instead of inventing an export loop", () => {
+    expect(resolvePresenterPreviewClock({
+      ...base,
+      masterTime: 0.02,
+      previousMasterTime: 2.98,
+      videoTime: 1.02,
+    })).toEqual({ targetTime: 0.02, shouldSeek: true, wrapped: true });
+
+    const held = resolvePresenterPreviewClock({
+      ...base,
+      masterTime: 2.02,
+      previousMasterTime: 1.98,
+      videoTime: 1.99,
+      exact: true,
+    });
+    expect(held.targetTime).toBeCloseTo(2 - 1 / 30, 12);
+    expect(held).toMatchObject({ shouldSeek: true, wrapped: false });
+  });
+
+  it("seeks frozen playback to exact master time and waits for real metadata", () => {
+    expect(resolvePresenterPreviewClock({ ...base, exact: true, videoTime: 1.246 })).toMatchObject({
+      targetTime: 1.25,
+      shouldSeek: true,
+    });
+    expect(resolvePresenterPreviewClock({ ...base, exact: true, videoTime: 1.2495 })).toMatchObject({
+      shouldSeek: false,
+    });
+    expect(resolvePresenterPreviewClock({ ...base, videoDuration: Number.NaN })).toEqual({
+      targetTime: null,
+      shouldSeek: false,
+      wrapped: false,
+    });
   });
 });
 

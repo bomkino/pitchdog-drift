@@ -78,6 +78,26 @@ private final class StableDirectoryAccess {
     }
 }
 
+/// NSSavePanel grants the exact selected file URL, not permission to enumerate
+/// or open its parent directory. Keep only enough parent identity to detect a
+/// redirected path; commits on this lane address the selected URL itself.
+private struct SelectedFileWriteAccess {
+    let parentURL: URL
+    let admittedParentIdentity: DirectoryIdentity
+}
+
+private enum WriteAuthority {
+    /// An explicit directory selection authorizes descriptor-relative child writes.
+    case selectedDirectory(StableDirectoryAccess)
+    /// An NSSavePanel selection authorizes only its exact destination URL.
+    case selectedFile(SelectedFileWriteAccess)
+}
+
+private enum WriteAuthorityRequest: Equatable {
+    case parentDirectory
+    case savePanelFile
+}
+
 private final class FileGrant {
     let token: String
     let url: URL
@@ -89,7 +109,7 @@ private final class FileGrant {
     let scope: SecurityScope
     let maximumReadBytes: UInt64
     var stableReadAccess: StableReadAccess?
-    let writeParentAccess: StableDirectoryAccess?
+    let writeAuthority: WriteAuthority?
     let createdAt = Date()
 
     init(
@@ -103,7 +123,7 @@ private final class FileGrant {
         scope: SecurityScope,
         maximumReadBytes: UInt64,
         stableReadAccess: StableReadAccess?,
-        writeParentAccess: StableDirectoryAccess?
+        writeAuthority: WriteAuthority?
     ) {
         self.token = token
         self.url = url
@@ -115,7 +135,7 @@ private final class FileGrant {
         self.scope = scope
         self.maximumReadBytes = maximumReadBytes
         self.stableReadAccess = stableReadAccess
-        self.writeParentAccess = writeParentAccess
+        self.writeAuthority = writeAuthority
     }
 }
 
@@ -143,9 +163,13 @@ private final class WriteSession {
     let replacementDirectory: URL
     let writeDisposition: WriteDisposition
     let directoryToken: String?
-    let parentAccess: StableDirectoryAccess
+    let writeAuthority: WriteAuthority
     let expectedDestinationIdentity: FileIdentity?
     var handle: FileHandle?
+    var stagedReadAccess: StableReadAccess?
+    var cleanupExpectedStagingIdentity: FileIdentity?
+    var committedDisplacedIdentity: FileIdentity?
+    var preserveReplacementDirectory = false
 
     init(
         token: String,
@@ -155,7 +179,7 @@ private final class WriteSession {
         replacementDirectory: URL,
         writeDisposition: WriteDisposition,
         directoryToken: String?,
-        parentAccess: StableDirectoryAccess,
+        writeAuthority: WriteAuthority,
         expectedDestinationIdentity: FileIdentity?,
         handle: FileHandle
     ) {
@@ -166,7 +190,7 @@ private final class WriteSession {
         self.replacementDirectory = replacementDirectory
         self.writeDisposition = writeDisposition
         self.directoryToken = directoryToken
-        self.parentAccess = parentAccess
+        self.writeAuthority = writeAuthority
         self.expectedDestinationIdentity = expectedDestinationIdentity
         self.handle = handle
     }
@@ -213,7 +237,26 @@ final class NativeFileBroker {
             writeDisposition: .replaceOrCreate,
             directoryToken: nil,
             releaseAfterFullRead: false,
-            maximumReadBytes: maximumReadBytes
+            maximumReadBytes: maximumReadBytes,
+            writeAuthorityRequest: .parentDirectory
+        )
+    }
+
+    /// Admit the exact destination returned by NSSavePanel. The panel's
+    /// sandbox extension does not authorize opening the parent directory.
+    func registerSavePanelFile(
+        _ rawURL: URL,
+        suppliedMimeType: String? = nil
+    ) throws -> JSONDictionary {
+        try registerFile(
+            rawURL,
+            mode: .readWrite,
+            suppliedMimeType: suppliedMimeType,
+            writeDisposition: .replaceOrCreate,
+            directoryToken: nil,
+            releaseAfterFullRead: false,
+            maximumReadBytes: driftMaximumNativeOutputBytes,
+            writeAuthorityRequest: .savePanelFile
         )
     }
 
@@ -224,7 +267,8 @@ final class NativeFileBroker {
         writeDisposition: WriteDisposition,
         directoryToken: String?,
         releaseAfterFullRead: Bool,
-        maximumReadBytes: UInt64
+        maximumReadBytes: UInt64,
+        writeAuthorityRequest: WriteAuthorityRequest = .parentDirectory
     ) throws -> JSONDictionary {
         let url = try ensureLocalFileURL(rawURL)
         let scope = SecurityScope(url: url)
@@ -261,15 +305,31 @@ final class NativeFileBroker {
         if let anchoredDirectory {
             try requireStableDirectoryAccess(anchoredDirectory.stableAccess, at: anchoredDirectory.url)
         }
-        let writeParentAccess: StableDirectoryAccess?
+        let writeAuthority: WriteAuthority?
         if mode == .readWrite {
             if let anchoredDirectory {
-                writeParentAccess = anchoredDirectory.stableAccess
+                guard writeAuthorityRequest == .parentDirectory else {
+                    throw BridgeFailure(
+                        "InvalidStateError",
+                        "A save-panel file grant cannot impersonate selected-directory authority."
+                    )
+                }
+                writeAuthority = .selectedDirectory(anchoredDirectory.stableAccess)
             } else {
-                writeParentAccess = try openStableDirectoryAccess(at: url.deletingLastPathComponent())
+                let parent = url.deletingLastPathComponent().standardizedFileURL
+                switch writeAuthorityRequest {
+                case .parentDirectory:
+                    writeAuthority = .selectedDirectory(try openStableDirectoryAccess(at: parent))
+                case .savePanelFile:
+                    try requireDirectory(parent)
+                    writeAuthority = .selectedFile(SelectedFileWriteAccess(
+                        parentURL: parent,
+                        admittedParentIdentity: try directoryIdentity(at: parent)
+                    ))
+                }
             }
         } else {
-            writeParentAccess = nil
+            writeAuthority = nil
         }
         // A child file capability is only meaningful while its admitted
         // directory authority survives. Protect that parent during admission;
@@ -288,7 +348,7 @@ final class NativeFileBroker {
             scope: scope,
             maximumReadBytes: admittedMaximum,
             stableReadAccess: stableReadAccess,
-            writeParentAccess: writeParentAccess
+            writeAuthority: writeAuthority
         )
         fileGrants[token] = grant
         return try descriptor(for: grant)
@@ -349,13 +409,13 @@ final class NativeFileBroker {
         }
 
         let destinationURL = grant.url
-        guard let parentAccess = grant.writeParentAccess else {
-            throw BridgeFailure("InvalidStateError", "The selected export parent authority is unavailable.")
+        guard let writeAuthority = grant.writeAuthority else {
+            throw BridgeFailure("InvalidStateError", "The selected export authority is unavailable.")
         }
         try rejectSymlink(destinationURL, allowMissing: true)
         try rejectDirectory(destinationURL, allowMissing: true)
         let parent = destinationURL.deletingLastPathComponent().standardizedFileURL
-        try requireStableDirectoryAccess(parentAccess, at: parent)
+        try requireWriteAuthority(writeAuthority, parent: parent)
         let expectedDestinationIdentity: FileIdentity?
         if grant.stableReadAccess != nil {
             expectedDestinationIdentity = try verifiedStableReadAccess(for: grant).admittedIdentity
@@ -383,18 +443,28 @@ final class NativeFileBroker {
             }
         }
 
-        // Foundation derives a same-volume item-replacement directory from an
-        // existing item. A new destination has no item, so use its verified
-        // parent as the anchor. Both first saves and replacements therefore
-        // remain on one staged, same-volume commit path.
-        let replacementAnchor = fileManager.fileExists(atPath: destinationURL.path)
-            ? destinationURL
-            : parent
+        // NSSavePanel authorizes the exact destination URL, not its parent.
+        // Foundation can derive same-volume replacement storage from that URL
+        // even before the destination exists. Directory grants retain their
+        // descriptor-anchored parent lane.
+        let replacementAnchor: URL
+        switch writeAuthority {
+        case .selectedDirectory:
+            replacementAnchor = fileManager.fileExists(atPath: destinationURL.path)
+                ? destinationURL
+                : parent
+        case .selectedFile:
+            replacementAnchor = destinationURL
+        }
         let replacementDirectory = try fileManager.url(
             for: .itemReplacementDirectory,
             in: .userDomainMask,
             appropriateFor: replacementAnchor,
             create: true
+        )
+        try requireSameVolumeReplacementDirectory(
+            replacementDirectory,
+            writeAuthority: writeAuthority
         )
         var stagingURL = replacementDirectory.appendingPathComponent(UUID().uuidString, isDirectory: false)
         if !destinationURL.pathExtension.isEmpty {
@@ -403,7 +473,13 @@ final class NativeFileBroker {
 
         do {
             if keepExistingData && fileManager.fileExists(atPath: destinationURL.path) {
-                try fileManager.copyItem(at: destinationURL, to: stagingURL)
+                let stableSource = try verifiedStableReadAccess(for: grant)
+                try copyStableFileContents(
+                    stableSource,
+                    sourceURL: destinationURL,
+                    destinationURL: stagingURL
+                )
+                _ = try verifiedStableReadAccess(for: grant)
             } else {
                 guard fileManager.createFile(atPath: stagingURL.path, contents: Data()) else {
                     throw BridgeFailure("NotAllowedError", "macOS could not create a staged export file.")
@@ -419,7 +495,7 @@ final class NativeFileBroker {
                 replacementDirectory: replacementDirectory,
                 writeDisposition: grant.writeDisposition,
                 directoryToken: grant.directoryToken,
-                parentAccess: parentAccess,
+                writeAuthority: writeAuthority,
                 expectedDestinationIdentity: expectedDestinationIdentity,
                 handle: handle
             )
@@ -478,30 +554,32 @@ final class NativeFileBroker {
         guard let session = writeSessions[sessionToken] else {
             throw BridgeFailure("InvalidStateError", "The writable stream is no longer open.")
         }
+        let shouldCommit = (payload["commit"] as? Bool) ?? true
 
         do {
-            if let handle = session.handle {
-                try handle.synchronize()
-                try handle.close()
-                session.handle = nil
+            let committedReadAccess = try sealWriteSession(session)
+            if !shouldCommit {
+                guard let grant = fileGrants[session.fileToken] else {
+                    throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
+                }
+                var stagedMetadata = readMetadata(for: grant, access: committedReadAccess)
+                stagedMetadata["staged"] = true
+                stagedMetadata["session"] = session.token
+                return stagedMetadata
             }
-            let finalSize = try fileSize(at: session.stagingURL, fileManager: fileManager)
-            guard finalSize <= driftMaximumNativeOutputBytes else {
-                throw BridgeFailure("QuotaExceededError", "The completed native export exceeded 512 MiB.")
-            }
+
             // Hold the exact staged inode open before rename. After commit its
             // descriptor becomes the grant's stable read authority; later path
             // replacement or in-place mutation is detected before bytes return.
-            let committedReadAccess = try openStableReadAccess(
-                at: session.stagingURL,
-                maximumBytes: driftMaximumNativeOutputBytes
-            )
             let parent = session.destinationURL.deletingLastPathComponent().standardizedFileURL
-            try requireStableDirectoryAccess(session.parentAccess, at: parent)
+            try requireWriteAuthority(session.writeAuthority, parent: parent)
             try rejectSymlink(session.destinationURL, allowMissing: true)
             try rejectDirectory(session.destinationURL, allowMissing: true)
-            try commitStagedWrite(session)
-            try requireStableDirectoryAccess(session.parentAccess, at: parent)
+            try commitStagedWrite(
+                session,
+                stagedOutputIdentity: committedReadAccess.admittedIdentity
+            )
+            try requireWriteAuthority(session.writeAuthority, parent: parent)
 
             committedReadAccess.admittedIdentity = try identity(
                 fileDescriptor: committedReadAccess.handle.fileDescriptor
@@ -520,10 +598,16 @@ final class NativeFileBroker {
             // Best-effort directory sync narrows the crash window after the
             // atomic rename. A valid committed file remains usable if a volume
             // refuses directory fsync.
-            _ = Darwin.fsync(session.parentAccess.handle.fileDescriptor)
+            if case .selectedDirectory(let parentAccess) = session.writeAuthority {
+                _ = Darwin.fsync(parentAccess.handle.fileDescriptor)
+            }
 
             writeSessions.removeValue(forKey: sessionToken)
-            try? fileManager.removeItem(at: session.replacementDirectory)
+            session.stagedReadAccess = nil
+            if let displacedIdentity = session.committedDisplacedIdentity {
+                session.cleanupExpectedStagingIdentity = displacedIdentity
+            }
+            cleanupStaging(session)
             fileGrants[session.fileToken]?.stableReadAccess = committedReadAccess
             didCommitFile?(session.destinationURL)
             return [
@@ -551,6 +635,14 @@ final class NativeFileBroker {
     }
 
     func fileInfo(_ payload: JSONDictionary) throws -> JSONDictionary {
+        if payload["session"] != nil {
+            let session = try requiredSession(payload)
+            guard let grant = fileGrants[session.fileToken] else {
+                throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
+            }
+            return readMetadata(for: grant, access: try verifiedStagedReadAccess(for: session))
+        }
+
         let token = try requiredString(payload, "token")
         guard let grant = fileGrants[token] else {
             throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
@@ -563,14 +655,29 @@ final class NativeFileBroker {
     }
 
     func readFile(_ payload: JSONDictionary) throws -> JSONDictionary {
-        let token = try requiredString(payload, "token")
-        guard let grant = fileGrants[token] else {
-            throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
-        }
         let offset = try requiredOffset(payload, "offset")
         let requestedLength = try requiredOffset(payload, "length")
         guard requestedLength <= UInt64(driftMaximumReadChunkBytes) else {
             throw BridgeFailure("QuotaExceededError", "Native read chunks are limited to 1 MiB.")
+        }
+
+        if payload["session"] != nil {
+            let session = try requiredSession(payload)
+            let access = try verifiedStagedReadAccess(for: session)
+            let totalSize = access.admittedIdentity.size
+            guard offset <= totalSize else {
+                throw BridgeFailure("DataError", "Native read offset is beyond the end of the staged file.")
+            }
+            let safeLength = min(requestedLength, totalSize - offset)
+            try access.handle.seek(toOffset: offset)
+            let data = try access.handle.read(upToCount: Int(safeLength)) ?? Data()
+            _ = try verifiedStagedReadAccess(for: session)
+            return ["data": data.base64EncodedString(), "length": data.count]
+        }
+
+        let token = try requiredString(payload, "token")
+        guard let grant = fileGrants[token] else {
+            throw BridgeFailure("NotAllowedError", "That file permission is no longer valid.")
         }
         guard !writeSessions.values.contains(where: { $0.fileToken == token }) else {
             throw BridgeFailure("InvalidStateError", "That file is still being written.")
@@ -773,6 +880,36 @@ final class NativeFileBroker {
         return session
     }
 
+    private func sealWriteSession(_ session: WriteSession) throws -> StableReadAccess {
+        if session.stagedReadAccess != nil {
+            return try verifiedStagedReadAccess(for: session)
+        }
+        if let handle = session.handle {
+            try handle.synchronize()
+            try handle.close()
+            session.handle = nil
+        }
+        let finalSize = try fileSize(at: session.stagingURL, fileManager: fileManager)
+        guard finalSize <= driftMaximumNativeOutputBytes else {
+            throw BridgeFailure("QuotaExceededError", "The completed native export exceeded 512 MiB.")
+        }
+        let access = try openStableReadAccess(
+            at: session.stagingURL,
+            maximumBytes: driftMaximumNativeOutputBytes
+        )
+        session.cleanupExpectedStagingIdentity = access.admittedIdentity
+        session.stagedReadAccess = access
+        return access
+    }
+
+    private func verifiedStagedReadAccess(for session: WriteSession) throws -> StableReadAccess {
+        guard session.handle == nil, let access = session.stagedReadAccess else {
+            throw BridgeFailure("InvalidStateError", "The native export stage is not sealed for verification.")
+        }
+        try requireStablePathIdentity(access, at: session.stagingURL)
+        return access
+    }
+
     private func openStableDirectoryAccess(at url: URL) throws -> StableDirectoryAccess {
         let descriptor = url.path.withCString { path in
             Darwin.open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
@@ -804,6 +941,49 @@ final class NativeFileBroker {
         guard try directoryIdentity(fileDescriptor: access.handle.fileDescriptor) == access.admittedIdentity,
               try directoryIdentity(at: url) == access.admittedIdentity else {
             throw BridgeFailure("InvalidModificationError", "The selected folder identity changed.")
+        }
+    }
+
+    private func requireSelectedFileWriteAccess(
+        _ access: SelectedFileWriteAccess,
+        parent rawParent: URL
+    ) throws {
+        let parent = rawParent.standardizedFileURL
+        guard parent == access.parentURL,
+              try directoryIdentity(at: parent) == access.admittedParentIdentity else {
+            throw BridgeFailure(
+                "InvalidModificationError",
+                "The save destination's parent folder changed after selection."
+            )
+        }
+    }
+
+    private func requireWriteAuthority(_ authority: WriteAuthority, parent: URL) throws {
+        switch authority {
+        case .selectedDirectory(let access):
+            try requireStableDirectoryAccess(access, at: parent.standardizedFileURL)
+        case .selectedFile(let access):
+            try requireSelectedFileWriteAccess(access, parent: parent)
+        }
+    }
+
+    private func requireSameVolumeReplacementDirectory(
+        _ replacementDirectory: URL,
+        writeAuthority: WriteAuthority
+    ) throws {
+        let replacementIdentity = try directoryIdentity(at: replacementDirectory)
+        let destinationDevice: UInt64
+        switch writeAuthority {
+        case .selectedDirectory(let access):
+            destinationDevice = access.admittedIdentity.device
+        case .selectedFile(let access):
+            destinationDevice = access.admittedParentIdentity.device
+        }
+        guard replacementIdentity.device == destinationDevice else {
+            throw BridgeFailure(
+                "InvalidStateError",
+                "macOS did not provide same-volume replacement storage for the selected export."
+            )
         }
     }
 
@@ -886,6 +1066,91 @@ final class NativeFileBroker {
         )
     }
 
+    private func copyStableFileContents(
+        _ source: StableReadAccess,
+        sourceURL: URL,
+        destinationURL: URL
+    ) throws {
+        try requireStablePathIdentity(source, at: sourceURL)
+        let destinationDescriptor = destinationURL.path.withCString { path in
+            Darwin.open(
+                path,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                S_IRUSR | S_IWUSR
+            )
+        }
+        guard destinationDescriptor >= 0 else {
+            let code = errno
+            throw BridgeFailure(
+                code == EEXIST ? "InvalidModificationError" : "NotAllowedError",
+                "Drift could not create stable replacement storage: \(String(cString: strerror(code)))."
+            )
+        }
+        defer { _ = Darwin.close(destinationDescriptor) }
+
+        let sourceDescriptor = source.handle.fileDescriptor
+        let expectedSize = source.admittedIdentity.size
+        var offset: UInt64 = 0
+        var buffer = [UInt8](repeating: 0, count: driftMaximumReadChunkBytes)
+        while offset < expectedSize {
+            let requested = Int(min(UInt64(buffer.count), expectedSize - offset))
+            let readCount = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.pread(
+                    sourceDescriptor,
+                    bytes.baseAddress,
+                    requested,
+                    off_t(offset)
+                )
+            }
+            if readCount < 0 {
+                if errno == EINTR { continue }
+                let code = errno
+                throw BridgeFailure(
+                    "InvalidStateError",
+                    "Drift could not copy the admitted save bytes: \(String(cString: strerror(code)))."
+                )
+            }
+            guard readCount > 0 else {
+                throw BridgeFailure(
+                    "InvalidModificationError",
+                    "The selected save destination changed while its admitted bytes were staged."
+                )
+            }
+
+            var written = 0
+            while written < readCount {
+                let writeCount = buffer.withUnsafeBytes { bytes in
+                    Darwin.write(
+                        destinationDescriptor,
+                        bytes.baseAddress?.advanced(by: written),
+                        readCount - written
+                    )
+                }
+                if writeCount < 0 {
+                    if errno == EINTR { continue }
+                    let code = errno
+                    throw BridgeFailure(
+                        "InvalidStateError",
+                        "Drift could not stage the admitted save bytes: \(String(cString: strerror(code)))."
+                    )
+                }
+                guard writeCount > 0 else {
+                    throw BridgeFailure("InvalidStateError", "Stable save staging made no forward progress.")
+                }
+                written += writeCount
+            }
+            offset += UInt64(readCount)
+        }
+        guard Darwin.fsync(destinationDescriptor) == 0 else {
+            let code = errno
+            throw BridgeFailure(
+                "InvalidStateError",
+                "Drift could not synchronize stable replacement storage: \(String(cString: strerror(code)))."
+            )
+        }
+        try requireStablePathIdentity(source, at: sourceURL)
+    }
+
     private func verifiedStableReadAccess(for grant: FileGrant) throws -> StableReadAccess {
         guard let access = grant.stableReadAccess else {
             if grant.mode == .readWrite,
@@ -942,8 +1207,27 @@ final class NativeFileBroker {
         ]
     }
 
-    private func commitStagedWrite(_ session: WriteSession) throws {
-        let parentDescriptor = session.parentAccess.handle.fileDescriptor
+    private func commitStagedWrite(
+        _ session: WriteSession,
+        stagedOutputIdentity: FileIdentity
+    ) throws {
+        switch session.writeAuthority {
+        case .selectedDirectory(let parentAccess):
+            try commitDirectoryAnchoredWrite(session, parentAccess: parentAccess)
+        case .selectedFile(let selectedFileAccess):
+            try commitSavePanelFileWrite(
+                session,
+                access: selectedFileAccess,
+                stagedOutputIdentity: stagedOutputIdentity
+            )
+        }
+    }
+
+    private func commitDirectoryAnchoredWrite(
+        _ session: WriteSession,
+        parentAccess: StableDirectoryAccess
+    ) throws {
+        let parentDescriptor = parentAccess.handle.fileDescriptor
         let destinationName = session.destinationURL.lastPathComponent
 
         switch session.writeDisposition {
@@ -962,7 +1246,7 @@ final class NativeFileBroker {
         case .replaceOrCreate:
             try beforeReplaceCommitForTesting?(session.destinationURL)
             try requireStableDirectoryAccess(
-                session.parentAccess,
+                parentAccess,
                 at: session.destinationURL.deletingLastPathComponent().standardizedFileURL
             )
 
@@ -1031,6 +1315,161 @@ final class NativeFileBroker {
                 relativeTo: parentDescriptor
             ), quarantinedIdentity.matchesAfterRename(expectedIdentity) {
                 _ = quarantineName.withCString { Darwin.unlinkat(parentDescriptor, $0, 0) }
+            }
+        }
+    }
+
+    private func commitSavePanelFileWrite(
+        _ session: WriteSession,
+        access: SelectedFileWriteAccess,
+        stagedOutputIdentity: FileIdentity
+    ) throws {
+        guard session.writeDisposition == .replaceOrCreate else {
+            throw BridgeFailure(
+                "InvalidStateError",
+                "Create-only sequence output requires selected-directory authority."
+            )
+        }
+
+        try beforeReplaceCommitForTesting?(session.destinationURL)
+        try requireSelectedFileWriteAccess(access, parent: session.destinationURL.deletingLastPathComponent())
+
+        guard let expectedIdentity = session.expectedDestinationIdentity else {
+            let result = renameSelectedPath(
+                session.stagingURL,
+                to: session.destinationURL,
+                flags: driftRenameExclusiveFlag
+            )
+            guard result == 0 else {
+                let code = errno
+                if code == EEXIST {
+                    throw BridgeFailure(
+                        "InvalidModificationError",
+                        "The selected empty save destination appeared during export. The new file was preserved."
+                    )
+                }
+                throw stagedCommitFailure(code)
+            }
+            do {
+                try requireSelectedFileWriteAccess(
+                    access,
+                    parent: session.destinationURL.deletingLastPathComponent()
+                )
+            } catch {
+                _ = rollbackFirstSave(
+                    session,
+                    stagedOutputIdentity: stagedOutputIdentity
+                )
+                throw error
+            }
+            return
+        }
+
+        let swapResult = renameSelectedPath(
+            session.stagingURL,
+            to: session.destinationURL,
+            flags: driftRenameSwapFlag
+        )
+        guard swapResult == 0 else { throw stagedCommitFailure(errno) }
+
+        let displacedIdentity = try identity(at: session.stagingURL)
+        let committedIdentity = try identity(at: session.destinationURL)
+        let parentStayedStable = (try? requireSelectedFileWriteAccess(
+            access,
+            parent: session.destinationURL.deletingLastPathComponent()
+        )) != nil
+        guard displacedIdentity.matchesAfterRename(expectedIdentity),
+              committedIdentity.matchesAfterRename(stagedOutputIdentity),
+              parentStayedStable else {
+            let restored = rollbackSavePanelSwap(
+                session,
+                displacedIdentity: displacedIdentity,
+                stagedOutputIdentity: stagedOutputIdentity
+            )
+            throw BridgeFailure(
+                "InvalidModificationError",
+                restored
+                    ? "The selected save destination changed during export. Its prior file was restored and all other bytes were preserved."
+                    : "The selected save destination changed during export. Drift preserved every unverified file and revoked the save."
+            )
+        }
+
+        // The verified pre-save destination now occupies private replacement
+        // storage. Do not authorize its deletion until every post-commit path
+        // and held-descriptor check in closeWriteSession has also succeeded.
+        session.committedDisplacedIdentity = expectedIdentity
+    }
+
+    private func rollbackSavePanelSwap(
+        _ session: WriteSession,
+        displacedIdentity: FileIdentity,
+        stagedOutputIdentity: FileIdentity
+    ) -> Bool {
+        guard let currentDisplaced = try? identity(at: session.stagingURL),
+              currentDisplaced.matchesAfterRename(displacedIdentity) else {
+            session.preserveReplacementDirectory = true
+            return false
+        }
+        let result = renameSelectedPath(
+            session.stagingURL,
+            to: session.destinationURL,
+            flags: driftRenameSwapFlag
+        )
+        guard result == 0 else {
+            session.preserveReplacementDirectory = true
+            return false
+        }
+        guard let restoredIdentity = try? identity(at: session.destinationURL),
+              restoredIdentity.matchesAfterRename(displacedIdentity) else {
+            session.preserveReplacementDirectory = true
+            return false
+        }
+        if let returnedIdentity = try? identity(at: session.stagingURL),
+           returnedIdentity.matchesAfterRename(stagedOutputIdentity) {
+            session.cleanupExpectedStagingIdentity = stagedOutputIdentity
+        } else {
+            // A concurrent replacement remains inside the private replacement
+            // directory. Never recursively delete an identity Drift did not stage.
+            session.preserveReplacementDirectory = true
+        }
+        return true
+    }
+
+    private func rollbackFirstSave(
+        _ session: WriteSession,
+        stagedOutputIdentity: FileIdentity
+    ) -> Bool {
+        guard let destinationIdentity = try? identity(at: session.destinationURL),
+              destinationIdentity.matchesAfterRename(stagedOutputIdentity),
+              !fileManager.fileExists(atPath: session.stagingURL.path) else {
+            session.preserveReplacementDirectory = true
+            return false
+        }
+        let result = renameSelectedPath(
+            session.destinationURL,
+            to: session.stagingURL,
+            flags: driftRenameExclusiveFlag
+        )
+        guard result == 0,
+              let returnedIdentity = try? identity(at: session.stagingURL),
+              returnedIdentity.matchesAfterRename(stagedOutputIdentity) else {
+            session.preserveReplacementDirectory = true
+            return false
+        }
+        session.cleanupExpectedStagingIdentity = stagedOutputIdentity
+        return true
+    }
+
+    private func renameSelectedPath(_ sourceURL: URL, to destinationURL: URL, flags: UInt32) -> Int32 {
+        sourceURL.path.withCString { sourcePath in
+            destinationURL.path.withCString { destinationPath in
+                Darwin.renameatx_np(
+                    AT_FDCWD,
+                    sourcePath,
+                    AT_FDCWD,
+                    destinationPath,
+                    flags
+                )
             }
         }
     }
@@ -1223,8 +1662,19 @@ final class NativeFileBroker {
     private func cleanupStaging(_ session: WriteSession) {
         try? session.handle?.close()
         session.handle = nil
+        if session.preserveReplacementDirectory { return }
+        if fileManager.fileExists(atPath: session.stagingURL.path),
+           let expectedIdentity = session.cleanupExpectedStagingIdentity {
+            guard let currentIdentity = try? identity(at: session.stagingURL),
+                  currentIdentity.matchesAfterRename(expectedIdentity) else {
+                session.preserveReplacementDirectory = true
+                return
+            }
+        }
         try? fileManager.removeItem(at: session.stagingURL)
-        try? fileManager.removeItem(at: session.replacementDirectory)
+        if !fileManager.fileExists(atPath: session.stagingURL.path) {
+            try? fileManager.removeItem(at: session.replacementDirectory)
+        }
     }
 
     private func rejectSymlink(_ url: URL, allowMissing: Bool) throws {
@@ -1297,10 +1747,10 @@ final class NativeFileBroker {
         let broker = NativeFileBroker(fileManager: manager)
         let destination = root.appendingPathComponent("master.bin")
         try Data("old-master".utf8).write(to: destination)
-        let descriptor = try broker.registerFile(destination, mode: .readWrite)
+        let descriptor = try broker.registerSavePanelFile(destination)
         let token = descriptor["token"] as! String
 
-        let opened = try broker.openWriteSession(["token": token, "keepExistingData": false])
+        let opened = try broker.openWriteSession(["token": token, "keepExistingData": true])
         let session = opened["session"] as! String
         _ = try broker.writeChunk([
             "session": session,
@@ -1313,7 +1763,7 @@ final class NativeFileBroker {
         }
 
         let freshDestination = root.appendingPathComponent("first-master.bin")
-        let freshDescriptor = try broker.registerFile(freshDestination, mode: .readWrite)
+        let freshDescriptor = try broker.registerSavePanelFile(freshDestination)
         let freshToken = freshDescriptor["token"] as! String
         let freshOpened = try broker.openWriteSession(["token": freshToken, "keepExistingData": false])
         let freshSession = freshOpened["session"] as! String
@@ -1326,6 +1776,44 @@ final class NativeFileBroker {
         guard try String(contentsOf: freshDestination, encoding: .utf8) == "first-master" else {
             throw BridgeFailure("DataError", "First-write self-test did not commit the selected new destination.")
         }
+
+        // Model the NSSavePanel sandbox contract with a write+search-only
+        // parent. The exact selected path remains writable, while opening the
+        // parent O_DIRECTORY is denied. The save-panel lane must still stage on
+        // the destination volume and commit without widening authority.
+        let fileOnlyParent = root.appendingPathComponent("save-panel-file-only", isDirectory: true)
+        try manager.createDirectory(at: fileOnlyParent, withIntermediateDirectories: false)
+        guard Darwin.chmod(fileOnlyParent.path, S_IWUSR | S_IXUSR) == 0 else {
+            throw BridgeFailure("InvalidStateError", "Could not prepare the file-only save authority self-test.")
+        }
+        defer { _ = Darwin.chmod(fileOnlyParent.path, S_IRWXU) }
+        let deniedParentDescriptor = fileOnlyParent.path.withCString {
+            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard deniedParentDescriptor < 0, errno == EACCES else {
+            if deniedParentDescriptor >= 0 { _ = Darwin.close(deniedParentDescriptor) }
+            throw BridgeFailure("DataError", "The file-only save self-test unexpectedly retained parent read authority.")
+        }
+        let fileOnlyDestination = fileOnlyParent.appendingPathComponent("selected-only.bin")
+        let fileOnlyBroker = NativeFileBroker(fileManager: manager)
+        let fileOnlyDescriptor = try fileOnlyBroker.registerSavePanelFile(fileOnlyDestination)
+        let fileOnlyToken = fileOnlyDescriptor["token"] as! String
+        let fileOnlyOpen = try fileOnlyBroker.openWriteSession([
+            "token": fileOnlyToken,
+            "keepExistingData": false,
+        ])
+        let fileOnlySession = fileOnlyOpen["session"] as! String
+        let fileOnlyBytes = Data("exact-file-authority".utf8)
+        _ = try fileOnlyBroker.writeChunk([
+            "session": fileOnlySession,
+            "position": 0,
+            "data": fileOnlyBytes.base64EncodedString(),
+        ])
+        _ = try fileOnlyBroker.closeWriteSession(["session": fileOnlySession])
+        guard try Data(contentsOf: fileOnlyDestination) == fileOnlyBytes else {
+            throw BridgeFailure("DataError", "The file-only save lane did not commit the selected destination.")
+        }
+        _ = Darwin.chmod(fileOnlyParent.path, S_IRWXU)
 
         let abortOpen = try broker.openWriteSession(["token": token, "keepExistingData": false])
         let abortSession = abortOpen["session"] as! String

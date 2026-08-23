@@ -92,4 +92,4 @@ forbidMarkers("e2e/native-menu-import.e2e.ts", [
   "initialCount + 1",
 ]);
 
-console.log("Native import contract passed: menu and web-button imports share one typed picker, copied file grants are released, native media replies await durable persistence, demo media is replaced on first import, and browser failure remains dismissible.");
+console.log("Native import contract passed: menu and web-button imports share one typed picker, copied media grants release, verified project grants remain bound until replacement, native media replies await durable persistence, demo media is replaced on first import, and browser failure remains dismissible.");

@@ -1,6 +1,7 @@
 import { unzipSync, zipSync } from "fflate";
 import {
   ALL_FORMATS,
+  AudioSample,
   AudioSampleSink,
   AudioSampleSource,
   BlobSource,
@@ -17,7 +18,6 @@ import {
   canEncodeVideo,
 } from "mediabunny";
 import type {
-  AudioSample,
   InputAudioTrack,
   InputVideoTrack,
   MaybePromise,
@@ -25,21 +25,33 @@ import type {
   Target,
   VideoSample,
 } from "mediabunny";
+import { renderMixedPresenterMaster } from "../sonic/renderMixedMaster";
+import {
+  DEFAULT_EXPORT_SETTINGS,
+  DEFAULT_ZIP_MEMORY_LIMIT_BYTES,
+  estimatePngZipMemoryBytes,
+  ExportStudioError,
+  getExportFrameCount,
+  validateExportSettings,
+  type ExportErrorCode,
+  type ExportSettings,
+} from "./exportContract";
+export {
+  DEFAULT_EXPORT_SETTINGS,
+  DEFAULT_ZIP_MEMORY_LIMIT_BYTES,
+  estimatePngZipMemoryBytes,
+  ExportStudioError,
+  getExportFrameCount,
+  validateExportSettings,
+  type ExportErrorCode,
+  type ExportSettings,
+} from "./exportContract";
 
 export const AVC_BITRATE = 16_000_000;
 export const AAC_BITRATE = 192_000;
 export const AUDIO_SAMPLE_RATE = 48_000;
 export const AUDIO_CHANNELS = 2;
 export const AAC_SAMPLES_PER_PACKET = 1024;
-export const DEFAULT_ZIP_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024;
-
-export const DEFAULT_EXPORT_SETTINGS = Object.freeze({
-  width: 1080,
-  height: 1920,
-  fps: 30,
-  duration: 8,
-}) satisfies ExportSettings;
-
 let softwareAacRegistration: Promise<void> | null = null;
 
 async function ensureSoftwareAacEncoder(): Promise<void> {
@@ -49,25 +61,12 @@ async function ensureSoftwareAacEncoder(): Promise<void> {
   await softwareAacRegistration;
 }
 
-const MIN_DURATION_SECONDS = 3;
-const MAX_DURATION_SECONDS = 30;
-const MAX_EXPORT_DIMENSION = 8192;
-const MAX_EXPORT_FPS = 60;
-const ZIP_ENTRY_OVERHEAD_BYTES = 256;
 const SAMPLE_COVERAGE_EPSILON_SECONDS = 1e-7;
 // fflate reads local date fields for DOS timestamps. UTC midnight becomes 1979
 // in western time zones and is rejected, so this must be local midnight.
 const FIXED_ZIP_MTIME = createDeterministicZipMtime();
 
 export type ExportCanvas = HTMLCanvasElement | OffscreenCanvas;
-
-export type ExportSettings = Readonly<{
-  width: number;
-  height: number;
-  fps: number;
-  /** Duration in seconds. */
-  duration: number;
-}>;
 
 export type ExportFrame = Readonly<{
   index: number;
@@ -85,6 +84,7 @@ export type DecodedPresenterFrame = Readonly<{
 }>;
 
 export type RenderAtContext = Readonly<{
+  sampleKind?: "sequence" | "still";
   frameIndex: number;
   frameCount: number;
   frameDuration: number;
@@ -122,49 +122,6 @@ export type ExportProgress = Readonly<{
 
 export type ExportProgressHandler = (progress: ExportProgress) => void;
 
-export type ExportErrorCode =
-  | "INVALID_SETTINGS"
-  | "CANCELLED"
-  | "AVC_UNSUPPORTED"
-  | "AAC_UNSUPPORTED"
-  | "CANVAS_EXPORT_UNSUPPORTED"
-  | "PRESENTER_FORMAT_UNSUPPORTED"
-  | "PRESENTER_VIDEO_MISSING"
-  | "PRESENTER_VIDEO_UNDECODABLE"
-  | "PRESENTER_AUDIO_UNDECODABLE"
-  | "PRESENTER_AV_SYNC"
-  | "PRESENTER_DECODE_FAILED"
-  | "RENDER_FAILED"
-  | "CANVAS_SIZE_CHANGED"
-  | "ENCODE_FAILED"
-  | "OUTPUT_VERIFICATION_FAILED"
-  | "PNG_ENCODING_FAILED"
-  | "PNG_INVALID"
-  | "PNG_ALPHA_MISSING"
-  | "ZIP_MEMORY_LIMIT"
-  | "DIRECTORY_FILE_EXISTS"
-  | "DIRECTORY_WRITE_FAILED"
-  | "TARGET_FINALIZE_FAILED";
-
-export class ExportStudioError extends Error {
-  readonly code: ExportErrorCode;
-  readonly userMessage: string;
-  readonly details: Readonly<Record<string, unknown>>;
-
-  constructor(
-    code: ExportErrorCode,
-    userMessage: string,
-    details: Readonly<Record<string, unknown>> = {},
-    options?: ErrorOptions,
-  ) {
-    super(userMessage, options);
-    this.name = "ExportStudioError";
-    this.code = code;
-    this.userMessage = userMessage;
-    this.details = details;
-  }
-}
-
 export type ExportCapabilityReport = Readonly<{
   mp4: Readonly<{
     supported: boolean;
@@ -193,7 +150,9 @@ export interface Mp4TargetAdapter {
   complete(mimeType: string): MaybePromise<Blob | null>;
   /** Supplies completed bytes for mandatory readback when complete returns null. */
   verificationBlob?(): MaybePromise<Blob>;
-  /** Must roll back or neutralize a partial persistent artifact. */
+  /** Publishes a semantically verified stage. Absent for non-persistent targets. */
+  commit?(): MaybePromise<void>;
+  /** Must discard an uncommitted stage without changing the destination. */
   abort(reason?: unknown): MaybePromise<void>;
 }
 
@@ -204,6 +163,10 @@ export type Mp4ExportOptions = Readonly<{
   presenter?: Blob;
   /** Defaults true. Set false when the pinned presenter is muted. */
   includePresenterAudio?: boolean;
+  /** Exact-length 48 kHz stereo effects bed rendered from saved Project V4 state. */
+  soundtrack?: AudioBuffer;
+  /** Effects gain while presenter speech shares the track. Defaults to 0.5. */
+  soundtrackGainWhenMixed?: number;
   signal?: AbortSignal;
   onProgress?: ExportProgressHandler;
   target?: Mp4TargetAdapter;
@@ -226,6 +189,7 @@ export type Mp4ExportResult = Readonly<{
     sampleRate: typeof AUDIO_SAMPLE_RATE;
     channels: typeof AUDIO_CHANNELS;
     duration: number;
+    source: "presenter" | "sound-design" | "mixed";
   }>;
   verification: Mp4VerificationReport;
 }>;
@@ -262,13 +226,15 @@ type CommonPngOptions = Readonly<{
   /** Defaults true. Fails if encoded PNG does not advertise an alpha channel. */
   requireAlpha?: boolean;
   /**
-   * Defaults false. When true, decoded pixels must contain both visible content
-   * and at least one non-opaque pixel, proving usable transparency.
+   * Defaults false. For a still, the requested frame must contain at least one
+   * non-opaque pixel. For a sequence, visible and transparent pixels may occur
+   * in different frames, but both must be present across the finished sequence.
    */
   requireTransparentPixels?: boolean;
 }>;
 
 export type PngStillOptions = CommonPngOptions & Readonly<{
+  /** Defaults to the master midpoint. Pass zero explicitly to capture frame zero. */
   time?: number;
 }>;
 
@@ -345,49 +311,6 @@ export type PngAlphaInspection = Readonly<{
   hasTransparentPixels: boolean;
 }>;
 
-export function validateExportSettings(settings: ExportSettings): ExportSettings {
-  if (!settings || typeof settings !== "object") {
-    throw invalidSettings("Export settings are missing.");
-  }
-
-  if (!Number.isInteger(settings.width) || settings.width <= 0 || settings.width > MAX_EXPORT_DIMENSION) {
-    throw invalidSettings(`Width must be an integer from 1 to ${MAX_EXPORT_DIMENSION}px.`, {
-      width: settings.width,
-    });
-  }
-  if (!Number.isInteger(settings.height) || settings.height <= 0 || settings.height > MAX_EXPORT_DIMENSION) {
-    throw invalidSettings(`Height must be an integer from 1 to ${MAX_EXPORT_DIMENSION}px.`, {
-      height: settings.height,
-    });
-  }
-  if (!Number.isInteger(settings.fps) || settings.fps <= 0 || settings.fps > MAX_EXPORT_FPS) {
-    throw invalidSettings(`Frame rate must be an integer from 1 to ${MAX_EXPORT_FPS}fps.`, {
-      fps: settings.fps,
-    });
-  }
-  if (
-    !Number.isFinite(settings.duration)
-    || settings.duration < MIN_DURATION_SECONDS
-    || settings.duration > MAX_DURATION_SECONDS
-  ) {
-    throw invalidSettings(
-      `Duration must be from ${MIN_DURATION_SECONDS} to ${MAX_DURATION_SECONDS} seconds.`,
-      { duration: settings.duration },
-    );
-  }
-
-  const frameCount = getExportFrameCount(settings);
-  if (!Number.isSafeInteger(frameCount) || frameCount <= 0) {
-    throw invalidSettings("Duration and frame rate do not produce a valid frame count.", { frameCount });
-  }
-
-  return settings;
-}
-
-export function getExportFrameCount(settings: Pick<ExportSettings, "duration" | "fps">): number {
-  return Math.round(settings.duration * settings.fps);
-}
-
 export function getExportFrameTime(frameIndex: number, fps: number): number {
   if (!Number.isInteger(frameIndex) || frameIndex < 0) {
     throw invalidSettings("Frame index must be a non-negative integer.", { frameIndex });
@@ -408,6 +331,18 @@ export function buildExportFramePlan(settings: ExportSettings): readonly ExportF
     time: getExportFrameTime(index, settings.fps),
     duration: frameDuration,
   }));
+}
+
+/** Keeps a generic still useful even when frame zero belongs to an authored entry. */
+export function resolvePngStillTime(duration: number, requestedTime?: number): number {
+  const time = requestedTime ?? duration / 2;
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw invalidSettings("Still duration must be a finite number above zero.", { duration });
+  }
+  if (!Number.isFinite(time) || time < 0 || time > duration) {
+    throw invalidSettings("Still time must fall inside the export duration.", { time });
+  }
+  return time;
 }
 
 export function makePngFrameFilename(
@@ -472,22 +407,6 @@ export function verifyPngZipEntries(
       }
     }
   }
-}
-
-/** Conservative peak for collecting PNGs plus building a stored ZIP in memory. */
-export function estimatePngZipMemoryBytes(
-  settings: Pick<ExportSettings, "width" | "height" | "fps" | "duration">,
-): number {
-  const frameCount = getExportFrameCount(settings);
-  const scanlineBytes = settings.height * (1 + settings.width * 4);
-  const pngUpperBoundPerFrame = Math.ceil(scanlineBytes * 1.05) + 64 * 1024;
-  const retainedPngBytes = frameCount * pngUpperBoundPerFrame;
-  const zipOverhead = frameCount * ZIP_ENTRY_OVERHEAD_BYTES + 22;
-  const activeCanvasBytes = settings.width * settings.height * 4;
-
-  // PNG Blob/ArrayBuffer coexist during capture; all input arrays coexist with
-  // ZIP output during zipSync. Factor three stays deliberately conservative.
-  return Math.ceil(activeCanvasBytes * 2 + (retainedPngBytes + zipOverhead) * 3);
 }
 
 export function assertPngZipMemoryBudget(settings: ExportSettings, memoryLimitBytes: number): void {
@@ -631,6 +550,34 @@ export function inspectRgbaAlpha(bytes: Uint8ClampedArray): PngAlphaInspection {
   return { hasVisiblePixels, hasTransparentPixels };
 }
 
+export function mergePngAlphaCoverage(
+  coverage: PngAlphaInspection,
+  inspection: PngAlphaInspection,
+): PngAlphaInspection {
+  return {
+    hasVisiblePixels: coverage.hasVisiblePixels || inspection.hasVisiblePixels,
+    hasTransparentPixels: coverage.hasTransparentPixels || inspection.hasTransparentPixels,
+  };
+}
+
+export function assertPngTransparencyCoverage(
+  coverage: PngAlphaInspection,
+  scope: "still" | "sequence",
+): void {
+  const hasRequiredCoverage = scope === "still"
+    ? coverage.hasTransparentPixels
+    : coverage.hasVisiblePixels && coverage.hasTransparentPixels;
+  if (hasRequiredCoverage) return;
+
+  throw new ExportStudioError(
+    "PNG_ALPHA_MISSING",
+    scope === "still"
+      ? "Decoded PNG does not contain transparent pixels."
+      : "Decoded PNG sequence does not contain both visible content and transparent pixels across its frames.",
+    { ...coverage, scope },
+  );
+}
+
 export async function probeExportCapabilities(
   settings: ExportSettings = DEFAULT_EXPORT_SETTINGS,
 ): Promise<ExportCapabilityReport> {
@@ -746,12 +693,12 @@ export function createBufferMp4Target(): Mp4TargetAdapter {
   };
 }
 
-class RollbackFileStreamTarget extends StreamTarget {
-  private committed = false;
+class StagedFileStreamTarget extends StreamTarget {
+  private finalized = false;
   private abortReason: unknown = new Error("MP4 file export cancelled.");
 
-  get hasCommitted(): boolean {
-    return this.committed;
+  get hasFinalized(): boolean {
+    return this.finalized;
   }
 
   async _finalize(): Promise<void> {
@@ -759,7 +706,7 @@ class RollbackFileStreamTarget extends StreamTarget {
       _finalize(this: StreamTarget): Promise<void>;
     };
     await base._finalize.call(this);
-    this.committed = true;
+    this.finalized = true;
   }
 
   async _close(): Promise<void> {
@@ -767,7 +714,7 @@ class RollbackFileStreamTarget extends StreamTarget {
       _streamWriter: WritableStreamDefaultWriter<StreamTargetChunk> | null;
       _writable: WritableStream<StreamTargetChunk>;
     };
-    if (this.committed) {
+    if (this.finalized) {
       const base = StreamTarget.prototype as unknown as {
         _close(this: StreamTarget): Promise<void>;
       };
@@ -790,25 +737,35 @@ class RollbackFileStreamTarget extends StreamTarget {
 
   async abortPending(reason?: unknown): Promise<void> {
     this.abortReason = reason;
-    if (!this.committed) await this._close();
+    if (!this.finalized) await this._close();
   }
 }
 
-/**
- * First-class disk destination. Writes stay in browser-managed temporary state
- * until finalization. Cancellation aborts that state; cancellation after commit
- * truncates the newly written file because a file handle cannot delete itself.
- */
-export async function createFileSystemMp4Target(
-  fileHandle: FileSystemFileHandle,
-  signal?: AbortSignal,
-): Promise<Mp4TargetAdapter> {
-  if (!fileHandle || typeof fileHandle.createWritable !== "function") {
-    throw invalidSettings("A writable File System Access file handle is required.");
-  }
+type DriftTransactionalWritable = FileSystemWritableFileStream & Readonly<{
+  __driftReadStagedFile: () => Promise<File>;
+  __driftCommit: () => Promise<void>;
+  __driftAbortStaged: (reason?: unknown) => Promise<void>;
+}>;
 
+function isDriftTransactionalWritable(
+  writable: FileSystemWritableFileStream,
+): writable is DriftTransactionalWritable {
+  const candidate = writable as Partial<DriftTransactionalWritable>;
+  return typeof candidate.__driftReadStagedFile === "function"
+    && typeof candidate.__driftCommit === "function"
+    && typeof candidate.__driftAbortStaged === "function";
+}
+
+async function openFileSystemWritable(
+  fileHandle: FileSystemFileHandle,
+  signal: AbortSignal | undefined,
+  deferCommit: boolean,
+): Promise<FileSystemWritableFileStream> {
   throwIfAborted(signal);
-  const opening = fileHandle.createWritable({ keepExistingData: false });
+  const opening = fileHandle.createWritable({
+    keepExistingData: false,
+    ...(deferCommit ? { __driftDeferCommit: true } : {}),
+  } as FileSystemCreateWritableOptions);
   let openingAborted = false;
   let onAbort: (() => void) | null = null;
   const cancellation = signal
@@ -828,9 +785,13 @@ export async function createFileSystemMp4Target(
     () => undefined,
   );
 
-  let writable: FileSystemWritableFileStream;
   try {
-    writable = await (cancellation ? Promise.race([opening, cancellation]) : opening);
+    const writable = await (cancellation ? Promise.race([opening, cancellation]) : opening);
+    if (signal?.aborted) {
+      await writable.abort(signal.reason).catch(() => undefined);
+      throw cancelledError(signal);
+    }
+    return writable;
   } catch (error) {
     if (signal?.aborted) throw cancelledError(signal);
     throw wrapError(
@@ -841,15 +802,147 @@ export async function createFileSystemMp4Target(
   } finally {
     if (signal && onAbort) signal.removeEventListener("abort", onAbort);
   }
+}
 
-  if (signal?.aborted) {
-    await writable.abort(signal.reason).catch(() => undefined);
-    throw cancelledError(signal);
+interface BrowserFileBaseline {
+  readonly name: string;
+  readonly size: number;
+  readonly type: string;
+  readonly lastModified: number;
+}
+
+function fileBaseline(file: File): BrowserFileBaseline {
+  return {
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    lastModified: file.lastModified,
+  };
+}
+
+async function readBrowserFileBaseline(
+  fileHandle: FileSystemFileHandle,
+  message: string,
+): Promise<BrowserFileBaseline> {
+  try {
+    return fileBaseline(await fileHandle.getFile());
+  } catch (error) {
+    throw wrapError(error, "TARGET_FINALIZE_FAILED", message);
   }
-  const target = new RollbackFileStreamTarget(
+}
+
+function createBufferedFileSystemMp4Target(
+  fileHandle: FileSystemFileHandle,
+  baseline: BrowserFileBaseline,
+  signal?: AbortSignal,
+): Mp4TargetAdapter {
+  const target = new BufferTarget();
+  let stagedBlob: Blob | null = null;
+  let committed = false;
+
+  return {
+    target,
+    kind: "file-system",
+    complete(mimeType) {
+      if (!target.buffer) {
+        throw new ExportStudioError(
+          "TARGET_FINALIZE_FAILED",
+          "MP4 encoder finalized without producing staged output bytes.",
+        );
+      }
+      stagedBlob = new Blob([target.buffer], { type: mimeType });
+      return null;
+    },
+    verificationBlob() {
+      if (!stagedBlob) {
+        throw new ExportStudioError(
+          "TARGET_FINALIZE_FAILED",
+          "MP4 verification was requested before the file stage finalized.",
+        );
+      }
+      return stagedBlob;
+    },
+    async commit() {
+      if (committed) return;
+      if (!stagedBlob) {
+        throw new ExportStudioError(
+          "TARGET_FINALIZE_FAILED",
+          "MP4 commit was requested before semantic verification could finish.",
+        );
+      }
+
+      const current = await readBrowserFileBaseline(
+        fileHandle,
+        "Could not verify the selected browser destination before MP4 commit.",
+      );
+      if (
+        current.size !== 0
+        || current.name !== baseline.name
+        || current.type !== baseline.type
+        || current.lastModified !== baseline.lastModified
+      ) {
+        throw new ExportStudioError(
+          "TARGET_FINALIZE_FAILED",
+          "The selected browser destination changed while Drift was rendering. Nothing was overwritten; choose a new empty file.",
+        );
+      }
+
+      const writable = await openFileSystemWritable(fileHandle, signal, false);
+      try {
+        await writable.write(stagedBlob);
+        throwIfAborted(signal);
+        // File System Access publishes its private swap on close. Cancellation
+        // is linearized immediately before this non-preemptible commit point.
+        await writable.close();
+        committed = true;
+        stagedBlob = null;
+      } catch (error) {
+        if (!committed) await writable.abort(error).catch(() => undefined);
+        throw error;
+      }
+    },
+    abort() {
+      if (!committed) stagedBlob = null;
+    },
+  };
+}
+
+/**
+ * Transactional disk destination. Drift's native bridge streams into private
+ * same-volume staging and exposes those bytes for semantic verification before
+ * an explicit atomic commit. Ordinary File System Access implementations use
+ * a bounded-lifecycle memory stage, because their writable close is itself the
+ * irreversible replacement and cannot be rolled back safely.
+ */
+export async function createFileSystemMp4Target(
+  fileHandle: FileSystemFileHandle,
+  signal?: AbortSignal,
+): Promise<Mp4TargetAdapter> {
+  if (!fileHandle || typeof fileHandle.createWritable !== "function") {
+    throw invalidSettings("A writable File System Access file handle is required.");
+  }
+
+  const writable = await openFileSystemWritable(fileHandle, signal, true);
+  if (!isDriftTransactionalWritable(writable)) {
+    await writable.abort(new Error("Switching to rollback-safe buffered MP4 staging."));
+    const baseline = await readBrowserFileBaseline(
+      fileHandle,
+      "Could not inspect the selected browser destination before MP4 rendering.",
+    );
+    if (baseline.size !== 0) {
+      throw new ExportStudioError(
+        "TARGET_FINALIZE_FAILED",
+        "This browser cannot safely replace an existing MP4. Choose a new filename; the existing file was preserved.",
+      );
+    }
+    return createBufferedFileSystemMp4Target(fileHandle, baseline, signal);
+  }
+
+  const target = new StagedFileStreamTarget(
     writable as unknown as WritableStream<StreamTargetChunk>,
     { chunked: true },
   );
+  let committed = false;
 
   return {
     target,
@@ -858,23 +951,17 @@ export async function createFileSystemMp4Target(
       return null;
     },
     verificationBlob() {
-      return fileHandle.getFile();
+      return writable.__driftReadStagedFile();
+    },
+    async commit() {
+      if (committed) return;
+      await writable.__driftCommit();
+      committed = true;
     },
     async abort(reason) {
-      if (!target.hasCommitted) {
-        await target.abortPending(reason);
-        // A WritableStream abort queues behind an already-started close. If
-        // close won that race, _finalize marked the file committed while this
-        // abort was pending; fall through and neutralize that committed file.
-        if (!target.hasCommitted) return;
-      }
-
-      // The finalized replacement has already committed. A FileSystemFileHandle
-      // has no remove API, so leave an unmistakable zero-byte partial instead of
-      // an apparently valid but canceled MP4.
-      const cleanup = await fileHandle.createWritable({ keepExistingData: false });
-      await cleanup.truncate(0);
-      await cleanup.close();
+      if (committed) return;
+      if (!target.hasFinalized) await target.abortPending(reason);
+      await writable.__driftAbortStaged(reason);
     },
   };
 }
@@ -884,9 +971,9 @@ export async function createFileSystemMp4Target(
  * finalization starts. Race finalization with the AbortSignal and invoke the
  * destination rollback directly, so cancellation no longer depends on that
  * no-op. A platform stream close already in progress may itself be
- * non-preemptible; the file adapter waits for that race and neutralizes any
- * commit. The finalization promise remains observed because browser codecs
- * cannot be synchronously preempted and may settle after cancellation wins.
+ * non-preemptible; the file adapter discards its unpublished stage after that
+ * race. The finalization promise remains observed because browser codecs cannot
+ * be synchronously preempted and may settle after cancellation wins.
  *
  * Exported as a narrow seam for deterministic cancellation tests and future
  * streaming destinations.
@@ -927,6 +1014,25 @@ export async function finalizeInterruptibly<T>(
     return await Promise.race([finalization, cancellation]);
   } finally {
     if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
+function validateSoundtrackBuffer(soundtrack: AudioBuffer, duration: number, gainWhenMixed: number): void {
+  if (!Number.isFinite(gainWhenMixed) || gainWhenMixed < 0 || gainWhenMixed > 1) {
+    throw invalidSettings("Soundtrack under-voice gain must be between 0 and 1.", { gainWhenMixed });
+  }
+  const expectedFrames = Math.round(duration * AUDIO_SAMPLE_RATE);
+  if (
+    soundtrack.sampleRate !== AUDIO_SAMPLE_RATE
+    || soundtrack.numberOfChannels !== AUDIO_CHANNELS
+    || soundtrack.length !== expectedFrames
+  ) {
+    throw invalidSettings("Soundtrack must exactly match the fixed-step 48 kHz stereo timeline.", {
+      expectedFrames,
+      actualFrames: soundtrack.length,
+      sampleRate: soundtrack.sampleRate,
+      channels: soundtrack.numberOfChannels,
+    });
   }
 }
 
@@ -989,6 +1095,11 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
   const framePlan = buildExportFramePlan(settings);
   const frameCount = framePlan.length;
   const encodedDuration = frameCount / settings.fps;
+  const soundtrack = options.soundtrack ?? null;
+  const soundtrackGainWhenMixed = options.soundtrackGainWhenMixed ?? 0.5;
+  if (soundtrack) validateSoundtrackBuffer(soundtrack, encodedDuration, soundtrackGainWhenMixed);
+  let hasPresenterAudio = false;
+  let hasOutputAudio = soundtrack !== null;
   const encoderConfigs: {
     video: VideoEncoderConfig | null;
     audio: AudioEncoderConfig | null;
@@ -1004,10 +1115,12 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
         encodedDuration,
       );
     }
-    assertPresenterAudioFpsSupported(settings.fps, presenter?.audioTrack != null);
+    hasPresenterAudio = presenter?.audioTrack != null;
+    hasOutputAudio = hasPresenterAudio || soundtrack !== null;
+    assertPresenterAudioFpsSupported(settings.fps, hasOutputAudio);
     throwIfAborted(options.signal);
 
-    if (presenter?.audioTrack) {
+    if (hasOutputAudio) {
       // Native WebCodecs AAC does not expose priming delay and can shift real
       // audio while inflating the MP4 duration. The bundled open-source FFmpeg
       // encoder is selected deliberately so this path is testable and stable.
@@ -1020,7 +1133,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       if (!aacSupported) {
         throw new ExportStudioError(
           "AAC_UNSUPPORTED",
-          "Presenter contains audio, but this browser cannot encode AAC. Audio will not be dropped silently.",
+          "This composition contains audio, but this browser cannot encode AAC. Sound will not be dropped silently.",
           { sampleRate: AUDIO_SAMPLE_RATE, channels: AUDIO_CHANNELS, bitrate: AAC_BITRATE },
         );
       }
@@ -1046,7 +1159,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
     });
 
     let audioSource: AudioSampleSource | null = null;
-    if (presenter?.audioTrack) {
+    if (hasOutputAudio) {
       const audioInputFrameLimit = getAacInputFrameLimit(encodedDuration);
       let acceptedAudioFrames = 0;
       audioSource = new AudioSampleSource({
@@ -1070,7 +1183,9 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
           encoderConfigs.audio = { ...config };
         },
       });
-      output.addAudioTrack(audioSource, { name: "Presenter audio" });
+      output.addAudioTrack(audioSource, {
+        name: hasPresenterAudio ? soundtrack ? "Presenter + sound design" : "Presenter audio" : "Sound design",
+      });
     }
 
     await output.start();
@@ -1103,22 +1218,28 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       },
       phase: "video",
       progressStart: 0.03,
-      progressEnd: presenter?.audioTrack ? 0.78 : 0.94,
+      progressEnd: hasOutputAudio ? 0.78 : 0.94,
     });
     videoSource.close();
 
-    if (presenter?.audioTrack && audioSource) {
-      await encodePresenterAudio(
-        presenter,
-        audioSource,
-        encodedDuration,
-        options.signal,
-        options.onProgress,
-      );
+    if (audioSource) {
+      if (hasPresenterAudio && presenter) {
+        await encodePresenterAudio(
+          presenter,
+          audioSource,
+          encodedDuration,
+          soundtrack,
+          soundtrackGainWhenMixed,
+          options.signal,
+          options.onProgress,
+        );
+      } else if (soundtrack) {
+        await encodeSoundtrackAudio(soundtrack, audioSource, encodedDuration, options.signal, options.onProgress);
+      }
       audioSource.close();
     }
 
-    assertEncoderConfigurations(encoderConfigs, settings, presenter?.audioTrack != null);
+    assertEncoderConfigurations(encoderConfigs, settings, hasOutputAudio);
     throwIfAborted(options.signal);
     report(options.onProgress, "finalizing", 0, 1, 0.97);
     await finalizeInterruptibly(
@@ -1150,10 +1271,14 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
     const verification = await verifyMp4Artifact(
       verificationBlob,
       settings,
-      presenter?.audioTrack !== null && presenter?.audioTrack !== undefined,
+      hasOutputAudio,
       options.signal,
     );
     throwIfAborted(options.signal);
+    // Cancellation is honored while the artifact is still private. The commit
+    // itself is the linearization point: once entered, it either atomically
+    // publishes the verified file or rejects and rolls its stage back.
+    if (target.commit) await target.commit();
     report(options.onProgress, "complete", 1, 1, 1);
 
     return {
@@ -1168,13 +1293,14 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       videoCodec: "avc",
       videoBitrate: AVC_BITRATE,
       verification,
-      audio: presenter?.audioTrack
+      audio: hasOutputAudio
         ? {
           codec: "aac",
           bitrate: AAC_BITRATE,
           sampleRate: AUDIO_SAMPLE_RATE,
           channels: AUDIO_CHANNELS,
           duration: verification.audio!.duration,
+          source: hasPresenterAudio ? soundtrack ? "mixed" : "presenter" : "sound-design",
         }
         : null,
     };
@@ -1452,10 +1578,7 @@ export async function verifyMp4Artifact(
 export async function exportPngStill(options: PngStillOptions): Promise<PngStillResult> {
   validateCommonOptions(options);
   const settings = validateExportSettings(options.settings);
-  const time = options.time ?? 0;
-  if (!Number.isFinite(time) || time < 0 || time > settings.duration) {
-    throw invalidSettings("Still time must fall inside the export duration.", { time });
-  }
+  const time = resolvePngStillTime(settings.duration, options.time);
   if (!supportsCanvasPngEncoding()) {
     throw new ExportStudioError(
       "CANVAS_EXPORT_UNSUPPORTED",
@@ -1507,7 +1630,7 @@ export async function exportPngStill(options: PngStillOptions): Promise<PngStill
       const decodedFrame = sample && presenter
         ? drawPresenterFrame(presenter, sample, time)
         : undefined;
-      await renderScene(options, time, frameIndex, frameCount, decodedFrame);
+      await renderScene(options, time, frameIndex, frameCount, decodedFrame, "still");
     } finally {
       sample?.close();
     }
@@ -1518,7 +1641,7 @@ export async function exportPngStill(options: PngStillOptions): Promise<PngStill
       blob,
       settings.width,
       settings.height,
-      options.requireAlpha ?? true,
+      (options.requireAlpha ?? true) || (options.requireTransparentPixels ?? false),
       true,
       options.requireTransparentPixels ?? false,
     );
@@ -1576,6 +1699,12 @@ async function exportPngSequenceZip(
   let presenter: PreparedPresenter | null = null;
   const files: Record<string, Uint8Array> = {};
   let retainedBytes = 0;
+  let alphaCoverage: PngAlphaInspection = {
+    hasVisiblePixels: false,
+    hasTransparentPixels: false,
+  };
+  const requireTransparency = options.requireTransparentPixels ?? false;
+  const requireAlpha = (options.requireAlpha ?? true) || requireTransparency;
 
   try {
     if (options.presenter) {
@@ -1596,14 +1725,14 @@ async function exportPngSequenceZip(
       progressEnd: 0.82,
       afterRender: async (frame) => {
         const blob = await canvasToPngBlob(options.canvas);
-        await validatePngBlob(
+        const inspection = await validatePngBlob(
           blob,
           options.settings.width,
           options.settings.height,
-          options.requireAlpha ?? true,
-          options.requireTransparentPixels ?? false,
-          options.requireTransparentPixels ?? false,
+          requireAlpha,
+          requireTransparency,
         );
+        alphaCoverage = mergePngAlphaCoverage(alphaCoverage, inspection);
         const bytes = new Uint8Array(await blob.arrayBuffer());
         retainedBytes += bytes.byteLength;
         const observedPeak = options.settings.width * options.settings.height * 8 + retainedBytes * 3;
@@ -1625,6 +1754,7 @@ async function exportPngSequenceZip(
         );
       },
     });
+    if (requireTransparency) assertPngTransparencyCoverage(alphaCoverage, "sequence");
 
     throwIfAborted(options.signal);
     report(options.onProgress, "finalizing", 0, 1, 0.95);
@@ -1675,6 +1805,12 @@ async function exportPngSequenceDirectory(
   let presenter: PreparedPresenter | null = null;
   const createdNames: string[] = [];
   let bytesWritten = 0;
+  let alphaCoverage: PngAlphaInspection = {
+    hasVisiblePixels: false,
+    hasTransparentPixels: false,
+  };
+  const requireTransparency = options.requireTransparentPixels ?? false;
+  const requireAlpha = (options.requireAlpha ?? true) || requireTransparency;
 
   try {
     await assertDirectoryFilesAbsent(options.directory, filenames, options.signal);
@@ -1701,9 +1837,8 @@ async function exportPngSequenceDirectory(
           blob,
           options.settings.width,
           options.settings.height,
-          options.requireAlpha ?? true,
-          options.requireTransparentPixels ?? false,
-          options.requireTransparentPixels ?? false,
+          requireAlpha,
+          requireTransparency,
         );
         const filename = filenames[frame.index]!;
         const fileHandle = await options.directory.getFileHandle(filename, { create: true });
@@ -1719,14 +1854,14 @@ async function exportPngSequenceDirectory(
         }
         throwIfAborted(options.signal);
         const writtenBlob = await fileHandle.getFile();
-        await validatePngBlob(
+        const writtenInspection = await validatePngBlob(
           writtenBlob,
           options.settings.width,
           options.settings.height,
-          options.requireAlpha ?? true,
-          options.requireTransparentPixels ?? false,
-          options.requireTransparentPixels ?? false,
+          requireAlpha,
+          requireTransparency,
         );
+        alphaCoverage = mergePngAlphaCoverage(alphaCoverage, writtenInspection);
         if (writtenBlob.size !== blob.size) {
           throw new ExportStudioError(
             "DIRECTORY_WRITE_FAILED",
@@ -1745,6 +1880,7 @@ async function exportPngSequenceDirectory(
         );
       },
     });
+    if (requireTransparency) assertPngTransparencyCoverage(alphaCoverage, "sequence");
 
     report(options.onProgress, "complete", 1, 1, 1);
     return {
@@ -1817,7 +1953,7 @@ async function renderFrames(options: RenderFramesOptions & {
     let presenterFrame: DecodedPresenterFrame | undefined;
     try {
       if (sample && presenter) presenterFrame = drawPresenterFrame(presenter, sample, frame.time);
-      await renderScene(options, frame.time, frame.index, frameCount, presenterFrame);
+      await renderScene(options, frame.time, frame.index, frameCount, presenterFrame, "sequence");
       await options.afterRender(frame);
     } finally {
       sample?.close();
@@ -1869,9 +2005,11 @@ async function renderScene(
   frameIndex: number,
   frameCount: number,
   presenterFrame?: DecodedPresenterFrame,
+  sampleKind: "sequence" | "still" = "sequence",
 ): Promise<void> {
   try {
     await options.renderAt(time, presenterFrame, {
+      sampleKind,
       frameIndex,
       frameCount,
       frameDuration: 1 / options.settings.fps,
@@ -2079,11 +2217,38 @@ async function encodePresenterAudio(
   presenter: PreparedPresenter,
   source: AudioSampleSource,
   duration: number,
+  soundtrack: AudioBuffer | null,
+  soundtrackGain: number,
   signal?: AbortSignal,
   onProgress?: ExportProgressHandler,
 ): Promise<number> {
   const track = presenter.audioTrack;
   if (!track) return 0;
+
+  if (soundtrack) {
+    try {
+      const master = await renderMixedPresenterMaster({
+        track,
+        timelineStart: presenter.timelineStart,
+        duration,
+        soundtrack,
+        soundtrackGain,
+        signal,
+        onPresenterCoverage(coveredSeconds) {
+          report(onProgress, "audio", coveredSeconds, duration, 0.78 + 0.08 * Math.min(coveredSeconds / duration, 1));
+        },
+      });
+      throwIfAborted(signal);
+      return await encodeSoundtrackAudio(master, source, duration, signal, onProgress);
+    } catch (error) {
+      if (signal?.aborted) throw cancelledError(signal);
+      throw wrapError(
+        error,
+        "PRESENTER_DECODE_FAILED",
+        "Presenter audio and tactile sound could not be rendered as one continuous stereo master.",
+      );
+    }
+  }
   const sink = new AudioSampleSink(track);
   const rangeStart = presenter.timelineStart;
   const rangeEnd = rangeStart + duration;
@@ -2139,6 +2304,27 @@ async function encodePresenterAudio(
   }
 
   return Math.min(lastEnd, duration);
+}
+
+async function encodeSoundtrackAudio(
+  soundtrack: AudioBuffer,
+  source: AudioSampleSource,
+  duration: number,
+  signal?: AbortSignal,
+  onProgress?: ExportProgressHandler,
+): Promise<number> {
+  throwIfAborted(signal);
+  const samples = AudioSample.fromAudioBuffer(soundtrack, 0);
+  try {
+    for (const sample of samples) {
+      throwIfAborted(signal);
+      await source.add(sample);
+    }
+    report(onProgress, "audio", duration, duration, 0.95);
+    return duration;
+  } finally {
+    for (const sample of samples) sample.close();
+  }
 }
 
 async function canvasToPngBlob(canvas: ExportCanvas): Promise<Blob> {
@@ -2245,16 +2431,7 @@ async function validatePngBlob(
       );
     }
 
-    if (
-      requireTransparentPixels
-      && (!alphaInspection.hasVisiblePixels || !alphaInspection.hasTransparentPixels)
-    ) {
-      throw new ExportStudioError(
-        "PNG_ALPHA_MISSING",
-        "Decoded PNG does not contain both visible content and transparent pixels.",
-        alphaInspection,
-      );
-    }
+    if (requireTransparentPixels) assertPngTransparencyCoverage(alphaInspection, "still");
     return { ...inspection, ...alphaInspection };
   } finally {
     bitmap.close();

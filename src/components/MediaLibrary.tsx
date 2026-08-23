@@ -8,11 +8,14 @@ import {
 } from "react";
 import { pickNativeMacFiles } from "../lib/nativeMac";
 import type { StudioAsset } from "../model";
+import type { SlideHealth } from "../core/media/slideHealth";
 
 interface MediaLibraryProps {
   assets: StudioAsset[];
   presenter: StudioAsset | null;
   pinnedAssetId: string | null;
+  selectedAssetId: string | null;
+  slideHealth: Readonly<Record<string, SlideHealth>>;
   imageInputRef: RefObject<HTMLInputElement | null>;
   presenterInputRef: RefObject<HTMLInputElement | null>;
   onAddImages: (files: File[]) => void;
@@ -20,6 +23,7 @@ interface MediaLibraryProps {
   onRemove: (id: string) => void;
   onReorder: (fromId: string, toId: string) => void;
   onPin: (asset: StudioAsset | null) => void;
+  onSelect: (assetId: string) => void;
   onRemovePresenter: () => void;
   busy: boolean;
 }
@@ -35,6 +39,8 @@ export function MediaLibrary({
   assets,
   presenter,
   pinnedAssetId,
+  selectedAssetId,
+  slideHealth,
   imageInputRef,
   presenterInputRef,
   onAddImages,
@@ -42,6 +48,7 @@ export function MediaLibrary({
   onRemove,
   onReorder,
   onPin,
+  onSelect,
   onRemovePresenter,
   busy,
 }: MediaLibraryProps) {
@@ -123,7 +130,7 @@ export function MediaLibrary({
         </button>
       </div>
       <p className="media-note" data-error={Boolean(pickerError)} aria-live="polite">
-        {pickerError ?? "Images move. One optional video can stay pinned. Original media: 64 MiB each, 80 MiB total. Files remain on this device."}
+        {pickerError ?? "Any one image or presenter video can stay still. Original media: 64 MiB each, 80 MiB total. Files remain on this device."}
       </p>
 
       <ol className="asset-list" aria-label="Slide order">
@@ -135,13 +142,30 @@ export function MediaLibrary({
             onDragOver={(event) => { if (!busy) event.preventDefault(); }}
             onDrop={(event) => onDrop(event, asset.id)}
             data-pinned={pinnedAssetId === asset.id}
+            data-selected={selectedAssetId === asset.id}
           >
             <span className="drag-handle" aria-hidden="true">⠿</span>
-            <img src={asset.objectUrl} alt="" />
-            <span className="asset-meta">
-              <strong>{String(index + 1).padStart(2, "0")}</strong>
-              <small title={asset.name}>{asset.name}</small>
-            </span>
+            <button
+              type="button"
+              className="asset-select"
+              disabled={busy}
+              aria-pressed={selectedAssetId === asset.id}
+              onClick={() => onSelect(asset.id)}
+            >
+              <img src={asset.objectUrl} alt="" />
+              <span className="asset-meta">
+                <strong>{String(index + 1).padStart(2, "0")}</strong>
+                <small title={asset.name}>{asset.name}</small>
+                <span className="asset-state-row">
+                  {pinnedAssetId === asset.id ? <em className="asset-state">STILL</em> : null}
+                  {slideHealth[asset.id]?.severity !== "healthy" ? (
+                    <em className="asset-health" data-severity={slideHealth[asset.id]?.severity} title={slideHealth[asset.id]?.issues.map((issue) => issue.message).join(" ")}>
+                      {slideHealth[asset.id]?.severity}
+                    </em>
+                  ) : null}
+                </span>
+              </span>
+            </button>
             <span className="asset-actions">
               <button
                 type="button"
@@ -161,8 +185,15 @@ export function MediaLibrary({
               >
                 ↓
               </button>
-              <button type="button" disabled={busy} onClick={() => onPin(pinnedAssetId === asset.id ? null : asset)} aria-label={pinnedAssetId === asset.id ? `Unpin ${asset.name}` : `Pin ${asset.name}`} title="Pin frame">
-                {pinnedAssetId === asset.id ? "●" : "○"}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onPin(pinnedAssetId === asset.id ? null : asset)}
+                aria-label={pinnedAssetId === asset.id ? `Return ${asset.name} to the carousel` : `Keep ${asset.name} still`}
+                aria-pressed={pinnedAssetId === asset.id}
+                title={pinnedAssetId === asset.id ? "Return to carousel" : "Keep still"}
+              >
+                {pinnedAssetId === asset.id ? "↻" : "⌖"}
               </button>
               <button type="button" disabled={busy} onClick={() => onRemove(asset.id)} aria-label={`Remove ${asset.name}`} title="Remove from project">×</button>
             </span>
@@ -182,8 +213,14 @@ export function MediaLibrary({
               <strong>{presenter.name}</strong>
               <small>{presenter.duration?.toFixed(1) ?? "—"} s · audio checked at export</small>
             </span>
-            <button type="button" disabled={busy} onClick={() => onPin(pinnedAssetId === presenter.id ? null : presenter)}>
-              {pinnedAssetId === presenter.id ? "Pinned" : "Pin"}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onPin(pinnedAssetId === presenter.id ? null : presenter)}
+              aria-label={pinnedAssetId === presenter.id ? `Return ${presenter.name} to its media slot` : `Keep ${presenter.name} still`}
+              aria-pressed={pinnedAssetId === presenter.id}
+            >
+              {pinnedAssetId === presenter.id ? "Return" : "Keep still"}
             </button>
             <button type="button" disabled={busy} onClick={onRemovePresenter} aria-label="Remove presenter video">×</button>
           </div>

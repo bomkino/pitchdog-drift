@@ -14,9 +14,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  source:
+    name: Source contracts
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,28 +55,130 @@ jobs:
       - name: Typecheck, test, and build
         run: npm run check
 
+      - name: Preserve checkout evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-source-identity-${{ github.run_id }}
+          path: build/evidence/checkout-identity.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  browser:
+    name: Browser gauntlet (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: native-import
+            test_file: e2e/native-menu-import.e2e.ts
+          - suite: export
+            test_file: e2e/studio-export.e2e.ts
+          - suite: projects
+            test_file: e2e/studio-projects.e2e.ts
+          - suite: renderer
+            test_file: e2e/studio-renderer.e2e.ts
+          # The first Studio UI journey deliberately destroys and restores a
+          # WebGL context. Linux SwiftShader can leave that worker unable to
+          # create the next browser context even though the recovery journey
+          # itself passed, so keep the destructive lifecycle probe isolated.
+          - suite: studio-ui-context-loss
+            test_file: e2e/studio-ui.e2e.ts
+            test_grep: boots WebGL2
+          - suite: studio-ui-rest
+            test_file: e2e/studio-ui.e2e.ts
+            test_grep_invert: boots WebGL2
+          - suite: v2-ui
+            test_file: e2e/v2-ui.e2e.ts
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Record checkout identity
+        env:
+          DRIFT_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          DRIFT_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/evidence
+          TESTED_COMMIT_SHA="$(git rev-parse HEAD)"
+          TREE_SHA="$(git rev-parse 'HEAD^{tree}')"
+          {
+            echo "event=$GITHUB_EVENT_NAME"
+            echo "ref=$GITHUB_REF"
+            echo "head_ref=$GITHUB_HEAD_REF"
+            echo "base_ref=$GITHUB_BASE_REF"
+            echo "source_head_sha=$DRIFT_SOURCE_HEAD_SHA"
+            echo "tested_commit_sha=$TESTED_COMMIT_SHA"
+            echo "base_sha=$DRIFT_BASE_SHA"
+            echo "tree_sha=$TREE_SHA"
+            echo "suite=${{ matrix.suite }}"
+            echo "test_file=${{ matrix.test_file }}"
+          } > build/evidence/checkout-identity.txt
+          cat build/evidence/checkout-identity.txt
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
       - name: Install browser runtime
         run: npx playwright install --with-deps chromium
 
-      - name: Run real-browser gauntlet
-        run: npm run test:e2e
+      - name: Run real-browser gauntlet suite
+        env:
+          TEST_FILE: ${{ matrix.test_file }}
+          TEST_GREP: ${{ matrix.test_grep || '' }}
+          TEST_GREP_INVERT: ${{ matrix.test_grep_invert || '' }}
+        run: |
+          set -euo pipefail
+          ARGS=("$TEST_FILE")
+          if [[ -n "$TEST_GREP" ]]; then
+            ARGS+=(--grep "$TEST_GREP")
+          fi
+          if [[ -n "$TEST_GREP_INVERT" ]]; then
+            ARGS+=(--grep-invert "$TEST_GREP_INVERT")
+          fi
+          npx playwright test "${ARGS[@]}"
 
       - name: Preserve checkout evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: drift-ci-identity-${{ github.run_id }}
+          name: drift-browser-identity-${{ github.run_id }}-${{ matrix.suite }}
           path: build/evidence/checkout-identity.txt
           if-no-files-found: error
           retention-days: 14
 
       - name: Preserve failure evidence
-        if: failure()
+        if: ${{ always() && (failure() || cancelled()) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-failure-evidence-${{ github.run_id }}
+          name: playwright-failure-evidence-${{ github.run_id }}-${{ matrix.suite }}
           path: |
             playwright-report/
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  verify:
+    needs: [source, browser]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every source and browser lane
+        env:
+          SOURCE_RESULT: ${{ needs.source.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: |
+          set -euo pipefail
+          printf 'source=%s\nbrowser=%s\n' "$SOURCE_RESULT" "$BROWSER_RESULT"
+          test "$SOURCE_RESULT" = success
+          test "$BROWSER_RESULT" = success

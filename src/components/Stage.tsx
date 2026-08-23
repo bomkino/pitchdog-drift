@@ -1,17 +1,22 @@
-import type { RefObject } from "react";
-import type { ExportProgress, StudioAsset, StudioSettings } from "../model";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import type { StagePresentation } from "../core/project/appPresentation";
+import type { ExportProgress, StudioAsset } from "../model";
+import { fitStagePreview, type StagePreviewSize } from "./stageGeometry";
+import type { PlatformGuideProfile } from "../core/platformGuides";
 
 interface StageProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   frameRef: RefObject<HTMLDivElement | null>;
-  settings: StudioSettings;
+  presentation: StagePresentation;
   assets: StudioAsset[];
+  pinnedAsset: StudioAsset | null;
   webglError: string | null;
   contextState: "ready" | "lost" | "restored";
   fps: number;
   paused: boolean;
   focusMode: boolean;
   activeSlideIndex: number;
+  platformGuide: PlatformGuideProfile;
   exportProgress: ExportProgress | null;
   onTogglePause: () => void;
   onStep: (amount: number) => void;
@@ -24,14 +29,16 @@ interface StageProps {
 export function Stage({
   canvasRef,
   frameRef,
-  settings,
+  presentation,
   assets,
+  pinnedAsset,
   webglError,
   contextState,
   fps,
   paused,
   focusMode,
   activeSlideIndex,
+  platformGuide,
   exportProgress,
   onTogglePause,
   onStep,
@@ -40,26 +47,75 @@ export function Stage({
   onCancelExport,
   busy,
 }: StageProps) {
-  const transparent = settings.stage.transparent || settings.background.style === "transparent";
+  const wellRef = useRef<HTMLDivElement>(null);
+  const [previewSize, setPreviewSize] = useState<StagePreviewSize | null>(null);
+  const transparent = presentation.transparent;
   const activeAsset = activeSlideIndex >= 0 ? assets[activeSlideIndex] : undefined;
-  const themeName = settings.themeId.replaceAll("-", " ");
+  const pinDescription = presentation.pinEnabled && pinnedAsset
+    ? ` Protected still frame: ${pinnedAsset.name}.`
+    : "";
   const previewDescription = assets.length === 0
-    ? `Cinematic preview. No slides. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow. Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Drag or add images to begin.`
-    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${themeName} theme. ${settings.motion.axis} ${settings.motion.flow} flow. Preview ${paused ? "paused" : "playing"}. Stage ${settings.stage.width} by ${settings.stage.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
+    ? `Cinematic preview. No slides. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Drag or add images to begin.`
+    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
+
+  useLayoutEffect(() => {
+    const well = wellRef.current;
+    if (!well) return;
+    let active = true;
+
+    const updateSize = (width: number, height: number) => {
+      if (!active) return;
+      const next = fitStagePreview(
+        width,
+        height,
+        presentation.width,
+        presentation.height,
+      );
+      setPreviewSize((current) => {
+        if (current === null || next === null) return next;
+        return Math.abs(current.width - next.width) < 0.25
+          && Math.abs(current.height - next.height) < 0.25
+          ? current
+          : next;
+      });
+    };
+
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (box) updateSize(box.width, box.height);
+    });
+    observer.observe(well);
+    const initial = well.getBoundingClientRect();
+    const style = window.getComputedStyle(well);
+    updateSize(
+      initial.width - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
+      initial.height - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom),
+    );
+
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [presentation.height, presentation.width]);
+
   return (
     <section className="stage-column" aria-label="Cinematic preview" aria-describedby="stage-preview-description" aria-busy={busy}>
       <p id="stage-preview-description" className="visually-hidden">{previewDescription}</p>
       <div className="stage-topline">
-        <span>{themeName}</span>
-        <span>{settings.motion.axis} · {settings.motion.flow}</span>
+        <span>{presentation.directionLabel}</span>
+        <span>{presentation.axis} · {presentation.pathLabel}</span>
       </div>
-      <div className="stage-well">
+      <div ref={wellRef} className="stage-well">
         <div
           ref={frameRef}
           className="stage-frame"
           data-transparent={transparent}
           data-context={contextState}
-          style={{ aspectRatio: `${settings.stage.width} / ${settings.stage.height}` }}
+          style={{
+            aspectRatio: `${presentation.width} / ${presentation.height}`,
+            width: previewSize ? `${previewSize.width}px` : undefined,
+            height: previewSize ? `${previewSize.height}px` : undefined,
+          }}
           onDragOver={(event) => {
             if (!busy && event.dataTransfer.types.includes("Files")) event.preventDefault();
           }}
@@ -74,10 +130,39 @@ export function Stage({
         >
           <canvas ref={canvasRef} aria-hidden="true" data-testid="webgl-stage" />
           {transparent ? <div className="transparency-grid" aria-hidden="true" /> : null}
-          <div className="stage-guide top-left" aria-hidden="true" />
-          <div className="stage-guide top-right" aria-hidden="true" />
-          <div className="stage-guide bottom-left" aria-hidden="true" />
-          <div className="stage-guide bottom-right" aria-hidden="true" />
+          {platformGuide.id !== "none" ? (
+            <div className="platform-guide-overlay" data-profile={platformGuide.id} aria-hidden="true">
+              {platformGuide.obstructions.map((rect, index) => (
+                <div
+                  className="platform-obstruction"
+                  key={`${rect.x}:${rect.y}:${rect.width}:${rect.height}`}
+                  style={{
+                    left: `${rect.x * 100}%`,
+                    top: `${rect.y * 100}%`,
+                    width: `${rect.width * 100}%`,
+                    height: `${rect.height * 100}%`,
+                  }}
+                >
+                  {index === 0 ? <span>{platformGuide.label}</span> : null}
+                </div>
+              ))}
+              {platformGuide.safeInsets ? (
+                <div
+                  className="platform-safe-frame"
+                  style={{
+                    inset: `${platformGuide.safeInsets.top * 100}% ${platformGuide.safeInsets.right * 100}% ${platformGuide.safeInsets.bottom * 100}% ${platformGuide.safeInsets.left * 100}%`,
+                  }}
+                />
+              ) : null}
+              {platformGuide.id.startsWith("instagram") ? (
+                <>
+                  <div className="instagram-header-silhouette"><i /><i /><i /></div>
+                  <div className="instagram-reply-silhouette"><i /><i /></div>
+                  {platformGuide.id !== "instagram-story" ? <div className="instagram-action-rail"><i /><i /><i /><i /></div> : null}
+                </>
+              ) : null}
+            </div>
+          ) : null}
 
           {!webglError && assets.length === 0 ? (
             <div className="empty-stage">
@@ -111,7 +196,7 @@ export function Stage({
           ) : null}
 
           <div className="stage-hud" aria-hidden="true">
-            <span>{settings.stage.width} × {settings.stage.height}</span>
+            <span>{presentation.width} × {presentation.height}</span>
             <span>{fps > 0 ? `${fps} FPS` : "GPU"}</span>
           </div>
         </div>

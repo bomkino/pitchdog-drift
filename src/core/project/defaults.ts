@@ -1,10 +1,15 @@
 import {
   DRIFT_PROJECT_SCHEMA,
   DRIFT_PROJECT_VERSION,
+  DRIFT_PROJECT_V4_VERSION,
+  type DriftRenderContract,
+  DRIFT_V1_COMPAT_RENDER_CONTRACT,
   PROJECT_DOMAINS,
   type DriftProjectV3,
+  type DriftProjectV4,
   type RecipeProvenance,
 } from "./schema";
+import { createDefaultPerformanceLifecycle } from "../../model";
 
 export function createEmptyRecipeProvenance(): RecipeProvenance {
   return {
@@ -213,5 +218,49 @@ export function createDefaultDriftProject(
       },
     },
     provenance: createEmptyRecipeProvenance(),
+  };
+}
+
+export function createDefaultDriftProjectV4(
+  projectId: string,
+  now = new Date().toISOString(),
+  projectSeed = 17,
+  renderContract: DriftRenderContract = DRIFT_V1_COMPAT_RENDER_CONTRACT,
+): DriftProjectV4 {
+  const {
+    schema,
+    formatVersion: _formatVersion,
+    presenter,
+    ...project
+  } = createDefaultDriftProject(projectId, now, projectSeed);
+
+  return {
+    schema,
+    formatVersion: DRIFT_PROJECT_V4_VERSION,
+    renderContract,
+    migration: null,
+    ...project,
+    presenter: {
+      ...presenter,
+      x: 1,
+      y: 1,
+      width: 0.32,
+      radius: 28,
+      assetId: null,
+      trackMode: "pinned-only",
+      layoutMode: "safe-overlay",
+      aspectMode: "source",
+      focalX: 0.5,
+      focalY: 0.5,
+      safeInset: 0.04,
+      shadowOpacity: 0.22,
+      shadowSoftness: 36,
+      shadowOffsetX: 0,
+      shadowOffsetY: 12,
+      matteColor: "#000000",
+      matteOpacity: 0,
+    },
+    performance: createDefaultPerformanceLifecycle(project.master.reducedMotion),
+    extensions: {},
   };
 }

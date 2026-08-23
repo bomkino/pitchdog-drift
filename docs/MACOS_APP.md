@@ -221,6 +221,8 @@ No updater, analytics client, cloud upload, native `URLSession`/Network.framewor
 - Closing or quitting during export, import, save, failed save, or recovery lock presents an explicit warning with “Keep Working” as the safe action.
 - Web-content process termination aborts native write sessions before offering reload or quit.
 
+The release and V2 development variants share the same Help command but not the same bundled guide. `Drift.app` carries the production project guide. `Drift V2 Dev.app` carries a verified development guide that permits explicit user-selected Open/Save/Save As/Revert while denying `.pitched` Finder ownership; `Drift.app` remains the default document application. **View Complete Source** validates the recorded `DriftSourceRevision` and opens that exact GitHub tree; a missing or malformed revision falls back to the repository root.
+
 ## Verification layers
 
 ### Source contract

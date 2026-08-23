@@ -15,6 +15,7 @@ This repository contains one cinematic studio with two runtime shells. Source, g
 | `scripts/` | build, verification, packaging, codec, evidence, and non-publishing release lanes |
 | `.github/workflows/` | CI orchestration for the same scripts |
 | `docs/` | product contract, architecture, threat model, QA, user, and release truth |
+| `docs/v2/` | living V2 architecture and compatibility boundaries; never release proof by itself |
 
 The canonical native Swift graph is `macos/App/*.swift`. Root-level or duplicate Swift implementations are forbidden by the source contract.
 
@@ -61,3 +62,5 @@ npm run build:mac
 ```
 
 `npm run build:mac` verifies the signed bundle and its packaged runtime by default. CI may split that work into explicit jobs, but it may not weaken the underlying contract.
+
+V2 development uses the isolated commands and identity in [`v2/DEVELOPMENT_IDENTITY.md`](v2/DEVELOPMENT_IDENTITY.md). It never replaces or registers document ownership ahead of an approved release candidate.

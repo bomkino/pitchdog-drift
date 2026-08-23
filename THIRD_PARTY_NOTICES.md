@@ -15,7 +15,21 @@ Drift’s source licence does not replace dependency licences. Exact JavaScript 
 
 Development tooling includes TypeScript, Vite, Vitest, Playwright, React type packages, and GitHub Actions under their respective upstream licences.
 
-No third-party font, stock photograph, presenter clip, proprietary shader, analytics SDK, updater SDK, cloud client, or Electron runtime is bundled by this repository.
+No third-party font, stock photograph, presenter clip, proprietary shader, analytics SDK, updater SDK, cloud client, or Electron runtime is bundled by this repository. V2 does bundle the CC0 sound recordings documented below.
+
+## V2 tactile-sound recordings
+
+V2 includes 23 short recordings from Kenney's **Casino Audio**, **RPG Audio**, and **Impact Sounds** packs. Kenney released all three packs under Creative Commons Zero 1.0. Attribution is not required, but the project preserves it because provenance matters.
+
+The exact upstream repository, immutable revision, upstream path, logical local WAV path, byte count, Git blob identifier, SHA-256 digest, material classification, and intended use for every recording are recorded in `src/sonic/assets/manifest.json`. The original licence texts are preserved in `src/sonic/assets/licenses/`.
+
+For source portability the WAV bytes are committed as text in files ending `.wav.b64`. The runtime decodes those local bytes; it does not fetch audio from the network. Tests verify that every decoded recording exactly matches the byte count and SHA-256 digest declared for its logical `.wav` path. Non-destructive trim and level decisions are recorded separately in `src/sonic/assets/treatments.json`.
+
+Canonical pack pages:
+
+- <https://kenney.nl/assets/casino-audio>
+- <https://kenney.nl/assets/rpg-audio>
+- <https://kenney.nl/assets/impact-sounds>
 
 ## Browser-build AAC boundary
 

@@ -10,6 +10,11 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve(root, "dist");
 const entry = resolve(root, "src/main.tsx");
 const aacShim = resolve(root, "src/lib/macosAacEncoder.ts");
+const buildChannel = process.env.DRIFT_BUILD_CHANNEL ?? "release";
+
+if (buildChannel !== "release" && buildChannel !== "v2-dev") {
+  throw new Error(`Unsupported DRIFT_BUILD_CHANNEL: ${buildChannel}`);
+}
 
 function posixRelative(from, to) {
   return relative(from, to).split(sep).join("/");
@@ -43,6 +48,7 @@ await build({
     // compile the one supported production constant into the bundle instead of
     // installing a mutable compatibility shim in the privileged page world.
     "process.env.NODE_ENV": JSON.stringify("production"),
+    __DRIFT_BUILD_CHANNEL__: JSON.stringify(buildChannel),
   },
   resolve: {
     alias: {
@@ -175,6 +181,7 @@ await writeFile(htmlPath, html, "utf8");
 const files = (await collect(outDir)).sort();
 const receipt = {
   schemaVersion: 1,
+  buildChannel,
   topology: "classic-iife-single-entry",
   format: "iife",
   codeSplitting: false,

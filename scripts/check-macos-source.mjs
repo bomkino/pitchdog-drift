@@ -34,6 +34,7 @@ const appSwift = [
   "macos/App/NativeFileBroker.swift",
   "macos/App/NativeGauntlet.swift",
   "macos/App/NativeModels.swift",
+  "macos/App/NativePortableProjectSession.swift",
   "macos/App/WebViewSelfTest.swift",
 ];
 const probes = [
@@ -43,6 +44,7 @@ const probes = [
 ];
 const scripts = [
   "scripts/build-macos-app.sh",
+  "scripts/build-macos-v2-dev.sh",
   "scripts/build-macos-export-probe.mjs",
   "scripts/generate-macos-icon.py",
   "scripts/package-macos-dmg.sh",
@@ -52,8 +54,10 @@ const scripts = [
   "scripts/release-macos-app.sh",
   "scripts/run-macos-export-probe.sh",
   "scripts/verify-macos-app.sh",
+  "scripts/verify-macos-v2-dev.sh",
   "scripts/verify-macos-dmg.sh",
   "scripts/verify-macos-release.sh",
+  "scripts/verify-macos-user-guide.mjs",
 ];
 const docs = [
   "README.md",
@@ -66,6 +70,7 @@ const docs = [
   "docs/MACOS_THREAT_MODEL.md",
   "docs/MACOS_RELEASE.md",
   "docs/MACOS_RELEASE_CHECKLIST.md",
+  "docs/v2/MACOS_V2_DEV_USER_GUIDE.md",
 ];
 const workflows = [
   ".github/workflows/macos.yml",
@@ -145,6 +150,12 @@ requireMarkers("macos/NativeBridge.js", [
   "__driftNativeCall",
   "__driftNativeInstallAppBridge",
   "__driftNativeSaveBlob",
+  "__driftNativeDocumentTransaction",
+  "__driftNativeConfirmProjectOpen",
+  "__driftNativeAbandonProjectOpen",
+  "async function verifiedDocumentWrite(handle, blob, expectedSha256)",
+  "await writable.__driftReadStagedFile()",
+  "await writable.__driftCommit()",
   "function assertSafeLeafName",
   "await abortNativeSession(error)",
 ]);
@@ -180,7 +191,7 @@ const fileCommands = [
   "directory-remove-entry", "directory-release",
 ];
 const appCommands = [
-  "open-project", "add-slides", "add-presenter", "save-project", "export-mp4",
+  "open-project", "add-slides", "add-presenter", "save-project", "save-project-as", "revert-project", "export-mp4",
   "export-still", "export-frames", "toggle-playback", "previous-slide", "next-slide",
   "toggle-focus", "cancel-export",
 ];
@@ -209,12 +220,17 @@ requireMarkers("src/App.tsx", [
   "installNativeMacAppBridge",
   "reportNativeMacClientState",
   "saveNativeMacBlob",
+  "saveNativeMacDocument",
+  "saveNativeMacDocumentAs",
+  "revertNativeMacDocument",
+  "confirmNativeMacDocumentOpen(file)",
+  "abandonNativeMacDocumentOpen()",
   "selectProjectMediaWithinBudget(",
   "projectMediaViolation(file.size, existingSlideBytes)",
   "projectAssetBytes(",
   "imageInputRef={imageInputRef}",
   "presenterInputRef={presenterInputRef}",
-  "openPortableProjectFile = useCallback(async (file: File, propagateFailure = false)",
+  "openPortableProjectFile = useCallback(async (",
   "if (propagateFailure) throw error",
   "openPortableProjectFile(file, true)",
   "advanceLocalSaveRevision(saveRevisionAuthorityRef.current)",
@@ -337,6 +353,7 @@ requireMarkers("macos/App/NativeBridgeHost.swift", [
   "failPendingExternalImportsForTeardown()",
   "Host teardown did not fail an external import exactly once before its late callback.",
   "return await callable(...functionArguments)",
+  "broker.registerSavePanelFile(",
 ]);
 forbidMarkers("macos/App/NativeBridgeHost.swift", [
   '"networkEntitlements": false',
@@ -512,6 +529,16 @@ requireMarkers("macos/App/NativeFileBroker.swift", [
   "quarantineEntryName",
   "expectedDestinationIdentity",
   "requireStableDirectoryAccess",
+  "registerSavePanelFile(",
+  "case savePanelFile",
+  "case selectedFile",
+  "replacementAnchor = destinationURL",
+  "requireSameVolumeReplacementDirectory(",
+  "renameSelectedPath(",
+  "rollbackSavePanelSwap(",
+  "rollbackFirstSave(",
+  "copyStableFileContents(",
+  "Darwin.pread(",
   "let replacementDirectory = try fileManager.url(",
   "writeSessions.removeValue(forKey: sessionToken)",
   "try? fileManager.removeItem(at: session.stagingURL)",
@@ -628,6 +655,21 @@ requireMarkers("scripts/build-macos-app.sh", [
   "native_network_client_surface=none-shipped",
   "network_boundary=app-entitled-webkit-blocked",
   "stage-macos-runtime-licenses.mjs stage",
+  'APP_VARIANT="${DRIFT_MACOS_APP_VARIANT:-release}"',
+  'BUNDLE_IDENTIFIER="dog.pitch.drift.v2.dev"',
+  'STORAGE_NAMESPACE="pitchdog-drift-v2-dev"',
+  'USER_GUIDE_SOURCE="${ROOT_DIR}/docs/MACOS_USER_GUIDE.md"',
+  'USER_GUIDE_SOURCE="${ROOT_DIR}/docs/v2/MACOS_V2_DEV_USER_GUIDE.md"',
+  'verify-macos-user-guide.mjs "${BUILD_CHANNEL}"',
+  "user_guide_profile=${APP_VARIANT}",
+]);
+requireMarkers("scripts/build-macos-v2-dev.sh", [
+  'DRIFT_MACOS_APP_VARIANT="v2-dev"',
+  'build/macos/v2-dev',
+]);
+requireMarkers("scripts/verify-macos-v2-dev.sh", [
+  'build/macos/v2-dev/Drift V2 Dev.app',
+  'verify-macos-app.sh',
 ]);
 requireMarkers("scripts/verify-macos-app.sh", [
   "--smoke-test",
@@ -643,6 +685,42 @@ requireMarkers("scripts/verify-macos-app.sh", [
   "not-all-user-traversable directory",
   "not readable and executable by every local account",
   "stage-macos-runtime-licenses.mjs\" verify",
+  'verify-macos-user-guide.mjs"',
+  '"user_guide_profile": str(info.get("DriftBuildChannel", ""))',
+]);
+requireMarkers("scripts/verify-macos-user-guide.mjs", [
+  'buildChannel === "release"',
+  "Drift V2 Dev can open, save, save as, and revert user-selected `.pitched` documents.",
+  "It does **not** register or own the `.pitched` Finder document type",
+  "Use **File → Save Portable Project…**",
+  "Use **File → Save Project**, **Command–S**, or **File → Save Project As…**",
+  "guide contains forbidden",
+]);
+requireMarkers("docs/v2/MACOS_V2_DEV_USER_GUIDE.md", [
+  "# Drift V2 Dev for macOS — user guide",
+  "Drift V2 Dev can open, save, save as, and revert user-selected `.pitched` documents.",
+  "It does **not** register or own the `.pitched` Finder document type",
+  "Use **File → Open Project…** or **Command–O**",
+  "Use **File → Save Project**, **Command–S**, or **File → Save Project As…**",
+  "Finder document ownership remains with `Drift.app`",
+  "Help → View Complete Source",
+]);
+forbidMarkers("docs/v2/MACOS_V2_DEV_USER_GUIDE.md", [
+  "Use **File → Save Portable Project…**",
+  "Portable-project Open and Save commands stay disabled.",
+  "does **not** open, save, register, or own",
+  "Open With Drift",
+]);
+requireMarkers("macos/App/DriftAppDelegate.swift", [
+  "func driftCompleteSourceURL(for sourceRevision: String?) -> URL",
+  "sourceRevision.utf8.count == 40",
+  '.appendingPathComponent("tree", isDirectory: true)',
+  'Bundle.main.object(forInfoDictionaryKey: "DriftSourceRevision") as? String',
+]);
+requireMarkers("macos/App/NativeGauntlet.swift", [
+  "NativePortableProjectSession.runSelfTest()",
+  "complete-source Help URL did not bind to the exact recorded revision",
+  "malformed source revision escaped the repository-root fallback",
 ]);
 requireMarkers("scripts/stage-macos-runtime-licenses.mjs", [
   'boundary: "standalone-macos-runtime"',
@@ -663,6 +741,7 @@ requireMarkers("scripts/package-macos-dmg.sh", [
   "The app source revision does not match the exact checked-out commit",
   'ditto "${APP_BUNDLE}" "${STAGE_DIR}/Drift.app"',
   "https://github.com/bomkino/pitchdog-drift/tree/${APP_SOURCE_REVISION}",
+  "DRIFT_MACOS_APP_VARIANT=release npm run build:mac",
 ]);
 forbidMarkers("scripts/package-macos-dmg.sh", ["Source, licence, privacy"]);
 requireMarkers("scripts/verify-macos-dmg.sh", [
@@ -679,6 +758,7 @@ requireMarkers("scripts/release-macos-app.sh", [
   "Refusing overlapping release app and output paths",
   "release app and output paths must be absolute",
   'DRIFT_MACOS_OUTPUT_DIR="$(dirname "$APP_PATH")"',
+  "DRIFT_MACOS_APP_VARIANT=release",
 ]);
 requireMarkers("scripts/verify-macos-release.sh", [
   "DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST=0",

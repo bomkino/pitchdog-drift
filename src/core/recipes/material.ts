@@ -1,5 +1,5 @@
 import type { ProjectCommand } from "../commands/projectCommand";
-import type { DriftProjectV3, MaterialSettings, SurfaceId } from "../project/schema";
+import type { DriftProjectV3, DriftProjectV4, MaterialSettings, SurfaceId } from "../project/schema";
 import { recipeReference } from "./fingerprint";
 
 export const MATERIAL_RECIPE_VERSION = 1 as const;
@@ -139,7 +139,9 @@ export function finishRecipe(id: string): FinishRecipe {
   return recipe;
 }
 
-function refreshMaterialProvenance(project: DriftProjectV3): DriftProjectV3 {
+type MaterialRecipeProject = DriftProjectV3 | DriftProjectV4;
+
+function refreshMaterialProvenance<T extends MaterialRecipeProject>(project: T): T {
   project.provenance.recipes.material = recipeReference(
     "material-stack",
     MATERIAL_RECIPE_VERSION,
@@ -148,7 +150,7 @@ function refreshMaterialProvenance(project: DriftProjectV3): DriftProjectV3 {
   return project;
 }
 
-export function applyMaterialRecipe(project: DriftProjectV3, id: string): DriftProjectV3 {
+export function applyMaterialRecipe<T extends MaterialRecipeProject>(project: T, id: string): T {
   const recipe = materialRecipe(id);
   project.material = {
     ...project.material,
@@ -157,12 +159,12 @@ export function applyMaterialRecipe(project: DriftProjectV3, id: string): DriftP
   return refreshMaterialProvenance(project);
 }
 
-export function applyFinishRecipe(project: DriftProjectV3, id: string): DriftProjectV3 {
+export function applyFinishRecipe<T extends MaterialRecipeProject>(project: T, id: string): T {
   project.material.finish = { ...finishRecipe(id).finish };
   return refreshMaterialProvenance(project);
 }
 
-export function detectMaterialRecipe(project: DriftProjectV3): MaterialRecipe | null {
+export function detectMaterialRecipe(project: MaterialRecipeProject): MaterialRecipe | null {
   return MATERIAL_RECIPES.find((recipe) => (
     JSON.stringify({
       surface: project.material.surface,
@@ -174,7 +176,7 @@ export function detectMaterialRecipe(project: DriftProjectV3): MaterialRecipe | 
   )) ?? null;
 }
 
-export function detectFinishRecipe(project: DriftProjectV3): FinishRecipe | null {
+export function detectFinishRecipe(project: MaterialRecipeProject): FinishRecipe | null {
   return FINISH_RECIPES.find((recipe) => JSON.stringify(project.material.finish) === JSON.stringify(recipe.finish)) ?? null;
 }
 

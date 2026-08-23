@@ -11,12 +11,213 @@ import {
   waitForStudio,
 } from "./studio.helpers";
 
+test("compatibility Project V4 state remains live renderer authority", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [
+      { CinematicCarousel },
+      { createDefaultDriftProjectV4 },
+      { defaultPerformanceStillTime },
+      { createPerformanceLifecycle },
+      { studioSettingsFromDriftProject },
+    ] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/core/project/defaults.ts"),
+      import("/src/core/timeline/renderTravel.ts"),
+      import("/src/core/timeline/performanceLifecycle.ts"),
+      import("/src/core/project/studioProjection.ts"),
+    ]);
+    const makeProject = (colour: string) => {
+      const project = createDefaultDriftProjectV4(`compat-${colour.slice(1)}`);
+      project.composition = { ...project.composition, width: 256, height: 256, alphaMode: "opaque" };
+      project.atmosphere = {
+        ...project.atmosphere,
+        enabled: true,
+        family: "solid",
+        intensity: 0,
+        motion: 0,
+        grain: 0,
+        vignette: 0,
+        colourA: colour,
+        colourB: colour,
+        accent: colour,
+      };
+      return project;
+    };
+    const red = makeProject("#8a1717");
+    const blue = makeProject("#173d8a");
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const engine = new CinematicCarousel(canvas, {
+      kind: "v1-compat",
+      settings: studioSettingsFromDriftProject(red),
+    });
+    engine.stop();
+    const sampleCenter = async (blob: Blob) => {
+      const bitmap = await createImageBitmap(blob, { premultiplyAlpha: "none" });
+      const decoded = document.createElement("canvas");
+      decoded.width = bitmap.width;
+      decoded.height = bitmap.height;
+      const context = decoded.getContext("2d", { willReadFrequently: true })!;
+      context.drawImage(bitmap, 0, 0);
+      const pixel = Array.from(context.getImageData(128, 128, 1, 1).data);
+      bitmap.close();
+      return pixel;
+    };
+
+    try {
+      await engine.setV1CompatibilityState(studioSettingsFromDriftProject(red), red, []);
+      const redTime = defaultPerformanceStillTime(createPerformanceLifecycle(
+        studioSettingsFromDriftProject(red).performance,
+      ));
+      const before = await sampleCenter(await engine.captureStill(256, 256, redTime));
+      await engine.setV1CompatibilityState(studioSettingsFromDriftProject(blue), blue, []);
+      const blueTime = defaultPerformanceStillTime(createPerformanceLifecycle(
+        studioSettingsFromDriftProject(blue).performance,
+      ));
+      const after = await sampleCenter(await engine.captureStill(256, 256, blueTime));
+      return { before, after };
+    } finally {
+      engine.dispose();
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.before[0]).toBeGreaterThan(receipt.before[2]! * 2);
+  expect(receipt.after[2]).toBeGreaterThan(receipt.after[0]! * 2);
+});
+
+test("V2 repeated slide interaction wraps through the canonical curved renderer", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [
+      { CinematicCarousel },
+      { createDefaultDriftProjectV4 },
+      { applyEditorialDriftFoundation },
+      { deriveSlideGeometry },
+    ] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/core/project/defaults.ts"),
+      import("/src/core/worlds/applyWorldFoundation.ts"),
+      import("/src/core/spatial/spatial.ts"),
+    ]);
+    const assets = await Promise.all(Array.from({ length: 4 }, async (_, index) => {
+      const source = document.createElement("canvas");
+      source.width = 320;
+      source.height = 180;
+      const context = source.getContext("2d")!;
+      context.fillStyle = ["#eadac1", "#b23c2f", "#304943", "#18223e"][index]!;
+      context.fillRect(0, 0, source.width, source.height);
+      context.fillStyle = "#f8f1e4";
+      context.font = "700 72px sans-serif";
+      context.fillText(String(index + 1), 32, 112);
+      const blob = await new Promise<Blob>((resolve, reject) => source.toBlob(
+        (value) => value ? resolve(value) : reject(new Error("fixture encode failed")),
+        "image/png",
+      ));
+      const id = `interaction-${index}`;
+      return {
+        id,
+        name: `${id}.png`,
+        kind: "image" as const,
+        blob,
+        mimeType: "image/png",
+        width: source.width,
+        height: source.height,
+        hash: (index + 1).toString(16).repeat(64),
+        objectUrl: URL.createObjectURL(blob),
+      };
+    }));
+    let project = createDefaultDriftProjectV4("interaction-wrap");
+    project.composition = { ...project.composition, width: 360, height: 640 };
+    project.media.order = assets.map((asset) => asset.id);
+    project.media.assets = Object.fromEntries(assets.map((asset) => [asset.id, {
+      id: asset.id,
+      name: asset.name,
+      kind: asset.kind,
+      mimeType: asset.mimeType,
+      hash: asset.hash,
+      byteLength: asset.blob.size,
+      width: asset.width,
+      height: asset.height,
+    }]));
+    project.slides = Object.fromEntries(assets.map((asset) => [asset.id, {
+      assetId: asset.id,
+      fit: "cover" as const,
+      focalX: 0.5,
+      focalY: 0.5,
+      scaleOffset: 0,
+    }]));
+    project = applyEditorialDriftFoundation(project, "9:16");
+
+    const canvas = document.createElement("canvas");
+    canvas.style.width = "360px";
+    canvas.style.height = "640px";
+    document.body.append(canvas);
+    const engine = new CinematicCarousel(canvas, { kind: "project-v4", project });
+    const internal = engine as unknown as {
+      elapsed: number;
+      motionPosition: number;
+      renderPreview(): void;
+    };
+    const hashCanvas = async () => {
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+        (value) => value ? resolve(value) : reject(new Error("render encode failed")),
+        "image/png",
+      ));
+      return Array.from(
+        new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())),
+        (byte) => byte.toString(16).padStart(2, "0"),
+      ).join("");
+    };
+
+    try {
+      engine.stop();
+      engine.setPaused(true);
+      await engine.setV2ProjectState(project, assets);
+      engine.resize(360, 640);
+      internal.elapsed = 2.35;
+      internal.renderPreview();
+      engine.stepSlides(3);
+      const shortHash = await hashCanvas();
+      const geometry = deriveSlideGeometry(project, assets.length);
+      const loopLength = geometry.virtualSlotCount * geometry.stride;
+      engine.stepSlides(geometry.virtualSlotCount * 127);
+      const forwardHash = await hashCanvas();
+      engine.stepSlides(-geometry.virtualSlotCount * 131);
+      const reverseHash = await hashCanvas();
+      return {
+        shortHash,
+        forwardHash,
+        reverseHash,
+        interactionPosition: internal.motionPosition,
+        loopLength,
+      };
+    } finally {
+      engine.dispose();
+      assets.forEach((asset) => URL.revokeObjectURL(asset.objectUrl));
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.forwardHash).toBe(receipt.shortHash);
+  expect(receipt.reverseHash).toBe(receipt.shortHash);
+  expect(Math.abs(receipt.interactionPosition)).toBeLessThanOrEqual(receipt.loopLength / 2);
+});
+
 test("large valid project seeds retain deterministic grain entropy", async ({ page }) => {
   await page.goto("/");
   const receipt = await page.evaluate(async () => {
-    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+    const [
+      { CinematicCarousel },
+      { DEFAULT_SETTINGS },
+      { createPerformanceLifecycle },
+      { defaultPerformanceStillTime },
+    ] = await Promise.all([
       import("/src/engine/CinematicCarousel.ts"),
       import("/src/model.ts"),
+      import("/src/core/timeline/performanceLifecycle.ts"),
+      import("/src/core/timeline/renderTravel.ts"),
     ]);
     const settings = structuredClone(DEFAULT_SETTINGS);
     settings.stage = { width: 256, height: 256, transparent: false };
@@ -37,7 +238,7 @@ test("large valid project seeds retain deterministic grain entropy", async ({ pa
 
     const canvas = document.createElement("canvas");
     document.body.append(canvas);
-    const engine = new CinematicCarousel(canvas, settings);
+    const engine = new CinematicCarousel(canvas, { kind: "v1-compat", settings });
     const hashBlob = async (blob: Blob): Promise<string> => Array.from(
       new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())),
       (byte) => byte.toString(16).padStart(2, "0"),
@@ -59,11 +260,12 @@ test("large valid project seeds retain deterministic grain entropy", async ({ pa
     };
 
     try {
-      const first = await engine.captureStill(256, 256, 0);
-      const repeated = await engine.captureStill(256, 256, 0);
+      const visibleBodyTime = defaultPerformanceStillTime(createPerformanceLifecycle(settings.performance));
+      const first = await engine.captureStill(256, 256, visibleBodyTime);
+      const repeated = await engine.captureStill(256, 256, visibleBodyTime);
       settings.background.seed = 10_000_000;
-      engine.setSettings(structuredClone(settings));
-      const otherSeed = await engine.captureStill(256, 256, 0);
+      engine.setV1Settings(structuredClone(settings));
+      const otherSeed = await engine.captureStill(256, 256, visibleBodyTime);
       return {
         firstHash: await hashBlob(first),
         repeatedHash: await hashBlob(repeated),
@@ -85,9 +287,16 @@ test("large valid project seeds retain deterministic grain entropy", async ({ pa
 test("renderer pool and media replacement always preserve latest visual intent", async ({ page }) => {
   await page.goto("/");
   const receipt = await page.evaluate(async () => {
-    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+    const [
+      { CinematicCarousel },
+      { DEFAULT_SETTINGS },
+      { createPerformanceLifecycle },
+      { defaultPerformanceStillTime },
+    ] = await Promise.all([
       import("/src/engine/CinematicCarousel.ts"),
       import("/src/model.ts"),
+      import("/src/core/timeline/performanceLifecycle.ts"),
+      import("/src/core/timeline/renderTravel.ts"),
     ]);
 
     const makeSolidAsset = async (color: string, id: string, hash: string) => {
@@ -187,14 +396,15 @@ test("renderer pool and media replacement always preserve latest visual intent",
     canvas.width = 256;
     canvas.height = 256;
     document.body.append(canvas);
-    const engine = new CinematicCarousel(canvas, settings);
+    const engine = new CinematicCarousel(canvas, { kind: "v1-compat", settings });
     engine.stop();
+    const visibleBodyTime = defaultPerformanceStillTime(createPerformanceLifecycle(settings.performance));
 
     try {
       await engine.setAssets([red]);
-      const before = await sample(await engine.captureStill(256, 256, 0), 128, 128);
+      const before = await sample(await engine.captureStill(256, 256, visibleBodyTime), 128, 128);
       await engine.setAssets([blue]);
-      const after = await sample(await engine.captureStill(256, 256, 0), 128, 128);
+      const after = await sample(await engine.captureStill(256, 256, visibleBodyTime), 128, 128);
 
       const pressureSettings = structuredClone(settings);
       pressureSettings.stage = { width: 256, height: 456, transparent: true };
@@ -205,10 +415,10 @@ test("renderer pool and media replacement always preserve latest visual intent",
       pressureSettings.slide.scale = 0.24;
       pressureSettings.presenter.enabled = false;
       pressureSettings.presenter.assetId = null;
-      engine.setSettings(pressureSettings);
-      const pressure = await sample(await engine.captureStill(256, 456, 0), 128, 228);
+      engine.setV1Settings(pressureSettings);
+      const pressure = await sample(await engine.captureStill(256, 456, visibleBodyTime), 128, 228);
 
-      engine.setSettings(settings);
+      engine.setV1Settings(settings);
       await engine.setAssets([]);
       const originalCreateImageBitmap = window.createImageBitmap.bind(window);
       let releaseA!: () => void;
@@ -231,16 +441,16 @@ test("renderer pool and media replacement always preserve latest visual intent",
       } finally {
         window.createImageBitmap = originalCreateImageBitmap;
       }
-      const presenter = await sample(await engine.captureStill(256, 256, 0), 128, 128);
-      const deterministicBefore = await hashBlob(await engine.captureStill(256, 256, 0));
+      const presenter = await sample(await engine.captureStill(256, 256, visibleBodyTime), 128, 128);
+      const deterministicBefore = await hashBlob(await engine.captureStill(256, 256, visibleBodyTime));
       engine.start();
       await new Promise((resolve) => window.setTimeout(resolve, 700));
       engine.stop();
-      const deterministicAfter = await hashBlob(await engine.captureStill(256, 256, 0));
+      const deterministicAfter = await hashBlob(await engine.captureStill(256, 256, visibleBodyTime));
 
       const raceSettings = structuredClone(settings);
       raceSettings.presenter.assetId = racePresenter.id;
-      engine.setSettings(raceSettings);
+      engine.setV1Settings(raceSettings);
       let releaseSlide!: () => void;
       let markSlideStarted!: () => void;
       let releasePresenter!: () => void;
@@ -388,7 +598,7 @@ test("a pinned image outside the moving mesh pool is awaited before export", asy
     canvas.width = 256;
     canvas.height = 256;
     document.body.append(canvas);
-    const engine = new CinematicCarousel(canvas, settings);
+    const engine = new CinematicCarousel(canvas, { kind: "v1-compat", settings });
     engine.stop();
     const originalCreateImageBitmap = window.createImageBitmap.bind(window);
     let releasePinned!: () => void;
@@ -409,7 +619,7 @@ test("a pinned image outside the moving mesh pool is awaited before export", asy
       const pinnedSettings = structuredClone(settings);
       pinnedSettings.presenter.enabled = true;
       pinnedSettings.presenter.assetId = pinned.id;
-      engine.setSettings(pinnedSettings);
+      engine.setV1Settings(pinnedSettings);
       window.createImageBitmap = (async (source: ImageBitmapSource, options?: ImageBitmapOptions) => {
         if (source === pinned.blob) {
           markPinnedStarted();
@@ -456,4 +666,237 @@ test("a pinned image outside the moving mesh pool is awaited before export", asy
   expect(receipt.pixel[0]).toBeGreaterThan(245);
   expect(receipt.pixel[1]).toBeLessThan(50);
   expect(receipt.pixel[2]).toBeLessThan(50);
+});
+
+test("texture residency and decode work stay bounded under adversarial media churn", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/model.ts"),
+    ]);
+    const source = document.createElement("canvas");
+    source.width = 64;
+    source.height = 64;
+    const context = source.getContext("2d")!;
+    context.fillStyle = "#c65b3c";
+    context.fillRect(0, 0, 64, 64);
+    const blob = await new Promise<Blob>((resolve, reject) => source.toBlob(
+      (value) => value ? resolve(value) : reject(new Error("Could not create churn fixture.")),
+      "image/png",
+    ));
+    const assets = Array.from({ length: 64 }, (_, index) => ({
+      id: `churn-${index}`,
+      name: `churn-${index}.png`,
+      kind: "image" as const,
+      blob,
+      mimeType: "image/png",
+      width: 64,
+      height: 64,
+      hash: (index + 1).toString(16).padStart(64, "0"),
+      objectUrl: URL.createObjectURL(blob),
+    }));
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const engine = new CinematicCarousel(canvas, {
+      kind: "v1-compat",
+      settings: structuredClone(DEFAULT_SETTINGS),
+    });
+    engine.stop();
+    const internal = engine as unknown as {
+      ensureTexture(asset: (typeof assets)[number]): Promise<unknown>;
+      textureCache: Map<string, unknown>;
+      texturePromises: Map<string, Promise<unknown>>;
+      textureDecodeQueue: unknown[];
+      activeTextureDecodes: number;
+    };
+    const originalCreateImageBitmap = window.createImageBitmap.bind(window);
+    let activeDecodes = 0;
+    let peakActiveDecodes = 0;
+
+    try {
+      await engine.setAssets(assets);
+      window.createImageBitmap = (async (image: ImageBitmapSource, options?: ImageBitmapOptions) => {
+        if (image !== blob) return originalCreateImageBitmap(image, options);
+        activeDecodes += 1;
+        peakActiveDecodes = Math.max(peakActiveDecodes, activeDecodes);
+        try {
+          await new Promise((resolve) => window.setTimeout(resolve, 15));
+          return await originalCreateImageBitmap(image, options);
+        } finally {
+          activeDecodes -= 1;
+        }
+      }) as typeof window.createImageBitmap;
+
+      const requests = assets.map((asset) => internal.ensureTexture(asset));
+      const peakPendingRequests = internal.texturePromises.size;
+      await Promise.allSettled(requests);
+
+      window.createImageBitmap = originalCreateImageBitmap;
+      for (const asset of assets) await internal.ensureTexture(asset);
+
+      return {
+        peakActiveDecodes,
+        peakPendingRequests,
+        finalCacheEntries: internal.textureCache.size,
+        finalPendingRequests: internal.texturePromises.size,
+        finalQueuedDecodes: internal.textureDecodeQueue?.length ?? 0,
+        finalActiveDecodes: internal.activeTextureDecodes ?? 0,
+      };
+    } finally {
+      window.createImageBitmap = originalCreateImageBitmap;
+      engine.dispose();
+      assets.forEach((asset) => URL.revokeObjectURL(asset.objectUrl));
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.peakActiveDecodes).toBeLessThanOrEqual(4);
+  expect(receipt.peakPendingRequests).toBeLessThanOrEqual(29);
+  expect(receipt.finalCacheEntries).toBeLessThanOrEqual(24);
+  expect(receipt.finalPendingRequests).toBe(0);
+  expect(receipt.finalQueuedDecodes).toBe(0);
+  expect(receipt.finalActiveDecodes).toBe(0);
+});
+
+test("export restore applies the latest preview resize instead of its stale starting size", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/model.ts"),
+    ]);
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const engine = new CinematicCarousel(canvas, {
+      kind: "v1-compat",
+      settings: structuredClone(DEFAULT_SETTINGS),
+    });
+    engine.stop();
+    const size = {
+      x: 0,
+      y: 0,
+      set(width: number, height: number) {
+        this.x = width;
+        this.y = height;
+        return this;
+      },
+    };
+    try {
+      engine.resize(320, 180);
+      const surface = engine.beginExport(256, 256);
+      engine.resize(500, 300);
+      engine.resize(640, 360);
+      surface.restore();
+      engine.renderer.getSize(size as never);
+      return {
+        width: size.x,
+        height: size.y,
+        pixelRatio: engine.renderer.getPixelRatio(),
+        drawingBufferWidth: canvas.width,
+        drawingBufferHeight: canvas.height,
+        expectedPixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
+      };
+    } finally {
+      engine.dispose();
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.width).toBe(640);
+  expect(receipt.height).toBe(360);
+  expect(receipt.pixelRatio).toBe(receipt.expectedPixelRatio);
+  expect(receipt.drawingBufferWidth).toBe(Math.round(640 * receipt.expectedPixelRatio));
+  expect(receipt.drawingBufferHeight).toBe(Math.round(360 * receipt.expectedPixelRatio));
+});
+
+test("context loss poisons the active export until cleanup, then restores preview safely", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [{ CinematicCarousel }, { DEFAULT_SETTINGS }] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/model.ts"),
+    ]);
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const states: string[] = [];
+    const errors: string[] = [];
+    const engine = new CinematicCarousel(canvas, {
+      kind: "v1-compat",
+      settings: structuredClone(DEFAULT_SETTINGS),
+    }, {
+      onContextState: (state) => states.push(state),
+      onError: (message) => errors.push(message),
+    });
+    engine.stop();
+    engine.resize(320, 180);
+    const gl = canvas.getContext("webgl2");
+    const extension = gl?.getExtension("WEBGL_lose_context");
+    if (!extension) throw new Error("WEBGL_lose_context is unavailable in the renderer gauntlet.");
+
+    const waitFor = (name: "webglcontextlost" | "webglcontextrestored") => new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => reject(new Error(`${name} did not arrive.`)), 5_000);
+      canvas.addEventListener(name, () => {
+        window.clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+    });
+
+    let rejectedDuringLoss = "";
+    let rejectedAfterRestore = "";
+    try {
+      const surface = engine.beginExport(256, 256);
+      engine.resize(640, 360);
+      const lost = waitFor("webglcontextlost");
+      extension.loseContext();
+      await lost;
+      try {
+        await engine.renderAtAsync(0.5, 15);
+      } catch (error) {
+        rejectedDuringLoss = error instanceof Error ? error.message : String(error);
+      }
+      const restored = waitFor("webglcontextrestored");
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+      extension.restoreContext();
+      await restored;
+      try {
+        await engine.renderAtAsync(0.5, 15);
+      } catch (error) {
+        rejectedAfterRestore = error instanceof Error ? error.message : String(error);
+      }
+      surface.restore();
+
+      const recovered = engine.beginExport(256, 256);
+      await engine.renderAtAsync(0.5, 15);
+      recovered.restore();
+      const size = {
+        x: 0,
+        y: 0,
+        set(width: number, height: number) {
+          this.x = width;
+          this.y = height;
+          return this;
+        },
+      };
+      engine.renderer.getSize(size as never);
+      return {
+        states,
+        errors,
+        rejectedDuringLoss,
+        rejectedAfterRestore,
+        recoveredSize: [size.x, size.y],
+        contextLost: engine.isContextLost,
+      };
+    } finally {
+      engine.dispose();
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.rejectedDuringLoss).toContain("untrusted frame was rejected");
+  expect(receipt.rejectedAfterRestore).toContain("untrusted frame was rejected");
+  expect(receipt.errors.filter((message) => message.includes("destination will not be committed"))).toHaveLength(1);
+  expect(receipt.states).toEqual(["ready", "lost", "restored"]);
+  expect(receipt.recoveredSize).toEqual([640, 360]);
+  expect(receipt.contextLost).toBe(false);
 });

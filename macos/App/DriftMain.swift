@@ -91,8 +91,27 @@ struct DriftMain {
             return 1
         }
 
-        guard Bundle.main.bundleIdentifier == driftBundleIdentifier else {
-            fputs("Drift smoke test failed: unexpected bundle identifier.\n", stderr)
+        guard driftBuildIdentityIsValid() else {
+            fputs("Drift smoke test failed: the packaged build identity tuple is invalid.\n", stderr)
+            return 1
+        }
+
+        guard ["release", "v2-dev"].contains(driftBuildChannel) else {
+            fputs("Drift smoke test failed: unsupported build channel.\n", stderr)
+            return 1
+        }
+
+        let expectedStorageNamespace = driftBuildChannel == "v2-dev"
+            ? driftV2DevelopmentStorageNamespace
+            : driftReleaseStorageNamespace
+        guard driftStorageNamespace == expectedStorageNamespace else {
+            fputs("Drift smoke test failed: build channel and storage namespace disagree.\n", stderr)
+            return 1
+        }
+
+        let expectedCacheNamespace = driftBuildChannel == "v2-dev" ? "DriftV2Dev" : "Drift"
+        guard driftCacheNamespace == expectedCacheNamespace else {
+            fputs("Drift smoke test failed: build channel and cache namespace disagree.\n", stderr)
             return 1
         }
 

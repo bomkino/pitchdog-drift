@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => ({
   // Relative URLs keep the same build valid over localhost and file://.
   base: "./",
   plugins: [react()],
+  define: {
+    __DRIFT_BUILD_CHANNEL__: JSON.stringify(mode === "v2-dev" ? "v2-dev" : "release"),
+  },
   resolve: mode === "macos"
     ? {
         alias: {

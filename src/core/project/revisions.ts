@@ -77,3 +77,23 @@ export function projectHasUnrecoveredWork(state: ProjectRevisionState): boolean 
 export function projectCanRevert(state: ProjectRevisionState): boolean {
   return projectIsDirty(state) && state.savedRevision >= 0;
 }
+
+/**
+ * An untitled project has no durable document to match, so it remains dirty
+ * even when its in-memory revision counters are equal.
+ */
+export function projectDocumentIsDirty(
+  state: ProjectRevisionState,
+  documentBound: boolean,
+): boolean {
+  return !documentBound || projectIsDirty(state);
+}
+
+/** Revert is meaningful only for a bound, changed, conflict-free document. */
+export function projectDocumentCanRevert(
+  state: ProjectRevisionState,
+  documentBound: boolean,
+  documentConflict = false,
+): boolean {
+  return documentBound && !documentConflict && projectIsDirty(state);
+}

@@ -1,5 +1,16 @@
+import type { PerformanceLifecycleAuthoring } from "../timeline/performanceLifecycle";
+
 export const DRIFT_PROJECT_SCHEMA = "dog.pitch.drift/project" as const;
 export const DRIFT_PROJECT_VERSION = 3 as const;
+export const DRIFT_PROJECT_V4_VERSION = 4 as const;
+export const DRIFT_V1_COMPAT_RENDER_CONTRACT = "drift-v1-compat/1" as const;
+export const DRIFT_V2_RENDER_CONTRACT = "drift-v2/1" as const;
+export const DRIFT_RENDER_CONTRACTS = [
+  DRIFT_V1_COMPAT_RENDER_CONTRACT,
+  DRIFT_V2_RENDER_CONTRACT,
+] as const;
+export type DriftRenderContract = (typeof DRIFT_RENDER_CONTRACTS)[number];
+export const DRIFT_PROJECT_V4_MIGRATOR = "drift-project-v4/1" as const;
 
 export const PROJECT_DOMAINS = [
   "identity",
@@ -30,9 +41,20 @@ export type LightMotion = "static" | "breathe" | "sweep" | "flicker" | "orbit";
 export type AtmosphereTreatment = "quiet" | "cinema" | "graphic" | "weathered";
 export type AtmospherePresence = "whisper" | "balanced" | "statement";
 export type PresenterTreatment = "protected" | "through-lens";
+export type PresenterTrackMode = "pinned-only" | "moving-and-pinned";
+export type PresenterLayoutMode = "safe-overlay" | "legacy-perspective";
+export type PresenterAspectMode = "source" | "custom";
 export type SoundSource = "recorded" | "procedural";
 export type SoundGrammar = "dry" | "editorial" | "organic";
 export type WorldVariant = "restrained" | "directed" | "fever" | "custom";
+export type DriftProjectV4SourceFormat = "legacy-studio-v1" | "project-v3";
+export type DriftJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | DriftJsonValue[]
+  | { [key: string]: DriftJsonValue };
 
 export interface CompositionSettings {
   width: number;
@@ -235,6 +257,28 @@ export interface PresenterSettings {
   startAt: number;
 }
 
+/**
+ * Project V4 owns the pinned frame independently from the optional presenter
+ * video slot. The V3 fields remain as the exact compatibility surface while
+ * these additions describe safe V2 composition without overloading lighting
+ * or moving-track state.
+ */
+export interface PresenterSettingsV4 extends PresenterSettings {
+  assetId: string | null;
+  trackMode: PresenterTrackMode;
+  layoutMode: PresenterLayoutMode;
+  aspectMode: PresenterAspectMode;
+  focalX: number;
+  focalY: number;
+  safeInset: number;
+  shadowOpacity: number;
+  shadowSoftness: number;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+  matteColor: string;
+  matteOpacity: number;
+}
+
 export interface MasterSettings {
   fps: 24 | 25 | 30 | 50 | 60;
   duration: number;
@@ -284,6 +328,37 @@ export interface DriftProjectV3 {
   provenance: RecipeProvenance;
 }
 
+export interface DriftProjectMigrationV4 {
+  sourceFormat: DriftProjectV4SourceFormat;
+  migrator: typeof DRIFT_PROJECT_V4_MIGRATOR;
+}
+
+export interface DriftProjectV4 extends Omit<DriftProjectV3, "formatVersion" | "presenter"> {
+  formatVersion: typeof DRIFT_PROJECT_V4_VERSION;
+  renderContract: DriftRenderContract;
+  migration: DriftProjectMigrationV4 | null;
+  presenter: PresenterSettingsV4;
+  performance: PerformanceLifecycleAuthoring;
+  extensions: Record<string, DriftJsonValue>;
+}
+
+/**
+ * Version-neutral creative input used by pure timeline and spatial evaluators.
+ *
+ * Render evaluation never needs a schema version, migration envelope, saved
+ * presenter shape, or compatibility contract. Keeping that boundary narrow
+ * lets Project V4 remain Project V4 instead of manufacturing a false V3 value
+ * merely to satisfy historical function signatures.
+ */
+export type DriftCreativeState = Pick<
+  DriftProjectV3,
+  "projectSeed" | "composition" | "media" | "slides" | "motion" | "card" | "master"
+>;
+
 export function cloneDriftProject(project: DriftProjectV3): DriftProjectV3 {
+  return structuredClone(project);
+}
+
+export function cloneDriftProjectV4(project: DriftProjectV4): DriftProjectV4 {
   return structuredClone(project);
 }

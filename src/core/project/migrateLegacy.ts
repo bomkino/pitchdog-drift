@@ -1,11 +1,13 @@
 import type { StoredAssetDescriptor, StudioSettings } from "../../model";
 import { createEmptyRecipeProvenance } from "./defaults";
+import { migrateDriftProjectV3ToV4 } from "./migrateV3ToV4";
 import { validateDriftProjectV3 } from "./validation";
 import {
   DRIFT_PROJECT_SCHEMA,
   DRIFT_PROJECT_VERSION,
   type AssetDescriptor,
   type DriftProjectV3,
+  type DriftProjectV4,
   type RecipeReference,
 } from "./schema";
 
@@ -260,4 +262,44 @@ export function migrateLegacyStudioProject(input: LegacyProjectMigrationInput): 
   };
 
   return validateDriftProjectV3(project);
+}
+
+/**
+ * Promotes a legacy Studio V1 payload without asking Project V3 to carry a
+ * pinned-image identity it never owned. Callers opening legacy portable files
+ * should use this direct route; the V3 migration above remains byte-for-byte
+ * compatible for consumers that still need Project V3.
+ */
+export function migrateLegacyStudioProjectToV4(input: LegacyProjectMigrationInput): DriftProjectV4 {
+  const v3 = migrateLegacyStudioProject(input);
+  const pinnedAssetId = input.settings.presenter.assetId;
+  const pinnedAsset = pinnedAssetId === null
+    ? null
+    : [...input.slideAssets, ...(input.presenterAsset ? [input.presenterAsset] : [])]
+      .find((asset) => asset.id === pinnedAssetId) ?? null;
+  if (pinnedAssetId !== null && pinnedAsset === null) {
+    throw new Error("Legacy pinned-frame settings reference missing media.");
+  }
+
+  const presenterEnabled = input.settings.presenter.enabled && pinnedAsset !== null;
+  return migrateDriftProjectV3ToV4(v3, "legacy-studio-v1", {
+    presenter: {
+      ...v3.presenter,
+      enabled: presenterEnabled,
+      assetId: pinnedAssetId,
+      trackMode: "moving-and-pinned",
+      layoutMode: "legacy-perspective",
+      aspectMode: "custom",
+      focalX: 0.5,
+      focalY: 0.5,
+      safeInset: 0,
+      shadowOpacity: input.settings.presenter.shadowOpacity,
+      shadowSoftness: 48,
+      shadowOffsetX: 12,
+      shadowOffsetY: 18,
+      matteColor: "#000000",
+      matteOpacity: 1,
+    },
+    masterAudioEnabled: presenterEnabled && pinnedAsset?.kind === "video" && !input.settings.presenter.muted,
+  });
 }

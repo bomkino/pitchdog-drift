@@ -1,10 +1,10 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { driftBuildIdentity } from "./buildIdentity";
 
 export const PROJECT_MANIFEST_SCHEMA = "pitch.dog/pitched-project" as const;
 export const PROJECT_MANIFEST_VERSION = 1 as const;
 export const PROJECT_BUNDLE_MIME = "application/vnd.pitchdog.pitched+zip";
 
-const DATABASE_NAME = "pitchdog-drift";
 const DATABASE_VERSION = 1;
 const PROJECT_STORE = "project";
 const ASSET_STORE = "assets";
@@ -676,7 +676,7 @@ export class ProjectStore {
   private readonly indexedDBOverride: IDBFactory | null | undefined;
 
   constructor(options: ProjectStoreOptions = {}) {
-    this.databaseName = options.databaseName ?? DATABASE_NAME;
+    this.databaseName = options.databaseName ?? driftBuildIdentity.databaseName;
     this.indexedDBOverride = options.indexedDB;
     this.limits = resolveLimits(options.limits);
   }
@@ -844,7 +844,7 @@ function runtimeDatabaseName(): string {
     typeof candidate === "string"
     && /^drift-project-self-test-[a-f0-9-]{36}$/.test(candidate)
   ) return candidate;
-  return DATABASE_NAME;
+  return driftBuildIdentity.databaseName;
 }
 
 export const projectStore = new ProjectStore({ databaseName: runtimeDatabaseName() });

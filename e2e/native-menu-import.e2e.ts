@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { switchWorkspace } from "./studio.helpers";
 
 // A real 4 × 4 RGBA PNG. Keep the fixture decodable so this journey tests
 // Drift's native picker/import contract—not a corrupt-image rejection path.
@@ -7,7 +8,14 @@ const validPng = "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAFUlEQVR4nGN8OD
 
 async function bootRealNativeBridgeQueueHarness(page: import("@playwright/test").Page): Promise<void> {
   const bridgeSource = await readFile(new URL("../macos/NativeBridge.js", import.meta.url), "utf8");
-  await page.goto("about:blank");
+  await page.route("**/__native-queue-harness__", async (route) => route.fulfill({
+    status: 200,
+    contentType: "text/html",
+    body: "<!doctype html><html><head></head><body></body></html>",
+  }));
+  // Localhost is a trustworthy context with Web Crypto. about:blank is not,
+  // and would make the exact SHA-256 document receipt impossible to exercise.
+  await page.goto("/__native-queue-harness__");
   await page.evaluate(({ source }) => {
     const bytes = new TextEncoder().encode("queued project bytes");
     const state = {
@@ -117,15 +125,14 @@ async function bootRealNativeBridgeQueueHarness(page: import("@playwright/test")
   }, { source: bridgeSource });
 }
 
-test("startup-queued Finder delivery stays pending through React handling and releases its grant once", async ({ page }) => {
+test("startup-queued Finder delivery stays pending, binds after verification, and releases the prior grant on replacement", async ({ page }) => {
   await bootRealNativeBridgeQueueHarness(page);
 
-  await expect.poll(() => page.evaluate(() => {
-    const state = (window as unknown as {
-      __driftQueuedImportTest: { releaseCount: number };
-    }).__driftQueuedImportTest;
-    return state.releaseCount;
-  })).toBe(1);
+  // A project capability must remain live while the verified document is
+  // bound; releasing it here would make Save and Revert ceremonial.
+  await expect.poll(() => page.evaluate(() => (window as unknown as {
+    __driftQueuedImportTest: { releaseCount: number };
+  }).__driftQueuedImportTest.releaseCount)).toBe(0);
   expect(await page.evaluate(() => (window as unknown as {
     __driftQueuedImportTest: { settled: boolean };
   }).__driftQueuedImportTest.settled)).toBe(false);
@@ -134,20 +141,23 @@ test("startup-queued Finder delivery stays pending through React handling and re
     const nativeWindow = window as unknown as {
       __driftNativeInstallAppBridge: (bridge: {
         command: () => boolean;
-        importFile: () => Promise<void>;
+        importFile: (kind: string, file: File) => Promise<void>;
       }) => void;
+      __driftNativeConfirmProjectOpen: (file: File) => Promise<unknown>;
       __driftQueuedImportTest: {
         importCalls: number;
         finishImport: null | (() => void);
       };
     };
+    let releaseFirstImport!: () => void;
+    const firstImportGate = new Promise<void>((resolve) => { releaseFirstImport = resolve; });
+    nativeWindow.__driftQueuedImportTest.finishImport = releaseFirstImport;
     nativeWindow.__driftNativeInstallAppBridge({
       command: () => true,
-      importFile: () => {
+      importFile: async (_kind, file) => {
         nativeWindow.__driftQueuedImportTest.importCalls += 1;
-        return new Promise<void>((resolve) => {
-          nativeWindow.__driftQueuedImportTest.finishImport = resolve;
-        });
+        await firstImportGate;
+        await nativeWindow.__driftNativeConfirmProjectOpen(file);
       },
     });
   });
@@ -168,7 +178,37 @@ test("startup-queued Finder delivery stays pending through React handling and re
 
   expect(await page.evaluate(() => (window as unknown as {
     __driftQueuedImportTest: { releaseCount: number };
-  }).__driftQueuedImportTest.releaseCount)).toBe(1);
+  }).__driftQueuedImportTest.releaseCount)).toBe(0);
+
+  // Binding a second verified project retires the prior stable capability
+  // exactly once while retaining the replacement for subsequent Save/Revert.
+  const replacement = await page.evaluate(async () => {
+    const nativeWindow = window as unknown as {
+      __driftNativeImportGranted: (
+        nonce: string,
+        descriptor: Record<string, unknown>,
+        kind: "project",
+      ) => Promise<boolean>;
+      __driftQueuedImportTest: { releaseCount: number; importCalls: number };
+    };
+    const value = await nativeWindow.__driftNativeImportGranted(
+      "11111111-1111-4111-8111-111111111111",
+      {
+        token: "replacement-grant",
+        name: "queued.pitched",
+        mimeType: "application/vnd.pitchdog.pitched+zip",
+        size: new TextEncoder().encode("queued project bytes").byteLength,
+        lastModified: 1_700_000_000_000,
+      },
+      "project",
+    );
+    return {
+      value,
+      releaseCount: nativeWindow.__driftQueuedImportTest.releaseCount,
+      importCalls: nativeWindow.__driftQueuedImportTest.importCalls,
+    };
+  });
+  expect(replacement).toMatchObject({ value: true, releaseCount: 1, importCalls: 2 });
 });
 
 test("startup-queued Finder delivery carries React rejection back to AppKit", async ({ page }) => {
@@ -229,7 +269,7 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
       pickerCalls: [] as unknown[],
       releaseCount: 0,
       rejectMessage: null as string | null,
-      clientStates: [] as Array<{ saveState?: string }>,
+      clientStates: [] as Array<{ projectBusy?: boolean; saveState?: string }>,
     };
 
     Object.defineProperty(window, "__driftNativeTest", {
@@ -265,7 +305,7 @@ async function bootSimulatedNativeRuntime(page: import("@playwright/test").Page)
     Object.defineProperty(window, "__driftNativeReportClientState", {
       configurable: false,
       writable: false,
-      value: (clientState: { saveState?: string }) => { state.clientStates.push(clientState); },
+      value: (clientState: { projectBusy?: boolean; saveState?: string }) => { state.clientStates.push(clientState); },
     });
     Object.defineProperty(window, "__driftNativeSaveBlob", {
       configurable: false,
@@ -303,6 +343,9 @@ test("File-menu Add Slides durably reloads one ordered native batch and releases
   const initialCount = await page.locator(".asset-list li").count();
   expect(initialCount).toBeGreaterThan(1);
 
+  const baselineClientStateCount = await page.evaluate(() => (
+    window as unknown as { __driftNativeTest: { clientStates: unknown[] } }
+  ).__driftNativeTest.clientStates.length);
   await page.evaluate(async () => {
     const state = (window as unknown as {
       __driftNativeTest: { appBridge: { command: (command: string) => boolean | void | Promise<boolean | void> } };
@@ -317,27 +360,40 @@ test("File-menu Add Slides durably reloads one ordered native batch and releases
   await expect(page.locator(".asset-list li").nth(1)).toContainText("menu-import-2.png");
   await expect(page.getByRole("alert")).toHaveCount(0);
 
-  const receipt = await page.evaluate(() => {
+  const readReceipt = () => page.evaluate((baselineCount) => {
     const state = (window as unknown as {
       __driftNativeTest: {
         pickerCalls: Array<{ multiple?: boolean; types?: unknown[] }>;
         releaseCount: number;
-        clientStates: Array<{ saveState?: string }>;
+        clientStates: Array<{ projectBusy?: boolean; saveState?: string }>;
       };
     }).__driftNativeTest;
+    const lastClientState = state.clientStates.at(-1);
     return {
       callCount: state.pickerCalls.length,
       multiple: state.pickerCalls[0]?.multiple,
       typeCount: state.pickerCalls[0]?.types?.length,
       releaseCount: state.releaseCount,
-      lastSaveState: state.clientStates.at(-1)?.saveState,
+      newClientReport: state.clientStates.length > baselineCount,
+      lastProjectBusy: lastClientState?.projectBusy,
+      lastSaveState: lastClientState?.saveState,
     };
-  });
-  expect(receipt).toEqual({
+  }, baselineClientStateCount);
+
+  // The menu command intentionally returns after activating the native input;
+  // decoding, IndexedDB commit, and React's final native-client report remain
+  // asynchronous. Require the exact durable receipt instead of sampling once
+  // after the cards happen to render.
+  await expect.poll(readReceipt, {
+    message: "native slide import must publish one fully saved and released batch",
+    timeout: 30_000,
+  }).toEqual({
     callCount: 1,
     multiple: true,
     typeCount: 1,
     releaseCount: 2,
+    newClientReport: true,
+    lastProjectBusy: false,
     lastSaveState: "saved",
   });
 
@@ -412,9 +468,10 @@ test("Finder-style project delivery rejects when an export wins the admission ra
       }),
     });
   });
+  await switchWorkspace(page, "MASTER");
   await page.getByLabel("Stage width").fill("256");
   await page.getByLabel("Stage height").fill("256");
-  await page.getByRole("slider", { name: "Duration" }).fill("3");
+  await page.getByLabel("Exact duration", { exact: true }).fill("3");
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
   const exportButton = page.getByRole("button", { name: "Export PNG sequence" });
   await expect(exportButton).toBeEnabled({ timeout: 30_000 });

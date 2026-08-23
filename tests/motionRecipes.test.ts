@@ -4,9 +4,11 @@ import { createDefaultDriftProject } from "../src/core/project/defaults";
 import { createProjectRevisionState } from "../src/core/project/revisions";
 import {
   EDITORIAL_CUTS,
+  HANDCRAFTED_MOTION_PRESETS,
   MOTION_CHARACTERS,
   PERFORMANCE_RECIPES,
   applyEditorialCutCommand,
+  applyHandcraftedMotionPreset,
   applyMotionCharacterCommand,
   applyPerformanceCommand,
   detectEditorialCut,
@@ -45,6 +47,34 @@ describe("authored motion recipes", () => {
       performance: entry.performance,
     }))).size).toBe(6);
     expect(new Set(MOTION_CHARACTERS.map((entry) => entry.id)).size).toBe(4);
+    expect(new Set(HANDCRAFTED_MOTION_PRESETS.map((entry) => JSON.stringify({
+      cut: entry.cutId,
+      performance: entry.performanceId,
+      character: entry.characterId,
+      cadence: entry.poseCadence,
+    }))).size).toBe(6);
+  });
+
+  it("applies all six handcrafted stacks without touching non-motion domains", () => {
+    for (const preset of HANDCRAFTED_MOTION_PRESETS) {
+      const current = project();
+      const protectedDomains = structuredClone({
+        media: current.media,
+        card: current.card,
+        material: current.material,
+        lighting: current.lighting,
+        atmosphere: current.atmosphere,
+        lens: current.lens,
+        presenter: current.presenter,
+      });
+      applyHandcraftedMotionPreset(current, preset.id);
+      expect(current.motion).toMatchObject({
+        cadence: { cutId: preset.cutId, poseCadence: preset.poseCadence },
+        performance: { id: preset.performanceId },
+        character: { id: preset.characterId },
+      });
+      expect(current).toMatchObject(protectedDomains);
+    }
   });
 
   it("applies a cut without touching media, material, master, or presenter", () => {

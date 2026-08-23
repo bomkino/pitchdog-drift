@@ -39,6 +39,18 @@
   </array>
   <key>DriftNativeBridgeVersion</key>
   <integer>2</integer>
+  <key>DriftBuildChannel</key>
+  <string>release</string>
+  <key>DriftCacheNamespace</key>
+  <string>Drift</string>
+  <key>DriftExpectedBundleIdentifier</key>
+  <string>dog.pitch.drift</string>
+  <key>DriftStorageNamespace</key>
+  <string>pitchdog-drift</string>
+  <key>DriftWebsiteDataStoreIdentifier</key>
+  <string>default</string>
+  <key>DriftOwnsPortableProjects</key>
+  <true/>
   <key>DriftSourceRevision</key>
   <string>unknown</string>
   <key>LSApplicationCategoryType</key>

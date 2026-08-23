@@ -1,4 +1,4 @@
-import type { DriftProjectV3, PoseCadence } from "../project/schema";
+import type { DriftCreativeState, PoseCadence } from "../project/schema";
 import { clamp, finite, smoothstep, smoothstepDerivative, TIMELINE_EPSILON } from "./math";
 
 export interface MasterTimelineSample {
@@ -41,7 +41,7 @@ function runwayFractions(weight: number, release: number, runway: number): { ent
 
 export function evaluateRunwayShape(
   progress: number,
-  performance: Pick<DriftProjectV3["motion"]["performance"], "weight" | "release" | "runway">,
+  performance: Pick<DriftCreativeState["motion"]["performance"], "weight" | "release" | "runway">,
 ): RunwayShape {
   const p = clamp(finite(progress), 0, 1);
   if (performance.runway <= TIMELINE_EPSILON) {
@@ -104,7 +104,7 @@ export function quantizeEventTimeToPose(time: number, cadence: PoseCadence, dura
   return clamp(quantized, 0, duration);
 }
 
-export function evaluateMasterTimeline(project: DriftProjectV3, time: number): MasterTimelineSample {
+export function evaluateMasterTimeline(project: DriftCreativeState, time: number): MasterTimelineSample {
   const duration = Math.max(0.001, project.master.duration);
   const clampedTime = clamp(finite(time), 0, duration);
   if (project.master.reducedMotion) {

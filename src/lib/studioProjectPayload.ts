@@ -1,12 +1,15 @@
 import type { StoredAssetDescriptor, StudioSettings } from "../model";
-import { migrateLegacyStudioProject, type LegacyAssetDescriptor } from "../core/project/migrateLegacy";
+import { migrateLegacyStudioProjectToV4, type LegacyAssetDescriptor } from "../core/project/migrateLegacy";
+import { migrateDriftProjectV3ToV4 } from "../core/project/migrateV3ToV4";
 import {
   DRIFT_PROJECT_SCHEMA,
   DRIFT_PROJECT_VERSION,
+  DRIFT_PROJECT_V4_VERSION,
   type DriftProjectV3,
+  type DriftProjectV4,
 } from "../core/project/schema";
-import { validateDriftProjectV3 } from "../core/project/validation";
-import { validateStudioSettings } from "./settingsValidation";
+import { validateDriftProjectV3, validateDriftProjectV4 } from "../core/project/validation";
+import { validateLegacyStudioSettingsV1 } from "./settingsValidation";
 
 export interface LegacyStudioProjectPayload {
   settings: StudioSettings;
@@ -17,6 +20,10 @@ export interface LegacyStudioProjectPayload {
 
 export interface DriftProjectPayloadV3 {
   project: DriftProjectV3;
+}
+
+export interface DriftProjectPayloadV4 {
+  project: DriftProjectV4;
 }
 
 export interface PortableAssetReceipt {
@@ -31,13 +38,18 @@ export interface StudioPayloadContext {
   projectId: string;
   createdAt: string;
   updatedAt: string;
+  engineVersion: string;
+  themeVersion: string;
   assets: readonly PortableAssetReceipt[];
 }
 
 export interface ParsedStudioPayload {
-  project: DriftProjectV3;
-  sourceFormat: "project-v3" | "legacy-studio-v1";
+  project: DriftProjectV4;
+  sourceFormat: "project-v4" | "project-v3" | "legacy-studio-v1";
 }
+
+const LEGACY_STUDIO_V1_ENGINE_VERSION = "1.0.0";
+const LEGACY_STUDIO_V1_THEME_VERSION = "1.0.0";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -117,7 +129,7 @@ function parseLegacyPayload(value: unknown): LegacyStudioProjectPayload {
     throw new Error("Project contains duplicate media metadata.");
   }
   return {
-    settings: validateStudioSettings(value.settings),
+    settings: validateLegacyStudioSettingsV1(value.settings),
     slideAssetIds: [...value.slideAssetIds],
     presenterAssetId: value.presenterAssetId,
     descriptors,
@@ -145,7 +157,10 @@ function receiptsById(context: StudioPayloadContext): Map<string, PortableAssetR
   return byId;
 }
 
-function assertV3MediaReceipts(project: DriftProjectV3, context: StudioPayloadContext): void {
+function assertProjectMediaReceipts(
+  project: Pick<DriftProjectV3, "media">,
+  context: StudioPayloadContext,
+): void {
   const receipts = receiptsById(context);
   const projectIds = Object.keys(project.media.assets);
   if (projectIds.length !== receipts.size) {
@@ -168,7 +183,7 @@ function assertV3MediaReceipts(project: DriftProjectV3, context: StudioPayloadCo
 function migrateLegacyPayload(
   payload: LegacyStudioProjectPayload,
   context: StudioPayloadContext,
-): DriftProjectV3 {
+): DriftProjectV4 {
   const receipts = receiptsById(context);
   const descriptors = new Map(payload.descriptors.map((descriptor) => [descriptor.id, descriptor]));
   if (descriptors.size !== receipts.size) {
@@ -214,7 +229,7 @@ function migrateLegacyPayload(
     throw new Error("Legacy project pinned-frame settings reference missing media.");
   }
 
-  return migrateLegacyStudioProject({
+  return migrateLegacyStudioProjectToV4({
     projectId: context.projectId,
     createdAt: context.createdAt,
     updatedAt: context.updatedAt,
@@ -229,9 +244,33 @@ function driftProjectEnvelope(value: unknown): Record<string, unknown> | null {
   return value.project.schema === DRIFT_PROJECT_SCHEMA ? value.project : null;
 }
 
-function isProjectV3Payload(value: unknown): value is DriftProjectPayloadV3 {
+function isProjectPayloadVersion(value: unknown, version: number): boolean {
   const project = driftProjectEnvelope(value);
-  return project !== null && project.formatVersion === DRIFT_PROJECT_VERSION;
+  return project !== null && project.formatVersion === version;
+}
+
+function assertPortableIdentity(
+  project: Pick<DriftProjectV3, "projectId" | "createdAt" | "updatedAt">,
+  context: StudioPayloadContext,
+): void {
+  if (
+    project.projectId !== context.projectId
+    || project.createdAt !== context.createdAt
+    || project.updatedAt !== context.updatedAt
+  ) {
+    throw new Error("Project identity does not match its verified portable manifest.");
+  }
+}
+
+function assertLegacyStudioV1Contract(context: StudioPayloadContext): void {
+  if (
+    context.engineVersion !== LEGACY_STUDIO_V1_ENGINE_VERSION
+    || context.themeVersion !== LEGACY_STUDIO_V1_THEME_VERSION
+  ) {
+    throw new Error(
+      "Legacy project contract is not supported by this Drift build. Open it with the version of Drift that created it or a newer compatible release.",
+    );
+  }
 }
 
 export function parseStudioProjectPayload(
@@ -239,7 +278,11 @@ export function parseStudioProjectPayload(
   context: StudioPayloadContext,
 ): ParsedStudioPayload {
   const driftProject = driftProjectEnvelope(value);
-  if (driftProject && driftProject.formatVersion !== DRIFT_PROJECT_VERSION) {
+  if (
+    driftProject
+    && driftProject.formatVersion !== DRIFT_PROJECT_VERSION
+    && driftProject.formatVersion !== DRIFT_PROJECT_V4_VERSION
+  ) {
     const version = typeof driftProject.formatVersion === "number"
       ? String(driftProject.formatVersion)
       : "unknown";
@@ -248,19 +291,24 @@ export function parseStudioProjectPayload(
     );
   }
 
-  if (isProjectV3Payload(value)) {
-    const project = validateDriftProjectV3(value.project);
-    if (
-      project.projectId !== context.projectId
-      || project.createdAt !== context.createdAt
-      || project.updatedAt !== context.updatedAt
-    ) {
-      throw new Error("Project identity does not match its verified portable manifest.");
-    }
-    assertV3MediaReceipts(project, context);
-    return { project, sourceFormat: "project-v3" };
+  if (isProjectPayloadVersion(value, DRIFT_PROJECT_V4_VERSION)) {
+    const project = validateDriftProjectV4(driftProject);
+    assertPortableIdentity(project, context);
+    assertProjectMediaReceipts(project, context);
+    return { project, sourceFormat: "project-v4" };
   }
 
+  if (isProjectPayloadVersion(value, DRIFT_PROJECT_VERSION)) {
+    const project = validateDriftProjectV3(driftProject);
+    assertPortableIdentity(project, context);
+    assertProjectMediaReceipts(project, context);
+    return {
+      project: migrateDriftProjectV3ToV4(project, "project-v3"),
+      sourceFormat: "project-v3",
+    };
+  }
+
+  assertLegacyStudioV1Contract(context);
   const legacy = parseLegacyPayload(value);
   return {
     project: migrateLegacyPayload(legacy, context),
@@ -268,6 +316,6 @@ export function parseStudioProjectPayload(
   };
 }
 
-export function createDriftProjectPayload(project: DriftProjectV3): DriftProjectPayloadV3 {
-  return { project: validateDriftProjectV3(project) };
+export function createDriftProjectPayload(project: DriftProjectV4): DriftProjectPayloadV4 {
+  return { project: validateDriftProjectV4(project) };
 }

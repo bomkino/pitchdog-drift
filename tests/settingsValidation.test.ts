@@ -12,6 +12,7 @@ import { THEMES } from "../src/themes";
 import {
   STUDIO_SETTINGS_LIMITS,
   SettingsValidationError,
+  validateLegacyStudioSettingsV1,
   validateStudioSettings,
 } from "../src/lib/settingsValidation";
 
@@ -42,6 +43,33 @@ function expectInvalid(candidate: unknown, path: string): SettingsValidationErro
 }
 
 describe("validateStudioSettings", () => {
+  it("keeps the portable legacy reader pinned to the V1 engine contract", () => {
+    const legacy = settings();
+    for (const key of [
+      "trackMode", "layoutMode", "aspectMode", "focalX", "focalY", "safeInset",
+      "shadowSoftness", "shadowOffsetX", "shadowOffsetY", "matteColor", "matteOpacity",
+    ]) delete legacy.presenter[key];
+    expect(validateLegacyStudioSettingsV1(legacy).presenter).toMatchObject({
+      trackMode: "moving-and-pinned",
+      layoutMode: "legacy-perspective",
+      aspectMode: "custom",
+      focalX: 0.5,
+      focalY: 0.5,
+      safeInset: 0,
+      shadowSoftness: 48,
+      shadowOffsetX: 12,
+      shadowOffsetY: 18,
+      matteColor: "#000000",
+      matteOpacity: 1,
+    });
+
+    const futureEngine = settings();
+    futureEngine.engineVersion = "2.0.0";
+    expect(() => validateLegacyStudioSettingsV1(futureEngine)).toThrow(
+      "settings.engineVersion: must equal 1.0.0",
+    );
+  });
+
   it("only clears pinned settings when the removed media owns the pin", () => {
     const pinnedSlide = cloneSettings(DEFAULT_SETTINGS);
     pinnedSlide.presenter.enabled = true;
@@ -61,9 +89,43 @@ describe("validateStudioSettings", () => {
     expect(result).not.toBe(source);
     expect(result.motion).not.toBe(source.motion);
     expect(result.slide).not.toBe(source.slide);
+    expect(result.performance).not.toBe(source.performance);
 
     result.motion.speed = 0;
     expect(source.motion.speed).toBe(DEFAULT_SETTINGS.motion.speed);
+  });
+
+  it("promotes settings without lifecycle authoring to exact legacy-compatible timing", () => {
+    const source = settings();
+    source.output.duration = 12;
+    source.motion.reducedMotionOutput = true;
+    delete source.performance;
+
+    expect(validateStudioSettings(source).performance).toEqual({
+      transitionPreset: "quiet-lift",
+      entry: { enabled: false },
+      body: { durationSeconds: 12, tempo: { kind: "preset", preset: "even" } },
+      exit: { enabled: false },
+      repeat: { mode: "off" },
+      reducedMotion: true,
+    });
+  });
+
+  it("fits body and full-scene repeats to output duration without changing repeat meaning", () => {
+    const bodyRepeat = settings();
+    bodyRepeat.output.duration = 14;
+    bodyRepeat.performance.repeat = { mode: "body", count: 2 };
+    expect(validateStudioSettings(bodyRepeat).performance.body.durationSeconds).toBeCloseTo(6.36, 12);
+
+    const sceneRepeat = settings();
+    sceneRepeat.output.duration = 16;
+    sceneRepeat.performance.repeat = { mode: "full-scene", count: 2 };
+    expect(validateStudioSettings(sceneRepeat).performance.body.durationSeconds).toBeCloseTo(6.72, 12);
+
+    const impossible = settings();
+    impossible.output.duration = 3;
+    impossible.performance.repeat = { mode: "full-scene", count: 6 };
+    expectInvalid(impossible, "performance");
   });
 
   it("accepts all six current film-world themes", () => {
@@ -92,8 +154,11 @@ describe("validateStudioSettings", () => {
       ["motion.direction", [-1, 1]],
       ["motion.flow", ["straight", "arc", "ribbon", "cylinder", "tunnel"]],
       ["slide.fit", ["cover", "contain"]],
-      ["background.style", ["transparent", "solid", "gradient", "aura", "paper", "void"]],
+      ["background.style", ["transparent", "solid", "gradient", "aura", "paper", "void", "cutting-map", "grid", "wave"]],
       ["presenter.fit", ["cover", "contain"]],
+      ["presenter.trackMode", ["pinned-only", "moving-and-pinned"]],
+      ["presenter.layoutMode", ["safe-overlay", "legacy-perspective"]],
+      ["presenter.aspectMode", ["source", "custom"]],
       ["output.fps", [24, 25, 30, 50, 60]],
     ];
 
@@ -161,12 +226,26 @@ describe("validateStudioSettings", () => {
       borderWidth: 0,
       borderOpacity: 0,
       shadowOpacity: 0,
+      focalX: 0,
+      focalY: 0,
+      safeInset: 0,
+      shadowSoftness: 0,
+      shadowOffsetX: -512,
+      shadowOffsetY: -512,
+      matteOpacity: 0,
       gain: STUDIO_SETTINGS_LIMITS.presenterGain,
       trimStart: STUDIO_SETTINGS_LIMITS.presenterTrimStart,
       startAt: STUDIO_SETTINGS_LIMITS.presenterStartAt,
     });
 
-    expect(validateStudioSettings(source)).toEqual(source);
+    const validated = validateStudioSettings(source);
+    expect(validated).toEqual({
+      ...source,
+      performance: {
+        ...source.performance,
+        body: { ...source.performance.body, durationSeconds: 3 - 0.72 - 0.56 },
+      },
+    });
   });
 
   it("accepts every upper UI and safety boundary", () => {
@@ -176,34 +255,34 @@ describe("validateStudioSettings", () => {
       width: 8_192,
       height: 8_192,
       fps: 60,
-      duration: 30,
+      duration: 300,
       videoBitrate: STUDIO_SETTINGS_LIMITS.videoBitrate,
       audioBitrate: STUDIO_SETTINGS_LIMITS.audioBitrate,
     });
     Object.assign(source.motion, {
-      speed: 1.5,
-      gap: 1.2,
+      speed: 8,
+      gap: 2.5,
       curvature: 1,
-      depth: 0.8,
-      tilt: 18,
+      depth: 1,
+      tilt: 45,
       distortion: 1,
-      focusScale: 0.24,
+      focusScale: 0.5,
       edgeFade: 1,
       dragSensitivity: 4,
-      seamlessLoops: 6,
+      seamlessLoops: 100,
     });
     Object.assign(source.slide, {
       aspectWidth: 64,
       aspectHeight: 64,
-      scale: 1.1,
+      scale: 1.6,
       focalX: 1,
       focalY: 1,
-      radius: 180,
+      radius: 512,
       smoothing: 1,
-      borderWidth: 16,
+      borderWidth: 32,
       borderOpacity: 1,
       shadowOpacity: 0.8,
-      shadowSoftness: 96,
+      shadowSoftness: STUDIO_SETTINGS_LIMITS.slideShadowSoftness.max,
     });
     Object.assign(source.background, {
       intensity: 1,
@@ -215,20 +294,34 @@ describe("validateStudioSettings", () => {
     Object.assign(source.presenter, {
       x: 1,
       y: 1,
-      width: 0.82,
+      width: 1,
       aspectWidth: 64,
       aspectHeight: 64,
-      radius: 180,
+      radius: 512,
       smoothing: 1,
-      borderWidth: 16,
+      borderWidth: 32,
       borderOpacity: 1,
       shadowOpacity: 0.8,
+      focalX: 1,
+      focalY: 1,
+      safeInset: 0.25,
+      shadowSoftness: 256,
+      shadowOffsetX: 512,
+      shadowOffsetY: 512,
+      matteOpacity: 1,
       gain: STUDIO_SETTINGS_LIMITS.presenterGain,
       trimStart: STUDIO_SETTINGS_LIMITS.presenterTrimStart,
       startAt: STUDIO_SETTINGS_LIMITS.presenterStartAt,
     });
 
-    expect(validateStudioSettings(source)).toEqual(source);
+    const validated = validateStudioSettings(source);
+    expect(validated).toEqual({
+      ...source,
+      performance: {
+        ...source.performance,
+        body: { ...source.performance.body, durationSeconds: 300 - 0.72 - 0.56 },
+      },
+    });
   });
 
   it("rejects unsupported schema, engine, and shader versions", () => {
@@ -251,6 +344,9 @@ describe("validateStudioSettings", () => {
       "slide.fit",
       "background.style",
       "presenter.fit",
+      "presenter.trackMode",
+      "presenter.layoutMode",
+      "presenter.aspectMode",
     ]) {
       const source = settings();
       setPath(source, path, "__invalid__");
@@ -274,8 +370,10 @@ describe("validateStudioSettings", () => {
       "background.intensity", "background.motion", "background.grain", "background.vignette",
       "background.seed",
       "presenter.x", "presenter.y", "presenter.width", "presenter.aspectWidth",
-      "presenter.aspectHeight", "presenter.radius", "presenter.smoothing", "presenter.borderWidth",
-      "presenter.borderOpacity", "presenter.shadowOpacity", "presenter.gain", "presenter.trimStart",
+      "presenter.aspectHeight", "presenter.focalX", "presenter.focalY", "presenter.safeInset",
+      "presenter.radius", "presenter.smoothing", "presenter.borderWidth", "presenter.borderOpacity",
+      "presenter.shadowOpacity", "presenter.shadowSoftness", "presenter.shadowOffsetX",
+      "presenter.shadowOffsetY", "presenter.matteOpacity", "presenter.gain", "presenter.trimStart",
       "presenter.startAt",
       "output.width", "output.height", "output.duration", "output.videoBitrate", "output.audioBitrate",
     ];
@@ -289,27 +387,27 @@ describe("validateStudioSettings", () => {
 
   it("rejects out-of-range UI fields rather than clamping or defaulting", () => {
     const cases: Array<[string, number]> = [
-      ["motion.speed", 1.500_001],
+      ["motion.speed", 8.001],
       ["motion.gap", -0.001],
       ["motion.curvature", 1.001],
-      ["motion.depth", 0.801],
-      ["motion.tilt", 18.001],
+      ["motion.depth", 1.001],
+      ["motion.tilt", 45.001],
       ["motion.distortion", -0.001],
-      ["motion.focusScale", 0.241],
+      ["motion.focusScale", 0.501],
       ["motion.edgeFade", 1.001],
       ["motion.dragSensitivity", 4.001],
-      ["motion.seamlessLoops", 7],
+      ["motion.seamlessLoops", 101],
       ["slide.aspectWidth", 0.999],
       ["slide.aspectHeight", 64.001],
-      ["slide.scale", 0.239],
+      ["slide.scale", 0.099],
       ["slide.focalX", -0.001],
       ["slide.focalY", 1.001],
-      ["slide.radius", 180.001],
+      ["slide.radius", 512.001],
       ["slide.smoothing", 1.001],
-      ["slide.borderWidth", 16.001],
+      ["slide.borderWidth", 32.001],
       ["slide.borderOpacity", -0.001],
       ["slide.shadowOpacity", 0.801],
-      ["slide.shadowSoftness", 3.999],
+      ["slide.shadowSoftness", STUDIO_SETTINGS_LIMITS.slideShadowSoftness.max + 0.001],
       ["background.intensity", 1.001],
       ["background.motion", -0.001],
       ["background.grain", 0.601],
@@ -317,14 +415,21 @@ describe("validateStudioSettings", () => {
       ["background.seed", 1_000_001],
       ["presenter.x", -0.001],
       ["presenter.y", 1.001],
-      ["presenter.width", 0.139],
+      ["presenter.width", 0.049],
       ["presenter.aspectWidth", 65],
       ["presenter.aspectHeight", 0],
-      ["presenter.radius", 181],
+      ["presenter.focalX", -0.001],
+      ["presenter.focalY", 1.001],
+      ["presenter.safeInset", 0.251],
+      ["presenter.radius", 513],
       ["presenter.smoothing", -0.001],
-      ["presenter.borderWidth", 17],
+      ["presenter.borderWidth", 33],
       ["presenter.borderOpacity", 1.001],
       ["presenter.shadowOpacity", 0.801],
+      ["presenter.shadowSoftness", 256.001],
+      ["presenter.shadowOffsetX", -512.001],
+      ["presenter.shadowOffsetY", 512.001],
+      ["presenter.matteOpacity", 1.001],
       ["presenter.gain", STUDIO_SETTINGS_LIMITS.presenterGain + 0.001],
       ["presenter.trimStart", STUDIO_SETTINGS_LIMITS.presenterTrimStart + 0.001],
       ["presenter.startAt", STUDIO_SETTINGS_LIMITS.presenterStartAt + 0.001],
@@ -365,21 +470,24 @@ describe("validateStudioSettings", () => {
     expectInvalid(transparentStyleOnOpaqueStage, "stage.transparent");
   });
 
-  it("rejects contradictory pinned-frame enabled and asset states", () => {
+  it("requires media for an enabled pin and preserves a disabled selection", () => {
     const enabledWithoutMedia = settings();
     enabledWithoutMedia.presenter.enabled = true;
     expectInvalid(enabledWithoutMedia, "presenter.enabled");
 
     const disabledWithMedia = settings();
     disabledWithMedia.presenter.assetId = "slide-one";
-    expectInvalid(disabledWithMedia, "presenter.enabled");
+    expect(validateStudioSettings(disabledWithMedia).presenter).toMatchObject({
+      enabled: false,
+      assetId: "slide-one",
+    });
   });
 
   it("rejects unsupported frame rates, duration escapes, and unsurfaced bitrate values", () => {
     for (const [path, bad] of [
       ["output.fps", 29],
-      ["output.duration", 2.999],
-      ["output.duration", 30.001],
+      ["output.duration", 0.499],
+      ["output.duration", 300.001],
       ["output.videoBitrate", STUDIO_SETTINGS_LIMITS.videoBitrate - 1],
       ["output.videoBitrate", STUDIO_SETTINGS_LIMITS.videoBitrate + 1],
       ["output.audioBitrate", STUDIO_SETTINGS_LIMITS.audioBitrate - 1],
@@ -399,6 +507,7 @@ describe("validateStudioSettings", () => {
       ["background.colorB", "#00000000"],
       ["background.accent", "<script>"],
       ["presenter.borderColor", "#gggggg"],
+      ["presenter.matteColor", "transparent"],
       ["stage.transparent", 0],
       ["motion.autoplay", "true"],
       ["presenter.enabled", 1],

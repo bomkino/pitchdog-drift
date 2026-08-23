@@ -1,14 +1,43 @@
 import * as THREE from "three";
-import type { StudioAsset, StudioSettings } from "../model";
+import { evaluateProjectFrame, type ProjectFrameEvaluation } from "../core/render/projectFrameAdapter";
 import {
-  distanceAtTime,
+  DRIFT_V1_COMPAT_RENDER_CONTRACT,
+  DRIFT_V2_RENDER_CONTRACT,
+  type DriftProjectV4,
+  type SlideDirective,
+} from "../core/project/schema";
+import { validateDriftProjectV4 } from "../core/project/validation";
+import { resolvePresenterOverlayLayout, type PresenterOverlayLayout } from "../core/presenter/layout";
+import { resolvePinLaneComposition, resolveProtectedPinLaneComposition } from "../core/presenter/lane";
+import { deriveSlideGeometry } from "../core/spatial/spatial";
+import {
+  createPerformanceLifecycle,
+  type LifecycleLayerSample,
+  type PerformanceLifecycleSample,
+  type PerformanceLifecycleTimeline,
+  type TransitionTreatment,
+} from "../core/timeline/performanceLifecycle";
+import {
+  defaultPerformanceStillTime,
+  evaluatePerformanceTravel,
+  loopPerformanceTime,
+} from "../core/timeline/renderTravel";
+import type { StudioAsset } from "../model";
+import {
   evaluateSlide,
   getLogicalSlotCount,
   getSlideGeometry,
   isPotentiallyVisible,
-  velocityAtTime,
   type EvaluatedSlide,
 } from "./evaluate";
+import { resolveBackgroundPhase } from "./backgroundPhase";
+import {
+  drawGraphStateFromV1Settings,
+  type EngineInitialAuthority,
+  type V1RendererSettings,
+} from "./legacyRendererAdapter";
+import { resolveLifecycleLayerPresentation } from "./lifecyclePresentation";
+import { drawGraphStateFromProject, type DrawGraphState } from "./renderGraphState";
 import {
   backgroundFragmentShader,
   backgroundVertexShader,
@@ -17,13 +46,22 @@ import {
   slideFragmentShader,
   slideVertexShader,
 } from "./shaders";
+import { lensFragmentShader, lensVertexShader } from "./lensShader";
 
 const MAX_POOL_SIZE = 24;
 const TEXTURE_CACHE_LIMIT = 24;
+const MAX_CONCURRENT_TEXTURE_DECODES = 4;
+// One full moving pool, one independent presenter image, and at most one
+// generation of in-flight decodes. Queue metadata is bounded too; stale
+// speculative work yields before it can accumulate across rapid scrubbing.
+const TEXTURE_REQUEST_LIMIT = TEXTURE_CACHE_LIMIT + 1 + MAX_CONCURRENT_TEXTURE_DECODES;
 const PREVIEW_TEXTURE_EDGE = 2048;
 const CAMERA_FOV = 35;
 const SHADOW_ALPHA_CUTOFF = 0.001;
 const GRAIN_SEED_MODULUS = 4093;
+const GRAIN_CADENCE_FPS = 12;
+const PRESENTER_EXACT_SEEK_EPSILON_SECONDS = 0.001;
+const PRESENTER_MIN_RUNNING_DRIFT_SECONDS = 0.025;
 
 /**
  * Give the Gaussian enough geometry to reach the shader's discard threshold.
@@ -47,6 +85,179 @@ export function normalizeGrainSeed(seed: number): number {
   return ((integer % GRAIN_SEED_MODULUS) + GRAIN_SEED_MODULUS) % GRAIN_SEED_MODULUS;
 }
 
+/**
+ * Export frame identity is discrete authority, not a value to recover from a
+ * floating-point timestamp. Keep the nullable form for preview and legacy
+ * callers while rejecting ambiguous export identities at the engine boundary.
+ */
+export function resolveExportFrameIndex(frameIndex: number | null | undefined): number | null {
+  if (frameIndex === null || frameIndex === undefined) return null;
+  if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) {
+    throw new Error(`Export frame index must be a non-negative safe integer; received ${frameIndex}.`);
+  }
+  return frameIndex;
+}
+
+/**
+ * Film grain is the first legacy-renderer input governed by discrete frame
+ * identity. Existing callers retain the time-derived fallback until every
+ * render path supplies an explicit export frame index.
+ */
+export function resolveGrainFrame(
+  time: number,
+  fps: number,
+  exportMode: boolean,
+  reducedMotion: boolean,
+  exportFrameIndex: number | null = null,
+): number {
+  if (reducedMotion) return 0;
+  const explicitFrameIndex = resolveExportFrameIndex(exportFrameIndex);
+  const cadence = Math.min(GRAIN_CADENCE_FPS, fps);
+  if (exportMode && explicitFrameIndex !== null) {
+    return Math.floor(explicitFrameIndex * cadence / fps);
+  }
+  return Math.floor(Math.max(0, time) * cadence);
+}
+
+export interface PresenterPreviewClockInput {
+  masterTime: number;
+  previousMasterTime: number | null;
+  videoTime: number;
+  videoDuration: number;
+  masterFps: number;
+  exact: boolean;
+}
+
+export interface PresenterPreviewClockDecision {
+  targetTime: number | null;
+  shouldSeek: boolean;
+  wrapped: boolean;
+}
+
+/**
+ * Maps the authored preview clock onto one presenter source pass. Running
+ * playback may coast within one delivery frame; a master wrap and every frozen
+ * state seek to the canonical source time. A short source holds its last
+ * decodable frame because export rejects under-length presenter media rather
+ * than silently looping it. Export itself never uses this path; it continues
+ * to provide an explicitly decoded presenter frame.
+ */
+export function resolvePresenterPreviewClock(
+  input: PresenterPreviewClockInput,
+): PresenterPreviewClockDecision {
+  if (!Number.isFinite(input.videoDuration) || input.videoDuration <= 0) {
+    return { targetTime: null, shouldSeek: false, wrapped: false };
+  }
+  const masterTime = Math.max(0, Number.isFinite(input.masterTime) ? input.masterTime : 0);
+  const fps = Number.isFinite(input.masterFps) && input.masterFps > 0 ? input.masterFps : 30;
+  const lastDecodableTime = Math.max(0, input.videoDuration - 1 / fps);
+  const targetTime = Math.min(masterTime, lastDecodableTime);
+  const videoTime = Math.max(0, Number.isFinite(input.videoTime) ? input.videoTime : 0);
+  const exactEpsilon = PRESENTER_EXACT_SEEK_EPSILON_SECONDS;
+  const masterWrapped = input.previousMasterTime !== null
+    && masterTime + exactEpsilon < input.previousMasterTime;
+  const tolerance = input.exact
+    ? exactEpsilon
+    : Math.max(PRESENTER_MIN_RUNNING_DRIFT_SECONDS, 1 / fps);
+  return {
+    targetTime,
+    shouldSeek: masterWrapped || Math.abs(videoTime - targetTime) > tolerance,
+    wrapped: masterWrapped,
+  };
+}
+
+function waitForPresenterVideoState(
+  video: HTMLVideoElement,
+  eventName: "loadedmetadata" | "loadeddata" | "seeked",
+  ready: () => boolean,
+  timeoutMs = 5_000,
+): Promise<void> {
+  if (ready()) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      globalThis.clearTimeout(timeout);
+      video.removeEventListener(eventName, onReady);
+      video.removeEventListener("error", onError);
+    };
+    const onReady = () => {
+      if (!ready()) return;
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("Presenter video could not prepare a canonical preview frame."));
+    };
+    const timeout = globalThis.setTimeout(() => {
+      cleanup();
+      reject(new Error("Presenter video preview preparation timed out."));
+    }, timeoutMs);
+    video.addEventListener(eventName, onReady);
+    video.addEventListener("error", onError, { once: true });
+  });
+}
+
+async function preparePresenterPreviewFrame(
+  video: HTMLVideoElement,
+  readMasterTime: () => number,
+  masterFps: number,
+): Promise<number> {
+  await waitForPresenterVideoState(
+    video,
+    "loadedmetadata",
+    () => video.readyState >= HTMLMediaElement.HAVE_METADATA
+      && Number.isFinite(video.duration)
+      && video.duration > 0,
+  );
+  video.pause();
+  const frameDuration = 1 / (Number.isFinite(masterFps) && masterFps > 0 ? masterFps : 30);
+  let alignedMasterTime = readMasterTime();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    alignedMasterTime = readMasterTime();
+    const decision = resolvePresenterPreviewClock({
+      masterTime: alignedMasterTime,
+      previousMasterTime: null,
+      videoTime: video.currentTime,
+      videoDuration: video.duration,
+      masterFps,
+      exact: true,
+    });
+    const targetTime = decision.targetTime ?? 0;
+    if (Math.abs(video.currentTime - targetTime) > PRESENTER_EXACT_SEEK_EPSILON_SECONDS) {
+      video.currentTime = targetTime;
+      await waitForPresenterVideoState(
+        video,
+        "seeked",
+        () => !video.seeking
+          && Math.abs(video.currentTime - targetTime) <= PRESENTER_EXACT_SEEK_EPSILON_SECONDS,
+      );
+    }
+    if (Math.abs(readMasterTime() - alignedMasterTime) <= frameDuration) break;
+  }
+  await waitForPresenterVideoState(
+    video,
+    "loadeddata",
+    () => video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA,
+  );
+  return alignedMasterTime;
+}
+
+/**
+ * V2's composition alpha mode is an output invariant, including lifecycle
+ * transitions. An opaque composition therefore clears to an opaque black
+ * matte so faded RGB layers cannot punch transient holes into the canvas.
+ * Compatibility rendering keeps its established transparent clear and lets
+ * the legacy background pass establish opacity.
+ */
+export function resolveCanvasClearAlpha(
+  project: Pick<DriftProjectV4, "renderContract" | "composition"> | null,
+): 0 | 1 {
+  return project?.renderContract === DRIFT_V2_RENDER_CONTRACT
+    && project.composition.alphaMode === "opaque"
+    ? 1
+    : 0;
+}
+
 interface EngineCallbacks {
   onError?: (message: string) => void;
   onContextState?: (state: "ready" | "lost" | "restored") => void;
@@ -61,19 +272,61 @@ interface TextureRecord {
   lastUsed: number;
 }
 
+interface TextureDecodeJob {
+  key: string;
+  asset: StudioAsset;
+  promise: Promise<TextureRecord>;
+  resolve: (record: TextureRecord) => void;
+  reject: (error: unknown) => void;
+  started: boolean;
+  cancelled: boolean;
+}
+
+interface PreviewSurfaceRequest {
+  width: number;
+  height: number;
+  pixelRatio: number;
+}
+
 interface SlidePoolItem {
   group: THREE.Group;
   slide: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   shadow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  shell: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   material: THREE.ShaderMaterial;
   shadowMaterial: THREE.ShaderMaterial;
+  shellMaterial: THREE.ShaderMaterial;
   assetKey: string | null;
 }
 
 interface VisibleItem {
   logicalIndex: number;
+  sourceIndex: number;
+  layerIndex: number;
   asset: StudioAsset;
   evaluated: EvaluatedSlide;
+  directive?: SlideDirective;
+  pathBend?: number;
+}
+
+export interface MovingTrackAsset {
+  asset: StudioAsset;
+  sourceIndex: number;
+}
+
+export function resolveMovingTrackAssets(
+  assets: readonly StudioAsset[],
+  presenterAsset: StudioAsset | null,
+  presenter: Pick<DrawGraphState["presenter"], "enabled" | "trackMode">,
+): MovingTrackAsset[] {
+  const excludedId = presenter.enabled
+    && presenter.trackMode === "pinned-only"
+    && presenterAsset?.kind === "image"
+    ? presenterAsset.id
+    : null;
+  return assets.flatMap((asset, sourceIndex) => (
+    asset.id === excludedId ? [] : [{ asset, sourceIndex }]
+  ));
 }
 
 class StaleTextureRequestError extends Error {
@@ -146,23 +399,36 @@ export function assertExportSurfaceSupported(
   }
 }
 
-function backgroundMode(style: StudioSettings["background"]["style"]): number {
+export function backgroundMode(style: string): number {
   switch (style) {
     case "solid": return 0;
     case "gradient": return 1;
     case "aura": return 2;
     case "paper": return 3;
     case "void": return 4;
+    case "cutting-map": return 5;
+    case "grid": return 6;
+    case "wave": return 7;
     default: return 0;
   }
 }
 
-function createSlideMaterial(placeholder: THREE.Texture): THREE.ShaderMaterial {
+function surfaceMode(surface: string): number {
+  switch (surface) {
+    case "paper": return 1;
+    case "silk": return 2;
+    case "gel": return 3;
+    case "card":
+    default: return 0;
+  }
+}
+
+function createSlideMaterial(placeholder: THREE.Texture, depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: slideVertexShader,
     fragmentShader: slideFragmentShader,
     transparent: true,
-    depthTest: true,
+    depthTest,
     depthWrite: false,
     side: THREE.DoubleSide,
     uniforms: {
@@ -177,21 +443,40 @@ function createSlideMaterial(placeholder: THREE.Texture): THREE.ShaderMaterial {
       uBorderPx: { value: 1 },
       uBorderColor: { value: new THREE.Color("#ffffff") },
       uBorderOpacity: { value: 0.5 },
+      uLegacyContainMatte: { value: 1 },
+      uMatteColor: { value: new THREE.Color("#000000") },
+      uMatteOpacity: { value: 1 },
       uOpacity: { value: 1 },
       uVelocity: { value: 0 },
+      uAcceleration: { value: 0 },
       uDistortion: { value: 0 },
       uAxis: { value: 0 },
       uPhase: { value: 0 },
+      uSurface: { value: 0 },
+      uSlideSeed: { value: 0 },
+      uTravelPhase: { value: 0 },
+      uPathBend: { value: 0 },
+      uRoughness: { value: 0.76 },
+      uSheen: { value: 0.06 },
+      uMicrotexture: { value: 0.035 },
+      uLightingEnabled: { value: 0 },
+      uKeyColor: { value: new THREE.Color("#ffffff") },
+      uFillColor: { value: new THREE.Color("#ffffff") },
+      uLightDirection: { value: new THREE.Vector3(0.4, 0.5, 0.75).normalize() },
+      uKeyIntensity: { value: 0 },
+      uFillIntensity: { value: 1 },
+      uRimIntensity: { value: 0 },
+      uArtworkProtection: { value: 1 },
     },
   });
 }
 
-function createShadowMaterial(): THREE.ShaderMaterial {
+function createShadowMaterial(depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: shadowVertexShader,
     fragmentShader: shadowFragmentShader,
     transparent: true,
-    depthTest: true,
+    depthTest,
     depthWrite: false,
     uniforms: {
       uCanvasSizePx: { value: new THREE.Vector2(900, 550) },
@@ -200,6 +485,7 @@ function createShadowMaterial(): THREE.ShaderMaterial {
       uSmoothing: { value: 0.6 },
       uSoftnessPx: { value: 32 },
       uOpacity: { value: 0.35 },
+      uColor: { value: new THREE.Color("#000000") },
     },
   });
 }
@@ -209,33 +495,56 @@ export class CinematicCarousel {
   readonly renderer: THREE.WebGLRenderer;
 
   private readonly scene = new THREE.Scene();
+  private readonly presenterScene = new THREE.Scene();
   private readonly backgroundScene = new THREE.Scene();
+  private readonly lensScene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(CAMERA_FOV, 9 / 16, 1, 50_000);
+  private readonly presenterCamera = new THREE.OrthographicCamera(-540, 540, 960, -960, 0.1, 100);
   private readonly backgroundCamera = new THREE.Camera();
   private readonly track = new THREE.Group();
   private readonly geometry = new THREE.PlaneGeometry(1, 1, 32, 18);
   private readonly backgroundGeometry = new THREE.PlaneGeometry(2, 2);
+  private readonly lensGeometry = new THREE.PlaneGeometry(2, 2);
   private readonly backgroundMaterial: THREE.ShaderMaterial;
   private readonly backgroundMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private readonly lensMaterial: THREE.ShaderMaterial;
+  private readonly lensMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private readonly lensTarget = new THREE.WebGLRenderTarget(1, 1, {
+    depthBuffer: true,
+    stencilBuffer: false,
+  });
   private readonly placeholderTexture: THREE.DataTexture;
   private readonly pool: SlidePoolItem[] = [];
   private readonly textureCache = new Map<string, TextureRecord>();
   private readonly texturePromises = new Map<string, Promise<TextureRecord>>();
+  private readonly textureDecodeQueue: TextureDecodeJob[] = [];
+  private readonly textureDemandKeys = new Set<string>();
   private readonly blobTextureKeys = new WeakMap<Blob, string>();
   private readonly callbacks: EngineCallbacks;
 
-  private settings: StudioSettings;
+  private drawState: DrawGraphState;
+  private legacySettings: V1RendererSettings | null;
+  private project: DriftProjectV4 | null = null;
+  private performanceTimeline: PerformanceLifecycleTimeline;
+  private reducedPerformanceTimeline: PerformanceLifecycleTimeline;
   private assets: StudioAsset[] = [];
   private presenterAsset: StudioAsset | null = null;
   private presenterGroup: THREE.Group;
   private presenterSlide: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private presenterShadow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private presenterShell: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private presenterShellMaterial: THREE.ShaderMaterial;
   private presenterMaterial: THREE.ShaderMaterial;
   private presenterShadowMaterial: THREE.ShaderMaterial;
   private presenterVideo: HTMLVideoElement | null = null;
   private presenterPreviewTexture: THREE.Texture | null = null;
   private presenterExportTexture: THREE.CanvasTexture<HTMLCanvasElement | OffscreenCanvas> | null = null;
   private presenterExportCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+  private presenterPreviewMasterTime: number | null = null;
+  private presenterReducedMotionMasterTime: number | null = null;
+  private presenterPendingSeekTarget: number | null = null;
+  private presenterPlayPending = false;
+  private presenterShouldPlay = false;
 
   private animationFrame = 0;
   private lastFrameTime = 0;
@@ -250,12 +559,20 @@ export class CinematicCarousel {
   private reducedMotionPreview = false;
   private contextLost = false;
   private disposed = false;
-  private renderCounter = 0;
+  private activeTextureDecodes = 0;
+  private pendingPreviewResize: PreviewSurfaceRequest | null = null;
   private fpsFrameCounter = 0;
   private fpsSampleStarted = performance.now();
   private exportActive = false;
+  /**
+   * A restored WebGL context cannot make an interrupted export trustworthy.
+   * Keep the active session poisoned until its receipt restores preview state;
+   * otherwise a later frame could silently continue from rebuilt GPU state.
+   */
+  private exportInvalidatedByContextLoss = false;
   private blobTextureKeyCounter = 0;
   private presenterRequestGeneration = 0;
+  private projectStateGeneration = 0;
   private activeSlideIndex = -2;
   private readonly backgroundResolution = new THREE.Vector2();
 
@@ -267,9 +584,29 @@ export class CinematicCarousel {
   private readonly onContextLostBound = (event: Event) => this.onContextLost(event);
   private readonly onContextRestoredBound = () => this.onContextRestored();
 
-  constructor(canvas: HTMLCanvasElement, settings: StudioSettings, callbacks: EngineCallbacks = {}) {
+  constructor(canvas: HTMLCanvasElement, authority: EngineInitialAuthority, callbacks: EngineCallbacks = {}) {
     this.canvas = canvas;
-    this.settings = settings;
+    if (authority.kind === "project-v4") {
+      const project = validateDriftProjectV4(authority.project);
+      if (project.renderContract !== DRIFT_V2_RENDER_CONTRACT) {
+        throw new Error("Project V4 authority requires the drift-v2/1 render contract.");
+      }
+      this.project = project;
+      this.legacySettings = null;
+      this.drawState = drawGraphStateFromProject(project);
+    } else {
+      this.legacySettings = authority.settings;
+      this.drawState = drawGraphStateFromV1Settings(authority.settings);
+    }
+    const state = this.drawState;
+    this.performanceTimeline = createPerformanceLifecycle({
+      ...state.performance,
+      reducedMotion: state.motion.reducedMotionOutput,
+    });
+    this.reducedPerformanceTimeline = createPerformanceLifecycle({
+      ...state.performance,
+      reducedMotion: true,
+    });
     this.callbacks = callbacks;
 
     const context = canvas.getContext("webgl2", {
@@ -306,35 +643,71 @@ export class CinematicCarousel {
     this.backgroundMaterial = new THREE.ShaderMaterial({
       vertexShader: backgroundVertexShader,
       fragmentShader: backgroundFragmentShader,
+      transparent: true,
       depthTest: false,
       depthWrite: false,
       uniforms: {
-        uResolution: { value: new THREE.Vector2(settings.stage.width, settings.stage.height) },
-        uColorA: { value: new THREE.Color(settings.background.colorA) },
-        uColorB: { value: new THREE.Color(settings.background.colorB) },
-        uAccent: { value: new THREE.Color(settings.background.accent) },
-        uMode: { value: backgroundMode(settings.background.style) },
-        uIntensity: { value: settings.background.intensity },
-        uMotion: { value: settings.background.motion },
-        uGrain: { value: settings.background.grain },
+        uResolution: { value: new THREE.Vector2(state.stage.width, state.stage.height) },
+        uColorA: { value: new THREE.Color(state.background.colorA) },
+        uColorB: { value: new THREE.Color(state.background.colorB) },
+        uAccent: { value: new THREE.Color(state.background.accent) },
+        uMode: { value: backgroundMode(state.background.style) },
+        uIntensity: { value: state.background.intensity },
+        uMotion: { value: state.background.motion },
+        uGrain: { value: state.background.grain },
         uGrainFrame: { value: 0 },
-        uVignette: { value: settings.background.vignette },
+        uVignette: { value: state.background.vignette },
         uPhase: { value: 0 },
-        uSeed: { value: normalizeGrainSeed(settings.background.seed) },
+        uSeed: { value: state.background.seed },
+        uGrainSeed: { value: normalizeGrainSeed(state.background.seed) },
+        uOpacity: { value: 1 },
       },
     });
     this.backgroundMesh = new THREE.Mesh(this.backgroundGeometry, this.backgroundMaterial);
     this.backgroundMesh.frustumCulled = false;
     this.backgroundScene.add(this.backgroundMesh);
+    this.lensTarget.texture.colorSpace = THREE.SRGBColorSpace;
+    this.lensTarget.texture.minFilter = THREE.LinearFilter;
+    this.lensTarget.texture.magFilter = THREE.LinearFilter;
+    this.lensMaterial = new THREE.ShaderMaterial({
+      vertexShader: lensVertexShader,
+      fragmentShader: lensFragmentShader,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      uniforms: {
+        uScene: { value: this.lensTarget.texture },
+        uResolution: { value: new THREE.Vector2(1, 1) },
+        uVelocity: { value: new THREE.Vector2(0, 0) },
+        uPresence: { value: 0 },
+        uFocus: { value: 0 },
+        uSmear: { value: 0 },
+        uChromatic: { value: 0 },
+        uBloom: { value: 0 },
+        uHalation: { value: 0 },
+        uFlare: { value: 0 },
+        uCurvature: { value: 0 },
+        uGateWeave: { value: 0 },
+        uCameraGrain: { value: 0 },
+        uVignette: { value: 0 },
+        uPhase: { value: 0 },
+        uGrainFrame: { value: 0 },
+        uSeed: { value: 0 },
+      },
+    });
+    this.lensMesh = new THREE.Mesh(this.lensGeometry, this.lensMaterial);
+    this.lensMesh.frustumCulled = false;
+    this.lensScene.add(this.lensMesh);
     this.scene.add(this.track);
 
     for (let index = 0; index < MAX_POOL_SIZE; index += 1) this.pool.push(this.createPoolItem(index));
-    ({ group: this.presenterGroup, slide: this.presenterSlide, shadow: this.presenterShadow, material: this.presenterMaterial, shadowMaterial: this.presenterShadowMaterial } = this.createPoolItem(1000));
+    ({ group: this.presenterGroup, slide: this.presenterSlide, shadow: this.presenterShadow, shell: this.presenterShell, material: this.presenterMaterial, shadowMaterial: this.presenterShadowMaterial, shellMaterial: this.presenterShellMaterial } = this.createPoolItem(1000, true));
     this.presenterGroup.renderOrder = 1000;
     this.presenterSlide.renderOrder = 1001;
     this.presenterShadow.renderOrder = 999;
     this.presenterGroup.visible = false;
-    this.scene.add(this.presenterGroup);
+    this.presenterScene.add(this.presenterGroup);
+    this.presenterCamera.position.z = 10;
 
     canvas.addEventListener("pointerdown", this.onPointerDownBound);
     canvas.addEventListener("pointermove", this.onPointerMoveBound);
@@ -351,19 +724,25 @@ export class CinematicCarousel {
     this.start();
   }
 
-  private createPoolItem(index: number): SlidePoolItem {
+  private createPoolItem(index: number, protectedOverlay = false): SlidePoolItem {
     const group = new THREE.Group();
-    const material = createSlideMaterial(this.placeholderTexture);
-    const shadowMaterial = createShadowMaterial();
+    const material = createSlideMaterial(this.placeholderTexture, !protectedOverlay);
+    const shadowMaterial = createShadowMaterial(!protectedOverlay);
+    const shellMaterial = createSlideMaterial(this.placeholderTexture, !protectedOverlay);
     const slide = new THREE.Mesh(this.geometry, material);
     const shadow = new THREE.Mesh(this.geometry, shadowMaterial);
-    slide.renderOrder = index * 2 + 2;
-    shadow.renderOrder = index * 2 + 1;
+    const shell = new THREE.Mesh(this.geometry, shellMaterial);
+    // Composite the shadow plate beneath the complete artwork plate so crossing
+    // paths retain depth without letting a later card muddy earlier artwork.
+    shadow.renderOrder = index;
+    shell.renderOrder = MAX_POOL_SIZE + index;
+    slide.renderOrder = MAX_POOL_SIZE * 2 + index;
     shadow.position.set(10, -14, -8);
-    group.add(shadow, slide);
+    shell.visible = !protectedOverlay;
+    group.add(shadow, shell, slide);
     group.visible = false;
     if (index < MAX_POOL_SIZE) this.track.add(group);
-    return { group, slide, shadow, material, shadowMaterial, assetKey: null };
+    return { group, slide, shadow, shell, material, shadowMaterial, shellMaterial, assetKey: null };
   }
 
   get capabilities(): EngineCapabilitySnapshot {
@@ -388,18 +767,87 @@ export class CinematicCarousel {
     return this.contextLost;
   }
 
-  setSettings(settings: StudioSettings): void {
-    this.settings = settings;
+  private applyDrawState(state: DrawGraphState, render: boolean): void {
+    this.drawState = state;
+    this.performanceTimeline = createPerformanceLifecycle({
+      ...state.performance,
+      reducedMotion: state.motion.reducedMotionOutput,
+    });
+    this.reducedPerformanceTimeline = createPerformanceLifecycle({
+      ...state.performance,
+      reducedMotion: true,
+    });
+    if (this.reducedMotionPreview) {
+      this.presenterReducedMotionMasterTime = defaultPerformanceStillTime(this.reducedPerformanceTimeline);
+    }
     this.updateCamera();
     this.updateSettingsUniforms();
     this.updatePresenterGeometry();
+    this.setTextureDemand(this.textureDemandKeys);
+    if (render && !this.exportActive) this.renderPreview();
+  }
+
+  private requireV1Settings(): V1RendererSettings {
+    if (!this.legacySettings) {
+      throw new Error("Legacy renderer settings are unavailable in the Project V4 render lane.");
+    }
+    return this.legacySettings;
+  }
+
+  async setV2ProjectState(projectInput: DriftProjectV4, assets: StudioAsset[]): Promise<void> {
+    const project = validateDriftProjectV4(projectInput);
+    if (project.renderContract !== DRIFT_V2_RENDER_CONTRACT) {
+      throw new Error("V2 renderer state requires the drift-v2/1 render contract.");
+    }
+    const generation = ++this.projectStateGeneration;
+    this.project = project;
+    this.legacySettings = null;
+    this.applyDrawState(drawGraphStateFromProject(project), false);
+    await this.applyAssets(assets, false);
+    if (generation !== this.projectStateGeneration || this.disposed) return;
     if (!this.exportActive) this.renderPreview();
   }
 
+  async setV1CompatibilityState(
+    settings: V1RendererSettings,
+    projectInput: DriftProjectV4,
+    assets: StudioAsset[],
+  ): Promise<void> {
+    const project = validateDriftProjectV4(projectInput);
+    if (project.renderContract !== DRIFT_V1_COMPAT_RENDER_CONTRACT) {
+      throw new Error("V1 compatibility state requires the drift-v1-compat/1 render contract.");
+    }
+    const generation = ++this.projectStateGeneration;
+    this.project = project;
+    this.legacySettings = settings;
+    this.applyDrawState(drawGraphStateFromV1Settings(settings), false);
+    await this.applyAssets(assets, false);
+    if (generation !== this.projectStateGeneration || this.disposed) return;
+    if (!this.exportActive) this.renderPreview();
+  }
+
+  /**
+   * Compatibility-only live settings update. Project V4 can never enter this
+   * lane: its draw state must always be re-derived from the validated project.
+   */
+  setV1Settings(settings: V1RendererSettings): void {
+    if (!this.legacySettings || this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
+      throw new Error("V1 renderer settings cannot mutate the Project V4 render lane.");
+    }
+    this.legacySettings = settings;
+    this.applyDrawState(drawGraphStateFromV1Settings(settings), true);
+  }
+
   async setAssets(assets: StudioAsset[]): Promise<void> {
+    this.projectStateGeneration += 1;
+    await this.applyAssets(assets, true);
+  }
+
+  private async applyAssets(assets: StudioAsset[], render: boolean): Promise<void> {
     const previousKeys = new Set(this.assets.map((asset) => this.textureKey(asset)));
     this.assets = assets.filter((asset) => asset.kind === "image");
     this.pruneInactiveTextures();
+    this.pruneInactiveTextureRequests();
     const activeKeys = new Set(this.assets.map((asset) => this.textureKey(asset)));
     for (const item of this.pool) {
       if (item.assetKey && !activeKeys.has(item.assetKey)) {
@@ -412,7 +860,11 @@ export class CinematicCarousel {
     if (additions.length > 0) {
       await Promise.all(additions.slice(0, 8).map((asset) => this.ensureTexture(asset).catch(() => null)));
     }
-    this.renderPreview();
+    if (render) this.renderPreview();
+  }
+
+  private movingTrackAssets(): MovingTrackAsset[] {
+    return resolveMovingTrackAssets(this.assets, this.presenterAsset, this.drawState.presenter);
   }
 
   async setPresenterAsset(asset: StudioAsset | null): Promise<void> {
@@ -420,6 +872,8 @@ export class CinematicCarousel {
     this.disposePresenterPreview();
     this.presenterAsset = asset;
     this.pruneInactiveTextures();
+    this.pruneInactiveTextureRequests();
+    this.setTextureDemand(this.textureDemandKeys);
     if (!asset) {
       this.resolvePresenterTexture();
       return;
@@ -428,13 +882,20 @@ export class CinematicCarousel {
     try {
       if (asset.kind === "video") {
         const video = document.createElement("video");
-        video.src = asset.objectUrl;
         video.preload = "auto";
-        video.loop = true;
+        // Export consumes one source pass and rejects under-length video. Keep
+        // preview honest by holding the tail rather than inventing a loop.
+        video.loop = false;
         video.muted = true;
         video.playsInline = true;
         video.crossOrigin = "anonymous";
-        await video.play().catch(() => undefined);
+        video.src = asset.objectUrl;
+        video.load();
+        const alignedMasterTime = await preparePresenterPreviewFrame(
+          video,
+          () => this.previewMasterTime(),
+          this.drawState.output.fps,
+        );
         if (requestGeneration !== this.presenterRequestGeneration || this.presenterAsset !== asset || this.disposed) {
           video.pause();
           video.removeAttribute("src");
@@ -448,6 +909,7 @@ export class CinematicCarousel {
         texture.generateMipmaps = false;
         this.presenterVideo = video;
         this.presenterPreviewTexture = texture;
+        this.presenterPreviewMasterTime = alignedMasterTime;
         this.syncPresenterPlayback();
       } else {
         const record = await this.ensureTexture(asset);
@@ -496,7 +958,7 @@ export class CinematicCarousel {
   }
 
   private resolvePresenterTexture(fixedImage?: { asset: StudioAsset; record: TextureRecord }): void {
-    if (!this.presenterAsset || !this.settings.presenter.enabled) {
+    if (!this.presenterAsset || !this.drawState.presenter.enabled) {
       this.presenterMaterial.uniforms.uMap!.value = null;
       this.presenterGroup.visible = false;
       return;
@@ -548,6 +1010,11 @@ export class CinematicCarousel {
       this.presenterPreviewTexture.dispose();
     }
     this.presenterPreviewTexture = null;
+    this.presenterPreviewMasterTime = null;
+    this.presenterReducedMotionMasterTime = null;
+    this.presenterPendingSeekTarget = null;
+    this.presenterPlayPending = false;
+    this.presenterShouldPlay = false;
   }
 
   setPaused(paused: boolean): void {
@@ -562,21 +1029,34 @@ export class CinematicCarousel {
   }
 
   setReducedMotionPreview(reduced: boolean): void {
+    if (reduced && !this.reducedMotionPreview) {
+      // Reduced motion is a stable composition preview, not an arbitrarily
+      // frozen entry/exit frame. Land at the first body's authored midpoint.
+      this.presenterReducedMotionMasterTime = defaultPerformanceStillTime(this.reducedPerformanceTimeline);
+    } else if (!reduced) {
+      this.presenterReducedMotionMasterTime = null;
+    }
     this.reducedMotionPreview = reduced;
     if (reduced) this.motionVelocity = 0;
     this.syncPresenterPlayback();
   }
 
   stepSlides(amount: number): void {
-    const geometry = getSlideGeometry(this.settings);
-    this.motionPosition += geometry.stride * amount * this.settings.motion.direction;
+    const geometry = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT
+      ? deriveSlideGeometry(this.project, this.movingTrackAssets().length)
+      : getSlideGeometry(this.requireV1Settings());
+    this.motionPosition += geometry.stride * amount * this.drawState.motion.direction;
     this.motionVelocity = 0;
     this.renderPreview();
   }
 
   resize(width: number, height: number): void {
-    if (this.exportActive || width <= 0 || height <= 0) return;
+    if (width <= 0 || height <= 0) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    if (this.exportActive) {
+      this.pendingPreviewResize = { width, height, pixelRatio: dpr };
+      return;
+    }
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(Math.max(1, width), Math.max(1, height), false);
     this.updateCamera();
@@ -585,11 +1065,16 @@ export class CinematicCarousel {
 
   beginExport(width: number, height: number): ExportSurfaceReceipt {
     if (this.exportActive) throw new Error("Export surface is already active.");
+    if (this.disposed || this.contextLost) {
+      throw new Error("WebGL renderer is unavailable; export was not started.");
+    }
     assertExportSurfaceSupported(width, height, this.capabilities);
     const previousSize = new THREE.Vector2();
     this.renderer.getSize(previousSize);
     const previousPixelRatio = this.renderer.getPixelRatio();
     const previousPaused = this.paused;
+    this.pendingPreviewResize = null;
+    this.exportInvalidatedByContextLoss = false;
     this.exportActive = true;
     this.paused = true;
     this.syncPresenterPlayback();
@@ -605,10 +1090,17 @@ export class CinematicCarousel {
       restore: () => {
         if (!this.exportActive) return;
         this.exportActive = false;
+        this.exportInvalidatedByContextLoss = false;
         this.paused = previousPaused;
         this.syncPresenterPlayback();
-        this.renderer.setPixelRatio(previousPixelRatio);
-        this.renderer.setSize(previousSize.x, previousSize.y, false);
+        const previewSurface = this.pendingPreviewResize;
+        this.pendingPreviewResize = null;
+        this.renderer.setPixelRatio(previewSurface?.pixelRatio ?? previousPixelRatio);
+        this.renderer.setSize(
+          previewSurface?.width ?? previousSize.x,
+          previewSurface?.height ?? previousSize.y,
+          false,
+        );
         this.updateCamera();
         this.setPresenterExportFrame(null);
         this.renderPreview();
@@ -616,48 +1108,139 @@ export class CinematicCarousel {
     };
   }
 
-  renderAt(time: number): void {
-    const geometry = getSlideGeometry(this.settings);
-    const slotCount = getLogicalSlotCount(this.assets.length, geometry);
-    const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
-    const velocity = velocityAtTime(this.settings, slotCount, geometry.stride, true);
-    this.renderInternal(time, distance, velocity, true);
+  renderAt(time: number, frameIndex: number | null = null): void {
+    this.assertExplicitFrameRendererAvailable();
+    const exportFrameIndex = resolveExportFrameIndex(frameIndex);
+    if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
+      const evaluation = evaluateProjectFrame({
+        project: this.project,
+        time,
+        frameIndex: exportFrameIndex,
+        assets: this.assets,
+      });
+      this.renderProjectFrame(evaluation, true);
+      this.assertExplicitFrameRendererAvailable();
+      return;
+    }
+    const settings = this.requireV1Settings();
+    const geometry = getSlideGeometry(settings);
+    const movingAssets = this.movingTrackAssets();
+    const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
+    const travel = evaluatePerformanceTravel(this.performanceTimeline, time, {
+      direction: settings.motion.direction,
+      slidesPerSecond: settings.motion.speed,
+      stride: geometry.stride,
+      slotCount,
+      slideLayerCount: this.assets.length,
+      seamless: settings.motion.seamless,
+      seamlessLoops: Math.max(1, Math.round(settings.motion.seamlessLoops)),
+    });
+    this.renderInternal(time, travel.distance, travel.velocity, true, exportFrameIndex, travel.lifecycle);
+    this.assertExplicitFrameRendererAvailable();
   }
 
-  async renderAtAsync(time: number): Promise<void> {
-    const geometry = getSlideGeometry(this.settings);
-    const slotCount = getLogicalSlotCount(this.assets.length, geometry);
-    const distance = distanceAtTime(this.settings, time, slotCount, geometry.stride, true);
+  async renderAtAsync(time: number, frameIndex: number | null = null): Promise<void> {
+    this.assertExplicitFrameRendererAvailable();
+    const exportFrameIndex = resolveExportFrameIndex(frameIndex);
+    if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
+      const evaluation = evaluateProjectFrame({
+        project: this.project,
+        time,
+        frameIndex: exportFrameIndex,
+        assets: this.assets,
+      });
+      const needed = new Map<string, StudioAsset>();
+      const neededRenderables = evaluation.renderables.length <= this.pool.length
+        ? evaluation.renderables
+        : [...evaluation.renderables]
+            .sort((a, b) => Math.abs(a.evaluated.primary) - Math.abs(b.evaluated.primary))
+            .slice(0, this.pool.length);
+      for (const item of neededRenderables) needed.set(this.textureKey(item.asset), item.asset);
+      const pinnedImage = this.drawState.presenter.enabled && this.presenterAsset?.kind === "image"
+        ? this.presenterAsset
+        : null;
+      const presenterGeneration = this.presenterRequestGeneration;
+      this.setTextureDemand(needed.keys());
+      const [, pinnedRecord] = await Promise.all([
+        Promise.all(Array.from(needed.values(), (asset) => this.ensureTexture(asset))),
+        pinnedImage ? this.ensureTexture(pinnedImage) : Promise.resolve(null),
+      ]);
+      this.assertExplicitFrameRendererAvailable();
+      const currentPinnedRecord = pinnedImage
+        && pinnedRecord
+        && presenterGeneration === this.presenterRequestGeneration
+        && this.presenterAsset === pinnedImage
+        && this.drawState.presenter.enabled
+        ? pinnedRecord
+        : null;
+      if (currentPinnedRecord) this.presenterPreviewTexture = currentPinnedRecord.texture;
+      this.resolvePresenterTexture(
+        currentPinnedRecord && pinnedImage ? { asset: pinnedImage, record: currentPinnedRecord } : undefined,
+      );
+      this.renderProjectFrame(evaluation, true);
+      this.assertExplicitFrameRendererAvailable();
+      return;
+    }
+    const settings = this.requireV1Settings();
+    const geometry = getSlideGeometry(settings);
+    const movingAssets = this.movingTrackAssets();
+    const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
+    const travel = evaluatePerformanceTravel(this.performanceTimeline, time, {
+      direction: settings.motion.direction,
+      slidesPerSecond: settings.motion.speed,
+      stride: geometry.stride,
+      slotCount,
+      slideLayerCount: this.assets.length,
+      seamless: settings.motion.seamless,
+      seamlessLoops: Math.max(1, Math.round(settings.motion.seamlessLoops)),
+    });
+    const distance = travel.distance;
     const visible: VisibleItem[] = [];
     for (let logicalIndex = 0; logicalIndex < slotCount; logicalIndex += 1) {
-      const asset = this.assets[logicalIndex % Math.max(1, this.assets.length)];
-      if (!asset) continue;
-      const evaluated = evaluateSlide(logicalIndex, slotCount, distance, this.settings, geometry);
-      if (isPotentiallyVisible(evaluated, geometry)) visible.push({ logicalIndex, asset, evaluated });
+      const moving = movingAssets[logicalIndex % Math.max(1, movingAssets.length)];
+      if (!moving) continue;
+      const evaluated = evaluateSlide(logicalIndex, slotCount, distance, settings, geometry);
+      if (isPotentiallyVisible(evaluated, geometry)) visible.push({
+        logicalIndex,
+        sourceIndex: moving.sourceIndex,
+        layerIndex: moving.sourceIndex,
+        asset: moving.asset,
+        evaluated,
+      });
     }
     const needed = new Map<string, StudioAsset>();
     for (const item of selectRenderableItems(visible, this.pool.length)) needed.set(this.textureKey(item.asset), item.asset);
-    const pinnedImage = this.settings.presenter.enabled && this.presenterAsset?.kind === "image"
+    const pinnedImage = this.drawState.presenter.enabled && this.presenterAsset?.kind === "image"
       ? this.presenterAsset
       : null;
     const presenterGeneration = this.presenterRequestGeneration;
+    this.setTextureDemand(needed.keys());
     const [, pinnedRecord] = await Promise.all([
       Promise.all(Array.from(needed.values(), (asset) => this.ensureTexture(asset))),
       pinnedImage ? this.ensureTexture(pinnedImage) : Promise.resolve(null),
     ]);
-    if (this.disposed || this.contextLost) throw new Error("WebGL renderer became unavailable while preparing an export frame.");
+    this.assertExplicitFrameRendererAvailable();
     const currentPinnedRecord = pinnedImage
       && pinnedRecord
       && presenterGeneration === this.presenterRequestGeneration
       && this.presenterAsset === pinnedImage
-      && this.settings.presenter.enabled
+      && this.drawState.presenter.enabled
       ? pinnedRecord
       : null;
     if (currentPinnedRecord) this.presenterPreviewTexture = currentPinnedRecord.texture;
     this.resolvePresenterTexture(
       currentPinnedRecord && pinnedImage ? { asset: pinnedImage, record: currentPinnedRecord } : undefined,
     );
-    this.renderAt(time);
+    this.renderAt(time, exportFrameIndex);
+  }
+
+  private assertExplicitFrameRendererAvailable(): void {
+    if (this.disposed) {
+      throw new Error("WebGL renderer was disposed while preparing an export frame.");
+    }
+    if (this.contextLost || this.exportInvalidatedByContextLoss) {
+      throw new Error("WebGL context was lost during export; the untrusted frame was rejected.");
+    }
   }
 
   async captureStill(width: number, height: number, time = 0): Promise<Blob> {
@@ -677,11 +1260,14 @@ export class CinematicCarousel {
     this.lastFrameTime = performance.now();
     const tick = (now: number) => {
       this.animationFrame = requestAnimationFrame(tick);
-      if (this.exportActive || this.contextLost || document.hidden) return;
-      const delta = Math.min(0.05, Math.max(0, (now - this.lastFrameTime) / 1000));
+      const wallDelta = Math.max(0, (now - this.lastFrameTime) / 1000);
       this.lastFrameTime = now;
-      if (!this.paused && !this.reducedMotionPreview) this.elapsed += delta;
-      this.advanceMotion(delta);
+      if (this.exportActive || this.contextLost || document.hidden) return;
+      // The authored show clock follows real active time; otherwise a slow
+      // paint loop makes decoder-driven presenter video outrun the slides.
+      // Only inertial interaction physics is capped after a long frame.
+      if (!this.paused) this.elapsed += wallDelta;
+      this.advanceMotion(Math.min(0.05, wallDelta));
       this.renderPreview();
       this.sampleFps(now);
     };
@@ -694,46 +1280,220 @@ export class CinematicCarousel {
   }
 
   private advanceMotion(delta: number): void {
-    if (this.paused || this.reducedMotionPreview) {
+    if (this.paused) {
       this.motionVelocity = 0;
       return;
     }
-    const geometry = getSlideGeometry(this.settings);
-    const autoplay = this.settings.motion.autoplay;
-    const desiredVelocity = autoplay ? this.settings.motion.direction * this.settings.motion.speed * geometry.stride : 0;
     if (!this.dragging) {
-      const response = 1 - Math.exp(-delta * (autoplay ? 4.8 : 7.5));
-      this.motionVelocity += (desiredVelocity - this.motionVelocity) * response;
       this.motionPosition += this.motionVelocity * delta;
+      this.motionVelocity *= Math.exp(-delta * 7.5);
+      if (Math.abs(this.motionVelocity) < 0.01) this.motionVelocity = 0;
     }
+  }
+
+  private normalizeV2InteractionPosition(): void {
+    const project = this.project;
+    if (project?.renderContract !== DRIFT_V2_RENDER_CONTRACT) return;
+    const pinnedOnlyId = project.presenter.enabled
+      && project.presenter.trackMode === "pinned-only"
+      && project.presenter.assetId !== null
+      && project.media.assets[project.presenter.assetId]?.kind === "image"
+      ? project.presenter.assetId
+      : null;
+    const sourceCount = project.media.order.length - (pinnedOnlyId === null ? 0 : 1);
+    const geometry = deriveSlideGeometry(project, sourceCount);
+    const slotCount = geometry.virtualSlotCount;
+    const loopLength = slotCount * geometry.stride;
+    if (!Number.isFinite(this.motionPosition) || !Number.isFinite(loopLength) || loopLength <= 0) {
+      this.motionPosition = 0;
+      return;
+    }
+    this.motionPosition = THREE.MathUtils.euclideanModulo(
+      this.motionPosition + loopLength / 2,
+      loopLength,
+    ) - loopLength / 2;
   }
 
   private renderPreview(): void {
     if (this.contextLost || this.disposed || this.exportActive) return;
-    this.renderInternal(this.elapsed, this.motionPosition, this.motionVelocity, false);
+    if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
+      this.normalizeV2InteractionPosition();
+      const previewTime = this.previewMasterTime();
+      this.syncPresenterPlayback(previewTime);
+      try {
+        const evaluation = evaluateProjectFrame({
+          project: this.project,
+          time: previewTime,
+          frameIndex: null,
+          assets: this.assets,
+          reducedMotion: this.reducedMotionPreview,
+          interactionDistancePx: this.motionPosition,
+        });
+        this.renderProjectFrame(evaluation, false);
+      } catch (error) {
+        this.callbacks.onError?.(error instanceof Error ? error.message : "Project V4 frame evaluation failed.");
+      }
+      return;
+    }
+    const timeline = this.reducedMotionPreview
+      ? this.reducedPerformanceTimeline
+      : this.performanceTimeline;
+    const performanceTime = this.reducedMotionPreview
+      ? this.previewMasterTime()
+      : loopPerformanceTime(this.elapsed, timeline.totalDuration);
+    this.syncPresenterPlayback(performanceTime);
+    const settings = this.requireV1Settings();
+    const geometry = getSlideGeometry(settings);
+    const movingAssets = this.movingTrackAssets();
+    const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
+    const travel = evaluatePerformanceTravel(timeline, performanceTime, {
+      direction: settings.motion.direction,
+      slidesPerSecond: settings.motion.autoplay ? settings.motion.speed : 0,
+      stride: geometry.stride,
+      slotCount,
+      slideLayerCount: this.assets.length,
+      seamless: settings.motion.seamless,
+      seamlessLoops: Math.max(1, Math.round(settings.motion.seamlessLoops)),
+    });
+    this.renderInternal(
+      performanceTime,
+      travel.distance + this.motionPosition,
+      travel.velocity + this.motionVelocity,
+      false,
+      null,
+      travel.lifecycle,
+    );
   }
 
-  private renderInternal(time: number, distance: number, velocity: number, exportMode: boolean): void {
-    const geometry = getSlideGeometry(this.settings);
-    const slotCount = getLogicalSlotCount(this.assets.length, geometry);
+  private renderInternal(
+    time: number,
+    distance: number,
+    velocity: number,
+    exportMode: boolean,
+    exportFrameIndex: number | null = null,
+    lifecycle?: PerformanceLifecycleSample,
+  ): void {
+    const settings = this.requireV1Settings();
+    const geometry = getSlideGeometry(settings);
+    const movingAssets = this.movingTrackAssets();
+    const slotCount = getLogicalSlotCount(movingAssets.length, geometry);
     const normalizedVelocity = this.reducedMotionPreview && !exportMode ? 0 : THREE.MathUtils.clamp(velocity / Math.max(1, geometry.stride), -1, 1);
     const visible: VisibleItem[] = [];
 
     for (let logicalIndex = 0; logicalIndex < slotCount; logicalIndex += 1) {
-      const asset = this.assets[logicalIndex % Math.max(1, this.assets.length)];
-      if (!asset) continue;
-      const evaluated = evaluateSlide(logicalIndex, slotCount, distance, this.settings, geometry);
-      if (isPotentiallyVisible(evaluated, geometry)) visible.push({ logicalIndex, asset, evaluated });
+      const moving = movingAssets[logicalIndex % Math.max(1, movingAssets.length)];
+      if (!moving) continue;
+      const evaluated = evaluateSlide(logicalIndex, slotCount, distance, settings, geometry);
+      if (isPotentiallyVisible(evaluated, geometry)) visible.push({
+        logicalIndex,
+        sourceIndex: moving.sourceIndex,
+        layerIndex: moving.sourceIndex,
+        asset: moving.asset,
+        evaluated,
+      });
     }
     const renderable = selectRenderableItems(visible, this.pool.length);
+
+    this.renderVisibleItems({
+      time,
+      exportMode,
+      exportFrameIndex,
+      lifecycle,
+      visible,
+      renderable,
+      width: geometry.width,
+      height: geometry.height,
+      normalizedVelocity,
+      normalizedAcceleration: 0,
+      travelPhase: 0,
+    });
+  }
+
+  private renderProjectFrame(
+    evaluation: ProjectFrameEvaluation,
+    exportMode: boolean,
+  ): void {
+    const visible: VisibleItem[] = evaluation.renderables.map((item) => {
+      const primary = item.evaluated.primary;
+      return {
+        logicalIndex: item.evaluated.logicalIndex,
+        sourceIndex: item.sourceIndex,
+        layerIndex: item.evaluated.sourceIndex,
+        asset: item.asset,
+        directive: item.directive,
+          evaluated: {
+          primary,
+          cross: item.evaluated.cross,
+          z: item.evaluated.z,
+          rotationX: item.evaluated.rotationX,
+          rotationY: item.evaluated.rotationY,
+          rotationZ: item.evaluated.rotationZ,
+          scale: item.evaluated.scale,
+          opacity: item.evaluated.opacity,
+            normalized: primary / Math.max(1, evaluation.geometry.visibleRadius),
+          },
+          pathBend: item.evaluated.pathBend,
+      };
+    });
+    const interactionVelocity = exportMode
+      ? 0
+      : this.motionVelocity / Math.max(1, evaluation.geometry.stride);
+    const normalizedVelocity = this.reducedMotionPreview && !exportMode
+      ? 0
+      : THREE.MathUtils.clamp(evaluation.frame.track.velocity + interactionVelocity, -1, 1);
+    const normalizedAcceleration = this.reducedMotionPreview && !exportMode
+      ? 0
+      : THREE.MathUtils.clamp(evaluation.frame.track.acceleration, -1, 1);
+    const renderable = selectRenderableItems(visible, this.pool.length);
+    this.renderVisibleItems({
+      time: evaluation.frame.time,
+      exportMode,
+      exportFrameIndex: evaluation.frame.frameIndex,
+      lifecycle: evaluation.lifecycle ?? undefined,
+      visible,
+      renderable,
+      width: evaluation.geometry.width,
+      height: evaluation.geometry.height,
+      normalizedVelocity,
+      normalizedAcceleration,
+      travelPhase: evaluation.frame.phases.material,
+    });
+  }
+
+  private renderVisibleItems(input: {
+    time: number;
+    exportMode: boolean;
+    exportFrameIndex: number | null;
+    lifecycle?: PerformanceLifecycleSample;
+    visible: VisibleItem[];
+    renderable: VisibleItem[];
+    width: number;
+    height: number;
+    normalizedVelocity: number;
+    normalizedAcceleration: number;
+    travelPhase: number;
+  }): void {
+    const {
+      time,
+      exportMode,
+      exportFrameIndex,
+      lifecycle,
+      visible,
+      renderable,
+      width,
+      height,
+      normalizedVelocity,
+      normalizedAcceleration,
+      travelPhase,
+    } = input;
 
     if (!exportMode) {
       let centered: VisibleItem | null = null;
       for (const item of visible) {
         if (!centered || Math.abs(item.evaluated.primary) < Math.abs(centered.evaluated.primary)) centered = item;
       }
-      const nextActiveSlide = centered && this.assets.length > 0
-        ? centered.logicalIndex % this.assets.length
+      const nextActiveSlide = centered
+        ? centered.sourceIndex
         : -1;
       if (nextActiveSlide !== this.activeSlideIndex) {
         this.activeSlideIndex = nextActiveSlide;
@@ -741,7 +1501,9 @@ export class CinematicCarousel {
       }
     }
 
-    const keepTextureKeys = new Set<string>();
+    const keepTextureKeys = new Set(renderable.map((item) => this.textureKey(item.asset)));
+    this.setTextureDemand(keepTextureKeys);
+    const presenterLayout = this.resolveSafePresenterLayout();
     for (let poolIndex = 0; poolIndex < this.pool.length; poolIndex += 1) {
       const item = this.pool[poolIndex]!;
       const visibleItem = renderable[poolIndex];
@@ -749,23 +1511,129 @@ export class CinematicCarousel {
         item.group.visible = false;
         continue;
       }
-      keepTextureKeys.add(this.textureKey(visibleItem.asset));
-      this.updatePoolItem(item, visibleItem, geometry.width, geometry.height, normalizedVelocity);
+      this.updatePoolItem(
+        item,
+        visibleItem,
+        width,
+        height,
+        normalizedVelocity,
+        normalizedAcceleration,
+        travelPhase,
+        lifecycle?.layers.slides[visibleItem.layerIndex],
+        this.lifecycleTreatment(lifecycle),
+        presenterLayout,
+      );
     }
 
-    this.updatePresenterGeometry();
-    this.updateBackground(time, exportMode);
-    if (this.renderCounter % 90 === 0) this.evictTextures(keepTextureKeys);
-    this.renderCounter += 1;
+    this.updatePresenterGeometry(lifecycle?.layers.presenter, this.lifecycleTreatment(lifecycle), presenterLayout);
+    this.backgroundMaterial.uniforms.uOpacity!.value = lifecycle?.layers.background.visibility ?? 1;
+    this.updateBackground(time, exportMode, exportFrameIndex);
+    this.evictTextures(keepTextureKeys);
 
-    this.renderer.setClearColor(0x000000, 0);
-    this.renderer.clear(true, true, true);
-    const transparent = this.settings.stage.transparent || this.settings.background.style === "transparent";
-    if (!transparent) {
-      this.renderer.render(this.backgroundScene, this.backgroundCamera);
+    const transparent = this.drawState.stage.transparent || this.drawState.background.style === "transparent";
+    this.renderComposedScene(
+      transparent,
+      normalizedVelocity,
+      time,
+      exportMode,
+      exportFrameIndex,
+    );
+  }
+
+  private syncLensTargetSize(): void {
+    this.renderer.getDrawingBufferSize(this.backgroundResolution);
+    const width = Math.max(1, Math.round(this.backgroundResolution.x));
+    const height = Math.max(1, Math.round(this.backgroundResolution.y));
+    if (this.lensTarget.width !== width || this.lensTarget.height !== height) {
+      this.lensTarget.setSize(width, height);
+    }
+    this.lensMaterial.uniforms.uResolution!.value.set(width, height);
+  }
+
+  private renderComposedScene(
+    transparent: boolean,
+    normalizedVelocity: number,
+    time: number,
+    exportMode: boolean,
+    exportFrameIndex: number | null,
+  ): void {
+    const project = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT
+      ? this.project
+      : null;
+    const lens = project?.lens;
+    const lensActive = Boolean(lens?.enabled && lens.presence > 0.0001);
+    const safePresenterVisible = this.presenterGroup.visible && this.presenterGroup.parent === this.presenterScene;
+    const presenterThroughLens = lensActive
+      && safePresenterVisible
+      && lens?.presenterTreatment === "through-lens";
+    const clearAlpha = resolveCanvasClearAlpha(this.project);
+
+    if (lensActive && lens && project) {
+      this.syncLensTargetSize();
+      this.renderer.setRenderTarget(this.lensTarget);
+      this.renderer.setClearColor(0x000000, clearAlpha);
+      this.renderer.clear(true, true, true);
+      if (!transparent) {
+        this.renderer.render(this.backgroundScene, this.backgroundCamera);
+        this.renderer.clearDepth();
+      }
+      this.renderer.render(this.scene, this.camera);
+      if (presenterThroughLens) {
+        this.renderer.clearDepth();
+        this.renderer.render(this.presenterScene, this.presenterCamera);
+      }
+
+      const uniforms = this.lensMaterial.uniforms;
+      uniforms.uVelocity!.value.set(
+        this.drawState.motion.axis === "horizontal" ? normalizedVelocity : 0,
+        this.drawState.motion.axis === "vertical" ? -normalizedVelocity : 0,
+      );
+      uniforms.uPresence!.value = lens.presence;
+      uniforms.uFocus!.value = lens.focus;
+      uniforms.uSmear!.value = lens.directionalSmear;
+      uniforms.uChromatic!.value = lens.chromaticSeparation;
+      uniforms.uBloom!.value = lens.bloom;
+      uniforms.uHalation!.value = lens.halation;
+      uniforms.uFlare!.value = lens.flare;
+      uniforms.uCurvature!.value = lens.curvature;
+      uniforms.uGateWeave!.value = lens.gateWeave;
+      uniforms.uCameraGrain!.value = lens.cameraGrain;
+      uniforms.uVignette!.value = lens.vignette;
+      uniforms.uPhase!.value = resolveBackgroundPhase(time, {
+        durationSeconds: this.drawState.output.duration,
+        motion: 1,
+        seamless: this.drawState.motion.seamless,
+        seamlessLoops: this.drawState.motion.seamlessLoops,
+        reducedMotion: false,
+      });
+      uniforms.uGrainFrame!.value = resolveGrainFrame(
+        time,
+        this.drawState.output.fps,
+        exportMode,
+        false,
+        exportFrameIndex,
+      );
+      uniforms.uSeed!.value = normalizeGrainSeed(project.projectSeed);
+
+      this.renderer.setRenderTarget(null);
+      this.renderer.setClearColor(0x000000, clearAlpha);
+      this.renderer.clear(true, true, true);
+      this.renderer.render(this.lensScene, this.backgroundCamera);
+    } else {
+      this.renderer.setRenderTarget(null);
+      this.renderer.setClearColor(0x000000, clearAlpha);
+      this.renderer.clear(true, true, true);
+      if (!transparent) {
+        this.renderer.render(this.backgroundScene, this.backgroundCamera);
+        this.renderer.clearDepth();
+      }
+      this.renderer.render(this.scene, this.camera);
+    }
+
+    if (safePresenterVisible && !presenterThroughLens) {
       this.renderer.clearDepth();
+      this.renderer.render(this.presenterScene, this.presenterCamera);
     }
-    this.renderer.render(this.scene, this.camera);
   }
 
   private updatePoolItem(
@@ -774,42 +1642,182 @@ export class CinematicCarousel {
     width: number,
     height: number,
     velocity: number,
+    acceleration: number,
+    travelPhase: number,
+    lifecycleLayer?: LifecycleLayerSample,
+    treatment: TransitionTreatment | null = null,
+    presenterLayout: PresenterOverlayLayout | null = null,
   ): void {
     const { evaluated, asset, logicalIndex } = visible;
     item.group.visible = true;
-    if (this.settings.motion.axis === "horizontal") item.group.position.set(evaluated.primary, evaluated.cross, evaluated.z);
-    else item.group.position.set(evaluated.cross, -evaluated.primary, evaluated.z);
+    const transition = resolveLifecycleLayerPresentation(
+      lifecycleLayer ?? { visibility: 1, progress: 1, motionProgress: 1, active: false },
+      treatment,
+      Math.min(48, Math.min(this.drawState.stage.width, this.drawState.stage.height) * 0.035),
+    );
+    const vertical = this.drawState.motion.axis === "vertical";
+    const movingCenter = vertical
+      ? { x: evaluated.cross, y: -evaluated.primary - transition.translateY }
+      : { x: evaluated.primary, y: evaluated.cross - transition.translateY };
+    const baseScale = evaluated.scale * transition.scale;
+    const pinLane = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT && presenterLayout
+      ? resolveProtectedPinLaneComposition({
+          enabled: this.drawState.presenter.enabled,
+          safeOverlay: this.drawState.presenter.layoutMode === "safe-overlay",
+          stage: this.drawState.stage,
+          axis: this.drawState.motion.axis,
+          presenterBounds: presenterLayout.frameBoundsStage,
+          movingCenter,
+          movingSize: { width, height },
+          movingScale: baseScale,
+          movingRotationZ: evaluated.rotationZ,
+          edgeInset: Math.min(this.drawState.stage.width, this.drawState.stage.height)
+            * this.drawState.presenter.safeInset,
+        })
+      : resolvePinLaneComposition({
+          enabled: this.drawState.presenter.enabled,
+          safeOverlay: this.drawState.presenter.layoutMode === "safe-overlay",
+          stage: this.drawState.stage,
+          axis: this.drawState.motion.axis,
+          pinX: this.drawState.presenter.x,
+          pinY: this.drawState.presenter.y,
+          pinWidth: this.drawState.presenter.width,
+        });
+    if (this.drawState.motion.axis === "horizontal") {
+      item.group.position.set(
+        evaluated.primary + pinLane.offsetX,
+        evaluated.cross + pinLane.offsetY - transition.translateY,
+        evaluated.z,
+      );
+    } else {
+      item.group.position.set(
+        evaluated.cross + pinLane.offsetX,
+        -evaluated.primary + pinLane.offsetY - transition.translateY,
+        evaluated.z,
+      );
+    }
     item.group.rotation.set(evaluated.rotationX, evaluated.rotationY, evaluated.rotationZ);
-    item.group.scale.setScalar(evaluated.scale);
+    item.group.scale.setScalar(baseScale * pinLane.scale);
     item.slide.scale.set(width, height, 1);
-    const shadowOpacity = this.settings.slide.shadowOpacity * evaluated.opacity;
-    const shadowMargin = getShadowSupportMargin(this.settings.slide.shadowSoftness, shadowOpacity);
+    const laneOpacity = "opacity" in pinLane && typeof pinLane.opacity === "number"
+      ? pinLane.opacity
+      : 1;
+    const renderedOpacity = evaluated.opacity * transition.opacity * laneOpacity;
+    item.group.visible = renderedOpacity > 0.001;
+    const shadowOpacity = this.drawState.slide.shadowOpacity * renderedOpacity;
+    const shadowMargin = getShadowSupportMargin(this.drawState.slide.shadowSoftness, shadowOpacity);
     item.shadow.scale.set(width + shadowMargin * 2, height + shadowMargin * 2, 1);
     item.shadow.position.set(10, -14, -8);
 
     const uniforms = item.material.uniforms;
+    const fit = visible.directive?.fit ?? this.drawState.slide.fit;
+    const focalX = visible.directive?.focalX ?? this.drawState.slide.focalX;
+    const focalY = visible.directive?.focalY ?? this.drawState.slide.focalY;
     uniforms.uPlaneAspect!.value = width / height;
-    uniforms.uFit!.value = this.settings.slide.fit === "cover" ? 0 : 1;
-    uniforms.uFocal!.value.set(this.settings.slide.focalX, this.settings.slide.focalY);
+    uniforms.uFit!.value = fit === "cover" ? 0 : 1;
+    uniforms.uFocal!.value.set(focalX, focalY);
     uniforms.uSizePx!.value.set(width, height);
-    uniforms.uRadiusPx!.value = Math.min(this.settings.slide.radius, Math.min(width, height) / 2);
-    uniforms.uSmoothing!.value = this.settings.slide.smoothing;
-    uniforms.uBorderPx!.value = this.settings.slide.borderWidth;
-    uniforms.uBorderColor!.value.set(this.settings.slide.borderColor);
-    uniforms.uBorderOpacity!.value = this.settings.slide.borderOpacity;
-    uniforms.uOpacity!.value = evaluated.opacity;
+    uniforms.uRadiusPx!.value = Math.min(this.drawState.slide.radius, Math.min(width, height) / 2);
+    uniforms.uSmoothing!.value = this.drawState.slide.smoothing;
+    uniforms.uBorderPx!.value = this.drawState.slide.borderWidth;
+    uniforms.uBorderColor!.value.set(this.drawState.slide.borderColor);
+    uniforms.uBorderOpacity!.value = this.drawState.slide.borderOpacity;
+    uniforms.uOpacity!.value = renderedOpacity;
     uniforms.uVelocity!.value = velocity;
-    uniforms.uDistortion!.value = this.settings.motion.distortion;
-    uniforms.uAxis!.value = this.settings.motion.axis === "horizontal" ? 0 : 1;
+    uniforms.uAcceleration!.value = acceleration;
+    uniforms.uDistortion!.value = this.drawState.motion.distortion;
+    uniforms.uAxis!.value = this.drawState.motion.axis === "horizontal" ? 0 : 1;
     uniforms.uPhase!.value = logicalIndex;
+    const material = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT
+      ? this.project.material
+      : null;
+    const lighting = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT
+      ? this.project.lighting
+      : null;
+    const shellDepth = material ? Math.min(width, height) * material.thickness * 0.34 : 0;
+    item.shell.visible = shellDepth > 0.05 && renderedOpacity > 0.001;
+    item.shell.scale.set(width, height, 1);
+    item.shell.position.set(0, 0, -Math.max(0.01, shellDepth));
+    uniforms.uSurface!.value = surfaceMode(material?.surface ?? "card");
+    uniforms.uSlideSeed!.value = (visible.sourceIndex + 1) * 0.61803398875;
+    uniforms.uTravelPhase!.value = travelPhase;
+    uniforms.uPathBend!.value = visible.pathBend ?? 0;
+    uniforms.uRoughness!.value = material?.roughness ?? 0.76;
+    uniforms.uSheen!.value = material?.sheen ?? 0.06;
+    uniforms.uMicrotexture!.value = material?.finish.microtexture ?? 0;
+    uniforms.uLightingEnabled!.value = lighting?.enabled ? 1 : 0;
+    uniforms.uKeyColor!.value.set(lighting?.keyColor ?? "#ffffff");
+    uniforms.uFillColor!.value.set(lighting?.fillColor ?? "#ffffff");
+    let lightAzimuth = THREE.MathUtils.degToRad(lighting?.azimuth ?? 42);
+    const lightElevation = THREE.MathUtils.degToRad(lighting?.elevation ?? 56);
+    if (lighting?.motionMode === "orbit") lightAzimuth += travelPhase;
+    else if (lighting?.motionMode === "sweep") lightAzimuth += Math.sin(travelPhase) * 0.42;
+    const lightPulse = lighting?.motionMode === "flicker"
+      ? 0.91 + 0.09 * Math.sin(travelPhase * 3 + visible.sourceIndex * 1.71)
+      : lighting?.motionMode === "breathe"
+        ? 0.96 + 0.04 * Math.sin(travelPhase)
+        : 1;
+    uniforms.uLightDirection!.value.set(
+      Math.cos(lightElevation) * Math.cos(lightAzimuth),
+      Math.sin(lightElevation),
+      Math.cos(lightElevation) * Math.sin(lightAzimuth),
+    ).normalize();
+    uniforms.uKeyIntensity!.value = (lighting?.keyIntensity ?? 0) * lightPulse;
+    uniforms.uFillIntensity!.value = lighting?.fillIntensity ?? 1;
+    uniforms.uRimIntensity!.value = lighting?.rimIntensity ?? 0;
+    uniforms.uArtworkProtection!.value = lighting?.artworkProtection ?? 1;
+
+    // The rear plate owns the same subdivided deformation and continuous
+    // corner field as the artwork. A rigid box can intersect a flexing face,
+    // exposing torn-looking patches; sharing the vertex field makes the
+    // authored thickness visible only at true perspective edges.
+    const shellUniforms = item.shellMaterial.uniforms;
+    shellUniforms.uPlaneAspect!.value = width / height;
+    shellUniforms.uTextureAspect!.value = 1;
+    shellUniforms.uFit!.value = 0;
+    shellUniforms.uFocal!.value.set(0.5, 0.5);
+    shellUniforms.uSizePx!.value.set(width, height);
+    shellUniforms.uRadiusPx!.value = Math.min(this.drawState.slide.radius, Math.min(width, height) / 2);
+    shellUniforms.uSmoothing!.value = this.drawState.slide.smoothing;
+    shellUniforms.uBorderPx!.value = Math.min(width, height);
+    shellUniforms.uBorderColor!.value.set(
+      material?.surface === "paper" ? "#b9aa94"
+        : material?.surface === "silk" ? "#362a34"
+          : material?.surface === "gel" ? "#1b3030"
+            : "#191612",
+    );
+    shellUniforms.uBorderOpacity!.value = 1;
+    shellUniforms.uOpacity!.value = renderedOpacity;
+    shellUniforms.uVelocity!.value = velocity;
+    shellUniforms.uAcceleration!.value = acceleration;
+    shellUniforms.uDistortion!.value = this.drawState.motion.distortion;
+    shellUniforms.uAxis!.value = this.drawState.motion.axis === "horizontal" ? 0 : 1;
+    shellUniforms.uPhase!.value = logicalIndex;
+    shellUniforms.uSurface!.value = surfaceMode(material?.surface ?? "card");
+    shellUniforms.uSlideSeed!.value = (visible.sourceIndex + 1) * 0.61803398875;
+    shellUniforms.uTravelPhase!.value = travelPhase;
+    shellUniforms.uPathBend!.value = visible.pathBend ?? 0;
+    shellUniforms.uMicrotexture!.value = 0;
+    shellUniforms.uLightingEnabled!.value = 0;
 
     const shadowUniforms = item.shadowMaterial.uniforms;
     shadowUniforms.uCanvasSizePx!.value.set(width + shadowMargin * 2, height + shadowMargin * 2);
     shadowUniforms.uCardSizePx!.value.set(width, height);
-    shadowUniforms.uRadiusPx!.value = this.settings.slide.radius;
-    shadowUniforms.uSmoothing!.value = this.settings.slide.smoothing;
-    shadowUniforms.uSoftnessPx!.value = this.settings.slide.shadowSoftness;
-    shadowUniforms.uOpacity!.value = shadowOpacity;
+    shadowUniforms.uRadiusPx!.value = this.drawState.slide.radius;
+    shadowUniforms.uSmoothing!.value = this.drawState.slide.smoothing;
+    shadowUniforms.uSoftnessPx!.value = this.drawState.slide.shadowSoftness;
+    shadowUniforms.uOpacity!.value = shadowOpacity * (lighting?.contactStrength ?? 1);
+    shadowUniforms.uColor!.value.set(lighting?.shadowColor ?? "#000000");
+    if (lighting?.enabled) {
+      const cast = lighting.shadowDistance * 0.16;
+      item.shadow.position.set(
+        -Math.cos(lightAzimuth) * cast,
+        Math.sin(lightAzimuth) * cast,
+        -8,
+      );
+    } else {
+      item.shadow.position.set(10, -14, -8);
+    }
 
     const assetKey = this.textureKey(asset);
     if (item.assetKey !== assetKey) {
@@ -841,50 +1849,119 @@ export class CinematicCarousel {
     }
   }
 
-  private updatePresenterGeometry(): void {
-    const settings = this.settings.presenter;
+  private resolveSafePresenterLayout(): PresenterOverlayLayout | null {
+    const settings = this.drawState.presenter;
+    if (!settings.enabled || settings.layoutMode !== "safe-overlay" || !this.presenterAsset) return null;
+    const stage = this.drawState.stage;
+    const requestedShadowMargin = getShadowSupportMargin(settings.shadowSoftness, settings.shadowOpacity);
+    return resolvePresenterOverlayLayout({
+      stage,
+      source: { width: this.presenterAsset.width, height: this.presenterAsset.height },
+      customAspect: settings.aspectMode === "custom"
+        ? { width: settings.aspectWidth, height: settings.aspectHeight }
+        : null,
+      anchor: { x: settings.x, y: settings.y },
+      scale: THREE.MathUtils.clamp(settings.width, 0.12, 0.9),
+      safeInset: Math.min(stage.width, stage.height) * settings.safeInset,
+      shadowExtents: {
+        top: Math.max(0, requestedShadowMargin - settings.shadowOffsetY),
+        right: Math.max(0, requestedShadowMargin + settings.shadowOffsetX),
+        bottom: Math.max(0, requestedShadowMargin + settings.shadowOffsetY),
+        left: Math.max(0, requestedShadowMargin - settings.shadowOffsetX),
+      },
+    });
+  }
+
+  private updatePresenterGeometry(
+    lifecycleLayer?: LifecycleLayerSample,
+    treatment: TransitionTreatment | null = null,
+    safeLayout: PresenterOverlayLayout | null = this.resolveSafePresenterLayout(),
+  ): void {
+    const settings = this.drawState.presenter;
     const shouldShow = settings.enabled && Boolean(this.presenterAsset) && Boolean(this.presenterMaterial.uniforms.uMap!.value);
-    this.presenterGroup.visible = shouldShow;
+    const transition = resolveLifecycleLayerPresentation(
+      lifecycleLayer ?? { visibility: 1, progress: 1, motionProgress: 1, active: false },
+      treatment,
+      Math.min(48, Math.min(this.drawState.stage.width, this.drawState.stage.height) * 0.035),
+    );
+    this.presenterGroup.visible = shouldShow && transition.opacity > 0.001;
     if (!shouldShow) return;
-    const width = this.settings.stage.width * THREE.MathUtils.clamp(settings.width, 0.12, 0.9);
-    const height = width / (settings.aspectWidth / Math.max(0.01, settings.aspectHeight));
-    const x = (settings.x - 0.5) * this.settings.stage.width;
-    const y = (0.5 - settings.y) * this.settings.stage.height;
-    this.presenterGroup.position.set(x, y, 180);
+    const safeOverlay = settings.layoutMode === "safe-overlay";
+    const desiredParent = safeOverlay ? this.presenterScene : this.scene;
+    if (this.presenterGroup.parent !== desiredParent) desiredParent.add(this.presenterGroup);
+    this.presenterMaterial.depthTest = !safeOverlay;
+    this.presenterShadowMaterial.depthTest = !safeOverlay;
+
+    const stage = this.drawState.stage;
+    const shadowSoftness = settings.shadowSoftness;
+    const requestedShadowMargin = getShadowSupportMargin(shadowSoftness, settings.shadowOpacity);
+    let width: number;
+    let height: number;
+    let shadowMargin = requestedShadowMargin;
+    let shadowOffsetX = settings.shadowOffsetX;
+    let shadowOffsetY = settings.shadowOffsetY;
+
+    if (safeOverlay && safeLayout) {
+      const layout = safeLayout;
+      width = layout.frameSizePx.width;
+      height = layout.frameSizePx.height;
+      shadowMargin *= layout.fitScale;
+      shadowOffsetX *= layout.fitScale;
+      shadowOffsetY *= layout.fitScale;
+      this.presenterGroup.position.set(layout.centerStage.x, layout.centerStage.y - transition.translateY, 0);
+    } else {
+      width = stage.width * THREE.MathUtils.clamp(settings.width, 0.12, 0.9);
+      height = width / (settings.aspectWidth / Math.max(0.01, settings.aspectHeight));
+      const x = (settings.x - 0.5) * stage.width;
+      const y = (0.5 - settings.y) * stage.height;
+      this.presenterGroup.position.set(x, y - transition.translateY, 180);
+    }
     this.presenterGroup.rotation.set(0, 0, 0);
-    this.presenterGroup.scale.setScalar(1);
+    this.presenterGroup.scale.setScalar(transition.scale);
     this.presenterSlide.scale.set(width, height, 1);
-    const shadowSoftness = 48;
-    const margin = getShadowSupportMargin(shadowSoftness, settings.shadowOpacity);
-    this.presenterShadow.scale.set(width + margin * 2, height + margin * 2, 1);
-    this.presenterShadow.position.set(12, -18, -10);
+    this.presenterShadow.scale.set(width + shadowMargin * 2, height + shadowMargin * 2, 1);
+    this.presenterShadow.position.set(shadowOffsetX, -shadowOffsetY, safeOverlay ? -1 : -10);
 
     const uniforms = this.presenterMaterial.uniforms;
     uniforms.uPlaneAspect!.value = width / height;
     uniforms.uFit!.value = settings.fit === "cover" ? 0 : 1;
-    uniforms.uFocal!.value.set(0.5, 0.5);
+    uniforms.uFocal!.value.set(settings.focalX, settings.focalY);
     uniforms.uSizePx!.value.set(width, height);
     uniforms.uRadiusPx!.value = Math.min(settings.radius, Math.min(width, height) / 2);
     uniforms.uSmoothing!.value = settings.smoothing;
     uniforms.uBorderPx!.value = settings.borderWidth;
     uniforms.uBorderColor!.value.set(settings.borderColor);
     uniforms.uBorderOpacity!.value = settings.borderOpacity;
-    uniforms.uOpacity!.value = 1;
+    uniforms.uLegacyContainMatte!.value = safeOverlay ? 0 : 1;
+    uniforms.uMatteColor!.value.set(settings.matteColor);
+    uniforms.uMatteOpacity!.value = settings.matteOpacity;
+    uniforms.uOpacity!.value = transition.opacity;
     uniforms.uVelocity!.value = 0;
     uniforms.uDistortion!.value = 0;
     uniforms.uAxis!.value = 0;
 
     const shadowUniforms = this.presenterShadowMaterial.uniforms;
-    shadowUniforms.uCanvasSizePx!.value.set(width + margin * 2, height + margin * 2);
+    shadowUniforms.uCanvasSizePx!.value.set(width + shadowMargin * 2, height + shadowMargin * 2);
     shadowUniforms.uCardSizePx!.value.set(width, height);
     shadowUniforms.uRadiusPx!.value = settings.radius;
     shadowUniforms.uSmoothing!.value = settings.smoothing;
     shadowUniforms.uSoftnessPx!.value = shadowSoftness;
-    shadowUniforms.uOpacity!.value = settings.shadowOpacity;
+    shadowUniforms.uOpacity!.value = settings.shadowOpacity * transition.opacity;
+  }
+
+  private lifecycleTreatment(sample?: PerformanceLifecycleSample): TransitionTreatment | null {
+    if (!sample) return null;
+    if (sample.phase === "entry" && this.performanceTimeline.authoring.entry.enabled) {
+      return this.performanceTimeline.authoring.entry.treatment;
+    }
+    if (sample.phase === "exit" && this.performanceTimeline.authoring.exit.enabled) {
+      return this.performanceTimeline.authoring.exit.treatment;
+    }
+    return null;
   }
 
   private updateSettingsUniforms(): void {
-    const background = this.settings.background;
+    const background = this.drawState.background;
     this.backgroundMaterial.uniforms.uColorA!.value.set(background.colorA);
     this.backgroundMaterial.uniforms.uColorB!.value.set(background.colorB);
     this.backgroundMaterial.uniforms.uAccent!.value.set(background.accent);
@@ -893,31 +1970,36 @@ export class CinematicCarousel {
     this.backgroundMaterial.uniforms.uMotion!.value = background.motion;
     this.backgroundMaterial.uniforms.uGrain!.value = background.grain;
     this.backgroundMaterial.uniforms.uVignette!.value = background.vignette;
-    this.backgroundMaterial.uniforms.uSeed!.value = normalizeGrainSeed(background.seed);
+    this.backgroundMaterial.uniforms.uSeed!.value = background.seed;
+    this.backgroundMaterial.uniforms.uGrainSeed!.value = normalizeGrainSeed(background.seed);
   }
 
-  private updateBackground(time: number, exportMode: boolean): void {
-    const reduced = exportMode ? this.settings.motion.reducedMotionOutput : this.reducedMotionPreview;
-    let phase = reduced ? 0 : time * this.settings.background.motion * 0.72;
-    if (exportMode && this.settings.motion.seamless && !reduced) {
-      phase = (time / Math.max(0.001, this.settings.output.duration)) * Math.PI * 2 * Math.max(1, Math.round(this.settings.motion.seamlessLoops));
-    }
-    this.backgroundMaterial.uniforms.uPhase!.value = phase;
+  private updateBackground(time: number, exportMode: boolean, exportFrameIndex: number | null = null): void {
+    const reduced = exportMode ? this.drawState.motion.reducedMotionOutput : this.reducedMotionPreview;
+    this.backgroundMaterial.uniforms.uPhase!.value = resolveBackgroundPhase(time, {
+      durationSeconds: this.drawState.output.duration,
+      motion: this.drawState.background.motion,
+      seamless: this.drawState.motion.seamless,
+      seamlessLoops: this.drawState.motion.seamlessLoops,
+      reducedMotion: reduced,
+    });
     // Grain cadence is deliberately independent from the room's slow breath.
-    // Export gets one deterministic plate per exact output frame. Preview caps
-    // at 30 Hz for a quiet cinema cadence and freezes with Pause/reduced motion.
-    const grainRate = exportMode ? this.settings.output.fps : Math.min(30, this.settings.output.fps);
-    this.backgroundMaterial.uniforms.uGrainFrame!.value = reduced
-      ? 0
-      : exportMode
-        ? Math.round(time * grainRate)
-        : Math.floor(time * grainRate);
+    // Exact output-frame identity selects a held 12 fps grain plate. The lower
+    // cadence reads as handled film rather than high-frequency television snow,
+    // and freezes with Pause or reduced motion.
+    this.backgroundMaterial.uniforms.uGrainFrame!.value = resolveGrainFrame(
+      time,
+      this.drawState.output.fps,
+      exportMode,
+      reduced,
+      exportFrameIndex,
+    );
     this.renderer.getDrawingBufferSize(this.backgroundResolution);
     this.backgroundMaterial.uniforms.uResolution!.value.copy(this.backgroundResolution);
   }
 
   private updateCamera(): void {
-    const stage = this.settings.stage;
+    const stage = this.drawState.stage;
     const cameraZ = stage.height / (2 * Math.tan(THREE.MathUtils.degToRad(CAMERA_FOV / 2)));
     this.camera.aspect = stage.width / stage.height;
     this.camera.position.set(0, 0, cameraZ);
@@ -925,6 +2007,11 @@ export class CinematicCarousel {
     this.camera.far = cameraZ + 50_000;
     this.camera.lookAt(0, 0, 0);
     this.camera.updateProjectionMatrix();
+    this.presenterCamera.left = -stage.width / 2;
+    this.presenterCamera.right = stage.width / 2;
+    this.presenterCamera.top = stage.height / 2;
+    this.presenterCamera.bottom = -stage.height / 2;
+    this.presenterCamera.updateProjectionMatrix();
     this.backgroundMaterial.uniforms.uResolution!.value.set(stage.width, stage.height);
   }
 
@@ -938,20 +2025,97 @@ export class CinematicCarousel {
     const existing = this.texturePromises.get(key);
     if (existing) return existing;
 
-    const promise = this.decodeTexture(asset)
-      .then((record) => {
-        if (this.disposed || !this.isTextureKeyActive(key)) {
-          this.disposeTextureRecord(record);
-          throw new StaleTextureRequestError();
-        }
-        this.textureCache.set(key, record);
-        return record;
-      })
-      .finally(() => {
-        if (this.texturePromises.get(key) === promise) this.texturePromises.delete(key);
-      });
+    let resolveJob!: (record: TextureRecord) => void;
+    let rejectJob!: (error: unknown) => void;
+    const promise = new Promise<TextureRecord>((resolve, reject) => {
+      resolveJob = resolve;
+      rejectJob = reject;
+    });
+    const job: TextureDecodeJob = {
+      key,
+      asset,
+      promise,
+      resolve: resolveJob,
+      reject: rejectJob,
+      started: false,
+      cancelled: false,
+    };
     this.texturePromises.set(key, promise);
+    this.textureDecodeQueue.push(job);
+    this.trimTextureRequestQueue();
+    this.pumpTextureDecodeQueue();
     return promise;
+  }
+
+  private setTextureDemand(keys: Iterable<string>): void {
+    const presenterKey = this.drawState.presenter.enabled && this.presenterAsset?.kind === "image"
+      ? this.textureKey(this.presenterAsset)
+      : null;
+    const next = new Set<string>();
+    for (const key of keys) {
+      if (key === presenterKey || next.size >= TEXTURE_CACHE_LIMIT) continue;
+      next.add(key);
+    }
+    if (presenterKey) next.add(presenterKey);
+    this.textureDemandKeys.clear();
+    for (const key of next) this.textureDemandKeys.add(key);
+    this.trimTextureRequestQueue();
+  }
+
+  private cancelQueuedTextureJob(job: TextureDecodeJob): void {
+    if (job.started || job.cancelled) return;
+    job.cancelled = true;
+    const queueIndex = this.textureDecodeQueue.indexOf(job);
+    if (queueIndex >= 0) this.textureDecodeQueue.splice(queueIndex, 1);
+    if (this.texturePromises.get(job.key) === job.promise) this.texturePromises.delete(job.key);
+    job.reject(new StaleTextureRequestError());
+  }
+
+  private trimTextureRequestQueue(): void {
+    while (this.texturePromises.size > TEXTURE_REQUEST_LIMIT) {
+      const candidate = this.textureDecodeQueue.find(
+        (job) => !job.started && !job.cancelled && !this.textureDemandKeys.has(job.key),
+      );
+      if (!candidate) break;
+      this.cancelQueuedTextureJob(candidate);
+    }
+  }
+
+  private pruneInactiveTextureRequests(): void {
+    for (const job of [...this.textureDecodeQueue]) {
+      if (!this.isTextureKeyActive(job.key)) this.cancelQueuedTextureJob(job);
+    }
+    for (const key of [...this.textureDemandKeys]) {
+      if (!this.isTextureKeyActive(key)) this.textureDemandKeys.delete(key);
+    }
+  }
+
+  private pumpTextureDecodeQueue(): void {
+    while (this.activeTextureDecodes < MAX_CONCURRENT_TEXTURE_DECODES) {
+      const job = this.textureDecodeQueue.shift();
+      if (!job) return;
+      if (job.cancelled) continue;
+      job.started = true;
+      this.activeTextureDecodes += 1;
+      void this.decodeTexture(job.asset)
+        .then((record) => {
+          if (this.disposed || !this.isTextureKeyActive(job.key)) {
+            this.disposeTextureRecord(record);
+            throw new StaleTextureRequestError();
+          }
+          this.textureCache.set(job.key, record);
+          this.evictTextures(this.textureDemandKeys);
+          job.resolve(record);
+        })
+        .catch((error: unknown) => {
+          job.reject(error);
+        })
+        .finally(() => {
+          this.activeTextureDecodes -= 1;
+          if (this.texturePromises.get(job.key) === job.promise) this.texturePromises.delete(job.key);
+          this.pumpTextureDecodeQueue();
+        });
+    }
   }
 
   private textureKey(asset: StudioAsset): string {
@@ -1021,12 +2185,15 @@ export class CinematicCarousel {
   }
 
   private evictTextures(keepKeys: Set<string>): void {
-    if (this.textureCache.size <= TEXTURE_CACHE_LIMIT) return;
-    const presenterKey = this.presenterAsset ? this.textureKey(this.presenterAsset) : null;
+    const presenterKey = this.drawState.presenter.enabled && this.presenterAsset?.kind === "image"
+      ? this.textureKey(this.presenterAsset)
+      : null;
+    const cacheLimit = TEXTURE_CACHE_LIMIT + (presenterKey ? 1 : 0);
+    if (this.textureCache.size <= cacheLimit) return;
     const candidates = Array.from(this.textureCache.entries())
       .filter(([key]) => !keepKeys.has(key) && key !== presenterKey)
       .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
-    while (this.textureCache.size > TEXTURE_CACHE_LIMIT && candidates.length) {
+    while (this.textureCache.size > cacheLimit && candidates.length) {
       const [key, record] = candidates.shift()!;
       this.disposeTextureRecord(record);
       this.textureCache.delete(key);
@@ -1037,7 +2204,7 @@ export class CinematicCarousel {
     if (this.exportActive || event.button !== 0) return;
     this.dragging = true;
     this.dragPointerId = event.pointerId;
-    this.lastPointerCoordinate = this.settings.motion.axis === "horizontal" ? event.clientX : event.clientY;
+    this.lastPointerCoordinate = this.drawState.motion.axis === "horizontal" ? event.clientX : event.clientY;
     this.lastPointerTime = performance.now();
     this.canvas.setPointerCapture(event.pointerId);
     this.canvas.dataset.dragging = "true";
@@ -1045,14 +2212,14 @@ export class CinematicCarousel {
 
   private onPointerMove(event: PointerEvent): void {
     if (!this.dragging || event.pointerId !== this.dragPointerId) return;
-    const coordinate = this.settings.motion.axis === "horizontal" ? event.clientX : event.clientY;
+    const coordinate = this.drawState.motion.axis === "horizontal" ? event.clientX : event.clientY;
     const now = performance.now();
     const deltaCss = coordinate - this.lastPointerCoordinate;
     const deltaTime = Math.max(8, now - this.lastPointerTime) / 1000;
     const rect = this.canvas.getBoundingClientRect();
-    const cssExtent = this.settings.motion.axis === "horizontal" ? rect.width : rect.height;
-    const worldExtent = this.settings.motion.axis === "horizontal" ? this.settings.stage.width : this.settings.stage.height;
-    const deltaWorld = (-deltaCss / Math.max(1, cssExtent)) * worldExtent * this.settings.motion.dragSensitivity;
+    const cssExtent = this.drawState.motion.axis === "horizontal" ? rect.width : rect.height;
+    const worldExtent = this.drawState.motion.axis === "horizontal" ? this.drawState.stage.width : this.drawState.stage.height;
+    const deltaWorld = (-deltaCss / Math.max(1, cssExtent)) * worldExtent * this.drawState.motion.dragSensitivity;
     this.motionPosition += deltaWorld;
     this.motionVelocity = deltaWorld / deltaTime;
     this.lastPointerCoordinate = coordinate;
@@ -1072,8 +2239,8 @@ export class CinematicCarousel {
     if (this.exportActive) return;
     event.preventDefault();
     const modeScale = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 18 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? 240 : 1;
-    const raw = this.settings.motion.axis === "horizontal" && Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    const impulse = THREE.MathUtils.clamp(raw * modeScale, -180, 180) * this.settings.motion.dragSensitivity;
+    const raw = this.drawState.motion.axis === "horizontal" && Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    const impulse = THREE.MathUtils.clamp(raw * modeScale, -180, 180) * this.drawState.motion.dragSensitivity;
     this.motionPosition += impulse;
     this.motionVelocity += impulse * 5.5;
     this.renderPreview();
@@ -1084,22 +2251,110 @@ export class CinematicCarousel {
     this.syncPresenterPlayback();
   }
 
-  private syncPresenterPlayback(): void {
+  private previewMasterTime(): number {
+    if (this.reducedMotionPreview) {
+      return this.presenterReducedMotionMasterTime
+        ?? defaultPerformanceStillTime(this.reducedPerformanceTimeline);
+    }
+    return loopPerformanceTime(this.elapsed, this.performanceTimeline.totalDuration);
+  }
+
+  private requestPresenterPreviewSeek(video: HTMLVideoElement, targetTime: number): void {
+    if (this.presenterPendingSeekTarget !== null || video.seeking) return;
+    const requestGeneration = this.presenterRequestGeneration;
+    this.presenterPendingSeekTarget = targetTime;
+    const settle = () => {
+      video.removeEventListener("seeked", settle);
+      video.removeEventListener("error", settle);
+      if (
+        requestGeneration !== this.presenterRequestGeneration
+        || this.presenterVideo !== video
+        || this.disposed
+      ) return;
+      this.presenterPendingSeekTarget = null;
+      if (this.presenterPreviewTexture) this.presenterPreviewTexture.needsUpdate = true;
+      // The authored clock may have advanced while decoding this frame. One
+      // follow-up paint schedules the next exact frame without superseding the
+      // seek that just completed.
+      this.renderPreview();
+    };
+    video.addEventListener("seeked", settle, { once: true });
+    video.addEventListener("error", settle, { once: true });
+    try {
+      video.currentTime = targetTime;
+      if (!video.seeking) settle();
+    } catch {
+      settle();
+    }
+  }
+
+  private requestPresenterPreviewPlay(video: HTMLVideoElement): void {
+    if (this.presenterPlayPending || !video.paused || video.seeking) return;
+    this.presenterPlayPending = true;
+    void video.play()
+      .catch(() => undefined)
+      .finally(() => {
+        this.presenterPlayPending = false;
+        if (
+          !this.presenterShouldPlay
+          || this.presenterVideo !== video
+          || this.disposed
+        ) {
+          video.pause();
+        }
+      });
+  }
+
+  private syncPresenterPlayback(masterTime = this.previewMasterTime()): void {
     const video = this.presenterVideo;
     if (!video) return;
-    if (this.paused || this.reducedMotionPreview || this.exportActive || this.contextLost || document.hidden || this.disposed) {
-      video.pause();
-      return;
+    const effectiveMasterTime = this.reducedMotionPreview
+      ? this.presenterReducedMotionMasterTime ?? masterTime
+      : masterTime;
+    const frozen = this.paused
+      || this.reducedMotionPreview
+      || this.exportActive
+      || this.contextLost
+      || document.hidden
+      || this.disposed;
+    const fps = Number.isFinite(this.drawState.output.fps) && this.drawState.output.fps > 0
+      ? this.drawState.output.fps
+      : 30;
+    const lastDecodableTime = Number.isFinite(video.duration) && video.duration > 0
+      ? Math.max(0, video.duration - 1 / fps)
+      : Number.POSITIVE_INFINITY;
+    const sourceExhausted = effectiveMasterTime > lastDecodableTime + PRESENTER_EXACT_SEEK_EPSILON_SECONDS;
+    const shouldFreezeVideo = frozen || sourceExhausted;
+    const decision = resolvePresenterPreviewClock({
+      masterTime: effectiveMasterTime,
+      previousMasterTime: this.presenterPreviewMasterTime,
+      videoTime: video.currentTime,
+      videoDuration: video.duration,
+      masterFps: fps,
+      exact: shouldFreezeVideo,
+    });
+    this.presenterShouldPlay = !shouldFreezeVideo && !decision.shouldSeek;
+    if (shouldFreezeVideo || decision.shouldSeek) video.pause();
+    if (decision.targetTime !== null && decision.shouldSeek) {
+      // Seeking is an exception: initial alignment, master-loop wrap, a real
+      // delivery drift, or an exact frozen-state landing. Ordinary playback
+      // remains decoder-driven so long-GOP and 4K media stay smooth.
+      this.requestPresenterPreviewSeek(video, decision.targetTime);
+    } else if (this.presenterShouldPlay) {
+      this.requestPresenterPreviewPlay(video);
     }
-    void video.play().catch(() => undefined);
+    this.presenterPreviewMasterTime = effectiveMasterTime;
   }
 
   private onContextLost(event: Event): void {
     event.preventDefault();
     this.contextLost = true;
+    if (this.exportActive) this.exportInvalidatedByContextLoss = true;
     this.syncPresenterPlayback();
     this.callbacks.onContextState?.("lost");
-    this.callbacks.onError?.("WebGL context was lost. Preview paused; project data remains safe.");
+    this.callbacks.onError?.(this.exportActive
+      ? "WebGL context was lost. Export stopped; its destination will not be committed."
+      : "WebGL context was lost. Preview paused; project data remains safe.");
   }
 
   private onContextRestored(): void {
@@ -1107,6 +2362,7 @@ export class CinematicCarousel {
     this.syncPresenterPlayback();
     this.placeholderTexture.needsUpdate = true;
     this.backgroundMaterial.needsUpdate = true;
+    this.lensMaterial.needsUpdate = true;
     for (const record of this.textureCache.values()) record.texture.needsUpdate = true;
     this.presenterPreviewTexture && (this.presenterPreviewTexture.needsUpdate = true);
     this.callbacks.onContextState?.("restored");
@@ -1128,6 +2384,7 @@ export class CinematicCarousel {
     if (this.disposed) return;
     this.disposed = true;
     this.stop();
+    for (const job of [...this.textureDecodeQueue]) this.cancelQueuedTextureJob(job);
     this.disposePresenterPreview();
     this.presenterExportTexture?.dispose();
     this.canvas.removeEventListener("pointerdown", this.onPointerDownBound);
@@ -1147,12 +2404,17 @@ export class CinematicCarousel {
     this.pool.forEach((item) => {
       item.material.dispose();
       item.shadowMaterial.dispose();
+      item.shellMaterial.dispose();
     });
+    this.presenterShellMaterial.dispose();
     this.presenterMaterial.dispose();
     this.presenterShadowMaterial.dispose();
     this.geometry.dispose();
     this.backgroundGeometry.dispose();
     this.backgroundMaterial.dispose();
+    this.lensGeometry.dispose();
+    this.lensMaterial.dispose();
+    this.lensTarget.dispose();
     this.renderer.dispose();
   }
 }
