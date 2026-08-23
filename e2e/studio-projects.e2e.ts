@@ -233,6 +233,10 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
       engine.start();
       await delay(180);
       engine.setReducedMotionPreview(true);
+      // Reduced motion deliberately lands the presenter on the authored body
+      // still. Measure stability only after that one canonical seek settles;
+      // otherwise a slow decoder reports the landing itself as playback.
+      await waitForPresenterSettled();
       const reducedMotionStart = video.currentTime;
       await delay(250);
       const reducedMotionDelta = video.currentTime - reducedMotionStart;
