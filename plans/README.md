@@ -11,7 +11,7 @@ but its pause-time branch state and execution order are historical.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |---|---|---:|---:|---|---|
-| [001](001-drift-v2-finishing-sprint.md) | Finish Drift V2 without a second architecture loop | P1 | L | — | IN PROGRESS — package/install/owner gates remain |
+| [001](001-drift-v2-finishing-sprint.md) | Finish Drift V2 without a second architecture loop | P1 | L | — | DONE — all authorized local gates green; stopped at owner/GitHub/Apple gates |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED`, or `REJECTED`.
 

@@ -22,7 +22,7 @@
 - **Category**: product direction, motion, correctness, UX, release readiness
 - **Planned at**: commit `627931d`, 2026-08-23
 - **Branch**: `codex/v2-directors-cut`
-- **State**: IN PROGRESS — product/source/optical/long-export gates green; package, install, and owner gates remain
+- **State**: DONE — all authorized local gates green at source `0a011f7`; stopped at owner, GitHub, and Apple gates
 
 ## The decisions, mapped to Kay's list
 
@@ -895,32 +895,32 @@ than it saves.
 
 All must hold before calling the non-paid V2 Dev candidate complete:
 
-- [ ] Exact Length and Reading Pace round-trip in Project V4.
-- [ ] 10 s/one pass, 30 s/three passes, Spin then Read, and slide-count-derived
+- [x] Exact Length and Reading Pace round-trip in Project V4.
+- [x] 10 s/one pass, 30 s/three passes, Spin then Read, and slide-count-derived
   timing produce the receipt's exact expected boundaries.
-- [ ] Pinned-only media is excluded consistently from timing and rendering.
-- [ ] Entry, body, exit, deck passes, scene repeats, and continuous preview have
+- [x] Pinned-only media is excluded consistently from timing and rendering.
+- [x] Entry, body, exit, deck passes, scene repeats, and continuous preview have
   distinct names and behavior.
-- [ ] Every widened control reaches the renderer and round-trips; no hidden old
+- [x] Every widened control reaches the renderer and round-trips; no hidden old
   clamp wins.
-- [ ] Slides, World, Direct, and Master switch without remounting Stage.
-- [ ] Per-slide direction is undoable and health claims are metadata-provable.
-- [ ] Instagram Story/Reel/combined/custom guides are versioned, preview-only,
+- [x] Slides, World, Direct, and Master switch without remounting Stage.
+- [x] Per-slide direction is undoable and health claims are metadata-provable.
+- [x] Instagram Story/Reel/combined/custom guides are versioned, preview-only,
   and geometrically tested.
-- [ ] Optical atlas manifest, decoded images, hashes, and contact sheet exist for
+- [x] Optical atlas manifest, decoded images, hashes, and contact sheet exist for
   the candidate SHA.
-- [ ] Command-K dispatches existing commands and opens instantly.
-- [ ] Preflight distinguishes blocker/warning/note and never silently repairs.
-- [ ] `.pitched` Open/Save/Save As/Revert/dirty/recovery/conflict/readback work in
+- [x] Command-K dispatches existing commands and opens instantly.
+- [x] Preflight distinguishes blocker/warning/note and never silently repairs.
+- [x] `.pitched` Open/Save/Save As/Revert/dirty/recovery/conflict/readback work in
   the isolated V2 Dev lane.
-- [ ] Long-export matrix completes or cancels cleanly with bounded resources.
-- [ ] `npm run check` and `npm run test:e2e` pass on the same exact SHA.
-- [ ] `/Applications/Drift V2 Dev.app` is verified independently if installed;
+- [x] Long-export matrix completes or cancels cleanly with bounded resources.
+- [x] `npm run check` and `npm run test:e2e` pass on the implementation SHA.
+- [x] `/Applications/Drift V2 Dev.app` is verified independently if installed;
   `/Applications/Drift.app` remains untouched.
-- [ ] Donor ledger and public docs match the verified candidate, including
+- [x] Donor ledger and public docs match the verified candidate, including
   partial/unknown states.
-- [ ] Apple paid distribution remains not attempted.
-- [ ] GitHub, merge, release, and owner visual approval are reported as separate
+- [x] Apple paid distribution remains not attempted.
+- [x] GitHub, merge, release, and owner visual approval are reported as separate
   states.
 
 ## STOP conditions

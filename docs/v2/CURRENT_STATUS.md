@@ -6,9 +6,9 @@ Branch: `codex/v2-directors-cut`
 
 Protected production V1 source: `5fd145207235884790ba071c5d84bc3876ff4989`
 
-Last verified installed V2 Director's Cut source: `39e6cd701dfddfebb02645789b2573e963ea4cbb`
+Last verified installed V2 finishing-sprint source: `0a011f787a4d5204f5532ecf56777eb99610c760`
 
-Current finishing-sprint source: uncommitted working tree on `codex/v2-directors-cut`; it is not yet the installed or released artifact.
+Current finishing-sprint source: committed as `0a011f787a4d5204f5532ecf56777eb99610c760`, packaged, and installed at `/Applications/Drift V2 Dev.app`. It is not pushed, merged, owner-approved, notarised, released, or public.
 
 ## Current outcome
 
@@ -98,11 +98,11 @@ Protected pin avoidance is local to the collision neighbourhood. Far-away cards 
 - The final optical atlas contains 35 native-resolution Drift PNG captures across four ratios, eight Worlds, both-axis samples of the three new background families, eight lenses, five finishes, and four grain-isolation plates. Its manifest, contact sheet, and every capture have SHA-256 inventory.
 - The complete Swift native self-test currently passes from freshly compiled source, including document lifecycle, broker authority, recovery, conflict, Finder reply, and AAC boundaries.
 - The headed installed-Chrome long-export gate is green: all eight nominal-resolution Project V4 frame plans were exact at 24 fps; complete 30-second/8-slide, 60-second/40-slide, and 180-second/200-slide V2 H.264 exports passed mandatory Rec.709/duration/frame/decode readback, bounded cache/decode/heap checks, WebGL context continuity, full unload, and cancellation-without-artifact. Physical encoding used deliberately small dimensions; 1080p/4K throughput and Intel remain separate performance gates.
-- The finishing sprint still requires the exact clean source commit, packaged WKWebView matrix, isolated install, installed document transaction, and exact output readback. Until those pass, this source is edited and tested—not packaged, installed, merged, or released.
+- The exact clean implementation commit, packaged WKWebView matrix, isolated installation, installed native document transaction, and installed still-output readback are green. The normal installed interface saved and decoded a 12 MiB `.pitched` archive and exported a fully opaque 1080 × 1920 Cutting Map PNG, which was decoded and inspected at original resolution.
 
-The prior `39e6cd7` Director's Cut remains the last separately verified installation at `/Applications/Drift V2 Dev.app`; its hashes and state boundary are recorded in the [Director's Cut installed receipt](INSTALLED_DIRECTORS_CUT_2026-08-23.md). That receipt does not certify the current uncommitted finishing sprint.
+The exact hashes, package matrix, installed GUI run, project archive, still output, backup path, and V1 preservation evidence are recorded in the [finishing-sprint installed receipt](INSTALLED_FINISHING_SPRINT_2026-08-23.md). The prior `39e6cd7` [Director's Cut installed receipt](INSTALLED_DIRECTORS_CUT_2026-08-23.md) remains historical evidence only.
 
-Human owner approval, push of the Director's Cut commits, exact-head remote CI, merge, Developer ID signing, notarisation, public binary release, and publication are still separate gates and have not been performed.
+Human owner approval, push of the finishing-sprint commits, exact-head remote CI, merge, Developer ID signing, notarisation, public binary release, and publication are still separate gates and have not been performed.
 
 ## Known limits
 
@@ -120,6 +120,7 @@ Human owner approval, push of the Director's Cut commits, exact-head remote CI, 
 - [Project V4 migration contract](V2_PROJECT_MIGRATION.md)
 - [Long-export acceptance receipt](LONG_EXPORT_QA_2026-08-23.md)
 - [Accessibility QA boundary](ACCESSIBILITY_QA_2026-08-23.md)
+- [Finishing-sprint installed checkpoint, source 0a011f7](INSTALLED_FINISHING_SPRINT_2026-08-23.md)
 - [Director's Cut installed checkpoint, source 39e6cd7](INSTALLED_DIRECTORS_CUT_2026-08-23.md)
 - [Earlier installed checkpoint, source 0366985](INSTALLED_CHECKPOINT_2026-08-23.md)
 - [Until It Holds history](UNTIL_IT_HOLDS_RUN.md)

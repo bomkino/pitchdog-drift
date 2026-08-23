@@ -34,7 +34,7 @@ Feature flags describe build or session capability. They never become hidden cre
 | Portrait | 16 true 9:16 scenes, two per World | Integrated | Registry tests and representative vertical runs |
 | Pin/presenter | Optional, protected, independently positioned and styled | Integrated | Projection/collision tests and manual upper-right pin run |
 | Sound | 23 CC0 sources, 3 palettes, 3 grammars, exact mixed master | Integrated | Hash/byte checks, event tests, mixed-master tests, browser audition |
-| Mac identity | Isolated V2 bundle, storage, sandbox, explicit user-selected documents without Finder ownership | Integrated in current source; last installed checkpoint is `39e6cd7` | Native contracts plus separate historical package/install receipt |
+| Mac identity | Isolated V2 bundle, storage, sandbox, explicit user-selected documents without Finder ownership | Integrated, packaged, and installed at source `0a011f7` | Native contracts plus exact finishing-sprint package/install receipt |
 
 ## Gauntlet state
 
@@ -49,9 +49,9 @@ Feature flags describe build or session capability. They never become hidden cre
 | Thirty-five-capture optical atlas | Green with manifest, contact sheet, and SHA-256 inventory |
 | Long-export matrix | Green: 8/8 exact 24 fps plans; complete 30s/60s/180s V2 H.264 stress cases; strict Rec.709/readback/resource/cancellation checks |
 | Tactile-sound source provenance and deterministic planning | Green |
-| Exact clean source commit | Prior checkpoint `39e6cd7`; current finishing sprint is uncommitted |
-| Exact-SHA V2 Dev package and packaged matrix | Prior checkpoint green; current finishing sprint pending |
-| `/Applications/Drift V2 Dev.app` exact install and launch | Prior checkpoint green; current finishing sprint pending isolated replacement/readback |
+| Exact clean source commit | Green: implementation source `0a011f787a4d5204f5532ecf56777eb99610c760` |
+| Exact-SHA V2 Dev package and packaged matrix | Green: build 282; three of three installed/derived variants pass |
+| `/Applications/Drift V2 Dev.app` exact install and launch | Green: candidate bytes match, signature valid, exact installed process launched, native project and opaque 1080 × 1920 PNG read back |
 | Owner creative approval | Pending |
 | Feature-branch push and exact-head CI | Not performed |
 | Merge to `main` | Not performed |
@@ -76,4 +76,4 @@ Feature flags describe build or session capability. They never become hidden cre
 - No public binary distribution before third-party compliance, Developer ID signing, notarisation, Gatekeeper verification, and explicit publication authority.
 - No claim that visual or sonic taste is objectively proven by unit tests.
 
-The latest exact implementation and artifact state is recorded in [CURRENT_STATUS.md](CURRENT_STATUS.md), the [long-export receipt](LONG_EXPORT_QA_2026-08-23.md), and the dated installed checkpoint receipts.
+The latest exact implementation and artifact state is recorded in [CURRENT_STATUS.md](CURRENT_STATUS.md), the [long-export receipt](LONG_EXPORT_QA_2026-08-23.md), and the [finishing-sprint installed receipt](INSTALLED_FINISHING_SPRINT_2026-08-23.md).
