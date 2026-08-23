@@ -676,6 +676,8 @@ requireMarkers("scripts/verify-macos-v2-dev.sh", [
 requireMarkers("scripts/verify-macos-app.sh", [
   "--smoke-test",
   "--native-self-test",
+  "--app-lifecycle-self-test",
+  "normal AppKit launch did not retain a visible main window",
   "probe-macos-packaged-webview.sh",
   "webrtc_page_capability=page-world-document-start-lockdown",
   "navigation_download_policy=remote-denied-before-destination",
@@ -689,6 +691,10 @@ requireMarkers("scripts/verify-macos-app.sh", [
   "stage-macos-runtime-licenses.mjs\" verify",
   'verify-macos-user-guide.mjs"',
   '"user_guide_profile": str(info.get("DriftBuildChannel", ""))',
+]);
+requireMarkers("macos/App/DriftMain.swift", [
+  "withExtendedLifetime(delegate)",
+  "--app-lifecycle-self-test",
 ]);
 requireMarkers("scripts/verify-macos-user-guide.mjs", [
   'buildChannel === "release"',

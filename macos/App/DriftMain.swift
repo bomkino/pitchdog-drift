@@ -50,10 +50,17 @@ struct DriftMain {
         }
 
         let application = NSApplication.shared
-        let delegate = DriftAppDelegate()
+        let delegate = DriftAppDelegate(
+            launchLifecycleSelfTest: arguments.contains("--app-lifecycle-self-test")
+        )
         application.delegate = delegate
         application.setActivationPolicy(.regular)
-        application.run()
+        // NSApplication's delegate is not an owning reference. Keep the app
+        // delegate alive for the entire run loop or a release build may launch
+        // successfully with no menus, window, or document lifecycle.
+        withExtendedLifetime(delegate) {
+            application.run()
+        }
     }
 
     private static func runSmokeTest() -> Int32 {
