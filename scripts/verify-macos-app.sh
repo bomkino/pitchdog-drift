@@ -335,29 +335,50 @@ fi
 
 "${EXECUTABLE}" --smoke-test
 "${EXECUTABLE}" --native-self-test
-python3 - "${EXECUTABLE}" <<'PY'
+python3 - "${APP_BUNDLE}" "${TEMP_DIR}" <<'PY'
 from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
-executable = sys.argv[1]
+app_bundle = sys.argv[1]
+report_directory = Path(sys.argv[2])
+stdout_path = report_directory / "app-lifecycle.stdout"
+stderr_path = report_directory / "app-lifecycle.stderr"
 expected = "Drift app lifecycle self-test passed: delegate retained and main window visible."
 try:
     result = subprocess.run(
-        [executable, "--app-lifecycle-self-test"],
+        [
+            "open",
+            "-W",
+            "-n",
+            "-o",
+            str(stdout_path),
+            "--stderr",
+            str(stderr_path),
+            app_bundle,
+            "--args",
+            "--app-lifecycle-self-test",
+        ],
         capture_output=True,
         check=False,
         text=True,
-        timeout=20,
+        timeout=25,
     )
 except subprocess.TimeoutExpired as error:
-    raise SystemExit("Drift.app verification failed: normal AppKit launch did not settle within 20 seconds.") from error
+    raise SystemExit("Drift.app verification failed: LaunchServices did not settle the normal AppKit launch within 25 seconds.") from error
 
-if result.returncode != 0 or expected not in result.stdout.splitlines():
-    diagnostics = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
+app_stdout = stdout_path.read_text(encoding="utf-8") if stdout_path.exists() else ""
+app_stderr = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
+if result.returncode != 0 or expected not in app_stdout.splitlines():
+    diagnostics = "\n".join(
+        part.strip()
+        for part in (result.stdout, result.stderr, app_stdout, app_stderr)
+        if part.strip()
+    )
     raise SystemExit(
-        "Drift.app verification failed: normal AppKit launch did not retain a visible main window."
+        "Drift.app verification failed: LaunchServices did not retain a visible normal-app main window."
         + (f"\n{diagnostics}" if diagnostics else "")
     )
 print(expected)
