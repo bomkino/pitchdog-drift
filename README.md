@@ -10,11 +10,11 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 
 Drift is pre-1.0 and currently source-first. Read the [project status](docs/STATUS.md) for the exact boundary between public source, local candidates, verification, and release.
 
-## V2 development boundary
+## V2 production boundary
 
-The `codex/v2-directors-cut` branch contains the integrated V2 Director's Cut candidate. It combines Project V4, one canonical renderer/export path, eight authored Worlds, sixteen portrait scenes, sixty-four live backgrounds, editorial timing, space, material, analytical light, global optics, tactile sound, and a directable pinned frame. It is a local development candidate, not a public release or a claim of owner creative approval.
+Drift's shipping source now creates an authored V2 Project V4 document. It combines one canonical renderer/export path, eight authored Worlds, sixteen portrait scenes, sixty-four live backgrounds, editorial timing, space, material, analytical light, global optics, tactile sound, and a directable pinned frame. Explicitly imported or previously saved V1 projects remain on the frozen compatibility renderer until the creator applies a V2 World.
 
-V2 runs as `Drift V2 Dev.app` with a separate bundle identifier, WebKit store, cache, IndexedDB database, and sandbox. It can open, save, save as, and revert user-selected `.pitched` documents, but deliberately does not register or own the `.pitched` Finder type; installed V1 `Drift.app` remains the default document owner. See the [current V2 status](docs/v2/CURRENT_STATUS.md), [requirement matrix](docs/v2/V2_REQUIREMENT_PHASE_MATRIX.md), and [donor ledger](docs/v2/DONOR_LEDGER.yaml).
+The isolated `Drift V2 Dev.app` identity remains available for development without taking `.pitched` Finder ownership or sharing the production WebKit store, cache, IndexedDB database, or sandbox container. It is a test identity, not a second product users should install beside Drift. See the [current V2 status](docs/v2/CURRENT_STATUS.md), [requirement matrix](docs/v2/V2_REQUIREMENT_PHASE_MATRIX.md), [production-promotion receipt](docs/v2/PRODUCTION_PROMOTION_2026-08-23.md), and [donor ledger](docs/v2/DONOR_LEDGER.yaml).
 
 ```bash
 npm run dev                  # browser V2 Dev on 127.0.0.1:4174
@@ -23,7 +23,7 @@ npm run build:mac:v2-dev     # isolated Mac development app
 npm run verify:mac:v2-dev    # bundle and packaged-WKWebView verification
 ```
 
-The repository now contains two first-class ways to run the same studio:
+The repository contains two first-class ways to run the same studio:
 
 - the original local browser application;
 - a sandboxed, standalone macOS application in [`macos/`](macos/) with its native build and verification lanes in [`scripts/`](scripts/).

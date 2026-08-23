@@ -34,32 +34,32 @@ Feature flags describe build or session capability. They never become hidden cre
 | Portrait | 16 true 9:16 scenes, two per World | Integrated | Registry tests and representative vertical runs |
 | Pin/presenter | Optional, protected, independently positioned and styled | Integrated | Projection/collision tests and manual upper-right pin run |
 | Sound | 23 CC0 sources, 3 palettes, 3 grammars, exact mixed master | Integrated | Hash/byte checks, event tests, mixed-master tests, browser audition |
-| Mac identity | Isolated V2 bundle, storage, sandbox, explicit user-selected documents without Finder ownership | Integrated, packaged, and installed at source `0a011f7` | Native contracts plus exact finishing-sprint package/install receipt |
+| Mac identity | Production bundle, storage, sandbox, Finder document ownership, plus an isolated maintainer-only V2 Dev lane | Integrated, packaged, and installed at source `51459cb` | Native contracts plus exact production-promotion package/install receipt |
 
 ## Gauntlet state
 
 | Gate | State |
 | --- | --- |
 | Focused unit and contract checks | Green |
-| Complete local source check | Green: 54 files / 382 tests plus native source, hardening, guides, and production build |
+| Complete local source check | Green: 55 files / 386 tests plus native source, hardening, guides, and production build |
 | TypeScript and V2 Web build | Green |
-| Browser E2E | Green across all 38 cases: 37 uninterrupted plus the single transient-event repair rerun |
+| Browser E2E | Green across all 42 production/V2-Dev cases in one clean 19.0-minute run |
 | Representative Chromium/WebGL2 9:16 and 16:9 inspection | Green; no console errors |
 | Grain, border, shadow, alpha, pin, thickness visual repair loop | Green for inspected cases |
 | Thirty-five-capture optical atlas | Green with manifest, contact sheet, and SHA-256 inventory |
 | Long-export matrix | Green: 8/8 exact 24 fps plans; complete 30s/60s/180s V2 H.264 stress cases; strict Rec.709/readback/resource/cancellation checks |
 | Tactile-sound source provenance and deterministic planning | Green |
-| Exact clean source commit | Green: implementation source `0a011f787a4d5204f5532ecf56777eb99610c760` |
-| Exact-SHA V2 Dev package and packaged matrix | Green: build 282; three of three installed/derived variants pass |
-| `/Applications/Drift V2 Dev.app` exact install and launch | Green: candidate bytes match, signature valid, exact installed process launched, native project and opaque 1080 × 1920 PNG read back |
+| Exact clean source commit | Green: implementation source `51459cb7aac663238b1a41961ee50fd4c055fdfd` |
+| Exact-SHA production package and packaged matrix | Green: release build 284; three of three production/control variants pass |
+| `/Applications/Drift.app` sole exact install and launch | Green: candidate bytes match, signature valid, exact installed process launched, ordinary WebGL2/H.264-ready window visually inspected |
 | Owner creative approval | Pending |
-| Feature-branch push and exact-head CI | Not performed |
-| Merge to `main` | Not performed |
+| Feature-branch push and exact-head CI | Read from GitHub; not inferred by this local matrix |
+| Merge to `main` | Read from GitHub; not inferred by this local matrix |
 | Developer ID, notarisation, stapling, release, publication | Not performed |
 
 ## Non-negotiable checks
 
-- V1 pixels and `/Applications/Drift.app` stay unchanged until a separately authorized production transition.
+- Historical V1 and V2 Dev bundles remain recoverable; the authorized production transition may not erase their archives or user data.
 - Export uses exact frame identity, not wall-clock history or accumulated preview state.
 - Unsupported or future project input fails without replacing the open project.
 - Every effect has an honest zero or bypass.
@@ -76,4 +76,4 @@ Feature flags describe build or session capability. They never become hidden cre
 - No public binary distribution before third-party compliance, Developer ID signing, notarisation, Gatekeeper verification, and explicit publication authority.
 - No claim that visual or sonic taste is objectively proven by unit tests.
 
-The latest exact implementation and artifact state is recorded in [CURRENT_STATUS.md](CURRENT_STATUS.md), the [long-export receipt](LONG_EXPORT_QA_2026-08-23.md), and the [finishing-sprint installed receipt](INSTALLED_FINISHING_SPRINT_2026-08-23.md).
+The latest exact implementation and artifact state is recorded in [CURRENT_STATUS.md](CURRENT_STATUS.md), the [long-export receipt](LONG_EXPORT_QA_2026-08-23.md), and the [production-promotion receipt](PRODUCTION_PROMOTION_2026-08-23.md).

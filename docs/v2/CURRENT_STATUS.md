@@ -2,19 +2,17 @@
 
 Updated: 23 August 2026
 
-Branch: `codex/v2-directors-cut`
+Production-promotion implementation: `51459cb7aac663238b1a41961ee50fd4c055fdfd`
 
-Protected production V1 source: `5fd145207235884790ba071c5d84bc3876ff4989`
+Installed artifact: `/Applications/Drift.app`, release build 284, exact implementation source `51459cb7aac663238b1a41961ee50fd4c055fdfd`.
 
-Last verified installed V2 finishing-sprint source: `0a011f787a4d5204f5532ecf56777eb99610c760`
-
-Current finishing-sprint source: committed as `0a011f787a4d5204f5532ecf56777eb99610c760`, packaged, and installed at `/Applications/Drift V2 Dev.app`. It is not pushed, merged, owner-approved, notarised, released, or public.
+Historical V1 source: `5fd145207235884790ba071c5d84bc3876ff4989`. Historical V1 and V2 Dev app bundles remain recoverable outside `/Applications`.
 
 ## Current outcome
 
-The branch now contains the integrated V2 Director's Cut candidate described by the curated donor plan. It is no longer the earlier one-World vertical slice. Project V4 is the live V2 creative authority; preview, still, sequence, and MP4 export enter the same explicit-time evaluator and Three.js/WebGL2 draw graph.
+The production source contains the integrated V2 Director's Cut described by the curated donor plan. Project V4 is live creative authority for new documents; preview, still, sequence, and MP4 export enter the same explicit-time evaluator and Three.js/WebGL2 draw graph. Explicit saved or imported V1 projects retain their frozen compatibility contract until the user applies a V2 World.
 
-The candidate remains an isolated development build. `/Applications/Drift.app` is protected production V1 and is not replaced, opened, or rewritten by V2 packaging. V2 Dev has a separate bundle identifier, executable, App Sandbox container, WebKit store, cache namespace, IndexedDB database, and document-ownership boundary.
+The verified local installation has one production app identity: `/Applications/Drift.app`. The isolated V2 Dev identity remains available to maintainers as a build lane, not as a second installed product. GitHub branch, pull request, CI, merge, release, notarization, publication, and owner approval remain separate states; this page does not infer one from another.
 
 ## Integrated product surface
 
@@ -84,7 +82,7 @@ Protected pin avoidance is local to the collision neighbourhood. Far-away cards 
 
 ### Native project documents
 
-- V2 Dev can explicitly Open, Save, Save As, and Revert user-selected `.pitched` documents without registering or owning the Finder document type.
+- Production Drift can Open, Save, Save As, Revert, and own user-selected `.pitched` Finder documents.
 - Open binds only after archive verification and exact file SHA-256 confirmation.
 - Save stages the existing Project V4 archive, checks staged bytes, commits atomically, checks committed bytes, and marks only the captured revision clean; edits made during Save remain dirty.
 - Save As cancellation keeps the prior binding. External modification fails closed as a conflict and preserves the in-app version for recovery through Save As.
@@ -92,26 +90,24 @@ Protected pin avoidance is local to the collision neighbourhood. Far-away cards 
 
 ## Current evidence boundary
 
-- The consolidated repository check is green: 54 test files, 382 unit/integration tests, TypeScript, 11-file Swift/native source contracts, both Mac user guides, native import and hardening contracts, and the production Web build.
-- The browser matrix is green across all 38 cases: 37 passed in the uninterrupted full run, and its sole transient-notice race passed immediately after the watcher was attached before the event. The matrix covers native/import races, alpha, cancellation, renderer authority, bounded media churn, project quarantine, workspaces, timing, guides, Command–K, and V2 pin repair.
+- The consolidated repository check is green: 55 test files, 386 unit/integration tests, TypeScript, 11-file Swift/native source contracts, both Mac user guides, native import and hardening contracts, and the production Web build.
+- The expanded browser matrix is green across all 42 cases in one clean 19.0-minute run. It covers the production and V2 Dev identities, native/import races, alpha, cancellation, renderer authority, bounded media churn, project quarantine, compatibility persistence, workspaces, timing, guides, Command–K, reduced-motion pixel stability, and V2 pin repair.
 - Cutting Map, Grid, and Wave rendered in real WebGL2 at 1080 × 1920 and 1920 × 1080 with a clean browser console.
 - The final optical atlas contains 35 native-resolution Drift PNG captures across four ratios, eight Worlds, both-axis samples of the three new background families, eight lenses, five finishes, and four grain-isolation plates. Its manifest, contact sheet, and every capture have SHA-256 inventory.
 - The complete Swift native self-test currently passes from freshly compiled source, including document lifecycle, broker authority, recovery, conflict, Finder reply, and AAC boundaries.
 - The headed installed-Chrome long-export gate is green: all eight nominal-resolution Project V4 frame plans were exact at 24 fps; complete 30-second/8-slide, 60-second/40-slide, and 180-second/200-slide V2 H.264 exports passed mandatory Rec.709/duration/frame/decode readback, bounded cache/decode/heap checks, WebGL context continuity, full unload, and cancellation-without-artifact. Physical encoding used deliberately small dimensions; 1080p/4K throughput and Intel remain separate performance gates.
-- The exact clean implementation commit, packaged WKWebView matrix, isolated installation, installed native document transaction, and installed still-output readback are green. The normal installed interface saved and decoded a 12 MiB `.pitched` archive and exported a fully opaque 1080 × 1920 Cutting Map PNG, which was decoded and inspected at original resolution.
+- The exact clean production implementation, universal Mac build, native gauntlet, and packaged WKWebView matrix are green at `51459cb`. All three packaged variants completed durable native import/save, WebContent recovery, stale-generation rejection, media rehydration, and outbound/WebRTC lockdown.
+- `/Applications` contains exactly one Drift app: release build 284 from `51459cb`. Its executable is universal, ad-hoc signed, all-user-readable/executable, and SHA-256 `af0854822fccac234aad8e795fa2c9de8a769ba1955c574760396f309c721e53`. The ordinary installed window reached WebGL2 and system-H.264-ready state and was visually inspected.
 
-The exact hashes, package matrix, installed GUI run, project archive, still output, backup path, and V1 preservation evidence are recorded in the [finishing-sprint installed receipt](INSTALLED_FINISHING_SPRINT_2026-08-23.md). The prior `39e6cd7` [Director's Cut installed receipt](INSTALLED_DIRECTORS_CUT_2026-08-23.md) remains historical evidence only.
-
-Human owner approval, push of the finishing-sprint commits, exact-head remote CI, merge, Developer ID signing, notarisation, public binary release, and publication are still separate gates and have not been performed.
+The repair list, exact hashes, package matrix, installation, visual evidence, backup path, and preservation boundary are recorded in the [production-promotion receipt](PRODUCTION_PROMOTION_2026-08-23.md). Earlier installed receipts remain historical evidence only.
 
 ## Known limits
 
-- V2 Dev does not register or own `.pitched` Finder documents. V1 remains the default owner even though V2 now supports explicit user-selected Open/Save/Save As/Revert.
-- The development app is ad-hoc signed, not Developer ID signed or notarised.
+- The installed app is ad-hoc signed, not Developer ID signed or notarised.
 - The browser exporter produced and decoded a tactile H.264/AAC artifact. An ordinary installed-interface sound MP4 has not yet been saved through the native Save panel and decoded.
 - The rear slide shell proves deformed back-face depth. It is not described as a volumetric physics simulation or a fully modelled solid at every grazing angle.
 - Automated visual checks catch corruption, alpha errors, console failures, and regressions. They are not a substitute for the owner's final taste decision.
-- Public GitHub state remains unchanged until an explicit push/merge gate is taken and verified.
+- Remote GitHub and CI state must be read from GitHub for the exact head; local evidence cannot certify it.
 
 ## Evidence trail
 
@@ -120,6 +116,7 @@ Human owner approval, push of the finishing-sprint commits, exact-head remote CI
 - [Project V4 migration contract](V2_PROJECT_MIGRATION.md)
 - [Long-export acceptance receipt](LONG_EXPORT_QA_2026-08-23.md)
 - [Accessibility QA boundary](ACCESSIBILITY_QA_2026-08-23.md)
+- [Production-promotion receipt, source 51459cb](PRODUCTION_PROMOTION_2026-08-23.md)
 - [Finishing-sprint installed checkpoint, source 0a011f7](INSTALLED_FINISHING_SPRINT_2026-08-23.md)
 - [Director's Cut installed checkpoint, source 39e6cd7](INSTALLED_DIRECTORS_CUT_2026-08-23.md)
 - [Earlier installed checkpoint, source 0366985](INSTALLED_CHECKPOINT_2026-08-23.md)

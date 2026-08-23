@@ -8,7 +8,7 @@ Changes intended for a future public release belong here. Nothing in this sectio
 
 ### Added
 
-- The complete V2 Director's Cut surface: eight authored Worlds, three directing pressures, sixteen portrait scenes, forty live backgrounds, twenty palettes, twelve light rigs, eight lens recipes, ten spatial paths, four material systems, and the full editorial motion library.
+- The complete V2 Director's Cut surface: eight authored Worlds, three directing pressures, sixteen portrait scenes, sixty-four live backgrounds, twenty palettes, twelve light rigs, eight lens recipes, ten spatial paths, four material systems, and the full editorial motion library.
 - Independently controlled entry and exit performances, body/whole-scene repeat counts, and editable tempo envelopes including Fast · Slow · Fast.
 - Fine pinned-frame direction for position, size, safe inset, aspect, fit, focal point, matte, continuous corners, border, shadow, timing, track membership, presenter level, and mute.
 - Project V4 undo/redo, temporary non-mutating A/B comparison, domain locks, and visible change receipts.
@@ -24,8 +24,9 @@ Changes intended for a future public release belong here. Nothing in this sectio
 - The background picker now leads with twelve curated hero studies and keeps all forty structures available through searchable family filters.
 - Slides now have a shared deformed rear shell for material thickness without intersecting the artwork face.
 - New V2 pins begin source-ratio, protected, and still-only. Reapplying Editorial Drift restores its opaque paper room; transparent output remains an explicit option afterward.
-- Browser CI now exercises V1 compatibility and the V2 development app through separate origins, build identities, and storage namespaces.
+- Browser CI now exercises the shipping V2 identity and the isolated V2 development identity through separate origins and storage namespaces. Explicit V1-import journeys preserve compatibility coverage.
 - Browser CI retains one diagnostic retry but now fails the workflow if any journey is flaky; retries cannot manufacture a green gate.
+- Export-only MediaBunny code is now split behind the export boundary instead of inflating startup. The production entry chunk fell from 472.36 kB to 337.18 kB gzip in the promotion build.
 - The visual system now defaults to borderless slide and presenter frames. Five film worlds use no keyline; Noir Contact alone keeps a deliberate, fully opaque 1 px warm-grey rule.
 - Drop shadows are cast from the original rounded-card mask. The larger shadow mesh provides Gaussian falloff only, eliminating the translucent rectangular mats visible in earlier screenshots.
 - Film grain is monochrome, spatially correlated, background-only, deterministic per output frame, capped at a quiet 30 Hz in preview, and frozen by Pause or Reduce Motion. Imported slide and presenter pixels remain untouched.
@@ -34,6 +35,11 @@ Changes intended for a future public release belong here. Nothing in this sectio
 
 ### Fixed
 
+- New production documents no longer start on dormant V1 defaults merely because the app uses the release identity.
+- First-run media hydration, pin edits, presenter edits, and master/timeline edits no longer flatten untouched World domains or dissolve their provenance into Custom.
+- Authored World recuts now stamp truthful per-domain fingerprints, so provenance survives only while the exact resolved domain still matches.
+- Reduce Motion now lands on a stable body composition and freezes the complete preview clock, including material, lens, lifecycle, presenter, and grain phases.
+- Human-facing stage labels no longer leak internal recipe namespaces such as `world/dread` or ratio suffixes such as `editorial-drift/9:16`.
 - Legacy hybrid pin settings no longer force the intended still into an accidental tall crop or leave a duplicate copy in the moving carousel after the user invokes Reset.
 - Escape now exits full-frame focus even when the exit control owns keyboard focus, then restores focus to the initiating control.
 - Recovery saves can no longer be overtaken by older autosaves, and native multi-file imports report completion only after their exact persisted revision succeeds.
