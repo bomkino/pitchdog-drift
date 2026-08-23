@@ -55,6 +55,15 @@ struct DriftMain {
         )
         application.delegate = delegate
         application.setActivationPolicy(.regular)
+        if arguments.contains("--app-lifecycle-self-test") {
+            // Keep the LaunchServices verifier bounded even if a future
+            // lifetime regression drops the delegate before its window opens.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
+                fputs("Drift app lifecycle self-test failed: LaunchServices did not reach a visible main window within 15 seconds.\n", stderr)
+                fflush(stderr)
+                Darwin.exit(1)
+            }
+        }
         // NSApplication's delegate is not an owning reference. Keep the app
         // delegate alive for the entire run loop or a release build may launch
         // successfully with no menus, window, or document lifecycle.

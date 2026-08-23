@@ -85,7 +85,7 @@ Sections 1–12 are pre-merge candidate gates and must pass on one exact reviewe
 
 ## 6. Deterministic runtime gate
 
-- [ ] `npm run verify:mac` exercises the normal AppKit delegate path and proves that a visible main window survives one run-loop turn; the check times out rather than hanging on a windowless launch.
+- [ ] `npm run verify:mac` exercises the normal AppKit delegate path through LaunchServices and proves that a visible main window survives one run-loop turn; the check times out rather than hanging on a windowless Finder or Dock launch.
 - [ ] The WKWebView runtime workflow runs on a visible Apple Silicon window lifecycle.
 - [ ] WebGL2 creation and pixel readback pass.
 - [ ] Alpha-capable PNG encoding passes.

@@ -677,7 +677,10 @@ requireMarkers("scripts/verify-macos-app.sh", [
   "--smoke-test",
   "--native-self-test",
   "--app-lifecycle-self-test",
-  "normal AppKit launch did not retain a visible main window",
+  "LaunchServices did not retain a visible normal-app main window",
+  '"open",',
+  '"-W",',
+  '"-n",',
   "probe-macos-packaged-webview.sh",
   "webrtc_page_capability=page-world-document-start-lockdown",
   "navigation_download_policy=remote-denied-before-destination",
@@ -695,6 +698,7 @@ requireMarkers("scripts/verify-macos-app.sh", [
 requireMarkers("macos/App/DriftMain.swift", [
   "withExtendedLifetime(delegate)",
   "--app-lifecycle-self-test",
+  "LaunchServices did not reach a visible main window within 15 seconds",
 ]);
 requireMarkers("scripts/verify-macos-user-guide.mjs", [
   'buildChannel === "release"',
