@@ -58,8 +58,6 @@ export interface CompiledSequence {
   readonly totalRelativePassWeight: number;
   readonly groups: readonly CompiledSequenceGroup[];
   readonly passes: readonly CompiledSequencePass[];
-  readonly minimumVelocitySlidesPerSecond: number;
-  readonly peakVelocitySlidesPerSecond: number;
 }
 
 export interface SequenceSample {
@@ -218,29 +216,6 @@ function evaluatePassProgress(pass: CompiledSequencePass, time: number): {
   };
 }
 
-function velocityEnvelope(
-  passes: readonly CompiledSequencePass[],
-  movingSlideCount: number,
-): readonly [number, number] {
-  if (movingSlideCount === 0) return Object.freeze([0, 0] as const);
-  let minimum = Number.POSITIVE_INFINITY;
-  let peak = 0;
-  // Fixed sampling is a receipt diagnostic only. Authored position/boundaries
-  // remain analytical and never depend on this envelope scan.
-  for (const pass of passes) {
-    for (let index = 0; index <= 64; index += 1) {
-      const time = pass.start + pass.duration * index / 64;
-      const velocity = evaluatePassProgress(pass, time).velocity * movingSlideCount;
-      minimum = Math.min(minimum, velocity);
-      peak = Math.max(peak, velocity);
-    }
-  }
-  return Object.freeze([
-    Number.isFinite(minimum) ? minimum : 0,
-    Number.isFinite(peak) ? peak : 0,
-  ] as const);
-}
-
 /**
  * Compiles ordered group authoring into exact pass/time knots. Fixed-master
  * callers provide the available body duration. Content-paced callers first
@@ -363,11 +338,6 @@ export function compileSequence(
       duration: end - start,
     });
   }));
-  const [minimumVelocitySlidesPerSecond, peakVelocitySlidesPerSecond] = velocityEnvelope(
-    frozenPasses,
-    count,
-  );
-
   return Object.freeze({
     authoring,
     movingSlideCount: count,
@@ -377,8 +347,6 @@ export function compileSequence(
     totalRelativePassWeight,
     groups,
     passes: frozenPasses,
-    minimumVelocitySlidesPerSecond,
-    peakVelocitySlidesPerSecond,
   });
 }
 

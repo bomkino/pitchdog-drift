@@ -9,6 +9,14 @@ const carouselSource = readFileSync(
   new URL("../src/engine/CinematicCarousel.ts", import.meta.url),
   "utf8",
 );
+const sequenceCompilerSource = readFileSync(
+  new URL("../src/core/timeline/sequenceCompiler.ts", import.meta.url),
+  "utf8",
+);
+const deliveryReceiptSource = readFileSync(
+  new URL("../src/core/timeline/deliveryReceipt.ts", import.meta.url),
+  "utf8",
+);
 
 describe("V2 evaluator authority contract", () => {
   it("never fabricates a V3 project inside the Project V4 render path", () => {
@@ -32,5 +40,12 @@ describe("V2 evaluator authority contract", () => {
     expect(carouselSource).toContain('authority.kind === "project-v4"');
     expect(carouselSource).toContain("drawGraphStateFromProject(project)");
     expect(carouselSource).toContain("deriveSlideGeometry(project, sourceCount)");
+  });
+
+  it("keeps sampled velocity diagnostics out of compilation and frame evaluation", () => {
+    expect(sequenceCompilerSource).not.toContain("measureSequenceVelocityEnvelope");
+    expect(sequenceCompilerSource).not.toContain("VELOCITY_SAMPLES_PER_PASS");
+    expect(evaluateV2Source).not.toContain("sequenceDiagnostics");
+    expect(deliveryReceiptSource).toContain("measureSequenceVelocityEnvelope(sequence)");
   });
 });

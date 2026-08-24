@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDefaultDriftProjectV4 } from "../src/core/project/defaults";
 import { resolveMovingMedia } from "../src/core/project/movingMedia";
 import {
@@ -14,6 +14,7 @@ import {
   evaluateCompiledSequence,
   sequenceContentPacedBodySeconds,
 } from "../src/core/timeline/sequenceCompiler";
+import { measureSequenceVelocityEnvelope } from "../src/core/timeline/sequenceDiagnostics";
 import {
   createSequenceAuthoring,
   parseSequenceAuthoringExtension,
@@ -61,6 +62,18 @@ const CASINO: SequenceAuthoring = {
       relativeSecondsPerPass: 0.22,
     },
   ],
+  repeatCount: 1,
+};
+
+const HUNDRED_PASSES: SequenceAuthoring = {
+  schemaVersion: 1,
+  groups: [{
+    id: "hundred",
+    label: "100 passes",
+    passes: 100,
+    pace: "custom",
+    relativeSecondsPerPass: 1,
+  }],
   repeatCount: 1,
 };
 
@@ -267,18 +280,7 @@ describe("deterministic pass-sequence compiler", () => {
     const one = compileSequence(CASINO, { bodyDurationSeconds: 10, movingSlideCount: 1 });
     expect(evaluateCompiledSequence(one, 10).distanceSlides).toBe(4);
 
-    const hundred: SequenceAuthoring = {
-      schemaVersion: 1,
-      groups: [{
-        id: "hundred",
-        label: "100 passes",
-        passes: 100,
-        pace: "custom",
-        relativeSecondsPerPass: 1,
-      }],
-      repeatCount: 1,
-    };
-    const short = compileSequence(hundred, {
+    const short = compileSequence(HUNDRED_PASSES, {
       bodyDurationSeconds: 0.001,
       movingSlideCount: 200,
     });
@@ -296,7 +298,7 @@ describe("deterministic pass-sequence compiler", () => {
 
     expect(() => compileSequence(CASINO, { bodyDurationSeconds: 0, movingSlideCount: 4 }))
       .toThrow(/bodyDurationSeconds/u);
-    expect(() => compileSequence(hundred, {
+    expect(() => compileSequence(HUNDRED_PASSES, {
       bodyDurationSeconds: Number.MIN_VALUE,
       movingSlideCount: 4,
     })).toThrow(/too short/u);
@@ -438,6 +440,30 @@ describe("sequence timing, rendering, receipts, and events", () => {
       expect(event.sequence).toBe((index + 1) * moving.count);
       expect(event.time).toBeCloseTo(result.passes.boundaries[index]!.end, 5);
     });
+  });
+
+  it("keeps the O(pass × samples) velocity diagnostic out of every frame evaluation", () => {
+    const project = withSequenceAuthoring(fixture(1, 10), HUNDRED_PASSES);
+    const moving = resolveMovingMedia(project);
+    const compiled = compileSequence(HUNDRED_PASSES, {
+      bodyDurationSeconds: 10,
+      movingSlideCount: moving.count,
+    });
+    expect(measureSequenceVelocityEnvelope(compiled).samples).toBe(6_500);
+    expect(compiled).not.toHaveProperty("minimumVelocitySlidesPerSecond");
+    expect(compiled).not.toHaveProperty("peakVelocitySlidesPerSecond");
+
+    // The old hot path ran at least 6,500 sampled quintic evaluations here,
+    // each with multiple Math.min calls. This guard measures the actual frame
+    // call and leaves a generous ceiling for spatial evaluation.
+    const minSpy = vi.spyOn(Math, "min");
+    try {
+      const frame = evaluateV2Frame(project, moving.order, 5, { previousTime: null });
+      expect(frame.frame.track.rawDistance).toBe(-50);
+      expect(minSpy.mock.calls.length).toBeLessThan(1_000);
+    } finally {
+      minSpy.mockRestore();
+    }
   });
 
   it("renders legacy V4 projects bit-identically when sequence data is absent or malformed", () => {

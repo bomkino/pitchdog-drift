@@ -6,6 +6,7 @@ import type { PerformanceLifecycleTimeline } from "./performanceLifecycle";
 import { evaluateTempoCurve, invertTempoCurveProgress } from "./tempoCurve";
 import { readTimingIntent, type TimingMode, type TimingProtectedInput } from "./timingIntent";
 import { compileSequence, type CompiledSequence } from "./sequenceCompiler";
+import { measureSequenceVelocityEnvelope } from "./sequenceDiagnostics";
 import {
   readSequenceAuthoring,
   type SequenceAuthoringRead,
@@ -339,11 +340,12 @@ export function buildDeliveryReceipt(input: BuildDeliveryReceiptInput): Delivery
   const tempoVelocities = sequence
     ? null
     : [0, 0.5, 1].map((time) => evaluateTempoCurve(lifecycle.tempoCurve, time).velocity);
+  const sequenceVelocityEnvelope = sequence ? measureSequenceVelocityEnvelope(sequence) : null;
   const minimumSlidesPerSecond = sequence
-    ? sequence.minimumVelocitySlidesPerSecond
+    ? sequenceVelocityEnvelope!.minimumSlidesPerSecond
     : averageSlidesPerSecond * Math.min(...tempoVelocities!);
   const peakSlidesPerSecond = sequence
-    ? sequence.peakVelocitySlidesPerSecond
+    ? sequenceVelocityEnvelope!.peakSlidesPerSecond
     : averageSlidesPerSecond * Math.max(...tempoVelocities!);
 
   const frameCount = getExportFrameCount(exportSettings);
