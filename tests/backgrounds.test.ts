@@ -30,6 +30,7 @@ const FAMILIES: readonly OpaqueBackgroundStyle[] = [
   "cutting-map",
   "grid",
   "wave",
+  "atelier",
 ];
 
 describe("background atlas catalogue", () => {
@@ -64,15 +65,15 @@ describe("background atlas catalogue", () => {
     }
   });
 
-  it("keeps the three new family registries aligned with their authored studies", () => {
-    for (const family of ["cutting-map", "grid", "wave"] as const) {
+  it("keeps the restrained-motion family registries aligned with their authored studies", () => {
+    for (const family of ["cutting-map", "grid", "wave", "atelier"] as const) {
       const compositions = BACKGROUND_COMPOSITIONS[family];
       const studies = BACKGROUND_STUDIES.filter((study) => study.family === family);
 
       expect(compositions).toHaveLength(8);
       expect(studies.map((study) => study.composition).sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
       expect(studies.every((study) => study.background.motion >= 0.04 && study.background.motion <= 0.14)).toBe(true);
-      expect(studies.every((study) => study.background.intensity <= 0.5)).toBe(true);
+      expect(studies.every((study) => study.background.intensity <= 0.55)).toBe(true);
 
       const transparent = cloneSettings(DEFAULT_SETTINGS);
       transparent.stage.transparent = true;

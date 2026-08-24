@@ -50,7 +50,7 @@ Use **Protected** for a talking-head or still that should remain legible while t
 - Entry and exit can direct the background, slides, and pin independently.
 - Loop the body or the whole scene for an exact repeat count.
 - Tempo can remain even or follow an authored envelope such as Fast · Slow · Fast; Custom exposes start, body, and finish speed.
-- The complete sixty-four-background atlas lives behind **Browse all backgrounds**. Solid, Gradient, Aura, Paper, Void, Cutting Map, Grid, and Wave all recompose for horizontal and vertical stages; the last three use restrained, smooth structural motion rather than loud wallpaper effects.
+- The complete seventy-two-background atlas lives behind **Browse all backgrounds**. Solid, Gradient, Aura, Paper, Void, Cutting Map, Grid, Wave, and Atelier all recompose for horizontal and vertical stages. Cutting Map, Grid, Wave, and the living-pigment Atelier studies use restrained, smooth structural motion rather than loud wallpaper effects.
 - Sound is off by default. Enabling preview sound still requires an explicit audition or playback action. MP4 sound can contain tactile sound alone or a presenter-plus-sound mixed master.
 - Grain is a restrained, deterministic world finish. It never alters imported slide or protected-presenter pixels.
 

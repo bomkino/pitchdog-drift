@@ -1,6 +1,6 @@
 # Drift V2 current status
 
-Updated: 23 August 2026
+Updated: 24 August 2026
 
 Production-promotion implementation: `51459cb7aac663238b1a41961ee50fd4c055fdfd`
 
@@ -34,11 +34,12 @@ The verified local installation has one production app identity: `/Applications/
 
 ### Atmosphere and Worlds
 
-- Sixty-four live structural backgrounds across Solid, Gradient, Aura, Paper, Void, Cutting Map, Grid, and Wave.
-- Twenty palettes, deterministic seeds and recuts, transparent bypass, and twelve curated hero studies.
+- Seventy-two live structural backgrounds across Solid, Gradient, Aura, Paper, Void, Cutting Map, Grid, Wave, and Atelier.
+- Twenty-eight palettes, deterministic seeds and recuts, transparent bypass, and twelve curated hero studies.
 - Eight authored Worlds, each with Restrained, Directed, and Fever pressure levels.
 - Sixteen portrait-native scenes: two per World, with vertical travel in both directions represented across the library.
 - A compact hero shelf plus searchable, family-filtered access to the complete background atlas.
+- Eight original Atelier studies translate living pigment, fresco, graphite, manuscript, and botanical marks into aspect-correct, exact-loop-safe GLSL for both horizontal and vertical stages.
 
 ### Pinned slide and presenter
 
@@ -90,10 +91,11 @@ Protected pin avoidance is local to the collision neighbourhood. Far-away cards 
 
 ## Current evidence boundary
 
-- The consolidated repository check is green: 55 test files, 386 unit/integration tests, TypeScript, 11-file Swift/native source contracts, both Mac user guides, native import and hardening contracts, and the production Web build.
-- The expanded browser matrix is green across all 42 cases in one clean 19.0-minute run. It covers the production and V2 Dev identities, native/import races, alpha, cancellation, renderer authority, bounded media churn, project quarantine, compatibility persistence, workspaces, timing, guides, Command–K, reduced-motion pixel stability, and V2 pin repair.
+- The consolidated repository check is green: 56 test files, 390 unit/integration tests, TypeScript, 11-file Swift/native source contracts, both Mac user guides, native import and hardening contracts, and the production Web build.
+- The expanded browser matrix is green across all 46 cases in one clean 13.6-minute run. It covers the production and V2 Dev identities, native/import races, alpha, cancellation, renderer authority, bounded media churn, project quarantine, compatibility persistence, workspaces, timing, guides, Command–K, reduced-motion pixel stability, V2 pin repair, and the Atelier renderer/browser journeys.
 - Cutting Map, Grid, and Wave rendered in real WebGL2 at 1080 × 1920 and 1920 × 1080 with a clean browser console.
 - The final optical atlas contains 35 native-resolution Drift PNG captures across four ratios, eight Worlds, both-axis samples of the three new background families, eight lenses, five finishes, and four grain-isolation plates. Its manifest, contact sheet, and every capture have SHA-256 inventory.
+- The separate Atelier atlas contains 16 real-stage PNG captures: all eight living-pigment studies at 9:16 and 16:9 with bundled slides. A dirty-worktree fingerprint prevents candidate collisions; its manifest, contact sheet, and every capture have SHA-256 inventory.
 - The complete Swift native self-test currently passes from freshly compiled source, including document lifecycle, broker authority, recovery, conflict, Finder reply, and AAC boundaries.
 - The headed installed-Chrome long-export gate is green: all eight nominal-resolution Project V4 frame plans were exact at 24 fps; complete 30-second/8-slide, 60-second/40-slide, and 180-second/200-slide V2 H.264 exports passed mandatory Rec.709/duration/frame/decode readback, bounded cache/decode/heap checks, WebGL context continuity, full unload, and cancellation-without-artifact. Physical encoding used deliberately small dimensions; 1080p/4K throughput and Intel remain separate performance gates.
 - The exact clean production implementation, universal Mac build, native gauntlet, and packaged WKWebView matrix are green at `51459cb`. All three packaged variants completed durable native import/save, WebContent recovery, stale-generation rejection, media rehydration, and outbound/WebRTC lockdown.
@@ -112,6 +114,7 @@ The repair list, exact hashes, package matrix, installation, visual evidence, ba
 ## Evidence trail
 
 - [V2 requirement and phase matrix](V2_REQUIREMENT_PHASE_MATRIX.md)
+- [Atelier backgrounds: design and verification](ATELIER_BACKGROUNDS_2026-08-24.md)
 - [V2 Dev user guide](MACOS_V2_DEV_USER_GUIDE.md)
 - [Project V4 migration contract](V2_PROJECT_MIGRATION.md)
 - [Long-export acceptance receipt](LONG_EXPORT_QA_2026-08-23.md)

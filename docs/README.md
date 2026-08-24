@@ -21,6 +21,7 @@ Drift’s documentation is evidence-shaped. Product intent, current status, date
 - [`MACOS_THREAT_MODEL.md`](MACOS_THREAT_MODEL.md) — assets, attackers, countermeasures, and residual risk.
 - [`RESEARCH.md`](RESEARCH.md) — references and principles, not cloned compositions.
 - [`CODEX_BUILD_STORY.md`](CODEX_BUILD_STORY.md) — how the project uses Codex without outsourcing taste or manufacturing proof.
+- [`v2/ATELIER_BACKGROUNDS_2026-08-24.md`](v2/ATELIER_BACKGROUNDS_2026-08-24.md) — authorship boundary, shader grammar, controls, and repeatable visual QA for the living-pigment collection.
 
 ## Build, test, and contribute
 

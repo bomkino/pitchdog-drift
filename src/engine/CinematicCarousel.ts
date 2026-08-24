@@ -409,6 +409,7 @@ export function backgroundMode(style: string): number {
     case "cutting-map": return 5;
     case "grid": return 6;
     case "wave": return 7;
+    case "atelier": return 8;
     default: return 0;
   }
 }

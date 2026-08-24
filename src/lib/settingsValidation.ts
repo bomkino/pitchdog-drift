@@ -126,6 +126,7 @@ const BACKGROUNDS = [
   "cutting-map",
   "grid",
   "wave",
+  "atelier",
 ] as const;
 const THEMES = [
   "editorial-drift",

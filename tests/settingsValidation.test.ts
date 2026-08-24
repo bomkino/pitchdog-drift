@@ -154,7 +154,7 @@ describe("validateStudioSettings", () => {
       ["motion.direction", [-1, 1]],
       ["motion.flow", ["straight", "arc", "ribbon", "cylinder", "tunnel"]],
       ["slide.fit", ["cover", "contain"]],
-      ["background.style", ["transparent", "solid", "gradient", "aura", "paper", "void", "cutting-map", "grid", "wave"]],
+      ["background.style", ["transparent", "solid", "gradient", "aura", "paper", "void", "cutting-map", "grid", "wave", "atelier"]],
       ["presenter.fit", ["cover", "contain"]],
       ["presenter.trackMode", ["pinned-only", "moving-and-pinned"]],
       ["presenter.layoutMode", ["safe-overlay", "legacy-perspective"]],
