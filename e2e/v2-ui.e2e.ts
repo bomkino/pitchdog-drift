@@ -6,32 +6,35 @@ async function ensureInspectorOpen(group: Locator): Promise<void> {
 }
 
 async function sampleStagePixels(page: Page, canvas: Locator): Promise<number[]> {
-  const png = await canvas.screenshot();
+  const bounds = await canvas.boundingBox();
+  if (!bounds) throw new Error("WebGL stage bounds are unavailable.");
+  const session = await page.context().newCDPSession(page);
+  const scale = Math.min(1, 64 / Math.max(bounds.width, bounds.height));
+  let data = "";
+  try {
+    ({ data } = await session.send("Page.captureScreenshot", {
+      format: "png",
+      fromSurface: true,
+      captureBeyondViewport: false,
+      optimizeForSpeed: true,
+      clip: { ...bounds, scale },
+    }));
+  } finally {
+    await session.detach();
+  }
   return page.evaluate(async (base64) => {
     const binary = atob(base64);
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
     const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
     const surface = document.createElement("canvas");
-    surface.width = bitmap.width;
-    surface.height = bitmap.height;
+    surface.width = 16;
+    surface.height = 16;
     const context = surface.getContext("2d", { willReadFrequently: true });
-    if (!context) throw new Error("Screenshot sampling canvas is unavailable.");
-    context.drawImage(bitmap, 0, 0);
-    const samples: number[] = [];
-    for (let y = 1; y <= 15; y += 1) {
-      for (let x = 1; x <= 15; x += 1) {
-        const rgba = context.getImageData(
-          Math.floor(bitmap.width * x / 16),
-          Math.floor(bitmap.height * y / 16),
-          1,
-          1,
-        ).data;
-        samples.push(...rgba);
-      }
-    }
+    if (!context) throw new Error("Stage sampling canvas is unavailable.");
+    context.drawImage(bitmap, 0, 0, surface.width, surface.height);
     bitmap.close();
-    return samples;
-  }, png.toString("base64"));
+    return Array.from(context.getImageData(1, 1, 15, 15).data);
+  }, data);
 }
 
 function pixelDistance(left: number[], right: number[]): number {
