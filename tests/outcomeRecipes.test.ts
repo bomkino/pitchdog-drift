@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyProjectV4Command,
+  projectV4ChangePaths,
   undoProjectV4Command,
 } from "../src/core/commands/projectCommand";
 import { createDefaultDriftProjectV4 } from "../src/core/project/defaults";
@@ -19,6 +20,7 @@ import {
   applyOutcomeRecipeCommand,
   applySafeStartOutcome,
   detectOutcomeRecipe,
+  reconcileOutcomeRecipeTiming,
   resetMotion,
   resetMotionCommand,
   resetSequence,
@@ -305,6 +307,100 @@ describe("outcome recipe contract", () => {
     expect(detectOutcomeRecipe(malformed)).toBe("custom");
   });
 
+  it("reconciles Smooth duration after add, remove, pin, and unpin without touching unowned bytes", () => {
+    const smooth = applyOutcomeRecipe(fixture(), "smooth-carousel");
+    expect(resolveMovingMedia(smooth).count).toBe(5);
+    expect(smooth.master.duration).toBeCloseTo(4.5, 12);
+
+    const added = structuredClone(smooth);
+    const addedId = "slide-added-for-timing";
+    added.media.order.push(addedId);
+    added.media.assets[addedId] = {
+      id: addedId,
+      name: "Added.png",
+      kind: "image",
+      mimeType: "image/png",
+      hash: "e".repeat(64),
+      byteLength: 41,
+      width: 1920,
+      height: 1080,
+    };
+    added.slides[addedId] = {
+      assetId: addedId,
+      fit: "cover",
+      focalX: 0.5,
+      focalY: 0.5,
+      scaleOffset: 0,
+    };
+    const addedProtected = JSON.stringify(protectedState(added));
+    const addedReferences = {
+      media: added.media,
+      slides: added.slides,
+      material: added.material,
+      atmosphere: added.atmosphere,
+      presenter: added.presenter,
+    };
+    expect(detectOutcomeRecipe(added)).toBe("smooth-carousel");
+    const afterAdd = reconcileOutcomeRecipeTiming(added);
+    expect(resolveMovingMedia(afterAdd).count).toBe(6);
+    expect(afterAdd.master.duration).toBeCloseTo(5.4, 12);
+    expect(detectOutcomeRecipe(afterAdd)).toBe("smooth-carousel");
+    expect(JSON.stringify(protectedState(afterAdd))).toBe(addedProtected);
+    expect(afterAdd.media).toBe(addedReferences.media);
+    expect(afterAdd.slides).toBe(addedReferences.slides);
+    expect(afterAdd.material).toBe(addedReferences.material);
+    expect(afterAdd.atmosphere).toBe(addedReferences.atmosphere);
+    expect(afterAdd.presenter).toBe(addedReferences.presenter);
+    expect(projectV4ChangePaths(added, afterAdd)).toEqual([
+      "extensions.dog.pitch.drift.outcome-recipe.ownedFingerprint",
+      "master.duration",
+      "performance.body.durationSeconds",
+    ]);
+    expect(reconcileOutcomeRecipeTiming(afterAdd)).toBe(afterAdd);
+
+    const removed = structuredClone(afterAdd);
+    removed.media.order = removed.media.order.filter((id) => id !== addedId);
+    delete removed.media.assets[addedId];
+    delete removed.slides[addedId];
+    const afterRemove = reconcileOutcomeRecipeTiming(removed);
+    expect(afterRemove.master.duration).toBeCloseTo(4.5, 12);
+    expect(detectOutcomeRecipe(afterRemove)).toBe("smooth-carousel");
+
+    const unpinned = structuredClone(afterRemove);
+    unpinned.presenter.enabled = false;
+    const afterUnpin = reconcileOutcomeRecipeTiming(unpinned);
+    expect(resolveMovingMedia(afterUnpin).count).toBe(6);
+    expect(afterUnpin.master.duration).toBeCloseTo(5.4, 12);
+    expect(detectOutcomeRecipe(afterUnpin)).toBe("smooth-carousel");
+
+    const repinned = structuredClone(afterUnpin);
+    repinned.presenter.enabled = true;
+    const afterRepin = reconcileOutcomeRecipeTiming(repinned);
+    expect(resolveMovingMedia(afterRepin).count).toBe(5);
+    expect(afterRepin.master.duration).toBeCloseTo(4.5, 12);
+    expect(detectOutcomeRecipe(afterRepin)).toBe("smooth-carousel");
+  });
+
+  it("leaves Custom and fixed-master Casino as exact reconciliation no-ops", () => {
+    const custom = applyOutcomeRecipe(fixture(), "smooth-carousel");
+    custom.motion.path.curvature += 0.01;
+    custom.presenter.enabled = false;
+    expect(detectOutcomeRecipe(custom)).toBe("custom");
+    expect(resolveMovingMedia(custom).count).toBe(6);
+    expect(reconcileOutcomeRecipeTiming(custom)).toBe(custom);
+    expect(custom.master.duration).toBeCloseTo(4.5, 12);
+    expect(detectOutcomeRecipe(custom)).toBe("custom");
+
+    const casino = applyOutcomeRecipe(fixture(), "casino-reveal");
+    const casinoDuration = casino.master.duration;
+    casino.presenter.enabled = false;
+    expect(resolveMovingMedia(casino).count).toBe(6);
+    expect(detectOutcomeRecipe(casino)).toBe("casino-reveal");
+    expect(reconcileOutcomeRecipeTiming(casino)).toBe(casino);
+    expect(casino.master.duration).toBe(casinoDuration);
+    expect(detectOutcomeRecipe(casino)).toBe("casino-reveal");
+  });
+
   it("keeps Reset Motion and Reset Sequence scopes exact and command-owned", () => {
     const casino = applyOutcomeRecipe(fixture(), "casino-reveal");
     const casinoBefore = structuredClone(casino);
@@ -398,6 +494,19 @@ describe("outcome recipe contract", () => {
         }
       }
     }
+
+    const becomesEmpty = applyOutcomeRecipe(fixture(2), "smooth-carousel");
+    expect(resolveMovingMedia(becomesEmpty).count).toBe(1);
+    const movingId = becomesEmpty.media.order.find((id) => id !== becomesEmpty.presenter.assetId)!;
+    becomesEmpty.media.order = becomesEmpty.media.order.filter((id) => id !== movingId);
+    delete becomesEmpty.media.assets[movingId];
+    delete becomesEmpty.slides[movingId];
+    expect(detectOutcomeRecipe(becomesEmpty)).toBe("smooth-carousel");
+    const empty = reconcileOutcomeRecipeTiming(becomesEmpty);
+    expect(resolveMovingMedia(empty).count).toBe(0);
+    expect(empty.master.duration).toBe(0.5);
+    expect(detectOutcomeRecipe(empty)).toBe("smooth-carousel");
+    expect(reconcileOutcomeRecipeTiming(empty)).toBe(empty);
   });
 
   it("keeps empty and pinned-only safe starts valid without inventing moving media", () => {
@@ -407,8 +516,9 @@ describe("outcome recipe contract", () => {
       for (const id of OUTCOME_RECIPE_IDS) {
         const applied = applyOutcomeRecipe(source, id);
         expect(resolveMovingMedia(applied).count).toBe(0);
-        expect(applied.master.duration).toBe(source.master.duration);
+        expect(applied.master.duration).toBe(id === "casino-reveal" ? source.master.duration : 0.5);
         expect(validateDriftProjectV4(applied)).toEqual(applied);
+        expect(reconcileOutcomeRecipeTiming(applied)).toBe(applied);
       }
     }
   });

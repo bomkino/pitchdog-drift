@@ -421,13 +421,31 @@ export function applyOutcomeRecipe(project: DriftProjectV4, id: OutcomeRecipeId)
   next = withSequenceAuthoring(next, recipe.sequence);
   next = withTimingIntent(next, recipe.timing);
   const movingSlideCount = countMovingMedia(next);
-  if (recipe.timing.mode === "content-paced" && movingSlideCount > 0) {
+  if (recipe.timing.mode === "content-paced") {
     next = applyTimingResolution(
       next,
       resolveProjectTiming(next, movingSlideCount, recipe.timing),
     );
   }
   return withOutcomeReference(next, id);
+}
+
+/**
+ * Reconciles a still-valid content-paced outcome after media or pin changes.
+ * Custom projects and fixed-master outcomes are exact referential no-ops.
+ */
+export function reconcileOutcomeRecipeTiming(project: DriftProjectV4): DriftProjectV4 {
+  const identity = detectOutcomeRecipe(project);
+  if (identity === "custom") return project;
+  const recipe = getOutcomeRecipe(identity);
+  if (recipe.timing.mode !== "content-paced") return project;
+
+  const reference = parseOutcomeRecipeReference(project.extensions[OUTCOME_RECIPE_EXTENSION_KEY]);
+  if (!reference) return project;
+  const resolution = resolveProjectTiming(project, countMovingMedia(project), recipe.timing);
+  const reconciled = applyTimingResolution(project, resolution);
+  if (ownedFingerprint(reconciled, identity) === reference.ownedFingerprint) return project;
+  return withOutcomeReference(reconciled, identity);
 }
 
 export function applyOutcomeRecipeCommand(id: OutcomeRecipeId): ProjectV4Command {
