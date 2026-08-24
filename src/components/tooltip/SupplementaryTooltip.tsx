@@ -131,7 +131,7 @@ interface TooltipRootValue {
   readonly instant: boolean;
   pointerEntered(): void;
   pointerLeft(): void;
-  focused(): void;
+  focused(keyboardVisible: boolean): void;
   blurred(): void;
 }
 
@@ -159,7 +159,7 @@ export function SupplementaryTooltipRoot({ children }: { readonly children: Reac
   const contentId = `${id}-content`;
   const triggerRef = useRef<HTMLElement | null>(null);
   const hoveredRef = useRef(false);
-  const focusedRef = useRef(false);
+  const keyboardFocusedRef = useRef(false);
   const open = active?.id === id;
 
   const pointerEntered = useCallback(() => {
@@ -168,14 +168,14 @@ export function SupplementaryTooltipRoot({ children }: { readonly children: Reac
   }, [id, requestOpen]);
   const pointerLeft = useCallback(() => {
     hoveredRef.current = false;
-    if (!focusedRef.current) close(id);
+    if (!keyboardFocusedRef.current) close(id);
   }, [close, id]);
-  const focused = useCallback(() => {
-    focusedRef.current = true;
-    requestOpen(id, "keyboard");
+  const focused = useCallback((keyboardVisible: boolean) => {
+    keyboardFocusedRef.current = keyboardVisible;
+    if (keyboardVisible) requestOpen(id, "keyboard");
   }, [id, requestOpen]);
   const blurred = useCallback(() => {
-    focusedRef.current = false;
+    keyboardFocusedRef.current = false;
     if (!hoveredRef.current) close(id);
   }, [close, id]);
 
@@ -242,7 +242,9 @@ export function SupplementaryTooltipTrigger({ children }: { readonly children: R
     onPointerLeave: composeEventHandlers(onlyChild.props.onPointerLeave, (event) => {
       if (event.pointerType !== "touch") tooltip.pointerLeft();
     }),
-    onFocus: composeEventHandlers(onlyChild.props.onFocus, () => tooltip.focused()),
+    onFocus: composeEventHandlers(onlyChild.props.onFocus, (event) => {
+      tooltip.focused(event.currentTarget.matches(":focus-visible"));
+    }),
     onBlur: composeEventHandlers(onlyChild.props.onBlur, () => tooltip.blurred()),
   });
 }

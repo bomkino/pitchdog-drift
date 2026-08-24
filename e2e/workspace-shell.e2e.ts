@@ -228,7 +228,20 @@ test("content-paced Smooth reflows after pin changes while fixed-master Casino s
 test("supplementary workspace help opens for keyboard, escapes cleanly, and stays inside the viewport", async ({ page }) => {
   await waitForStudio(page);
   const exportTab = page.getByRole("button", { name: "EXPORT", exact: true });
-  await exportTab.focus();
+
+  // Mouse activation may focus the tab, but it must not summon a sticky keyboard tooltip.
+  await exportTab.click();
+  await expect(exportTab).toBeFocused();
+  await page.waitForTimeout(150);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await page.mouse.move(20, 300);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+  // A real keyboard focus transition opens help immediately.
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "MOTION", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(exportTab).toBeFocused();
   const tooltip = page.getByRole("tooltip");
   await expect(tooltip).toBeVisible({ timeout: 250 });
   await expect(tooltip).toHaveText("Choose the frame and duration, read preflight, then export.");
