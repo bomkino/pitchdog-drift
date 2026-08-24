@@ -49,8 +49,11 @@ test("canonical timeline stays legible and causal across Casino, Smooth, scrubbi
   const inspectorBefore = await box(inspector, "Inspector");
   const dockBefore = await box(dock, "Timeline dock");
   expect(Math.abs(dockBefore.height - 132)).toBeLessThanOrEqual(1);
-  await expect(dock).toHaveAttribute("data-authority", "legacy-tempo");
-  await expect(dock.locator('.timeline-segment[data-kind="legacy-body"]')).toHaveCount(1);
+  await expect(dock).toHaveAttribute("data-authority", "pass-sequence");
+  const groups = dock.locator('.timeline-segment[data-kind="sequence-group"]');
+  await expect(groups).toHaveCount(1);
+  await expect(groups.first()).toContainText("READ ×1");
+  await expect(groups.first()).toContainText("Readable");
 
   for (const button of [
     page.getByRole("button", { name: "Previous output frame" }),
@@ -64,7 +67,6 @@ test("canonical timeline stays legible and causal across Casino, Smooth, scrubbi
 
   await switchWorkspace(page, "MOTION");
   await page.locator('.outcome-card[data-outcome="casino-reveal"]').click();
-  const groups = dock.locator('.timeline-segment[data-kind="sequence-group"]');
   await expect(groups).toHaveCount(3);
   await expect(groups.nth(0)).toContainText("FAST ×2");
   await expect(groups.nth(1)).toContainText("READ ×1");
@@ -85,11 +87,12 @@ test("canonical timeline stays legible and causal across Casino, Smooth, scrubbi
   const tickTimes = await dock.locator(".timeline-pass-tick").evaluateAll((ticks) => (
     ticks.map((tick) => Number((tick as HTMLElement).dataset.time))
   ));
+  const casinoMasterDuration = Number(await track.getAttribute("aria-valuemax"));
   const exactCasinoTicks = [
-    8 * 0.22 / 1.66,
-    8 * 0.44 / 1.66,
-    8 * 1.44 / 1.66,
-    8,
+    casinoMasterDuration * 0.22 / 1.66,
+    casinoMasterDuration * 0.44 / 1.66,
+    casinoMasterDuration * 1.44 / 1.66,
+    casinoMasterDuration,
   ];
   expect(tickTimes).toHaveLength(exactCasinoTicks.length);
   tickTimes.forEach((time, index) => {
