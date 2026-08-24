@@ -409,7 +409,11 @@ const CURATED_BACKGROUND_STUDIES = Object.freeze(CURATED_BACKGROUND_STUDY_IDS.ma
   return study;
 }));
 
-/** Current choice first, then the authored shelf, with no duplicate cards. */
+/**
+ * Preserve the authored shelf's spatial memory. A current direction that is
+ * already on the shelf stays in place; a direction from the full atlas is
+ * promoted to the first slot so it never becomes hard to find.
+ */
 export function curatedBackgroundStudies(
   current: BackgroundStudy | null,
   limit: number = CURATED_BACKGROUND_STUDY_IDS.length,
@@ -418,8 +422,11 @@ export function curatedBackgroundStudies(
     ? Math.max(0, Math.min(CURATED_BACKGROUND_STUDY_IDS.length, limit))
     : CURATED_BACKGROUND_STUDY_IDS.length;
   if (safeLimit === 0) return Object.freeze([]);
-  const studies = current
-    ? [current, ...CURATED_BACKGROUND_STUDIES.filter((study) => study.id !== current.id)]
+  const currentIsCurated = current
+    ? CURATED_BACKGROUND_STUDIES.some((study) => study.id === current.id)
+    : false;
+  const studies = current && !currentIsCurated
+    ? [current, ...CURATED_BACKGROUND_STUDIES]
     : [...CURATED_BACKGROUND_STUDIES];
   return Object.freeze(studies.slice(0, safeLimit));
 }

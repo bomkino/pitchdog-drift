@@ -7,6 +7,7 @@ import {
   applyBackgroundStudy,
   backgroundCompositionIndex,
   backgroundVariation,
+  curatedBackgroundStudies,
   matchingBackgroundPalette,
   matchingBackgroundStudy,
   withBackgroundComposition,
@@ -413,6 +414,7 @@ export function ControlPanel({
     ? null
     : settings.background.style as OpaqueBackgroundStyle;
   const backgroundStudy = opaqueBackground ? matchingBackgroundStudy(settings.background) : null;
+  const curatedBackgroundShelf = curatedBackgroundStudies(backgroundStudy);
   const backgroundPalette = opaqueBackground ? matchingBackgroundPalette(settings.background) : null;
   const backgroundComposition = backgroundCompositionIndex(settings.background.seed);
   const editorialCut = detectEditorialCut(project);
@@ -1140,6 +1142,9 @@ export function ControlPanel({
           background={settings.background}
           activeStudy={backgroundStudy}
           studies={filteredBackgroundStudies}
+          curatedStudies={curatedBackgroundShelf}
+          totalStudyCount={BACKGROUND_STUDIES.length}
+          stageAspectRatio={settings.stage.width / settings.stage.height}
           query={backgroundQuery}
           family={backgroundFamily}
           onQuery={setBackgroundQuery}

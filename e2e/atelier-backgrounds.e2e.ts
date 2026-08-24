@@ -138,7 +138,7 @@ test("Atelier backgrounds render, move gently, close their loop, and survive bot
   expect(renderErrors.filter((message) => /shader|webgl|gl_invalid|three\.webglprogram/i.test(message))).toEqual([]);
 });
 
-test("Atelier is visible and reachable through the real V2 background browser", async ({ page }) => {
+test("the real V2 background browser starts curated, previews without applying, and keeps the atlas one action away", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-context", /ready|restored/);
   await page.getByRole("button", { name: "LOOK", exact: true }).click();
@@ -148,8 +148,43 @@ test("Atelier is visible and reachable through the real V2 background browser", 
   });
   await expect(atmosphere).toBeVisible();
   const browser = atmosphere.locator(".visual-background-browser");
-  await expect(browser.getByRole("heading", { name: "Background library" })).toBeVisible();
-  await expect(browser.locator(".background-study-card .background-preview")).toHaveCount(73);
+  await expect(browser.getByRole("heading", { name: "Choose a background" })).toBeVisible();
+  await expect(browser).toHaveAttribute("data-browser-mode", "curated");
+  await expect(browser.locator(".background-study-card")).toHaveCount(13);
+  expect(await browser.locator(".background-study-card").evaluateAll((cards) => cards.map((card) => card.getAttribute("data-background-id")))).toEqual([
+    "transparent",
+    "black-leader",
+    "cotton-rag",
+    "road-memory-field",
+    "projector-bloom",
+    "contact-sheet",
+    "breathing-slit-study",
+    "contour-notes-study",
+    "quiet-thirds-study",
+    "tidal-horizon-study",
+    "verdigris-fresco-study",
+    "rose-madder-bloom-study",
+    "charcoal-cartography-study",
+  ]);
+  expect(new Set(await browser.locator(".background-study-card .background-preview[data-family]").evaluateAll((previews) => (
+    previews.map((preview) => preview.getAttribute("data-family"))
+  ))).size).toBe(9);
+
+  const verdigris = browser.getByRole("button", { name: /^Verdigris Fresco\./ });
+  await expect(verdigris).toHaveAttribute("aria-pressed", "false");
+  await verdigris.hover();
+  await expect(browser.getByText("PREVIEW · NOT APPLIED", { exact: true })).toBeVisible();
+  await expect(browser.getByText("Verdigris Fresco", { exact: true }).first()).toBeVisible();
+  await expect(atmosphere.getByLabel("Background", { exact: true })).not.toHaveValue("atelier");
+  await verdigris.click();
+  await expect(atmosphere.getByLabel("Background", { exact: true })).toHaveValue("atelier");
+  await expect(verdigris).toHaveAttribute("aria-pressed", "true");
+  await expect(browser.getByText("ON CANVAS", { exact: true })).toBeVisible();
+
+  await browser.getByRole("button", { name: /Browse all backgrounds/i }).click();
+  await expect(browser).toHaveAttribute("data-browser-mode", "all");
+  await expect(browser.getByRole("heading", { name: "All backgrounds" })).toBeVisible();
+  await expect(browser.locator(".background-study-card")).toHaveCount(73);
   await browser.getByRole("combobox", { name: "Visual family", exact: true }).selectOption("atelier");
   await expect(browser.locator(".background-study-card")).toHaveCount(8);
   const saffron = browser.getByRole("button", { name: /^Saffron Anatomy\./ });
@@ -173,8 +208,29 @@ test("Atelier is visible and reachable through the real V2 background browser", 
   await browser.getByRole("button", { name: "Clear filters" }).click();
   await expect(browser.locator(".background-study-card")).toHaveCount(73);
 
+  const scrollAuthority = await browser.locator(".background-study-grid").evaluate((element) => ({
+    overflowY: getComputedStyle(element).overflowY,
+    workspaceScrollOwner: element.closest(".workspace-scroll")?.classList.contains("workspace-scroll") ?? false,
+  }));
+  expect(scrollAuthority).toEqual({ overflowY: "visible", workspaceScrollOwner: true });
+
+  await browser.getByRole("button", { name: /Curated shelf/i }).click();
+  await expect(browser.locator(".background-study-card")).toHaveCount(13);
+  await expect(browser.getByRole("searchbox", { name: "Find a look" })).toHaveCount(0);
+
+  const portraitPreview = await browser.locator(".background-card-stage .background-preview").first().boundingBox();
+  expect(portraitPreview).not.toBeNull();
+  expect(portraitPreview!.width / portraitPreview!.height).toBeCloseTo(9 / 16, 1);
+
+  await page.getByRole("button", { name: "EXPORT", exact: true }).click();
+  await page.getByRole("group", { name: "Stage ratio", exact: true }).getByText("16:9", { exact: true }).click();
+  await page.getByRole("button", { name: "LOOK", exact: true }).click();
+  const landscapePreview = await page.locator(".visual-background-browser .background-card-stage .background-preview").first().boundingBox();
+  expect(landscapePreview).not.toBeNull();
+  expect(landscapePreview!.width / landscapePreview!.height).toBeCloseTo(16 / 9, 1);
+
   await page.setViewportSize({ width: 390, height: 844 });
-  const cards = browser.locator(".background-study-card");
+  const cards = page.locator(".visual-background-browser .background-study-card");
   const [first, second] = await Promise.all([cards.nth(0).boundingBox(), cards.nth(1).boundingBox()]);
   expect(first).not.toBeNull();
   expect(second).not.toBeNull();
@@ -182,10 +238,4 @@ test("Atelier is visible and reachable through the real V2 background browser", 
   expect(first!.height).toBeGreaterThan(120);
   expect(Math.abs(first!.y - second!.y)).toBeLessThan(2);
   expect(second!.x).toBeGreaterThan(first!.x);
-
-  const scroll = await browser.locator(".background-study-grid").evaluate((element) => ({
-    clientHeight: element.clientHeight,
-    scrollHeight: element.scrollHeight,
-  }));
-  expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
 });

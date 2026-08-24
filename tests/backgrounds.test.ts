@@ -67,12 +67,15 @@ describe("background atlas catalogue", () => {
     }
   });
 
-  it("keeps the first visual shelf small, diverse, deterministic, and current-first", () => {
+  it("keeps the first visual shelf small, diverse, deterministic, and spatially stable", () => {
     const shelf = curatedBackgroundStudies(null);
     expect(shelf.map(({ id }) => id)).toEqual(CURATED_BACKGROUND_STUDY_IDS);
     expect(shelf).toHaveLength(12);
     expect(new Set(shelf.map(({ id }) => id)).size).toBe(shelf.length);
     expect(new Set(shelf.map(({ family }) => family))).toEqual(new Set(FAMILIES));
+
+    const alreadyCurated = shelf.find(({ id }) => id === "verdigris-fresco-study")!;
+    expect(curatedBackgroundStudies(alreadyCurated).map(({ id }) => id)).toEqual(CURATED_BACKGROUND_STUDY_IDS);
 
     const outsideShelf = BACKGROUND_STUDIES.find(({ id }) => id === "aurora-veil")!;
     const withCurrent = curatedBackgroundStudies(outsideShelf);
