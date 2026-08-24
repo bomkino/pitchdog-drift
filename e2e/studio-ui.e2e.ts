@@ -241,7 +241,7 @@ test("reduced motion yields a stable rendered interval without animated grain", 
   expect(baselineStable).toBe(true);
 });
 
-test("Pause kills existing carousel inertia and leaves the WebGL preview pixel-still", async ({ page }) => {
+test("Pause freezes authored time while interaction glides to a stable rest", async ({ page }) => {
   await waitForStudio(page);
   await page.addStyleTag({ content: ".stage-hud, .notice { visibility: hidden !important; }" });
   const canvas = page.locator("[data-testid=webgl-stage]");
@@ -254,13 +254,19 @@ test("Pause kills existing carousel inertia and leaves the WebGL preview pixel-s
   await page.getByRole("button", { name: "Pause preview" }).click();
   await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
 
-  // Let the pause state cross a paint boundary, then prove neither residual
-  // inertia nor the grain clock can alter a later WebGL frame.
+  // Pausing owns authored time, not direct navigation. A wheel gesture must
+  // remain visible and finish smoothly even when the show clock is held.
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   const first = await canvas.screenshot();
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(250);
   const second = await canvas.screenshot();
-  expect(second.equals(first)).toBe(true);
+  expect(second.equals(first)).toBe(false);
+
+  await page.waitForTimeout(1_250);
+  const settled = await canvas.screenshot();
+  await page.waitForTimeout(350);
+  const held = await canvas.screenshot();
+  expect(held.equals(settled)).toBe(true);
 });
 
 test("320 and 390px panel shells keep a single viewport with a stable footer", async ({ page }) => {

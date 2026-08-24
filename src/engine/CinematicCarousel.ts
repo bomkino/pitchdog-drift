@@ -31,6 +31,7 @@ import {
   type EvaluatedSlide,
 } from "./evaluate";
 import { resolveBackgroundPhase } from "./backgroundPhase";
+import { CarouselInteractionController } from "./carouselInteraction";
 import {
   drawGraphStateFromV1Settings,
   type EngineInitialAuthority,
@@ -597,8 +598,7 @@ export class CinematicCarousel {
   private animationFrame = 0;
   private lastFrameTime = 0;
   private elapsed = 0;
-  private motionPosition = 0;
-  private motionVelocity = 0;
+  private readonly interaction = new CarouselInteractionController();
   private paused = false;
   private dragging = false;
   private dragPointerId: number | null = null;
@@ -1065,7 +1065,6 @@ export class CinematicCarousel {
 
   setPaused(paused: boolean): void {
     this.paused = paused;
-    if (paused) this.motionVelocity = 0;
     this.syncPresenterPlayback();
   }
 
@@ -1083,7 +1082,7 @@ export class CinematicCarousel {
       this.presenterReducedMotionMasterTime = null;
     }
     this.reducedMotionPreview = reduced;
-    if (reduced) this.motionVelocity = 0;
+    if (reduced) this.interaction.hold();
     this.syncPresenterPlayback();
   }
 
@@ -1091,8 +1090,11 @@ export class CinematicCarousel {
     const geometry = this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT
       ? deriveSlideGeometry(this.project, this.movingTrackAssets().length)
       : getSlideGeometry(this.requireV1Settings());
-    this.motionPosition += geometry.stride * amount * this.drawState.motion.direction;
-    this.motionVelocity = 0;
+    this.interaction.stepSlides(
+      geometry.stride,
+      amount,
+      this.drawState.motion.direction,
+    );
     this.renderPreview();
   }
 
@@ -1326,15 +1328,7 @@ export class CinematicCarousel {
   }
 
   private advanceMotion(delta: number): void {
-    if (this.paused) {
-      this.motionVelocity = 0;
-      return;
-    }
-    if (!this.dragging) {
-      this.motionPosition += this.motionVelocity * delta;
-      this.motionVelocity *= Math.exp(-delta * 7.5);
-      if (Math.abs(this.motionVelocity) < 0.01) this.motionVelocity = 0;
-    }
+    if (!this.dragging) this.interaction.advance(delta);
   }
 
   private normalizeV2InteractionPosition(): void {
@@ -1350,20 +1344,14 @@ export class CinematicCarousel {
     const geometry = deriveSlideGeometry(project, sourceCount);
     const slotCount = geometry.virtualSlotCount;
     const loopLength = slotCount * geometry.stride;
-    if (!Number.isFinite(this.motionPosition) || !Number.isFinite(loopLength) || loopLength <= 0) {
-      this.motionPosition = 0;
-      return;
-    }
-    this.motionPosition = THREE.MathUtils.euclideanModulo(
-      this.motionPosition + loopLength / 2,
-      loopLength,
-    ) - loopLength / 2;
+    this.interaction.normalize(loopLength);
   }
 
   private renderPreview(): void {
     if (this.contextLost || this.disposed || this.exportActive) return;
     if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
       this.normalizeV2InteractionPosition();
+      const interaction = this.interaction.snapshot();
       const previewTime = this.previewMasterTime();
       this.syncPresenterPlayback(previewTime);
       try {
@@ -1373,7 +1361,7 @@ export class CinematicCarousel {
           frameIndex: null,
           assets: this.assets,
           reducedMotion: this.reducedMotionPreview,
-          interactionDistancePx: this.motionPosition,
+          interactionDistancePx: interaction.position,
         });
         this.renderProjectFrame(evaluation, false);
       } catch (error) {
@@ -1401,10 +1389,11 @@ export class CinematicCarousel {
       seamless: settings.motion.seamless,
       seamlessLoops: Math.max(1, Math.round(settings.motion.seamlessLoops)),
     });
+    const interaction = this.interaction.snapshot();
     this.renderInternal(
       performanceTime,
-      travel.distance + this.motionPosition,
-      travel.velocity + this.motionVelocity,
+      travel.distance + interaction.position,
+      travel.velocity + interaction.velocity,
       false,
       null,
       travel.lifecycle,
@@ -1483,7 +1472,7 @@ export class CinematicCarousel {
     });
     const interactionVelocity = exportMode
       ? 0
-      : this.motionVelocity / Math.max(1, evaluation.geometry.stride);
+      : this.interaction.snapshot().velocity / Math.max(1, evaluation.geometry.stride);
     const normalizedVelocity = this.reducedMotionPreview && !exportMode
       ? 0
       : THREE.MathUtils.clamp(evaluation.frame.track.velocity + interactionVelocity, -1, 1);
@@ -2244,6 +2233,7 @@ export class CinematicCarousel {
   private onPointerDown(event: PointerEvent): void {
     if (this.exportActive || event.button !== 0) return;
     this.dragging = true;
+    this.interaction.beginDirectManipulation();
     this.dragPointerId = event.pointerId;
     this.lastPointerCoordinate = this.drawState.motion.axis === "horizontal" ? event.clientX : event.clientY;
     this.lastPointerTime = performance.now();
@@ -2261,8 +2251,7 @@ export class CinematicCarousel {
     const cssExtent = this.drawState.motion.axis === "horizontal" ? rect.width : rect.height;
     const worldExtent = this.drawState.motion.axis === "horizontal" ? this.drawState.stage.width : this.drawState.stage.height;
     const deltaWorld = (-deltaCss / Math.max(1, cssExtent)) * worldExtent * this.drawState.motion.dragSensitivity;
-    this.motionPosition += deltaWorld;
-    this.motionVelocity = deltaWorld / deltaTime;
+    this.interaction.dragBy(deltaWorld, deltaTime);
     this.lastPointerCoordinate = coordinate;
     this.lastPointerTime = now;
     this.renderPreview();
@@ -2271,6 +2260,7 @@ export class CinematicCarousel {
   private onPointerUp(event: PointerEvent): void {
     if (!this.dragging || event.pointerId !== this.dragPointerId) return;
     this.dragging = false;
+    this.interaction.endDirectManipulation();
     this.dragPointerId = null;
     this.canvas.dataset.dragging = "false";
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
@@ -2282,8 +2272,7 @@ export class CinematicCarousel {
     const modeScale = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 18 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? 240 : 1;
     const raw = this.drawState.motion.axis === "horizontal" && Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
     const impulse = THREE.MathUtils.clamp(raw * modeScale, -180, 180) * this.drawState.motion.dragSensitivity;
-    this.motionPosition += impulse;
-    this.motionVelocity += impulse * 5.5;
+    this.interaction.addWheelDistance(impulse);
     this.renderPreview();
   }
 

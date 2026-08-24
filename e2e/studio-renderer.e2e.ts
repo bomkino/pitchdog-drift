@@ -87,6 +87,101 @@ test("compatibility Project V4 state remains live renderer authority", async ({ 
   expect(receipt.after[2]).toBeGreaterThan(receipt.after[0]! * 2);
 });
 
+test("V1 compatibility preview settles interaction independently of authored time", async ({ page }) => {
+  await page.goto("/");
+  const receipt = await page.evaluate(async () => {
+    const [
+      { CinematicCarousel },
+      { DEFAULT_SETTINGS },
+      { getSlideGeometry },
+    ] = await Promise.all([
+      import("/src/engine/CinematicCarousel.ts"),
+      import("/src/model.ts"),
+      import("/src/engine/evaluate.ts"),
+    ]);
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.motion = { ...settings.motion, autoplay: false, direction: 1 };
+    settings.stage = { width: 256, height: 256, transparent: false };
+    settings.output = { ...settings.output, width: 256, height: 256 };
+    settings.background = { ...settings.background, motion: 0, grain: 0 };
+    const geometry = getSlideGeometry(settings);
+    const assets = await Promise.all(["#e7d7bf", "#243d63"].map(async (colour, index) => {
+      const source = document.createElement("canvas");
+      source.width = 320;
+      source.height = 180;
+      const context = source.getContext("2d")!;
+      context.fillStyle = colour;
+      context.fillRect(0, 0, source.width, source.height);
+      const blob = await new Promise<Blob>((resolve, reject) => source.toBlob(
+        (value) => value ? resolve(value) : reject(new Error("fixture encode failed")),
+        "image/png",
+      ));
+      return {
+        id: `v1-interaction-${index}`,
+        name: `v1-interaction-${index}.png`,
+        kind: "image" as const,
+        blob,
+        mimeType: "image/png",
+        width: source.width,
+        height: source.height,
+        hash: String(index + 1).repeat(64),
+        objectUrl: URL.createObjectURL(blob),
+      };
+    }));
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const engine = new CinematicCarousel(canvas, { kind: "v1-compat", settings });
+    const internal = engine as unknown as {
+      elapsed: number;
+      interaction: {
+        snapshot(): { position: number; target: number; velocity: number };
+      };
+      advanceMotion(deltaSeconds: number): void;
+      renderPreview(): void;
+    };
+    const hashBlob = async (blob: Blob): Promise<string> => Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+
+    try {
+      engine.stop();
+      engine.setPaused(true);
+      await engine.setAssets(assets);
+      internal.elapsed = 1.75;
+      const authoredBefore = await hashBlob(await engine.captureStill(256, 256, 1.75));
+      engine.stepSlides(1);
+      const retargeted = internal.interaction.snapshot();
+      for (let frame = 0; frame < 30; frame += 1) internal.advanceMotion(1 / 60);
+      internal.renderPreview();
+      const settledPreview = internal.interaction.snapshot();
+      const authoredTimeAfterPreview = internal.elapsed;
+      const authoredAfter = await hashBlob(await engine.captureStill(256, 256, 1.75));
+      const afterExplicitFrame = internal.interaction.snapshot();
+      return {
+        stride: geometry.stride,
+        retargeted,
+        settledPreview,
+        authoredTimeAfterPreview,
+        authoredBefore,
+        authoredAfter,
+        afterExplicitFrame,
+      };
+    } finally {
+      engine.dispose();
+      assets.forEach((asset) => URL.revokeObjectURL(asset.objectUrl));
+      canvas.remove();
+    }
+  });
+
+  expect(receipt.retargeted).toMatchObject({ position: 0, target: receipt.stride, velocity: 0 });
+  expect(receipt.settledPreview.position).toBeGreaterThan(0);
+  expect(receipt.settledPreview.position).toBeLessThanOrEqual(receipt.stride);
+  expect(receipt.authoredTimeAfterPreview).toBe(1.75);
+  expect(receipt.authoredAfter).toBe(receipt.authoredBefore);
+  expect(receipt.afterExplicitFrame).toEqual(receipt.settledPreview);
+});
+
 test("V2 repeated slide interaction wraps through the canonical curved renderer", async ({ page }) => {
   await page.goto("/");
   const receipt = await page.evaluate(async () => {
@@ -157,7 +252,10 @@ test("V2 repeated slide interaction wraps through the canonical curved renderer"
     const engine = new CinematicCarousel(canvas, { kind: "project-v4", project });
     const internal = engine as unknown as {
       elapsed: number;
-      motionPosition: number;
+      interaction: {
+        advance(deltaSeconds: number): void;
+        snapshot(): { position: number; target: number; velocity: number };
+      };
       renderPreview(): void;
     };
     const hashCanvas = async () => {
@@ -179,18 +277,26 @@ test("V2 repeated slide interaction wraps through the canonical curved renderer"
       internal.elapsed = 2.35;
       internal.renderPreview();
       engine.stepSlides(3);
+      for (let frame = 0; frame < 120; frame += 1) internal.interaction.advance(1 / 60);
+      internal.renderPreview();
       const shortHash = await hashCanvas();
       const geometry = deriveSlideGeometry(project, assets.length);
       const loopLength = geometry.virtualSlotCount * geometry.stride;
       engine.stepSlides(geometry.virtualSlotCount * 127);
+      for (let frame = 0; frame < 120; frame += 1) internal.interaction.advance(1 / 60);
+      internal.renderPreview();
       const forwardHash = await hashCanvas();
       engine.stepSlides(-geometry.virtualSlotCount * 131);
+      for (let frame = 0; frame < 120; frame += 1) internal.interaction.advance(1 / 60);
+      internal.renderPreview();
       const reverseHash = await hashCanvas();
+      const interaction = internal.interaction.snapshot();
       return {
         shortHash,
         forwardHash,
         reverseHash,
-        interactionPosition: internal.motionPosition,
+        interactionPosition: interaction.position,
+        interactionTarget: interaction.target,
         loopLength,
       };
     } finally {
@@ -203,6 +309,7 @@ test("V2 repeated slide interaction wraps through the canonical curved renderer"
   expect(receipt.forwardHash).toBe(receipt.shortHash);
   expect(receipt.reverseHash).toBe(receipt.shortHash);
   expect(Math.abs(receipt.interactionPosition)).toBeLessThanOrEqual(receipt.loopLength / 2);
+  expect(Math.abs(receipt.interactionTarget)).toBeLessThanOrEqual(receipt.loopLength / 2);
 });
 
 test("large valid project seeds retain deterministic grain entropy", async ({ page }) => {
