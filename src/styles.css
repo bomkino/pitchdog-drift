@@ -4,8 +4,8 @@
   font-synthesis: none;
   text-rendering: geometricPrecision;
   --ink: #eeeadf;
-  --muted: #938e83;
-  --faint: #8f897f;
+  --muted: #aaa49a;
+  --faint: #a19a90;
   --line: rgba(238, 234, 223, 0.11);
   --line-strong: rgba(238, 234, 223, 0.2);
   --paper: #151412;
@@ -284,15 +284,15 @@ a:focus-visible {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   color: var(--faint);
   background: transparent;
-  font: 650 9px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font: 680 10px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   letter-spacing: 0.08em;
   transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease, transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
   cursor: pointer;
 }
 
 .workspace-switcher button::after {
-  color: #69645c;
-  font-size: 8px;
+  color: #898278;
+  font-size: 9px;
   font-weight: 520;
   letter-spacing: 0.05em;
   content: attr(data-purpose);
@@ -405,7 +405,7 @@ a:focus-visible {
 .outcome-picker-header p {
   max-width: 42ch;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -419,7 +419,7 @@ a:focus-visible {
   border-radius: 999px;
   color: var(--faint);
   background: rgba(225, 155, 106, 0.055);
-  font: 9px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font: 10px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
   letter-spacing: 0.055em;
   text-transform: uppercase;
 }
@@ -440,7 +440,7 @@ a:focus-visible {
 
 .outcome-card {
   width: 100%;
-  min-height: 184px;
+  min-height: 196px;
   display: grid;
   grid-template-rows: auto minmax(34px, auto) 32px auto;
   align-content: start;
@@ -484,7 +484,7 @@ a:focus-visible {
 
 .outcome-card-title strong {
   color: #ede6dc;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.25;
 }
 
@@ -494,14 +494,14 @@ a:focus-visible {
   border-radius: 999px;
   color: #dca47d;
   background: rgba(225, 155, 106, 0.09);
-  font: normal 7px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font: normal 8px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .outcome-card-description {
-  color: #90887f;
-  font-size: 9px;
+  color: #aaa298;
+  font-size: 10px;
   line-height: 1.45;
 }
 
@@ -547,7 +547,7 @@ a:focus-visible {
   top: 4px;
   overflow: hidden;
   color: currentColor;
-  font: 6px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font: 7px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
   letter-spacing: 0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -556,8 +556,8 @@ a:focus-visible {
 .outcome-card-meta {
   display: grid;
   gap: 3px;
-  color: #777068;
-  font: 7px/1.25 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color: #91897f;
+  font: 8px/1.3 ui-monospace, "SFMono-Regular", Menlo, monospace;
   letter-spacing: 0.025em;
 }
 
@@ -602,7 +602,7 @@ a:focus-visible {
 
 .outcome-reset-actions button {
   padding: 0 9px;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .panel-heading {
@@ -905,7 +905,7 @@ a:focus-visible {
 .master-preflight[data-ready="true"] > div:first-child strong { color: #91bb90; }
 .master-preflight p,
 .master-preflight small,
-.master-preflight li { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.master-preflight li { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .master-preflight ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .master-preflight li::before { content: "△"; margin-right: 7px; color: #d8b367; }
 .master-preflight li[data-severity="blocker"]::before { content: "×"; color: #e18b83; }
@@ -1577,13 +1577,13 @@ a:focus-visible {
 
 .timeline-segment-copy strong {
   color: currentColor;
-  font: 650 8px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font: 650 9px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
   letter-spacing: 0.035em;
 }
 
 .timeline-segment-copy small {
   color: rgba(224, 216, 205, 0.44);
-  font: 7px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font: 8px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
 .timeline-pass-tick {
@@ -1622,7 +1622,7 @@ a:focus-visible {
   min-width: 0;
   overflow: hidden;
   color: #6f6860;
-  font: 8px/14px ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font: 9px/14px ui-monospace, "SFMono-Regular", Menlo, monospace;
   letter-spacing: 0.035em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1634,7 +1634,7 @@ a:focus-visible {
   margin: 0 12px;
   padding: 0 10px;
   color: #8f877d;
-  font-size: 9px;
+  font-size: 10px;
   white-space: nowrap;
 }
 
@@ -1834,7 +1834,7 @@ a:focus-visible {
 .inspector-group[data-expanded="true"] > .inspector-group-trigger::after { content: "−"; }
 
 .inspector-group-trigger > span {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 630;
 }
 
@@ -1846,7 +1846,7 @@ a:focus-visible {
   padding-right: 1px;
   color: var(--faint);
   font-family: ui-monospace, monospace;
-  font-size: 10px;
+  font-size: 10.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1859,9 +1859,9 @@ a:focus-visible {
 
 .inspector-group-description {
   margin: -2px 0 8px;
-  color: #837d74;
-  font-size: 10px;
-  line-height: 1.4;
+  color: #9e978d;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .inspector-group-description + .control-field { border-top: 0; }
@@ -2037,7 +2037,7 @@ a:focus-visible {
 .current-background > div > span,
 .background-browser-heading > span {
   color: var(--rust-light);
-  font: 650 8px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font: 650 9px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -2048,16 +2048,16 @@ a:focus-visible {
   display: -webkit-box;
   margin: 0;
   overflow: hidden;
-  color: #928b81;
-  font-size: 10px;
-  line-height: 1.4;
+  color: #aaa399;
+  font-size: 11px;
+  line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
 
 .current-background small {
   color: #c99b7d;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.35;
 }
 
@@ -2084,8 +2084,8 @@ a:focus-visible {
 .background-browser-heading p {
   margin: 4px 0 0;
   color: var(--faint);
-  font-size: 10px;
-  line-height: 1.35;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .background-browser-tools {
@@ -2231,11 +2231,11 @@ a:focus-visible {
   white-space: nowrap;
 }
 
-.background-study-copy strong { font-size: 11px; font-weight: 620; }
+.background-study-copy strong { font-size: 12px; font-weight: 620; }
 
 .background-study-copy small {
-  color: #837d74;
-  font-size: 8px;
+  color: #9b9389;
+  font-size: 9.5px;
   letter-spacing: 0.025em;
 }
 
@@ -2269,14 +2269,14 @@ a:focus-visible {
 }
 
 .background-browse-all > span:first-child {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 
 .background-browse-all small {
   grid-column: 1;
-  color: #8b8278;
-  font-size: 9px;
+  color: #9b9389;
+  font-size: 10px;
 }
 
 .background-browse-all > span:last-child {
