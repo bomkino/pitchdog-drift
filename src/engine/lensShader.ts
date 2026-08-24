@@ -22,30 +22,9 @@ export const lensFragmentShader = /* glsl */ `
   uniform float uFlare;
   uniform float uCurvature;
   uniform float uGateWeave;
-  uniform float uCameraGrain;
   uniform float uVignette;
   uniform float uPhase;
-  uniform float uGrainFrame;
   uniform float uSeed;
-
-  float hash12(vec2 p) {
-    vec2 seedShift = vec2(uSeed * 0.754877666, uSeed * 0.569840296);
-    vec3 p3 = fract(vec3((p + seedShift).xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-  }
-
-  float valueNoise(vec2 p, float frame) {
-    vec2 cell = floor(p);
-    vec2 local = fract(p);
-    vec2 ease = local * local * (3.0 - 2.0 * local);
-    vec2 offset = vec2(frame * 19.19, frame * 73.73);
-    float a = hash12(cell + offset);
-    float b = hash12(cell + vec2(1.0, 0.0) + offset);
-    float c = hash12(cell + vec2(0.0, 1.0) + offset);
-    float d = hash12(cell + vec2(1.0, 1.0) + offset);
-    return mix(mix(a, b, ease.x), mix(c, d, ease.x), ease.y);
-  }
 
   vec4 scene(vec2 uv) {
     return texture2D(uScene, clamp(uv, 0.0, 1.0));
@@ -102,13 +81,6 @@ export const lensFragmentShader = /* glsl */ `
 
     float vignette = smoothstep(0.94, 0.12, radiusSquared);
     colour *= mix(1.0 - uVignette * presence * 0.62, 1.0, vignette);
-
-    float fine = valueNoise(vUv * uResolution / 1.35, uGrainFrame);
-    float clump = valueNoise(vUv * uResolution / 3.4 + 41.0, uGrainFrame + 17.0);
-    float grain = ((fine - 0.5) * 0.76 + (clump - 0.5) * 0.24) * 2.0;
-    float luma = dot(colour, vec3(0.2126, 0.7152, 0.0722));
-    float grainToe = smoothstep(0.004, 0.04, luma);
-    colour += grain * uCameraGrain * presence * 0.04 * grainToe;
 
     float alpha = max(center.a, max(max(softA.a, softB.a), max(softC.a, softD.a)));
     if (alpha <= 0.001) discard;

@@ -42,6 +42,8 @@ describe("authored Worlds", () => {
           expect(result.provenance.world?.id).toBe(`world/${world.id}`);
           expect(result.provenance.worldVariant).toBe(variant);
           expect(result.motion.transport.axis).toBe(ratio === "9:16" || ratio === "4:5" ? "vertical" : "horizontal");
+          expect(result.lighting.artworkProtection).toBe(1);
+          expect(result.lighting.heroProtection).toBe(1);
           for (const domain of WORLD_RECIPE_DOMAINS) {
             const reference = result.provenance.recipes[domain];
             expect(reference).not.toBeNull();

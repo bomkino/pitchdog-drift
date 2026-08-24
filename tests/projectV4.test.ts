@@ -75,6 +75,11 @@ describe("Project V4", () => {
       repeat: { mode: "off" },
       reducedMotion: false,
     });
+    expect(v4.card).toMatchObject({ borderWidth: 0, borderOpacity: 0 });
+    expect(v4.material).toMatchObject({ thickness: 0.035, finish: { microtexture: 0 } });
+    expect(v4.lighting).toMatchObject({ artworkProtection: 1, heroProtection: 1 });
+    expect(v4.atmosphere.grain).toBe(0.035);
+    expect(v4.lens.enabled).toBe(false);
     expect(createPerformanceLifecycle(v4.performance).totalDuration).toBe(8);
     expect(validateDriftProjectV3(v3)).toEqual(v3);
   });

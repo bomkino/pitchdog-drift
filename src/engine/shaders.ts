@@ -1,7 +1,6 @@
 export const slideVertexShader = /* glsl */ `
   precision highp float;
   varying vec2 vUv;
-  varying float vWarp;
   varying float vSurfaceEnergy;
   varying vec3 vViewPosition;
 
@@ -64,7 +63,6 @@ export const slideVertexShader = /* glsl */ `
     if (uAxis > 0.5) transformed.x += shear;
     else transformed.y += shear;
     transformed.z += warp;
-    vWarp = warp;
     vSurfaceEnergy = energy;
     vec4 viewPosition = modelViewMatrix * vec4(transformed, 1.0);
     vViewPosition = viewPosition.xyz;
@@ -74,7 +72,6 @@ export const slideVertexShader = /* glsl */ `
 
 export const slideFragmentShader = /* glsl */ `
   varying vec2 vUv;
-  varying float vWarp;
   varying float vSurfaceEnergy;
   varying vec3 vViewPosition;
 
@@ -165,9 +162,18 @@ export const slideFragmentShader = /* glsl */ `
       ? coverUv(vUv, uPlaneAspect, uTextureAspect, uFocal)
       : containUv(vUv, uPlaneAspect, uTextureAspect, uFocal);
 
+    // Source pixels are immutable unless the director explicitly lowers
+    // Artwork protection. Geometry remains free to bend in the vertex stage;
+    // optical registration, relighting, and local tooth all share this one
+    // deliberate treatment authority.
+    float artworkTreatmentAuthority = 1.0 - clamp(uArtworkProtection, 0.0, 1.0);
     vec2 flowAxis = uAxis < 0.5 ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
     float optical = clamp(uVelocity, -1.0, 1.0) * uDistortion;
-    textureUv += flowAxis * sin((uAxis < 0.5 ? vUv.y : vUv.x) * 3.14159265) * optical * 0.022;
+    textureUv += flowAxis
+      * sin((uAxis < 0.5 ? vUv.y : vUv.x) * 3.14159265)
+      * optical
+      * 0.022
+      * artworkTreatmentAuthority;
     bool outsideTexture = textureUv.x < 0.0 || textureUv.x > 1.0 || textureUv.y < 0.0 || textureUv.y > 1.0;
     vec4 sampled = texture2D(uMap, clamp(textureUv, 0.0, 1.0));
     if (uFit > 0.5 && outsideTexture) {
@@ -179,9 +185,9 @@ export const slideFragmentShader = /* glsl */ `
       }
     }
 
-    // Imported artwork stays proof-safe. Motion may bend its geometry, but
-    // atmospheric texture belongs to the surrounding world, never its pixels.
-    sampled.rgb += abs(vWarp) * 0.025;
+    // Imported artwork stays proof-safe. Motion may bend its geometry, while
+    // atmosphere and grain remain separate world plates. Lighting and local
+    // finish can touch the face only through explicit treatment authority.
     // Derivative normals on a moving subdivided card become infinite at steep
     // perspective seams on some macOS GPUs. Even a bypassed light then carries
     // NaNs into mix(), producing black stipple. Use a bounded analytical face
@@ -200,10 +206,14 @@ export const slideFragmentShader = /* glsl */ `
       * (vec3(0.72) + uFillColor * fill * uFillIntensity * 0.28)
       + uKeyColor * key * uKeyIntensity * (0.05 + uSheen * 0.12)
       + uKeyColor * rim * uRimIntensity * (0.025 + (1.0 - uRoughness) * 0.08);
-    float lightAuthority = uLightingEnabled * (1.0 - clamp(uArtworkProtection, 0.0, 1.0));
+    float lightAuthority = uLightingEnabled * artworkTreatmentAuthority;
     sampled.rgb = mix(sampled.rgb, lit, lightAuthority);
     float tooth = materialHash(floor(vUv * uSizePx / mix(5.0, 1.5, uSurface / 3.0))) - 0.5;
-    sampled.rgb += tooth * uMicrotexture * 0.022 * (0.35 + vSurfaceEnergy * 0.65);
+    sampled.rgb += tooth
+      * uMicrotexture
+      * artworkTreatmentAuthority
+      * 0.022
+      * (0.35 + vSurfaceEnergy * 0.65);
     float borderAlpha = borderMask * uBorderOpacity;
     float combinedAlpha = borderAlpha + sampled.a * (1.0 - borderAlpha);
     vec3 combinedPremultiplied = uBorderColor * borderAlpha + sampled.rgb * sampled.a * (1.0 - borderAlpha);

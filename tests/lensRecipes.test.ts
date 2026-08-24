@@ -23,9 +23,11 @@ describe("global lens recipes", () => {
     }
   });
 
-  it("keeps chromatic separation centred and smear velocity-linked", () => {
+  it("keeps chromatic separation centred and smear velocity-linked without overlaying grain on source pixels", () => {
     expect(lensFragmentShader).toContain("vec2 chromaOffset = radial * pixel * uChromatic");
     expect(lensFragmentShader).toContain("vec2 smearOffset = uVelocity * pixel * uSmear");
+    expect(lensFragmentShader).not.toContain("uCameraGrain");
+    expect(lensFragmentShader).not.toContain("filmGrain");
     expect(lensFragmentShader).toContain("#include <colorspace_fragment>");
     expect(lensFragmentShader).not.toContain("for (");
   });

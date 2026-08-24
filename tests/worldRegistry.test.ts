@@ -106,8 +106,8 @@ describe("V2 World registry foundation", () => {
       },
       lighting: {
         presetId: "studio-soft",
-        artworkProtection: 0.9,
-        heroProtection: 0.92,
+        artworkProtection: 1,
+        heroProtection: 1,
         shadowOpacity: 0.24,
         shadowSoftness: 112,
       },

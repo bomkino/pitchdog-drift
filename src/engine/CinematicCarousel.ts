@@ -99,9 +99,8 @@ export function resolveExportFrameIndex(frameIndex: number | null | undefined): 
 }
 
 /**
- * Film grain is the first legacy-renderer input governed by discrete frame
- * identity. Existing callers retain the time-derived fallback until every
- * render path supplies an explicit export frame index.
+ * World grain is governed by discrete frame identity. Existing preview callers
+ * retain the time-derived fallback; export uses exact output-frame identity.
  */
 export function resolveGrainFrame(
   time: number,
@@ -117,6 +116,54 @@ export function resolveGrainFrame(
     return Math.floor(explicitFrameIndex * cadence / fps);
   }
   return Math.floor(Math.max(0, time) * cadence);
+}
+
+interface WorldGrainLensInput {
+  enabled: boolean;
+  presence: number;
+  cameraGrain: number;
+}
+
+interface ArtworkTreatmentInput {
+  presetId: string;
+  artworkProtection: number;
+}
+
+/**
+ * Older built-in recipes serialized partial artwork protection even though the
+ * product described them as faithful. Treat those named rigs as room/shell
+ * direction only. A custom rig is the backwards-compatible explicit opt-in
+ * until the Look rebuild gives artwork treatment its own switch.
+ */
+export function resolveArtworkProtection(
+  lighting: ArtworkTreatmentInput | null | undefined,
+): number {
+  if (!lighting || lighting.presetId !== "custom") return 1;
+  return Number.isFinite(lighting.artworkProtection)
+    ? THREE.MathUtils.clamp(lighting.artworkProtection, 0, 1)
+    : 1;
+}
+
+/**
+ * Camera-stock grain is folded into the background plate, never composited
+ * over slide or presenter pixels. Preserve the old lens-presence authority
+ * while keeping one bounded world-grain control for the shader.
+ */
+export function resolveWorldGrainControl(
+  atmosphereGrain: number,
+  lens: WorldGrainLensInput | null | undefined,
+): number {
+  const atmosphere = Number.isFinite(atmosphereGrain)
+    ? THREE.MathUtils.clamp(atmosphereGrain, 0, 0.6)
+    : 0;
+  if (!lens?.enabled) return atmosphere;
+  const presence = Number.isFinite(lens.presence)
+    ? THREE.MathUtils.clamp(lens.presence, 0, 1)
+    : 0;
+  const cameraStock = Number.isFinite(lens.cameraGrain)
+    ? THREE.MathUtils.clamp(lens.cameraGrain, 0, 0.6)
+    : 0;
+  return THREE.MathUtils.clamp(atmosphere + cameraStock * presence, 0, 0.6);
 }
 
 export interface PresenterPreviewClockInput {
@@ -655,7 +702,7 @@ export class CinematicCarousel {
         uMode: { value: backgroundMode(state.background.style) },
         uIntensity: { value: state.background.intensity },
         uMotion: { value: state.background.motion },
-        uGrain: { value: state.background.grain },
+        uGrain: { value: resolveWorldGrainControl(state.background.grain, this.project?.lens) },
         uGrainFrame: { value: 0 },
         uVignette: { value: state.background.vignette },
         uPhase: { value: 0 },
@@ -689,10 +736,8 @@ export class CinematicCarousel {
         uFlare: { value: 0 },
         uCurvature: { value: 0 },
         uGateWeave: { value: 0 },
-        uCameraGrain: { value: 0 },
         uVignette: { value: 0 },
         uPhase: { value: 0 },
-        uGrainFrame: { value: 0 },
         uSeed: { value: 0 },
       },
     });
@@ -1598,7 +1643,6 @@ export class CinematicCarousel {
       uniforms.uFlare!.value = lens.flare;
       uniforms.uCurvature!.value = lens.curvature;
       uniforms.uGateWeave!.value = lens.gateWeave;
-      uniforms.uCameraGrain!.value = lens.cameraGrain;
       uniforms.uVignette!.value = lens.vignette;
       uniforms.uPhase!.value = resolveBackgroundPhase(time, {
         durationSeconds: this.drawState.output.duration,
@@ -1607,13 +1651,6 @@ export class CinematicCarousel {
         seamlessLoops: this.drawState.motion.seamlessLoops,
         reducedMotion: false,
       });
-      uniforms.uGrainFrame!.value = resolveGrainFrame(
-        time,
-        this.drawState.output.fps,
-        exportMode,
-        false,
-        exportFrameIndex,
-      );
       uniforms.uSeed!.value = normalizeGrainSeed(project.projectSeed);
 
       this.renderer.setRenderTarget(null);
@@ -1766,7 +1803,7 @@ export class CinematicCarousel {
     uniforms.uKeyIntensity!.value = (lighting?.keyIntensity ?? 0) * lightPulse;
     uniforms.uFillIntensity!.value = lighting?.fillIntensity ?? 1;
     uniforms.uRimIntensity!.value = lighting?.rimIntensity ?? 0;
-    uniforms.uArtworkProtection!.value = lighting?.artworkProtection ?? 1;
+    uniforms.uArtworkProtection!.value = resolveArtworkProtection(lighting);
 
     // The rear plate owns the same subdivided deformation and continuous
     // corner field as the artwork. A rigid box can intersect a flexing face,
@@ -1969,7 +2006,10 @@ export class CinematicCarousel {
     this.backgroundMaterial.uniforms.uMode!.value = backgroundMode(background.style);
     this.backgroundMaterial.uniforms.uIntensity!.value = background.intensity;
     this.backgroundMaterial.uniforms.uMotion!.value = background.motion;
-    this.backgroundMaterial.uniforms.uGrain!.value = background.grain;
+    this.backgroundMaterial.uniforms.uGrain!.value = resolveWorldGrainControl(
+      background.grain,
+      this.project?.lens,
+    );
     this.backgroundMaterial.uniforms.uVignette!.value = background.vignette;
     this.backgroundMaterial.uniforms.uSeed!.value = background.seed;
     this.backgroundMaterial.uniforms.uGrainSeed!.value = normalizeGrainSeed(background.seed);

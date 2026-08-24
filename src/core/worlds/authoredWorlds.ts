@@ -240,6 +240,10 @@ export function applyAuthoredWorld(
   if (unlocked(project, "lighting")) {
     applyLightingRecipe(project, world.lightingId);
     project.lighting.enabled = true;
+    // A World directs the room, shell, and cast shadow. It never opts the
+    // user's source artwork into relighting or local face texture.
+    project.lighting.artworkProtection = 1;
+    project.lighting.heroProtection = 1;
     project.lighting.keyIntensity = Math.min(2, project.lighting.keyIntensity * factor);
     project.lighting.backgroundSpill = Math.min(1, project.lighting.backgroundSpill * factor);
   }

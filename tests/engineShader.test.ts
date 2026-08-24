@@ -7,9 +7,11 @@ import {
   normalizeGrainSeed,
   resolveCanvasClearAlpha,
   resolveExportFrameIndex,
+  resolveArtworkProtection,
   resolveGrainFrame,
   resolveMovingTrackAssets,
   resolvePresenterPreviewClock,
+  resolveWorldGrainControl,
   selectRenderableItems,
 } from "../src/engine/CinematicCarousel";
 import { DRIFT_V2_RENDER_CONTRACT } from "../src/core/project/schema";
@@ -17,6 +19,7 @@ import { createDefaultDriftProjectV4 } from "../src/core/project/defaults";
 import { DEFAULT_SETTINGS, cloneSettings, type StudioAsset } from "../src/model";
 import { evaluateSlide, getLogicalSlotCount, getSlideGeometry, isPotentiallyVisible } from "../src/engine/evaluate";
 import { backgroundFragmentShader, shadowFragmentShader, slideFragmentShader } from "../src/engine/shaders";
+import { lensFragmentShader } from "../src/engine/lensShader";
 import { createPerformanceLifecycle } from "../src/core/timeline/performanceLifecycle";
 
 const LIMITS = {
@@ -72,10 +75,14 @@ describe("custom shader output contract", () => {
     expect(slideFragmentShader).toContain("scale.x = imageAspect / planeAspect");
   });
 
-  it("keeps procedural grain out of imported slide pixels", () => {
+  it("keeps source treatment explicit and procedural grain on the world plate", () => {
     expect(slideFragmentShader).not.toContain("hash12");
     expect(slideFragmentShader).not.toContain("uTime");
     expect(slideFragmentShader).not.toContain("filmGrain");
+    expect(slideFragmentShader).not.toContain("sampled.rgb += abs(vWarp)");
+    expect(slideFragmentShader).toContain("float artworkTreatmentAuthority = 1.0 - clamp(uArtworkProtection");
+    expect(slideFragmentShader).toContain("* artworkTreatmentAuthority;");
+    expect(slideFragmentShader).toContain("float lightAuthority = uLightingEnabled * artworkTreatmentAuthority");
     expect(backgroundFragmentShader).toContain("filmGrain");
     expect(backgroundFragmentShader).toContain("uGrainFrame");
     expect(backgroundFragmentShader).toContain("pixel / 1.35");
@@ -84,6 +91,24 @@ describe("custom shader output contract", () => {
     expect(backgroundFragmentShader).toContain("smoothstep(0.004, 0.040, displayLuminance)");
     expect(backgroundFragmentShader).toContain("p + seedShift");
     expect(backgroundFragmentShader).not.toContain("33.33 + uSeed");
+    expect(lensFragmentShader).not.toContain("filmGrain");
+    expect(lensFragmentShader).not.toContain("uCameraGrain");
+  });
+
+  it("folds camera-stock character into bounded world grain only while its lens is active", () => {
+    expect(resolveWorldGrainControl(0.035, null)).toBe(0.035);
+    expect(resolveWorldGrainControl(0.035, { enabled: false, presence: 1, cameraGrain: 0.6 })).toBe(0.035);
+    expect(resolveWorldGrainControl(0.035, { enabled: true, presence: 0.5, cameraGrain: 0.1 })).toBeCloseTo(0.085, 12);
+    expect(resolveWorldGrainControl(0.58, { enabled: true, presence: 1, cameraGrain: 0.6 })).toBe(0.6);
+    expect(resolveWorldGrainControl(Number.NaN, { enabled: true, presence: Number.NaN, cameraGrain: Number.NaN })).toBe(0);
+  });
+
+  it("repairs older named rigs without erasing deliberate custom artwork treatment", () => {
+    expect(resolveArtworkProtection({ presetId: "studio-soft", artworkProtection: 0.82 })).toBe(1);
+    expect(resolveArtworkProtection({ presetId: "headlight-sweep", artworkProtection: 0.52 })).toBe(1);
+    expect(resolveArtworkProtection({ presetId: "custom", artworkProtection: 0.82 })).toBe(0.82);
+    expect(resolveArtworkProtection({ presetId: "custom", artworkProtection: 0 })).toBe(0);
+    expect(resolveArtworkProtection({ presetId: "custom", artworkProtection: Number.NaN })).toBe(1);
   });
 
   it("composites an intentional border independently from transparent artwork alpha", () => {

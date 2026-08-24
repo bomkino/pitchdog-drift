@@ -143,8 +143,8 @@ export function assertEditorialDriftRecipeIntegrity(): void {
     invariant(recipe.lens.chromaticSeparation <= 0.02, `${ratio} chromatic separation is not restrained`);
     invariant(recipe.lens.directionalSmear <= 0.08, `${ratio} directional smear is not restrained`);
     invariant(recipe.lens.presenterTreatment === "protected", `${ratio} must protect presenter pixels`);
-    invariant(recipe.lighting.artworkProtection >= 0.85, `${ratio} must protect slide artwork`);
-    invariant(recipe.lighting.heroProtection >= 0.85, `${ratio} must protect resting hero`);
+    invariant(recipe.lighting.artworkProtection === 1, `${ratio} must fully protect slide artwork`);
+    invariant(recipe.lighting.heroProtection === 1, `${ratio} must fully protect resting hero`);
     invariant(compositionIds.has(recipe.atmosphere.composition), `${ratio} must reference an authored atmosphere`);
   }
 
