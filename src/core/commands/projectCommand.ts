@@ -9,8 +9,12 @@ import {
 import { recordProjectMutation, type ProjectRevisionState } from "../project/revisions";
 import { validateDriftProjectV3, validateDriftProjectV4 } from "../project/validation";
 
-export type ProjectV4CommandDomain = ProjectDomain | "compatibility";
-export const PROJECT_V4_COMMAND_DOMAINS = [...PROJECT_DOMAINS, "compatibility"] as const;
+export type ProjectV4CommandDomain = ProjectDomain | "performance" | "compatibility";
+export const PROJECT_V4_COMMAND_DOMAINS = [
+  ...PROJECT_DOMAINS,
+  "performance",
+  "compatibility",
+] as const;
 
 export interface ProjectCommand {
   id: string;
@@ -79,6 +83,7 @@ const DOMAIN_PATHS: Readonly<Record<ProjectDomain, readonly string[]>> = {
 
 const V4_DOMAIN_PATHS: Readonly<Record<ProjectV4CommandDomain, readonly string[]>> = {
   ...DOMAIN_PATHS,
+  performance: ["performance"],
   compatibility: ["renderContract", "migration", "extensions"],
 };
 
@@ -259,4 +264,35 @@ export function applyProjectV4Command(
     revision: nextRevision,
     receipt: v4Receipt(revision, command, changedPaths, nextRevision.currentRevision),
   };
+}
+
+/**
+ * Restores only the domains owned by one earlier command. The reducer still
+ * validates domain ownership and records the undo as a new revision; using
+ * the snapshot timestamp restores a canonical project document byte-for-byte
+ * when no later command has touched an owned domain.
+ */
+export function undoProjectV4Command(
+  current: DriftProjectV4,
+  revision: ProjectRevisionState,
+  previous: DriftProjectV4,
+  command: ProjectV4Command,
+): AppliedProjectV4Command {
+  const snapshot = cloneDriftProjectV4(previous);
+  const undoCommand: ProjectV4Command = {
+    id: `history.undo.${command.id}`,
+    source: "history",
+    ownedDomains: [...command.ownedDomains],
+    apply: (candidate) => {
+      const candidateRecord = candidate as unknown as Record<string, unknown>;
+      const snapshotRecord = snapshot as unknown as Record<string, unknown>;
+      for (const domain of command.ownedDomains) {
+        for (const root of V4_DOMAIN_PATHS[domain]) {
+          candidateRecord[root] = structuredClone(snapshotRecord[root]);
+        }
+      }
+      return candidate;
+    },
+  };
+  return applyProjectV4Command(current, revision, undoCommand, snapshot.updatedAt);
 }

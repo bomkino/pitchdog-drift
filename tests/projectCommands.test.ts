@@ -7,6 +7,40 @@ const NOW = "2026-08-21T00:00:00.000Z";
 const LATER = "2026-08-21T00:01:00.000Z";
 
 describe("project command ownership", () => {
+  it("gives V4 lifecycle performance its own root command domain", () => {
+    const project = createDefaultDriftProjectV4("project-v4-performance", NOW);
+    const applied = applyProjectV4Command(project, createProjectRevisionState(), {
+      id: "performance.disable-entry",
+      source: "test",
+      ownedDomains: ["performance", "master"],
+      apply: (candidate) => {
+        candidate.performance = {
+          transitionPreset: "quiet-lift",
+          entry: { enabled: false },
+          body: { durationSeconds: candidate.master.duration, tempo: { kind: "preset", preset: "even" } },
+          exit: { enabled: false },
+          repeat: { mode: "off" },
+          reducedMotion: candidate.performance.reducedMotion ?? false,
+        };
+        return candidate;
+      },
+    }, LATER);
+
+    expect(applied.project.performance.entry).toEqual({ enabled: false });
+    expect(applied.receipt.changedPaths.some((path) => path.startsWith("performance.entry")))
+      .toBe(true);
+    expect(applied.receipt.ownedDomains).toEqual(["performance", "master"]);
+    expect(() => applyProjectV4Command(project, createProjectRevisionState(), {
+      id: "dishonest-motion-performance",
+      source: "test",
+      ownedDomains: ["motion"],
+      apply: (candidate) => {
+        candidate.performance = applied.project.performance;
+        return candidate;
+      },
+    }, LATER)).toThrow(/outside its owned domains/u);
+  });
+
   it("gives V4 compatibility metadata an explicit, isolated command domain", () => {
     const project = createDefaultDriftProjectV4("project-v4", NOW);
     const applied = applyProjectV4Command(project, createProjectRevisionState(), {
