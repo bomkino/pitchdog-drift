@@ -3,6 +3,8 @@ import type { StagePresentation } from "../core/project/appPresentation";
 import type { ExportProgress, StudioAsset } from "../model";
 import { fitStagePreview, type StagePreviewSize } from "./stageGeometry";
 import type { PlatformGuideProfile } from "../core/platformGuides";
+import type { VisualTimelineModel } from "../core/timeline/visualTimelineModel";
+import { TimelineDock } from "./TimelineDock";
 
 function formatExportTime(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds));
@@ -34,14 +36,17 @@ interface StageProps {
   webglError: string | null;
   contextState: "ready" | "lost" | "restored";
   fps: number;
+  outputFps: number;
   paused: boolean;
   reducedMotionPreview: boolean;
   focusMode: boolean;
   activeSlideIndex: number;
   platformGuide: PlatformGuideProfile;
   exportProgress: ExportProgress | null;
-  onTogglePause: () => void;
-  onStep: (amount: number) => void;
+  timeline: VisualTimelineModel;
+  previewTime: number;
+  onPausedChange: (paused: boolean) => void;
+  onSeekPreview: (time: number) => void;
   onToggleFocus: () => void;
   onDropImages: (files: File[]) => void;
   onCancelExport: () => void;
@@ -57,14 +62,17 @@ export function Stage({
   webglError,
   contextState,
   fps,
+  outputFps,
   paused,
   reducedMotionPreview,
   focusMode,
   activeSlideIndex,
   platformGuide,
   exportProgress,
-  onTogglePause,
-  onStep,
+  timeline,
+  previewTime,
+  onPausedChange,
+  onSeekPreview,
   onToggleFocus,
   onDropImages,
   onCancelExport,
@@ -79,7 +87,7 @@ export function Stage({
     : "";
   const previewDescription = assets.length === 0
     ? `Cinematic preview. No slides. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${reducedMotionPreview ? "held by the Mac Reduce Motion setting" : paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Drag or add images to begin.`
-    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${reducedMotionPreview ? "held by the Mac Reduce Motion setting" : paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Use the previous and next controls, drag, wheel, or Space to navigate.`;
+    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${reducedMotionPreview ? "held by the Mac Reduce Motion setting" : paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Use the timeline, drag, wheel, or Space to navigate.`;
 
   useLayoutEffect(() => {
     const well = wellRef.current;
@@ -241,20 +249,18 @@ export function Stage({
         </div>
       </div>
 
-      <div className="transport" aria-label="Playback controls">
-        <button type="button" disabled={busy} onClick={() => onStep(-1)} aria-label="Previous slide">←</button>
-        <button type="button" disabled={busy} className="play-button" onClick={onTogglePause} aria-label={paused ? "Play preview" : "Pause preview"} aria-pressed={!paused}>
-          {paused ? "PLAY" : "PAUSE"}
-        </button>
-        <button type="button" disabled={busy} onClick={() => onStep(1)} aria-label="Next slide">→</button>
-        <span className="transport-divider" />
-        {reducedMotionPreview ? (
-          <span className="transport-copy motion-hold-status" title="macOS Reduce Motion is holding the live preview. Export still follows the Reduce Motion choice saved in Master.">
-            OS MOTION HOLD · MASTER UNCHANGED
-          </span>
-        ) : <span className="transport-copy">Drag · wheel · space</span>}
-        <button type="button" disabled={busy} className="focus-button" onClick={onToggleFocus}>{focusMode ? "Exit full frame" : "Full frame"}</button>
-      </div>
+      <TimelineDock
+        model={timeline}
+        currentTime={previewTime}
+        outputFps={outputFps}
+        paused={paused}
+        reducedMotionPreview={reducedMotionPreview}
+        focusMode={focusMode}
+        busy={busy}
+        onPausedChange={onPausedChange}
+        onSeek={onSeekPreview}
+        onToggleFocus={onToggleFocus}
+      />
     </section>
   );
 }

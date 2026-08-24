@@ -311,6 +311,18 @@ interface EngineCallbacks {
   onContextState?: (state: "ready" | "lost" | "restored") => void;
   onFrame?: (fps: number) => void;
   onActiveSlide?: (index: number) => void;
+  onPreviewTime?: (time: number) => void;
+}
+
+export const PREVIEW_TIME_CALLBACK_INTERVAL_MS = 100;
+
+export function clampPreviewSeekTime(time: number, duration: number): number {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new TypeError("Preview duration must be a finite number above zero.");
+  }
+  if (Number.isNaN(time) || time === -Infinity) return 0;
+  if (time === Infinity) return duration;
+  return Math.max(0, Math.min(duration, time));
 }
 
 interface TextureRecord {
@@ -598,6 +610,9 @@ export class CinematicCarousel {
   private animationFrame = 0;
   private lastFrameTime = 0;
   private elapsed = 0;
+  private previewSeekOverride: number | null = null;
+  private lastPreviewTimeCallbackAt = Number.NEGATIVE_INFINITY;
+  private lastPreviewTimeCallbackValue: number | null = null;
   private readonly interaction = new CarouselInteractionController();
   private paused = false;
   private dragging = false;
@@ -809,6 +824,10 @@ export class CinematicCarousel {
     return this.paused;
   }
 
+  get currentPreviewTime(): number {
+    return this.previewMasterTime();
+  }
+
   get isContextLost(): boolean {
     return this.contextLost;
   }
@@ -823,6 +842,12 @@ export class CinematicCarousel {
       ...state.performance,
       reducedMotion: true,
     });
+    if (this.previewSeekOverride !== null) {
+      this.previewSeekOverride = clampPreviewSeekTime(
+        this.previewSeekOverride,
+        this.performanceTimeline.totalDuration,
+      );
+    }
     if (this.reducedMotionPreview) {
       this.presenterReducedMotionMasterTime = defaultPerformanceStillTime(this.reducedPerformanceTimeline);
     }
@@ -1073,6 +1098,24 @@ export class CinematicCarousel {
     return this.paused;
   }
 
+  /**
+   * Moves only the interactive preview clock. Fixed-time render and export
+   * surfaces never read this override, so timeline editing cannot alter an
+   * encoded frame. Pause ownership remains with the caller.
+   */
+  seekPreview(time: number): number {
+    if (this.disposed) throw new Error("Preview renderer is unavailable.");
+    if (this.exportActive) throw new Error("Preview seeking is unavailable during export.");
+    const clamped = clampPreviewSeekTime(time, this.performanceTimeline.totalDuration);
+    this.elapsed = clamped;
+    this.previewSeekOverride = clamped;
+    if (this.reducedMotionPreview) this.presenterReducedMotionMasterTime = clamped;
+    this.syncPresenterPlayback(clamped);
+    this.renderPreview();
+    this.emitPreviewTime(performance.now(), true);
+    return clamped;
+  }
+
   setReducedMotionPreview(reduced: boolean): void {
     if (reduced && !this.reducedMotionPreview) {
       // Reduced motion is a stable composition preview, not an arbitrarily
@@ -1314,9 +1357,13 @@ export class CinematicCarousel {
       // The authored show clock follows real active time; otherwise a slow
       // paint loop makes decoder-driven presenter video outrun the slides.
       // Only inertial interaction physics is capped after a long frame.
-      if (!this.paused) this.elapsed += wallDelta;
+      if (!this.paused) {
+        this.elapsed += wallDelta;
+        this.previewSeekOverride = null;
+      }
       this.advanceMotion(Math.min(0.05, wallDelta));
       this.renderPreview();
+      this.emitPreviewTime(now);
       this.sampleFps(now);
     };
     this.animationFrame = requestAnimationFrame(tick);
@@ -2286,7 +2333,21 @@ export class CinematicCarousel {
       return this.presenterReducedMotionMasterTime
         ?? defaultPerformanceStillTime(this.reducedPerformanceTimeline);
     }
+    if (this.previewSeekOverride !== null) return this.previewSeekOverride;
     return loopPerformanceTime(this.elapsed, this.performanceTimeline.totalDuration);
+  }
+
+  private emitPreviewTime(now: number, force = false): void {
+    const callback = this.callbacks.onPreviewTime;
+    if (!callback) return;
+    const time = this.previewMasterTime();
+    if (!force) {
+      if (now - this.lastPreviewTimeCallbackAt < PREVIEW_TIME_CALLBACK_INTERVAL_MS) return;
+      if (this.lastPreviewTimeCallbackValue === time) return;
+    }
+    this.lastPreviewTimeCallbackAt = now;
+    this.lastPreviewTimeCallbackValue = time;
+    callback(time);
   }
 
   private requestPresenterPreviewSeek(video: HTMLVideoElement, targetTime: number): void {

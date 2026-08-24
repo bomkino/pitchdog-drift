@@ -61,13 +61,18 @@ import {
 } from "./core/worlds";
 import { createPerformanceLifecycle } from "./core/timeline/performanceLifecycle";
 import { defaultPerformanceStillTime } from "./core/timeline/renderTravel";
+import { buildVisualTimelineModel } from "./core/timeline/visualTimelineModel";
 import {
   applyTimingResolution,
   readTimingIntent,
   resolveProjectTiming,
   withTimingIntent,
 } from "./core/timeline/timingIntent";
-import { CinematicCarousel, getShadowSupportMargin } from "./engine/CinematicCarousel";
+import {
+  CinematicCarousel,
+  clampPreviewSeekTime,
+  getShadowSupportMargin,
+} from "./engine/CinematicCarousel";
 import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
 import { driftBuildIdentity } from "./lib/buildIdentity";
 import { createDemoSlides } from "./lib/demoSlides";
@@ -302,6 +307,7 @@ export function App() {
   const [webglError, setWebglError] = useState<string | null>(null);
   const [contextState, setContextState] = useState<"ready" | "lost" | "restored">("ready");
   const [fps, setFps] = useState(0);
+  const [previewTime, setPreviewTime] = useState(0);
   const [paused, setPaused] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
@@ -368,6 +374,10 @@ export function App() {
     [documentBound, documentConflict, documentRevisionVersion],
   );
   const displayedProject = comparisonActive && comparisonProject ? comparisonProject : liveProject;
+  const visualTimeline = useMemo(() => buildVisualTimelineModel(
+    displayedProject,
+    resolveMovingMedia(displayedProject).order,
+  ), [displayedProject]);
   const slideHealth = useMemo(() => evaluateDeckSlideHealth(liveProject), [liveProject]);
   const platformGuide = useMemo(
     () => platformGuideId === "custom"
@@ -801,6 +811,7 @@ export function App() {
         onContextState: setContextState,
         onFrame: setFps,
         onActiveSlide: setActiveSlideIndex,
+        onPreviewTime: setPreviewTime,
       });
       engineRef.current = engine;
       setWebglError(null);
@@ -926,6 +937,7 @@ export function App() {
       }
       if (exportProgress || projectBusy || abortRef.current || projectPendingRef.current > 0 || saveState === "loading") return;
       const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-timeline-dock]")) return;
       if (target?.closest("input, select, textarea, button, [contenteditable=true]")) return;
       if (event.code === "Space") {
         event.preventDefault();
@@ -1704,6 +1716,20 @@ export function App() {
     setPaused(next);
   }, [paused]);
 
+  const setPreviewPaused = useCallback((next: boolean) => {
+    engineRef.current?.setPaused(next);
+    setPaused(next);
+  }, []);
+
+  const seekPreview = useCallback((time: number) => {
+    const engine = engineRef.current;
+    if (engine) {
+      engine.seekPreview(time);
+      return;
+    }
+    setPreviewTime(clampPreviewSeekTime(time, visualTimeline.totalDuration));
+  }, [visualTimeline.totalDuration]);
+
   const onTheme = useCallback((id: ThemeId) => {
     const currentProject = projectRef.current;
     if (id === "editorial-drift" && currentProject) {
@@ -2149,14 +2175,17 @@ export function App() {
           webglError={webglError}
           contextState={contextState}
           fps={fps}
+          outputFps={displayedProject.master.fps}
           paused={paused}
           reducedMotionPreview={prefersReducedMotion}
           focusMode={focusMode}
           activeSlideIndex={activeSlideIndex}
           platformGuide={platformGuide}
           exportProgress={exportProgress}
-          onTogglePause={togglePause}
-          onStep={(amount) => engineRef.current?.stepSlides(amount)}
+          timeline={visualTimeline}
+          previewTime={previewTime}
+          onPausedChange={setPreviewPaused}
+          onSeekPreview={seekPreview}
           onToggleFocus={() => setFocusMode((value) => !value)}
           onDropImages={addImages}
           onCancelExport={() => abortRef.current?.abort("Canceled by user")}
