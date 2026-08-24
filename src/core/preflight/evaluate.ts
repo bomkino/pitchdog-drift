@@ -15,6 +15,7 @@ import type {
   PreflightScope,
   PreflightSeverity,
 } from "./types";
+import { describeDurationRounding, describeUnevenPoseHolds } from "./presentation";
 
 interface MutableIssue extends PreflightIssue {}
 
@@ -309,26 +310,22 @@ function warningAndNoteIssues(input: PreflightInput): MutableIssue[] {
     if (overlapIssue) issues.push(overlapIssue);
   }
   const { cadence, output } = input.receipt;
-  if (cadence.compatibility === "mixed-holds") {
-    const poseLabel = cadence.poseFps === null ? "Authored pose cadence" : `${cadence.poseFps} fps pose cadence`;
-    const holdLabel = cadence.frameHolds.length > 0
-      ? ` (${cadence.frameHolds.join("/")}-frame holds)`
-      : "";
+  const unevenPoseHolds = describeUnevenPoseHolds(cadence, output.fps);
+  if (unevenPoseHolds) {
     issues.push(issue(
-      "cadence-endpoint",
+      "uneven-pose-holds",
       "warning",
       "output",
-      `${poseLabel} cannot divide evenly into ${output.fps} fps output${holdLabel}. Motion will alternate hold lengths.`,
+      unevenPoseHolds,
     ));
   }
-  if (Math.abs(output.durationQuantizationDeltaSeconds) > 1e-9) {
-    const delta = output.durationQuantizationDeltaSeconds;
-    const signedDelta = `${delta >= 0 ? "+" : ""}${delta.toFixed(3)} s`;
+  const durationRounding = describeDurationRounding(output);
+  if (durationRounding) {
     issues.push(issue(
       "duration-quantization",
       "note",
       "output",
-      `${output.frameCount} frames encode to ${output.encodedDurationSeconds.toFixed(3)} s (${signedDelta} from the authored duration).`,
+      durationRounding,
     ));
   }
   if (!input.receipt.transparency.compatible) {

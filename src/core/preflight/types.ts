@@ -24,7 +24,7 @@ export type PreflightIssueId =
   | "mixed-ratio"
   | "focal-edge"
   | "guide-overlap"
-  | "cadence-endpoint"
+  | "uneven-pose-holds"
   | "duration-quantization"
   | "alpha-container"
   | "heavy-workload"

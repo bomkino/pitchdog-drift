@@ -323,17 +323,17 @@ describe("objective preflight", () => {
     expect(report.canExport).toBe(true);
     expect(report.warnings.map(({ id }) => id)).toEqual([
       "guide-overlap",
-      "cadence-endpoint",
+      "uneven-pose-holds",
       "alpha-container",
       "extreme-workload",
       "unsupported-physical-lane",
     ]);
     expect(report.warnings.find(({ id }) => id === "guide-overlap")?.message).toContain("62.5%");
-    expect(report.warnings.find(({ id }) => id === "cadence-endpoint")?.message)
-      .toBe("12 fps pose cadence cannot divide evenly into 25 fps output (2/3-frame holds). Motion will alternate hold lengths.");
+    expect(report.warnings.find(({ id }) => id === "uneven-pose-holds")?.message)
+      .toBe("12 fps pose timing inside 25 fps output uses uneven 2/3-frame holds. Some poses stay on screen longer than others, so motion may look slightly uneven. Choose 24 or 60 fps for even holds, or choose Continuous motion.");
     expect(report.notes).toEqual([expect.objectContaining({
       id: "duration-quantization",
-      message: "251 frames encode to 10.040 s (+0.010 s from the authored duration).",
+      message: "251 frames · 10.040 s · +0.010 s. The file is 0.010 s longer than the authored duration; motion timing is unchanged.",
     })]);
   });
 

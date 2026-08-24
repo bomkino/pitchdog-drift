@@ -111,7 +111,7 @@ import {
   type PlatformGuideProfile,
   type PlatformGuideProfileId,
 } from "../core/platformGuides";
-import { evaluatePreflight, type GuideOverlapFact } from "../core/preflight";
+import { describeDeliveryCadence, evaluatePreflight, type GuideOverlapFact } from "../core/preflight";
 import type { ExportCapabilityReport } from "../lib/exportStudio";
 import {
   WorkspaceInspector,
@@ -1696,7 +1696,7 @@ export function ControlPanel({
             <dl>
               <div><dt>Encoded</dt><dd>{deliveryReceipt.output.encodedDurationSeconds.toFixed(3)} s · {deliveryReceipt.output.aspectLabel} · {deliveryReceipt.output.fps} fps</dd></div>
               <div><dt>Pace</dt><dd>{deliveryReceipt.pace.minimumSlidesPerSecond.toFixed(2)}–{deliveryReceipt.pace.peakSlidesPerSecond.toFixed(2)} slides/s</dd></div>
-              <div><dt>Cadence</dt><dd>{deliveryReceipt.cadence.compatibility.replace("-", " ")}{deliveryReceipt.cadence.endpointMismatch ? " · endpoint warning" : " · exact endpoint"}</dd></div>
+              <div><dt>Cadence</dt><dd>{describeDeliveryCadence(deliveryReceipt.cadence, deliveryReceipt.output.fps)}</dd></div>
               <div><dt>Closure</dt><dd>{deliveryReceipt.seamlessClosure.status.replace("-", " ")}</dd></div>
               <div><dt>Sound</dt><dd>{deliveryReceipt.sound.exportEnabled ? `${deliveryReceipt.sound.deterministicEventCount} deterministic events` : "off"}</dd></div>
               <div><dt>Alpha</dt><dd>{deliveryReceipt.transparency.requested ? deliveryReceipt.transparency.compatible ? "compatible" : "MP4 cannot carry transparency" : "opaque"}</dd></div>
@@ -1722,6 +1722,9 @@ export function ControlPanel({
             {preflight.blockers.length + preflight.warnings.length > 5 ? (
               <small>+ {preflight.blockers.length + preflight.warnings.length - 5} more objective checks</small>
             ) : null}
+            {preflight.notes.map((entry) => (
+              <p key={`${entry.id}-${entry.subjectId ?? "master"}`}>{entry.message}</p>
+            ))}
           </div>
         ) : null}
         <div className="action-stack">
