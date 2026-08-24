@@ -290,14 +290,26 @@ describe("objective preflight", () => {
     expect(directory.blockers).toEqual([]);
   });
 
-  it("warns on guide overlap, cadence endpoint, alpha loss, workload, and physical evidence", () => {
+  it("warns only on uneven pose holds and reports ordinary duration rounding as a note", () => {
     const overlap = evaluateSlideGuideOverlap(
       { left: 0.76, top: 0.3, right: 0.92, bottom: 0.6 },
       getPlatformGuideProfile("instagram-reel"),
     );
     const report = evaluatePreflight(input({
       receipt: receipt({
-        cadence: { endpointMismatch: true },
+        output: {
+          fps: 25,
+          frameCount: 251,
+          encodedDurationSeconds: 10.04,
+          durationQuantizationDeltaSeconds: 0.01,
+        },
+        cadence: {
+          authored: "12fps",
+          poseFps: 12,
+          compatibility: "mixed-holds",
+          frameHolds: [2, 3],
+          endpointMismatch: true,
+        },
         transparency: { requested: true, compatible: false },
         workload: { class: "extreme", pixelFrames: 9_000_000_000 },
       }),
@@ -317,6 +329,48 @@ describe("objective preflight", () => {
       "unsupported-physical-lane",
     ]);
     expect(report.warnings.find(({ id }) => id === "guide-overlap")?.message).toContain("62.5%");
+    expect(report.warnings.find(({ id }) => id === "cadence-endpoint")?.message)
+      .toBe("12 fps pose cadence cannot divide evenly into 25 fps output (2/3-frame holds). Motion will alternate hold lengths.");
+    expect(report.notes).toEqual([expect.objectContaining({
+      id: "duration-quantization",
+      message: "251 frames encode to 10.040 s (+0.010 s from the authored duration).",
+    })]);
+  });
+
+  it("keeps continuous and evenly divisible pose cadence green despite frame-duration rounding", () => {
+    const continuous = evaluatePreflight(input({
+      receipt: receipt({
+        output: {
+          fps: 25,
+          frameCount: 251,
+          encodedDurationSeconds: 10.04,
+          durationQuantizationDeltaSeconds: 0.01,
+        },
+        cadence: { endpointMismatch: true },
+      }),
+    }));
+    expect(continuous.warnings).toEqual([]);
+    expect(continuous.notes.map(({ id }) => id)).toEqual(["duration-quantization"]);
+
+    const exactHolds = evaluatePreflight(input({
+      receipt: receipt({
+        output: {
+          fps: 24,
+          frameCount: 241,
+          encodedDurationSeconds: 241 / 24,
+          durationQuantizationDeltaSeconds: 241 / 24 - 10,
+        },
+        cadence: {
+          authored: "12fps",
+          poseFps: 12,
+          compatibility: "exact-holds",
+          frameHolds: [2],
+          endpointMismatch: true,
+        },
+      }),
+    }));
+    expect(exactHolds.warnings).toEqual([]);
+    expect(exactHolds.notes.map(({ id }) => id)).toEqual(["duration-quantization"]);
   });
 
   it("fails loudly on malformed budget evidence instead of manufacturing a blocker", () => {

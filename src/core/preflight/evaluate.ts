@@ -308,12 +308,27 @@ function warningAndNoteIssues(input: PreflightInput): MutableIssue[] {
     const overlapIssue = guideIssue(overlap);
     if (overlapIssue) issues.push(overlapIssue);
   }
-  if (input.receipt.cadence.endpointMismatch) {
+  const { cadence, output } = input.receipt;
+  if (cadence.compatibility === "mixed-holds") {
+    const poseLabel = cadence.poseFps === null ? "Authored pose cadence" : `${cadence.poseFps} fps pose cadence`;
+    const holdLabel = cadence.frameHolds.length > 0
+      ? ` (${cadence.frameHolds.join("/")}-frame holds)`
+      : "";
     issues.push(issue(
       "cadence-endpoint",
       "warning",
       "output",
-      "Frame quantization does not land on the authored cadence endpoint.",
+      `${poseLabel} cannot divide evenly into ${output.fps} fps output${holdLabel}. Motion will alternate hold lengths.`,
+    ));
+  }
+  if (Math.abs(output.durationQuantizationDeltaSeconds) > 1e-9) {
+    const delta = output.durationQuantizationDeltaSeconds;
+    const signedDelta = `${delta >= 0 ? "+" : ""}${delta.toFixed(3)} s`;
+    issues.push(issue(
+      "duration-quantization",
+      "note",
+      "output",
+      `${output.frameCount} frames encode to ${output.encodedDurationSeconds.toFixed(3)} s (${signedDelta} from the authored duration).`,
     ));
   }
   if (!input.receipt.transparency.compatible) {
