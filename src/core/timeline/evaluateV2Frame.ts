@@ -9,6 +9,7 @@ import { planSemanticEventsFromRawTimeline } from "./eventPlanner";
 import type { FrameEvaluation } from "./FrameEvaluation";
 import { poseCadenceFps, samplePoseTime } from "./master";
 import { canonicalZero, positiveModulo, TAU, TIMELINE_EPSILON } from "./math";
+import { resolveMovementGrammar } from "./movementGrammar";
 import {
   createPerformanceLifecycle,
   evaluatePerformanceLifecycle,
@@ -194,18 +195,36 @@ export function evaluateV2Frame(
         movingSlideCount: sourceOrder.length,
       })
     : null;
+  const movementGrammar = resolveMovementGrammar(project).grammar;
+  // Legacy retains accepted V4 behavior exactly: sequence projects glide;
+  // pre-sequence projects use the cadence remapper. Explicit grammar owns the
+  // choice thereafter.
+  const bypassCadence = movementGrammar === "legacy"
+    ? sequence !== null
+    : movementGrammar === "continuous-glide";
+  // Pose exposure belongs to Handcrafted. Legacy retains historical sampling.
+  const sampleAuthoredPose = movementGrammar === "legacy" || movementGrammar === "handcrafted";
   const clampedTime = Math.max(0, Math.min(timeline.totalDuration, Number.isFinite(time) ? time : 0));
-  const current = travelAt(project, timeline, sourceOrder.length, clampedTime, true, sequence);
-  const cadence = authoredCadence(project, current.travel, sequence !== null);
+  const current = travelAt(
+    project,
+    timeline,
+    sourceOrder.length,
+    clampedTime,
+    sampleAuthoredPose,
+    sequence,
+  );
+  const cadence = authoredCadence(project, current.travel, bypassCadence);
   const geometry = deriveSlideGeometry(project, sourceOrder.length);
   const interactionSlides = wrappedInteractionSlides(
     options.interactionSlides,
     geometry.virtualSlotCount,
   );
   const currentVisibleDistance = canonicalZero(
-    visibleDistance(project, current.travel, sequence !== null) + interactionSlides,
+    visibleDistance(project, current.travel, bypassCadence) + interactionSlides,
   );
-  const poseFps = poseCadenceFps(project.motion.cadence.poseCadence);
+  const poseFps = sampleAuthoredPose
+    ? poseCadenceFps(project.motion.cadence.poseCadence)
+    : null;
   const previousTime = options.previousTime !== undefined
     ? options.previousTime
     : frameIndex !== null
@@ -227,14 +246,21 @@ export function evaluateV2Frame(
     + cadence.derivative * project.motion.transport.direction * current.travel.acceleration
   );
   if (previousTime !== null) {
-    const previous = travelAt(project, timeline, sourceOrder.length, previousTime, true, sequence);
+    const previous = travelAt(
+      project,
+      timeline,
+      sourceOrder.length,
+      previousTime,
+      sampleAuthoredPose,
+      sequence,
+    );
     if (Math.abs(previous.time - current.time) <= TIMELINE_EPSILON) {
       velocity = 0;
       acceleration = 0;
     } else if (poseFps) {
       const elapsed = Math.max(1 / 240, clampedTime - Math.max(0, previousTime));
       const previousVisibleDistance = canonicalZero(
-        visibleDistance(project, previous.travel, sequence !== null) + interactionSlides,
+        visibleDistance(project, previous.travel, bypassCadence) + interactionSlides,
       );
       velocity = (currentVisibleDistance - previousVisibleDistance) / elapsed;
       acceleration = 0;
