@@ -231,11 +231,7 @@ a:focus-visible {
 .studio-shell {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(230px, 17vw) minmax(420px, 1fr) minmax(294px, 21vw);
-}
-
-.studio-shell[data-workspace="world"] {
-  grid-template-columns: minmax(220px, 15vw) minmax(420px, 1fr) minmax(360px, 28vw);
+  grid-template-columns: minmax(230px, 17vw) minmax(420px, 1fr) clamp(360px, 23vw, 420px);
 }
 
 .media-library,
@@ -257,6 +253,9 @@ a:focus-visible {
 }
 
 .inspector {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
   border-left: 1px solid var(--line);
   background:
     linear-gradient(90deg, rgba(255, 255, 255, 0.018), transparent 22px),
@@ -264,9 +263,8 @@ a:focus-visible {
 }
 
 .workspace-switcher {
-  position: sticky;
+  position: relative;
   z-index: 16;
-  top: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 0 10px 10px;
@@ -310,15 +308,68 @@ a:focus-visible {
 
 .workspace-switcher button[aria-current="page"]::after { color: #b68a6f; }
 
-.inspector [data-workspaces] {
-  display: none;
+.workspace-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #49443d transparent;
 }
 
-.inspector[data-workspace="slides"] [data-workspaces~="slides"],
-.inspector[data-workspace="world"] [data-workspaces~="world"],
-.inspector[data-workspace="direct"] [data-workspaces~="direct"],
-.inspector[data-workspace="master"] [data-workspaces~="master"] {
-  display: block;
+.workspace-content {
+  min-height: 100%;
+}
+
+.workspace-advanced {
+  border-top: 1px solid rgba(225, 155, 106, 0.22);
+  border-bottom: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.workspace-advanced > summary {
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  color: #bdb5aa;
+  cursor: pointer;
+  list-style: none;
+}
+
+.workspace-advanced > summary::-webkit-details-marker { display: none; }
+
+.workspace-advanced > summary > span {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.workspace-advanced > summary > small {
+  color: var(--faint);
+  font: 9px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workspace-advanced > summary::after {
+  grid-column: 2;
+  color: var(--rust-light);
+  content: "+";
+}
+
+.workspace-advanced > summary > small {
+  grid-column: 2;
+  grid-row: 1;
+  margin-right: 18px;
+}
+
+.workspace-advanced[open] > summary::after { content: "−"; }
+
+.workspace-advanced-body > .inspector-group:last-child {
+  border-bottom: 0;
 }
 
 .panel-heading {
@@ -2436,7 +2487,7 @@ a:focus-visible {
     display: flex;
   }
 
-  .app[data-active-panel="director"] .inspector { display: block; }
+  .app[data-active-panel="director"] .inspector { display: grid; }
   .app[data-active-panel="stage"] .stage-column { display: grid; }
 
   .media-library { border-right: 0; }

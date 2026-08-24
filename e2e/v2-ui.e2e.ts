@@ -62,11 +62,11 @@ test("shipping and development identities restore the authored V2 room and repai
     "data-drift-storage-namespace",
     production ? "pitchdog-drift" : "pitchdog-drift-v2-dev",
   );
-  await page.getByRole("button", { name: "WORLD", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Choose the weather." })).toBeVisible();
+  await page.getByRole("button", { name: "LOOK", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Choose the atmosphere." })).toBeVisible();
 
-  const atmosphere = page.locator("details").filter({
-    has: page.locator("summary", { hasText: "Background" }),
+  const atmosphere = page.locator("details.inspector-group").filter({
+    has: page.locator(":scope > summary > span", { hasText: /^Background$/ }),
   });
   await ensureInspectorOpen(atmosphere);
   const background = page.getByRole("combobox", { name: "Background", exact: true });
@@ -74,6 +74,7 @@ test("shipping and development identities restore the authored V2 room and repai
   await expect(background).toHaveValue("transparent");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "true");
 
+  await page.getByText("Advanced", { exact: true }).click();
   const filmWorlds = page.locator("details.world-browser");
   await ensureInspectorOpen(filmWorlds);
   await filmWorlds.getByRole("button", { name: /^Film World: Editorial Drift\./ }).click();
@@ -85,11 +86,11 @@ test("shipping and development identities restore the authored V2 room and repai
   await page.getByRole("button", { name: "SLIDES", exact: true }).click();
   await page.getByRole("button", { name: "Keep Drift study 01.png still" }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("editorial drift");
-  const pinnedGroup = page.locator("details").filter({
-    has: page.locator("summary", { hasText: "Pinned frame" }),
+  const pinnedGroup = page.locator("details.inspector-group").filter({
+    has: page.locator(":scope > summary > span", { hasText: /^Pinned frame$/ }),
   });
-  await expect(pinnedGroup).toHaveAttribute("open", "");
-  await expect(pinnedGroup.locator("summary")).toBeFocused();
+  await expect(pinnedGroup).not.toHaveAttribute("open", "");
+  await pinnedGroup.locator("summary").click();
 
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   const carouselPresence = page.getByRole("group", { name: "Carousel presence", exact: true });
@@ -132,7 +133,7 @@ test("V2 workspaces keep one live stage and preserve the selected slide", async 
   await expect(page.getByRole("button", { name: "02 Drift study 02.png" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("heading", { name: "Build the deck." })).toBeVisible();
 
-  for (const workspace of ["WORLD", "DIRECT", "MASTER", "SLIDES"] as const) {
+  for (const workspace of ["LOOK", "MOTION", "EXPORT", "SLIDES"] as const) {
     await page.getByRole("button", { name: workspace, exact: true }).click();
     const currentCanvas = await canvas.elementHandle();
     expect(await page.evaluate(([before, after]) => before === after, [originalCanvas, currentCanvas])).toBe(true);
@@ -143,18 +144,19 @@ test("V2 workspaces keep one live stage and preserve the selected slide", async 
 
 test("Reading Pace, platform guides, preflight, and Command-K use the settled V2 workflow", async ({ page }) => {
   await waitForStudio(page);
-  await page.getByRole("button", { name: "DIRECT", exact: true }).click();
-  const timelineIntent = page.locator("details").filter({
-    has: page.locator("summary", { hasText: "Timeline intent" }),
+  await page.getByRole("button", { name: "MOTION", exact: true }).click();
+  const timelineIntent = page.locator("details.inspector-group").filter({
+    has: page.locator(":scope > summary > span", { hasText: /^Timeline intent$/ }),
   });
   await ensureInspectorOpen(timelineIntent);
   await timelineIntent.getByText("Reading pace", { exact: true }).click();
   await expect(timelineIntent.getByRole("radio", { name: "Reading pace" })).toBeChecked();
   await expect(timelineIntent.getByText(/moving/i).first()).toBeVisible();
 
-  await page.getByRole("button", { name: "MASTER", exact: true }).click();
-  const platformGuides = page.locator("details").filter({
-    has: page.locator("summary", { hasText: "Platform guides" }),
+  await page.getByRole("button", { name: "EXPORT", exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
+  const platformGuides = page.locator("details.inspector-group").filter({
+    has: page.locator(":scope > summary > span", { hasText: /^Platform guides$/ }),
   });
   await ensureInspectorOpen(platformGuides);
   await platformGuides.getByRole("combobox", { name: "Preview overlay" }).selectOption("instagram-combined");
@@ -164,14 +166,15 @@ test("Reading Pace, platform guides, preflight, and Command-K use the settled V2
   await page.keyboard.press("Meta+k");
   const commandSearch = page.getByRole("searchbox", { name: "Search commands" });
   await expect(commandSearch).toBeFocused();
-  await commandSearch.fill("switch to world");
+  await commandSearch.fill("switch to look");
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("heading", { name: "Choose the weather." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose the atmosphere." })).toBeVisible();
 });
 
 test("comparison pixels return after a still export instead of keeping live direction", async ({ page }) => {
   await waitForStudio(page);
-  await page.getByRole("button", { name: "WORLD", exact: true }).click();
+  await page.getByRole("button", { name: "LOOK", exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
   const filmWorlds = page.locator("details.world-browser");
   await ensureInspectorOpen(filmWorlds);
   await filmWorlds.getByRole("button", { name: /^Film World: Dread\./ }).click();
@@ -189,7 +192,7 @@ test("comparison pixels return after a still export instead of keeping live dire
   await page.getByRole("button", { name: "A/B", exact: true }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("editorial drift");
 
-  await page.getByRole("button", { name: "MASTER", exact: true }).click();
+  await page.getByRole("button", { name: "EXPORT", exact: true }).click();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
   const exportPath = await (await download).path();
@@ -199,7 +202,7 @@ test("comparison pixels return after a still export instead of keeping live dire
   // avoiding a redundant, very expensive SwiftShader stage capture.
   const exportedLive = await samplePngPixels(page, (await readFile(exportPath!)).toString("base64"));
 
-  await page.getByRole("button", { name: "WORLD", exact: true }).click();
+  await page.getByRole("button", { name: "LOOK", exact: true }).click();
   await expect(page.getByRole("button", { name: "Before", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".stage-topline").first()).toContainText("editorial drift");
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -220,7 +223,7 @@ test("Command-K traps keyboard focus, exposes active results, and restores its t
   await search.fill("choose film world");
   await expect(dialog.getByText("No command.")).toBeVisible();
   await search.fill("film world");
-  await expect(dialog.getByRole("option", { name: /Switch to World/ })).toBeVisible();
+  await expect(dialog.getByRole("option", { name: /Switch to Look/ })).toBeVisible();
   await search.fill("");
 
   await page.keyboard.press("Shift+Tab");

@@ -14,15 +14,15 @@ import {
 } from "./studio.helpers";
 
 async function readSavedProject(page: import("@playwright/test").Page): Promise<Record<string, any>> {
-  const currentWorkspace = (await page.locator(".workspace-switcher button[aria-current=page]").textContent())?.trim() as "SLIDES" | "WORLD" | "DIRECT" | "MASTER" | undefined;
-  await switchWorkspace(page, "MASTER");
+  const currentWorkspace = (await page.locator(".workspace-switcher button[aria-current=page]").textContent())?.trim() as "SLIDES" | "LOOK" | "MOTION" | "EXPORT" | undefined;
+  await switchWorkspace(page, "EXPORT");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save portable project" }).click();
   const download = await downloadPromise;
   const path = await download.path();
   expect(path).toBeTruthy();
   const archive = unzipSync(new Uint8Array(await readFile(path!)));
-  if (currentWorkspace && currentWorkspace !== "MASTER") await switchWorkspace(page, currentWorkspace);
+  if (currentWorkspace && currentWorkspace !== "EXPORT") await switchWorkspace(page, currentWorkspace);
   return JSON.parse(strFromU8(archive["manifest.json"]!)).payload.project as Record<string, any>;
 }
 
@@ -88,10 +88,10 @@ test("Project V4 keeps one image still without letting a presenter video steal i
   await expect(page.locator(".asset-list li").first()).toHaveAttribute("data-pinned", "true");
   // Let the upload and local save settle across a real workspace round trip
   // before opening controls whose subtree is conditionally mounted.
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   await switchWorkspace(page, "SLIDES");
 
-  const pinnedGroup = page.locator("details").filter({ has: page.locator("summary", { hasText: "Pinned frame" }) });
+  const pinnedGroup = page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Pinned frame$/ }) });
   if (await pinnedGroup.getAttribute("open") === null) await pinnedGroup.locator("summary").click();
   await expect(pinnedGroup).toHaveAttribute("open", "");
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
@@ -112,7 +112,7 @@ test("Project V4 keeps one image still without letting a presenter video steal i
 
   await page.reload();
   await expect(page.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
-  const reopenedGroup = page.locator("details").filter({ has: page.locator("summary", { hasText: "Pinned frame" }) });
+  const reopenedGroup = page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Pinned frame$/ }) });
   await reopenedGroup.locator("summary").click();
   const reopenedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   await expect(reopenedSwitch).not.toBeChecked();
@@ -335,7 +335,7 @@ test("portable Project V4 survives a fresh context without flattening dormant di
   await page.locator('input[accept^="image/png"]').setInputFiles(fixturePath);
   await expect(page.locator(".asset-list li")).toHaveCount(1);
   await expect(page.locator(".asset-list li").first()).toContainText("slide.png");
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save portable project" }).click();
   const download = await downloadPromise;
@@ -364,10 +364,11 @@ test("portable Project V4 survives a fresh context without flattening dormant di
   // software-rendered Linux context before it reaches React hydration. The
   // source page has finished its only job; close it before proving fresh-store
   // portability so the test measures persistence, not GPU contention.
+  const studioBaseUrl = new URL("/", page.url()).toString();
   await page.close();
 
   const fresh = await browser.newContext({
-    baseURL: "http://127.0.0.1:5187",
+    baseURL: studioBaseUrl,
     viewport: { width: 1440, height: 900 },
   });
   const reopened = await fresh.newPage();
@@ -385,7 +386,7 @@ test("portable Project V4 survives a fresh context without flattening dormant di
     await expect(reopened.locator(".header-status")).toContainText("saved locally", { timeout: 30_000 });
     await expect(reopened.locator(".asset-list li")).toHaveCount(1);
     await expect(reopened.locator(".asset-list li").first()).toContainText("slide.png");
-    await switchWorkspace(reopened, "MASTER");
+    await switchWorkspace(reopened, "EXPORT");
     const preservedDownloadPromise = reopened.waitForEvent("download");
     await reopened.getByRole("button", { name: "Save portable project" }).click();
     const preservedDownload = await preservedDownloadPromise;
@@ -409,7 +410,7 @@ test("rejecting a future portable payload does not rewrite the open project", as
   await expect(page.locator(".asset-list li")).toHaveCount(1);
   await expect(page.locator(".header-status")).toContainText("saved locally", { timeout: 10_000 });
 
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save portable project" }).click();
   const downloaded = await downloadPromise;
@@ -611,7 +612,7 @@ test("a slow older autosave cannot overwrite a newer imported project", async ({
   await expect(page.locator(".header-status")).toContainText("saved locally");
   await page.locator('input[accept^="image/png"]').setInputFiles(fixturePath);
   await expect(page.locator(".asset-list li")).toHaveCount(1);
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   await page.evaluate(() => {
     const state = window as Window & { __driftInitialReleaseDigest?: () => void };
     const subtle = crypto.subtle;
@@ -652,10 +653,11 @@ test("a slow older autosave cannot overwrite a newer imported project", async ({
   // The downloaded bytes are now independent of the source page. Release its
   // active WebGL stage before opening the competing storage context; otherwise
   // Linux SwiftShader can starve the context this race is meant to exercise.
+  const studioBaseUrl = new URL("/", page.url()).toString();
   await page.close();
 
   const oldContext = await browser.newContext({
-    baseURL: "http://127.0.0.1:5187",
+    baseURL: studioBaseUrl,
     viewport: { width: 1440, height: 900 },
   });
   const oldPage = await oldContext.newPage();
@@ -684,7 +686,7 @@ test("a slow older autosave cannot overwrite a newer imported project", async ({
         },
       });
     });
-    await switchWorkspace(oldPage, "MASTER");
+    await switchWorkspace(oldPage, "EXPORT");
     await oldPage.getByLabel("Stage width").fill("1600");
     await oldPage.waitForFunction(() => (window as Window & { __driftDigestStarted?: boolean }).__driftDigestStarted === true, null, { timeout: 10_000 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 
 interface RangeFieldProps {
   label: string;
@@ -316,32 +316,19 @@ interface InspectorGroupProps {
   eyebrow?: string;
   description?: string;
   open?: boolean;
-  openRequestId?: number;
-  workspaces?: string;
   children: ReactNode;
 }
 
-export function InspectorGroup({ title, eyebrow, description, open = false, openRequestId, workspaces, children }: InspectorGroupProps) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
-  const summaryRef = useRef<HTMLElement>(null);
+export function InspectorGroup({ title, eyebrow, description, open = false, children }: InspectorGroupProps) {
   const [expanded, setExpanded] = useState(open);
-
-  useEffect(() => {
-    if (!openRequestId || !detailsRef.current) return;
-    setExpanded(true);
-    summaryRef.current?.focus({ preventScroll: true });
-    detailsRef.current.scrollIntoView({ block: "nearest" });
-  }, [openRequestId]);
 
   return (
     <details
-      ref={detailsRef}
       className="inspector-group"
-      data-workspaces={workspaces}
       open={expanded}
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
-      <summary ref={summaryRef}>
+      <summary>
         <span>{title}</span>
         {eyebrow ? <small>{eyebrow}</small> : null}
       </summary>

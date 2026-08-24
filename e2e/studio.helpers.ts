@@ -17,7 +17,7 @@ export async function waitForStudio(page: Page): Promise<void> {
 
 export async function switchWorkspace(
   page: Page,
-  name: "SLIDES" | "WORLD" | "DIRECT" | "MASTER",
+  name: "SLIDES" | "LOOK" | "MOTION" | "EXPORT",
 ): Promise<void> {
   const button = page.getByRole("button", { name, exact: true });
   if (await button.getAttribute("aria-current") !== "page") await button.click();

@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   BACKGROUND_COMPOSITIONS,
   BACKGROUND_FAMILY_LABELS,
@@ -104,6 +104,13 @@ import {
 } from "../core/platformGuides";
 import { evaluatePreflight, type GuideOverlapFact } from "../core/preflight";
 import type { ExportCapabilityReport } from "../lib/exportStudio";
+import {
+  WorkspaceInspector,
+  WorkspaceSection,
+  type StudioWorkspace,
+} from "./inspectors/WorkspaceInspectors";
+
+export type { StudioWorkspace } from "./inspectors/WorkspaceInspectors";
 
 const MIN_OUTPUT_DURATION = 0.5;
 const MAX_OUTPUT_DURATION = 300;
@@ -112,13 +119,12 @@ const MAX_TRANSITION_DURATION = 6;
 const MAX_REPEAT_COUNT = 12;
 
 type TempoSelection = TempoCurvePresetId | "custom";
-export type StudioWorkspace = "slides" | "world" | "direct" | "master";
 
 const WORKSPACE_COPY: Readonly<Record<StudioWorkspace, { kicker: string; title: string; purpose: string; guide: string }>> = Object.freeze({
-  slides: { kicker: "SLIDES", title: "Build the deck.", purpose: "FRAME", guide: "Set slide shape, crop, spacing, and any frame that stays still." },
-  world: { kicker: "WORLD", title: "Choose the weather.", purpose: "LOOK", guide: "Start with a complete Film World, then choose or tune its background." },
-  direct: { kicker: "DIRECT", title: "Shape the feeling.", purpose: "MOTION", guide: "Set pace, path, rhythm, entry, exit, material, light, lens, and sound." },
-  master: { kicker: "MASTER", title: "Finish the film.", purpose: "EXPORT", guide: "Choose format and duration, check safe areas, then export the master." },
+  slides: { kicker: "SLIDES", title: "Build the deck.", purpose: "DECK", guide: "Choose order, fit, and the one frame that can stay still." },
+  look: { kicker: "LOOK", title: "Choose the atmosphere.", purpose: "WORLD", guide: "Choose a background first. Scene-wide starters and fine treatment stay in Advanced." },
+  motion: { kicker: "MOTION", title: "Shape the movement.", purpose: "FLOW", guide: "Choose a direction, axis, path, pace, and complete-deck timing." },
+  export: { kicker: "EXPORT", title: "Finish the master.", purpose: "OUTPUT", guide: "Choose the frame and duration, read preflight, then export." },
 });
 
 const TRANSITION_OPTIONS: Array<{ value: TransitionPresetId; label: string }> =
@@ -195,7 +201,6 @@ interface ControlPanelProps {
   sonicState: TactileRuntimeState;
   onTheme: (id: ThemeId) => void;
   onResetPinnedFrame: () => void;
-  pinEditorRequestId: number;
   onExportStill: () => void;
   onExportVideo: () => void;
   onExportFrames: () => void;
@@ -236,7 +241,6 @@ export function ControlPanel({
   sonicState,
   onTheme,
   onResetPinnedFrame,
-  pinEditorRequestId,
   onExportStill,
   onExportVideo,
   onExportFrames,
@@ -261,6 +265,41 @@ export function ControlPanel({
   const [backgroundQuery, setBackgroundQuery] = useState("");
   const [backgroundFamily, setBackgroundFamily] = useState<"all" | OpaqueBackgroundStyle>("all");
   const [worldLibraryOpen, setWorldLibraryOpen] = useState(false);
+  const workspaceScrollRef = useRef<HTMLDivElement>(null);
+  const workspaceScrollPositionsRef = useRef<Record<StudioWorkspace, number>>({
+    slides: 0,
+    look: 0,
+    motion: 0,
+    export: 0,
+  });
+  const restoringWorkspaceRef = useRef<StudioWorkspace | null>(null);
+  useLayoutEffect(() => {
+    const scrollOwner = workspaceScrollRef.current;
+    if (!scrollOwner) return;
+    const restoredTop = workspaceScrollPositionsRef.current[workspace];
+    restoringWorkspaceRef.current = workspace;
+    let settleFrame = 0;
+    scrollOwner.scrollTop = restoredTop;
+    const frame = requestAnimationFrame(() => {
+      scrollOwner.scrollTop = restoredTop;
+      settleFrame = requestAnimationFrame(() => {
+        scrollOwner.scrollTop = restoredTop;
+        workspaceScrollPositionsRef.current[workspace] = scrollOwner.scrollTop;
+        if (restoringWorkspaceRef.current === workspace) restoringWorkspaceRef.current = null;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(settleFrame);
+      if (restoringWorkspaceRef.current === workspace) restoringWorkspaceRef.current = null;
+    };
+  }, [workspace]);
+  const changeWorkspace = (nextWorkspace: StudioWorkspace) => {
+    if (workspaceScrollRef.current) {
+      workspaceScrollPositionsRef.current[workspace] = workspaceScrollRef.current.scrollTop;
+    }
+    onWorkspace(nextWorkspace);
+  };
   const patch = <K extends keyof StudioSettings>(key: K, values: Partial<StudioSettings[K]>) => {
     onSettings({
       ...settings,
@@ -453,18 +492,30 @@ export function ControlPanel({
 
       <nav className="workspace-switcher" aria-label="Director workspaces">
         {(Object.keys(WORKSPACE_COPY) as StudioWorkspace[]).map((id) => (
-          <button type="button" key={id} data-purpose={WORKSPACE_COPY[id].purpose} aria-label={WORKSPACE_COPY[id].kicker} aria-current={workspace === id ? "page" : undefined} onClick={() => onWorkspace(id)}>
+          <button type="button" key={id} data-purpose={WORKSPACE_COPY[id].purpose} aria-label={WORKSPACE_COPY[id].kicker} aria-current={workspace === id ? "page" : undefined} onClick={() => changeWorkspace(id)}>
             {WORKSPACE_COPY[id].kicker}
           </button>
         ))}
       </nav>
 
-      <section className="theme-section" data-workspaces="world" aria-labelledby="themes-title">
+      <div
+        ref={workspaceScrollRef}
+        className="workspace-scroll"
+        data-testid="workspace-scroll"
+        onScroll={(event) => {
+          if (restoringWorkspaceRef.current === workspace) return;
+          workspaceScrollPositionsRef.current[workspace] = event.currentTarget.scrollTop;
+        }}
+      >
+        <WorkspaceInspector workspace={workspace}>
+
+      <WorkspaceSection workspace="look" level="advanced">
+      <section className="theme-section" aria-labelledby="themes-title">
         <details className="world-browser" open={worldLibraryOpen} onToggle={(event) => setWorldLibraryOpen(event.currentTarget.open)}>
           <summary id="themes-title">
             <span>
-              <strong>{v2Active ? "Film Worlds" : "V1 looks · compatibility"}</strong>
-              <small>{v2Active ? "Complete look + motion systems" : "Original Drift looks"}</small>
+              <strong>{v2Active ? "Scene starters" : "V1 looks · compatibility"}</strong>
+              <small>{v2Active ? "Look + motion, applied deliberately" : "Original Drift looks"}</small>
             </span>
             <em>{authoredWorld?.name ?? (v2Active ? "Browse 8" : "Browse 6")}</em>
           </summary>
@@ -584,8 +635,10 @@ export function ControlPanel({
           </div>
         </details>
       </section>
+      </WorkspaceSection>
 
-      <InspectorGroup title="Master frame" eyebrow={stageLabel} description="Choose the finished canvas shape. Slide shape can stay different." workspaces="master" open>
+      <WorkspaceSection workspace="export">
+      <InspectorGroup title="Master frame" eyebrow={stageLabel} description="Choose the finished canvas shape. Slide shape can stay different." open>
         <Segmented<WorldRatioId | "custom">
           label="Stage ratio"
           value={stageRatio ?? "custom"}
@@ -622,8 +675,10 @@ export function ControlPanel({
           />
         </div>
       </InspectorGroup>
+      </WorkspaceSection>
 
-      <InspectorGroup title="Platform guides" eyebrow={platformGuide.label} description="Preview Story and Reel obstructions. Guides never enter exported pixels." workspaces="master" open>
+      <WorkspaceSection workspace="export" level="advanced">
+      <InspectorGroup title="Platform guides" eyebrow={platformGuide.label} description="Preview Story and Reel obstructions. Guides never enter exported pixels." open>
         <SelectField
           label="Preview overlay"
           value={platformGuideId}
@@ -657,8 +712,10 @@ export function ControlPanel({
           </div>
         ) : <p className="performance-note">Off by default. Turn on Story, Reel, combined, or custom safe-area chrome when mastering.</p>}
       </InspectorGroup>
+      </WorkspaceSection>
 
-      <InspectorGroup title="Slide frame" eyebrow={`${settings.slide.aspectWidth}:${settings.slide.aspectHeight}`} description="Sets shape, size, and spacing shared by every slide." workspaces="slides" open>
+      <WorkspaceSection workspace="slides">
+      <InspectorGroup title="Slide frame" eyebrow={`${settings.slide.aspectWidth}:${settings.slide.aspectHeight}`} description="Sets the source shape and size shared by every slide." open>
         <SelectField
           label="Slide ratio"
           value={`${settings.slide.aspectWidth}:${settings.slide.aspectHeight}`}
@@ -679,11 +736,12 @@ export function ControlPanel({
           <NumberField label="Slide ratio height" value={settings.slide.aspectHeight} min={1} max={64} onChange={(aspectHeight) => patch("slide", { aspectHeight })} />
         </div>
         <RangeNumberField label="Slide size" value={settings.slide.scale * 100} softMin={10} softMax={160} hardMin={10} hardMax={160} step={1} unit="%" onChange={(value) => patch("slide", { scale: value / 100 })} />
-        <RangeNumberField label="Spacing" value={settings.motion.gap * 100} softMin={0} softMax={250} hardMin={0} hardMax={250} step={1} unit="%" onChange={(value) => patch("motion", { gap: value / 100 })} />
       </InspectorGroup>
+      </WorkspaceSection>
 
+      <WorkspaceSection workspace="slides">
       {v2Active ? (
-        <InspectorGroup title="Selected slide" eyebrow={selectedSlide?.name ?? "Choose in Media"} description="Override crop and scale for this source only." workspaces="slides" open>
+        <InspectorGroup title="Selected slide" eyebrow={selectedSlide?.name ?? "Choose in Media"} description="Override crop and scale for this source only." open>
           {selectedSlide && selectedDirective && selectedSlideKey ? (
             <>
               <div className="slide-health" data-severity={selectedSlideHealth?.severity ?? "healthy"} role="status">
@@ -722,14 +780,16 @@ export function ControlPanel({
           ) : <p className="empty-inspector-state">Choose a slide in Media to direct its crop and scale.</p>}
         </InspectorGroup>
       ) : null}
+      </WorkspaceSection>
 
-      {v2Active ? (
-        <InspectorGroup title="Editorial rhythm" eyebrow={performanceRecipe?.name ?? "Custom"} description="Start with a complete movement direction, then tune individual beats." workspaces="direct" open>
+      <WorkspaceSection workspace="motion">
+      <InspectorGroup title="Motion direction" eyebrow={handcraftedMotion?.name ?? "Custom"} description="Choose a complete direction, then set how the deck travels." open>
+        {v2Active ? (
           <SelectField
-            label="Handcrafted direction"
+            label="Direction recipe"
             value={handcraftedMotion?.id ?? "custom"}
             options={[
-              { value: "custom", label: "Custom stack" },
+              { value: "custom", label: "Custom direction" },
               ...HANDCRAFTED_MOTION_PRESETS.map((preset) => ({ value: preset.id, label: preset.name })),
             ]}
             onChange={(presetId) => {
@@ -740,6 +800,40 @@ export function ControlPanel({
               );
             }}
           />
+        ) : null}
+        <Segmented label="Flow axis" value={settings.motion.axis} options={[{ value: "horizontal", label: "Horizontal" }, { value: "vertical", label: "Vertical" }]} onChange={(axis) => patch("motion", { axis })} />
+        <Segmented label="Direction" value={settings.motion.direction} options={[{ value: -1 as const, label: "Reverse" }, { value: 1 as const, label: "Forward" }]} onChange={(direction) => patch("motion", { direction })} />
+        {v2Active ? (
+          <SelectField
+            label="Path"
+            value={project.motion.path.id}
+            options={PATH_RECIPES.map((path) => ({ value: path.id, label: path.name }))}
+            onChange={(pathId) => directProject(
+              `${PATH_RECIPES.find((entry) => entry.id === pathId)?.name ?? "Path"} applied.`,
+              (next) => { applyPathRecipe(next, pathId); },
+            )}
+          />
+        ) : (
+          <SelectField
+            label="Path"
+            value={settings.motion.flow}
+            options={[
+              { value: "straight", label: "Straight" },
+              { value: "arc", label: "Arc" },
+              { value: "ribbon", label: "Ribbon" },
+              { value: "cylinder", label: "Cylinder" },
+              { value: "tunnel", label: "Tunnel" },
+            ]}
+            onChange={(flow) => patch("motion", { flow })}
+          />
+        )}
+        <RangeNumberField label="Spacing" value={settings.motion.gap * 100} softMin={0} softMax={250} hardMin={0} hardMax={250} step={1} unit="%" onChange={(value) => patch("motion", { gap: value / 100 })} />
+      </InspectorGroup>
+      </WorkspaceSection>
+
+      <WorkspaceSection workspace="motion" level="advanced">
+      {v2Active ? (
+        <InspectorGroup title="Editorial rhythm" eyebrow={performanceRecipe?.name ?? "Custom"} description="Tune cadence, character, exposure, and individual beats.">
           <SelectField
             label="Editorial cut"
             value={editorialCut?.id ?? "custom"}
@@ -797,13 +891,14 @@ export function ControlPanel({
           <RangeField label="Land" value={project.motion.cadence.land * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Landing beat directed.", (next) => { next.motion.cadence.land = value / 100; next.motion.cadence.cutId = "custom"; })} />
         </InspectorGroup>
       ) : null}
+      </WorkspaceSection>
 
+      <WorkspaceSection workspace="motion">
       {v2Active ? (
         <InspectorGroup
           title="Timeline intent"
           eyebrow={timingRead.intent.mode === "fixed-master" ? `${timingResolution.masterSeconds.toFixed(2)} s exact` : `${timingRead.intent.secondsPerSlide.toFixed(2)} s / slide`}
           description="Choose what owns timing: an exact runtime or reading time per slide."
-          workspaces="direct"
           open
         >
           <Segmented<TimingMode>
@@ -886,34 +981,10 @@ export function ControlPanel({
           ) : <small className="closure-status">Closes cleanly on complete deck passes.</small>}
         </InspectorGroup>
       ) : null}
+      </WorkspaceSection>
 
-      <InspectorGroup title="Motion" eyebrow={`${settings.motion.speed.toFixed(2)} slides/s`} description="Controls travel direction, path, curvature, depth, and banking." workspaces="direct" open>
-        <Segmented label="Flow axis" value={settings.motion.axis} options={[{ value: "horizontal", label: "Horizontal" }, { value: "vertical", label: "Vertical" }]} onChange={(axis) => patch("motion", { axis })} />
-        <Segmented label="Direction" value={settings.motion.direction} options={[{ value: -1 as const, label: "Reverse" }, { value: 1 as const, label: "Forward" }]} onChange={(direction) => patch("motion", { direction })} />
-        {v2Active ? (
-          <SelectField
-            label="Path · all 10"
-            value={project.motion.path.id}
-            options={PATH_RECIPES.map((path) => ({ value: path.id, label: path.name }))}
-            onChange={(pathId) => directProject(
-              `${PATH_RECIPES.find((entry) => entry.id === pathId)?.name ?? "Path"} applied.`,
-              (next) => { applyPathRecipe(next, pathId); },
-            )}
-          />
-        ) : (
-          <SelectField
-            label="Path"
-            value={settings.motion.flow}
-            options={[
-              { value: "straight", label: "Straight" },
-              { value: "arc", label: "Arc" },
-              { value: "ribbon", label: "Ribbon" },
-              { value: "cylinder", label: "Cylinder" },
-              { value: "tunnel", label: "Tunnel" },
-            ]}
-            onChange={(flow) => patch("motion", { flow })}
-          />
-        )}
+      <WorkspaceSection workspace="motion" level="advanced">
+      <InspectorGroup title="Motion physics" eyebrow={`${settings.motion.speed.toFixed(2)} slides/s`} description="Tune transport, curvature, depth, banking, and optical response.">
         <RangeNumberField label="Free-run speed" value={settings.motion.speed} softMin={0.02} softMax={4} hardMin={0} hardMax={8} step={0.01} decimals={2} unit=" slides/s" hint="Used only when exact deck-pass lock is off." onChange={(speed) => patch("motion", { speed })} />
         <RangeField label="Curve" value={settings.motion.curvature * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("motion", { curvature: value / 100 })} />
         <RangeField label="Depth" value={settings.motion.depth * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("motion", { depth: value / 100 })} />
@@ -932,12 +1003,19 @@ export function ControlPanel({
           )}
         />
       </InspectorGroup>
+      </WorkspaceSection>
 
-      <InspectorGroup title="Surface" eyebrow={`${Math.round(settings.slide.smoothing * 100)}% smoothing`} description="Shared slide crop, corners, borders, and shadows." workspaces="slides">
+      <WorkspaceSection workspace="slides" level="advanced">
+      <InspectorGroup title="Deck crop defaults" eyebrow={settings.slide.fit} description="Set the starting fit and focal point for deck sources.">
         <Segmented label="Image fit" value={settings.slide.fit} options={[{ value: "cover", label: "Cover" }, { value: "contain", label: "Contain" }]} onChange={(fit) => patch("slide", { fit })} />
         <RangeField label="Focal point X" value={settings.slide.focalX * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { focalX: value / 100 })} />
         <RangeField label="Focal point Y" value={settings.slide.focalY * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("slide", { focalY: value / 100 })} />
         <p className="performance-note">Image fit and focal point apply to every slide in this deck.</p>
+      </InspectorGroup>
+      </WorkspaceSection>
+
+      <WorkspaceSection workspace="look" level="advanced">
+      <InspectorGroup title="Card surface" eyebrow={`${Math.round(settings.slide.smoothing * 100)}% smoothing`} description="Shared corners, borders, and shadows around source-faithful artwork.">
         <RangeNumberField label="Corner radius" value={settings.slide.radius} softMin={0} softMax={256} hardMin={0} hardMax={512} step={1} unit=" px" onChange={(radius) => patch("slide", { radius })} />
         <RangeField label="Corner smoothing" value={settings.slide.smoothing * 100} min={0} max={100} step={1} unit="%" hint="60% is the familiar iOS-style continuous corner." onChange={(value) => patch("slide", { smoothing: value / 100 })} />
         <RangeNumberField label="Border" value={settings.slide.borderWidth} softMin={0} softMax={24} hardMin={0} hardMax={32} step={0.5} decimals={1} unit=" px" onChange={(borderWidth) => patch("slide", { borderWidth })} />
@@ -946,9 +1024,11 @@ export function ControlPanel({
         <RangeField label="Shadow" value={settings.slide.shadowOpacity * 100} min={0} max={80} step={1} unit="%" onChange={(value) => patch("slide", { shadowOpacity: value / 100 })} />
         <RangeNumberField label="Shadow softness" value={settings.slide.shadowSoftness} softMin={0} softMax={192} hardMin={0} hardMax={256} step={1} unit=" px" onChange={(shadowSoftness) => patch("slide", { shadowSoftness })} />
       </InspectorGroup>
+      </WorkspaceSection>
 
+      <WorkspaceSection workspace="look" level="advanced">
       {v2Active ? (
-        <InspectorGroup title="Material" eyebrow={materialRecipe?.name ?? project.material.surface} description="Choose how cards feel and react to movement." workspaces="direct">
+        <InspectorGroup title="Material" eyebrow={materialRecipe?.name ?? project.material.surface} description="Choose how cards feel and react to movement.">
           <SelectField
             label="Surface"
             value={materialRecipe?.id ?? project.material.surface}
@@ -980,9 +1060,11 @@ export function ControlPanel({
           <RangeField label="Microtexture" value={project.material.finish.microtexture * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Material texture directed.", (next) => { next.material.finish.microtexture = value / 100; next.material.finish.id = "custom"; })} />
         </InspectorGroup>
       ) : null}
+      </WorkspaceSection>
 
+      <WorkspaceSection workspace="look" level="advanced">
       {v2Active ? (
-        <InspectorGroup title="Light" eyebrow={project.lighting.enabled ? lightingRecipe?.name ?? "Custom" : "Off"} description="Light the cards without muddying their artwork." workspaces="direct">
+        <InspectorGroup title="Light" eyebrow={project.lighting.enabled ? lightingRecipe?.name ?? "Custom" : "Off"} description="Light the cards without muddying their artwork.">
           <SwitchField label="Light the scene" checked={project.lighting.enabled} onChange={(enabled) => directProject(enabled ? "Scene light on." : "Scene light bypassed.", (next) => { next.lighting.enabled = enabled; })} />
           <SelectField
             label="Rig · all 12"
@@ -1012,8 +1094,10 @@ export function ControlPanel({
           <RangeField label="Stage spill" value={project.lighting.backgroundSpill * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Stage spill directed.", (next) => { next.lighting.backgroundSpill = value / 100; next.lighting.presetId = "custom"; })} />
         </InspectorGroup>
       ) : null}
+      </WorkspaceSection>
 
-      <InspectorGroup title="Background" eyebrow={settings.background.style} description="Choose visually first. Fine controls below remain fully editable." workspaces="world" open>
+      <WorkspaceSection workspace="look">
+      <InspectorGroup title="Background" eyebrow={settings.background.style} description="Choose visually first. Fine controls below remain fully editable." open>
         <BackgroundBrowser
           background={settings.background}
           activeStudy={backgroundStudy}
@@ -1041,6 +1125,11 @@ export function ControlPanel({
           ]}
           onChange={(style) => onSettings({ ...settings, stage: { ...settings.stage, transparent: style === "transparent" }, background: { ...settings.background, style } })}
         />
+      </InspectorGroup>
+      </WorkspaceSection>
+
+      <WorkspaceSection workspace="look" level="advanced">
+      <InspectorGroup title="Background tuning" eyebrow={backgroundStudy?.name ?? settings.background.style} description="Fine-tune composition, palette, colour, atmosphere, and grain.">
         {opaqueBackground ? (
           <>
             <SelectField
@@ -1086,9 +1175,11 @@ export function ControlPanel({
         <RangeField label="Grain" value={settings.background.grain * 100} min={0} max={60} step={1} unit="%" onChange={(value) => patch("background", { grain: value / 100 })} />
         <RangeField label="Vignette" value={settings.background.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("background", { vignette: value / 100 })} />
       </InspectorGroup>
+      </WorkspaceSection>
 
+      <WorkspaceSection workspace="look" level="advanced">
       {v2Active ? (
-        <InspectorGroup title="Lens" eyebrow={project.lens.enabled ? lensRecipe?.name ?? "Custom" : "Off"} description="Apply optical character after motion, material, and light feel right." workspaces="direct">
+        <InspectorGroup title="Lens" eyebrow={project.lens.enabled ? lensRecipe?.name ?? "Custom" : "Off"} description="Apply optical character after motion, material, and light feel right.">
           <SwitchField label="Optical finish" checked={project.lens.enabled} onChange={(enabled) => directProject(enabled ? "Lens on." : "Lens bypassed.", (next) => { next.lens.enabled = enabled; })} />
           <SelectField
             label="Lens"
@@ -1118,9 +1209,11 @@ export function ControlPanel({
           <RangeField label="Lens vignette" value={project.lens.vignette * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Lens vignette directed.", (next) => { next.lens.vignette = value / 100; next.lens.characterId = "custom"; })} />
         </InspectorGroup>
       ) : null}
+      </WorkspaceSection>
 
+      <WorkspaceSection workspace="motion" level="advanced">
       {v2Active ? (
-        <InspectorGroup title="Sound" eyebrow={project.sound.previewEnabled || project.sound.exportEnabled ? project.sound.grammar : "OFF"} description="Add tactile accents to preview, export, or both." workspaces="direct">
+        <InspectorGroup title="Sound" eyebrow={project.sound.previewEnabled || project.sound.exportEnabled ? project.sound.grammar : "OFF"} description="Add tactile accents to preview, export, or both.">
           <SwitchField
             label="Hear tactile motion"
             hint="Recorded CC0 paper, card, cloth, leather, wood and metal. Off by default."
@@ -1168,8 +1261,10 @@ export function ControlPanel({
           </div>
         </InspectorGroup>
       ) : null}
+      </WorkspaceSection>
 
-      <InspectorGroup title="Pinned frame" eyebrow={settings.presenter.enabled ? "ON" : "OFF"} description="Keep one image or presenter video still while the deck moves." openRequestId={pinEditorRequestId} workspaces="slides">
+      <WorkspaceSection workspace="slides">
+      <InspectorGroup title="Pinned frame" eyebrow={settings.presenter.enabled ? "ON" : "OFF"} description="Keep one image or presenter video still while the deck moves.">
         <SwitchField
           label="Keep one frame still"
           checked={settings.presenter.enabled}
@@ -1239,6 +1334,11 @@ export function ControlPanel({
         )}
         <RangeNumberField label="Pinned radius" value={settings.presenter.radius} softMin={0} softMax={256} hardMin={0} hardMax={512} step={1} unit=" px" onChange={(radius) => patch("presenter", { radius })} />
         <RangeField label="Pinned smoothing" value={settings.presenter.smoothing * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("presenter", { smoothing: value / 100 })} />
+      </InspectorGroup>
+      </WorkspaceSection>
+
+      <WorkspaceSection workspace="slides" level="advanced">
+      <InspectorGroup title="Pinned finish and audio" eyebrow={settings.presenter.muted ? "MUTED" : "AUDIO ON"} description="Tune the pinned frame edge, shadow, and presenter-audio timing.">
         <RangeNumberField label="Pinned border" value={settings.presenter.borderWidth} softMin={0} softMax={24} hardMin={0} hardMax={32} step={0.5} decimals={1} unit=" px" onChange={(borderWidth) => patch("presenter", { borderWidth })} />
         {settings.presenter.borderWidth > 0 ? (
           <>
@@ -1263,8 +1363,10 @@ export function ControlPanel({
           </>
         ) : null}
       </InspectorGroup>
+      </WorkspaceSection>
 
-      <InspectorGroup title="Performance" eyebrow={`${performanceTimeline.totalDuration.toFixed(2)} s total`} description="Direct the opening, pace changes, loops, and ending." workspaces="direct" open>
+      <WorkspaceSection workspace="motion" level="advanced">
+      <InspectorGroup title="Performance" eyebrow={`${performanceTimeline.totalDuration.toFixed(2)} s total`} description="Direct the opening, pace changes, loops, and ending." open>
         <SelectField
           label="Transition style"
           value={transitionPresetId}
@@ -1501,8 +1603,10 @@ export function ControlPanel({
           />
         ) : null}
       </InspectorGroup>
+      </WorkspaceSection>
 
-      <InspectorGroup title="Output" eyebrow={`${settings.output.width} × ${settings.output.height}`} description="Confirm runtime, frame rate, readiness, and export format." workspaces="master" open>
+      <WorkspaceSection workspace="export">
+      <InspectorGroup title="Output" eyebrow={`${settings.output.width} × ${settings.output.height}`} description="Confirm runtime, frame rate, readiness, and export format." open>
         {timingRead.intent.mode === "fixed-master" ? (
           <RangeNumberField
             label="Exact duration"
@@ -1588,6 +1692,9 @@ export function ControlPanel({
           {!projectFilesEnabled ? <p className="development-boundary">V2 Dev keeps real .pitched projects in Drift.</p> : null}
         </div>
       </InspectorGroup>
+      </WorkspaceSection>
+        </WorkspaceInspector>
+      </div>
     </aside>
   );
 }

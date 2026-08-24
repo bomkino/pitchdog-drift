@@ -1,4 +1,4 @@
-export type StudioCommandWorkspace = "slides" | "world" | "direct" | "master";
+export type StudioCommandWorkspace = "slides" | "look" | "motion" | "export";
 export type StudioCommandLocation = StudioCommandWorkspace | "global";
 
 export type StudioCommandAction =
@@ -36,9 +36,9 @@ export interface StudioCommandSearchOptions {
 
 const WORKSPACES: readonly StudioCommandWorkspace[] = Object.freeze([
   "slides",
-  "world",
-  "direct",
-  "master",
+  "look",
+  "motion",
+  "export",
 ]);
 
 function command(
@@ -59,27 +59,27 @@ function command(
 
 const DEFINITIONS: readonly StudioCommandDefinition[] = [
   command("workspace.slides", "Switch to Slides", ["media", "deck", "crop", "pin"], "global", { type: "workspace.switch", workspace: "slides" }),
-  command("workspace.world", "Switch to World", ["look", "theme", "atmosphere", "direction", "film world"], "global", { type: "workspace.switch", workspace: "world" }),
-  command("workspace.direct", "Switch to Direct", ["motion", "timing", "lens", "sound"], "global", { type: "workspace.switch", workspace: "direct" }),
-  command("workspace.master", "Switch to Master", ["output", "export", "receipt", "guides"], "global", { type: "workspace.switch", workspace: "master" }),
+  command("workspace.look", "Switch to Look", ["world", "theme", "atmosphere", "material", "light", "lens", "surface", "film world"], "global", { type: "workspace.switch", workspace: "look" }),
+  command("workspace.motion", "Switch to Motion", ["direct", "timing", "path", "physics", "entry", "exit", "sound"], "global", { type: "workspace.switch", workspace: "motion" }),
+  command("workspace.export", "Switch to Export", ["master", "output", "receipt", "guides"], "global", { type: "workspace.switch", workspace: "export" }),
 
   command("preview.pause.toggle", "Play or Pause Preview", ["playback", "space", "stop", "resume"], "global", { type: "preview.pause.toggle" }),
   command("preview.focus.toggle", "Toggle Full Frame", ["focus", "stage", "fullscreen", "preview"], "global", { type: "preview.focus.toggle" }),
-  command("guide.toggle", "Toggle Platform Guides", ["safe area", "instagram", "story", "reel", "overlay"], "master", { type: "guide.toggle" }),
+  command("guide.toggle", "Toggle Platform Guides", ["safe area", "instagram", "story", "reel", "overlay"], "export", { type: "guide.toggle" }),
   command("comparison.toggle", "Toggle A/B Comparison", ["before", "after", "compare", "direction"], "global", { type: "comparison.toggle" }),
 
-  command("timing.mode.fixed-master", "Use Exact Length", ["fixed master", "duration", "seconds", "protected"], "master", { type: "timing.mode.set", mode: "fixed-master" }),
-  command("timing.mode.content-paced", "Use Reading Pace", ["dynamic length", "seconds per slide", "content paced", "protected"], "master", { type: "timing.mode.set", mode: "content-paced" }),
-  command("timing.close-at-cut", "Close at Cut Tempo", ["seamless", "complete pass", "cadence", "endpoint", "repair"], "direct", { type: "timing.close-at-cut" }),
+  command("timing.mode.fixed-master", "Use Exact Length", ["fixed master", "duration", "seconds", "protected"], "motion", { type: "timing.mode.set", mode: "fixed-master" }),
+  command("timing.mode.content-paced", "Use Reading Pace", ["dynamic length", "seconds per slide", "content paced", "protected"], "motion", { type: "timing.mode.set", mode: "content-paced" }),
+  command("timing.close-at-cut", "Close at Cut Tempo", ["seamless", "complete pass", "cadence", "endpoint", "repair"], "motion", { type: "timing.close-at-cut" }),
 
   command("media.slides.add", "Add Slides", ["import", "images", "deck", "media"], "slides", { type: "media.slides.add" }),
   command("media.presenter.add", "Add Presenter", ["import", "video", "speaker", "media"], "slides", { type: "media.presenter.add" }),
   command("media.pin-selected", "Keep Selected Media Still", ["pin", "pinned frame", "presenter", "sticky"], "slides", { type: "media.pin-selected" }),
   command("media.pin-return", "Return Pinned Media", ["unpin", "moving track", "restore", "presenter"], "slides", { type: "media.pin-return" }),
 
-  command("export.still", "Save Transparent-safe PNG", ["export", "still", "image", "poster", "png"], "master", { type: "export.still" }),
-  command("export.sequence", "Export PNG Sequence", ["export", "frames", "images", "zip", "png"], "master", { type: "export.sequence" }),
-  command("export.mp4", "Export MP4 Master", ["export", "video", "movie", "h264", "mp4"], "master", { type: "export.mp4" }),
+  command("export.still", "Save Transparent-safe PNG", ["export", "still", "image", "poster", "png"], "export", { type: "export.still" }),
+  command("export.sequence", "Export PNG Sequence", ["export", "frames", "images", "zip", "png"], "export", { type: "export.sequence" }),
+  command("export.mp4", "Export MP4 Master", ["export", "video", "movie", "h264", "mp4"], "export", { type: "export.mp4" }),
 
   command("history.undo", "Undo Direction", ["history", "revert", "command z"], "global", { type: "history.undo" }),
   command("history.redo", "Redo Direction", ["history", "restore", "shift command z"], "global", { type: "history.redo" }),

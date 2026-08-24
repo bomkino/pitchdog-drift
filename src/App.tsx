@@ -307,7 +307,6 @@ export function App() {
   const [activeSlideIndex, setActiveSlideIndex] = useState(-1);
   const [activePanel, setActivePanel] = useState<"media" | "stage" | "director">("stage");
   const [activeWorkspace, setActiveWorkspace] = useState<StudioWorkspace>("slides");
-  const [pinEditorRequestId, setPinEditorRequestId] = useState(0);
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [platformGuideId, setPlatformGuideId] = useState<PlatformGuideProfileId>("none");
   const [customGuideInsets, setCustomGuideInsets] = useState<NormalizedInsets>({ top: 0.1, right: 0.08, bottom: 0.16, left: 0.08 });
@@ -1190,10 +1189,7 @@ export function App() {
     setSettings(nextSettings);
     if (asset) {
       if (asset.kind === "image") setSelectedSlideId(asset.id);
-      setActiveWorkspace("slides");
-      setActivePanel("director");
-      setPinEditorRequestId((requestId) => requestId + 1);
-      announce(`${asset.name} will stay still. Pinned-frame controls are open.`);
+      announce(`${asset.name} will stay still. Pinned-frame controls remain in Slides.`);
     } else {
       announce("Pinned media returned to its moving track.");
     }
@@ -2036,7 +2032,7 @@ export function App() {
         return;
       case "guide.toggle":
         setPlatformGuideId((id) => id === "none" ? "instagram-combined" : "none");
-        setActiveWorkspace("master");
+        setActiveWorkspace("export");
         setActivePanel("director");
         return;
       case "comparison.toggle":
@@ -2140,8 +2136,6 @@ export function App() {
           onPin={pin}
           onSelect={(assetId) => {
             setSelectedSlideId(assetId);
-            setActiveWorkspace("slides");
-            setActivePanel("director");
           }}
           onRemovePresenter={removePresenter}
           busy={interactionBusy}
@@ -2200,7 +2194,6 @@ export function App() {
           sonicState={sonicState}
           onTheme={onTheme}
           onResetPinnedFrame={resetPinnedFrame}
-          pinEditorRequestId={pinEditorRequestId}
           onExportStill={exportStill}
           onExportVideo={exportVideo}
           onExportFrames={exportFrames}

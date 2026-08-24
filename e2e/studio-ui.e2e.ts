@@ -25,8 +25,8 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   const previewDescription = page.locator("#stage-preview-description");
   await expect(previewDescription).toContainText("8 slides");
   await expect(previewDescription).toContainText("editorial drift.");
-  await switchWorkspace(page, "WORLD");
-  const atmosphere = page.locator("details").filter({ has: page.locator("summary", { hasText: "Background" }) });
+  await switchWorkspace(page, "LOOK");
+  const atmosphere = page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Background$/ }) });
   if (await atmosphere.getAttribute("open") === null) await atmosphere.locator("summary").click();
   const background = page.getByRole("combobox", { name: "Background", exact: true });
   // The restrained Editorial Drift foundation opens on Long Fibres paper.
@@ -34,14 +34,14 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   // explicit authored scene operation and moves to Orbiting Bloom/Aura.
   await expect(background).toHaveValue("paper");
 
-  await switchWorkspace(page, "DIRECT");
+  await switchWorkspace(page, "MOTION");
   const flowAxis = page.getByRole("group", { name: "Flow axis" });
   await flowAxis.getByText("Horizontal", { exact: true }).click();
   await expect(page.locator(".stage-topline").last()).toContainText("horizontal");
   await flowAxis.getByText("Vertical", { exact: true }).click();
   await expect(page.locator(".stage-topline").last()).toContainText("vertical");
 
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   const stageRatio = page.getByRole("group", { name: "Stage ratio" });
   await stageRatio.getByText("16:9", { exact: true }).click();
   await expect(page.locator(".stage-hud")).toContainText("1920 × 1080");
@@ -63,20 +63,21 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await expect(stageRatio.getByRole("radio", { name: "9:16" })).toBeChecked();
   await page.getByLabel("Stage height").fill("1920");
 
-  await switchWorkspace(page, "WORLD");
+  await switchWorkspace(page, "LOOK");
+  await page.getByText("Advanced", { exact: true }).click();
   const filmWorlds = page.locator("details.world-browser");
   if (await filmWorlds.getAttribute("open") === null) await filmWorlds.locator("summary").click();
   await filmWorlds.getByRole("button", { name: /^Film World: Dread\./ }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("dread");
   await expect(previewDescription).toContainText("dread.");
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   await page.getByLabel("Stage width").fill("1200");
   // A Film World is an explicit authored recut. Dread read the prior custom
   // master as landscape and established its 16:9 scene before this subsequent
   // custom-width edit.
   await expect(page.locator(".stage-hud")).toContainText("1200 × 1080");
 
-  await switchWorkspace(page, "WORLD");
+  await switchWorkspace(page, "LOOK");
   await background.selectOption("transparent");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "true");
   await filmWorlds.getByRole("button", { name: /^Film World: Sunstruck Atlas\./ }).click();
@@ -108,20 +109,23 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
 test("director fields expose concise names and separate supporting descriptions", async ({ page }) => {
   await waitForStudio(page);
 
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   await expect(page.getByLabel("Stage width", { exact: true })).toHaveValue("1080");
   await expect(page.getByRole("spinbutton", { name: "Stage width", exact: true })).toHaveAccessibleDescription("px");
   await switchWorkspace(page, "SLIDES");
   await expect(page.getByLabel("Slide ratio", { exact: true })).toHaveValue("16:9");
-  await switchWorkspace(page, "DIRECT");
+  await switchWorkspace(page, "MOTION");
+  await page.getByText("Advanced", { exact: true }).click();
+  await page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Motion physics$/ }) }).locator(":scope > summary").click();
   await expect(page.getByRole("slider", { name: "Free-run speed", exact: true })).toBeVisible();
 
   const reducedMotion = page.getByRole("switch", { name: "Reduced-motion master", exact: true });
   await expect(reducedMotion).toHaveAccessibleDescription(/Independent from your OS preview preference/);
 
-  await switchWorkspace(page, "SLIDES");
-  const surface = page.locator("details").filter({ has: page.locator("summary", { hasText: "Surface" }) });
-  await surface.locator("summary").click();
+  await switchWorkspace(page, "LOOK");
+  await page.getByText("Advanced", { exact: true }).click();
+  const surface = page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Card surface$/ }) });
+  await surface.locator(":scope > summary").click();
   await expect(page.getByLabel("Border", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Border colour", { exact: true })).toBeVisible();
   await expect(page.getByRole("slider", { name: "Corner smoothing", exact: true })).toHaveAccessibleDescription("60% is the familiar iOS-style continuous corner.");
@@ -156,10 +160,10 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   expect(presenterChooser.isMultiple()).toBe(false);
   await presenterChooser.setFiles([]);
 
-  await switchWorkspace(page, "DIRECT");
+  await switchWorkspace(page, "MOTION");
   const axis = page.getByRole("group", { name: "Flow axis" });
   const vertical = axis.getByRole("radio", { name: "Vertical" });
-  await page.getByRole("button", { name: "DIRECT", exact: true }).focus();
+  await page.getByRole("button", { name: "MOTION", exact: true }).focus();
   // Traverse the real current panel instead of assuming the shorter V1 panel's
   // historical control count. Failing after a full cycle still catches a
   // missing or unreachable radio without coupling the test to panel density.
@@ -172,7 +176,7 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   await page.keyboard.press("ArrowRight");
   await expect(axis.getByRole("radio", { name: "Horizontal" })).toBeChecked();
 
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   const frameRate = page.getByRole("group", { name: "Frame rate" });
   await expect(frameRate.getByRole("radio")).toHaveCount(5);
   await expect(frameRate.getByRole("radio", { name: "25" })).toBeVisible();
@@ -196,13 +200,14 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   await expect(page.getByRole("button", { name: "Move Drift study 02.png up" })).toBeDisabled();
 
   await switchWorkspace(page, "SLIDES");
-  const pinnedGroup = page.locator("details").filter({ has: page.locator("summary", { hasText: "Pinned frame" }) });
-  await pinnedGroup.locator("summary").click();
+  const pinnedGroup = page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Pinned frame$/ }) });
+  await pinnedGroup.locator(":scope > summary").click();
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   await expect(pinnedSwitch).toBeDisabled();
-  await page.getByRole("button", { name: "Keep Drift study 02.png still" }).click();
+  const pinButton = page.getByRole("button", { name: "Keep Drift study 02.png still" });
+  await pinButton.click();
   await expect(pinnedGroup).toHaveAttribute("open", "");
-  await expect(pinnedGroup.locator("summary")).toBeFocused();
+  await expect(page.getByRole("button", { name: "Return Drift study 02.png to the carousel" })).toBeFocused();
   await expect(pinnedSwitch).toBeEnabled();
   await expect(pinnedSwitch).toBeChecked();
   await pinnedSwitch.click();

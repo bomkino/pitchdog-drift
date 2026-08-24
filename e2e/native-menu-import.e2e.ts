@@ -468,7 +468,7 @@ test("Finder-style project delivery rejects when an export wins the admission ra
       }),
     });
   });
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   await page.getByLabel("Stage width").fill("256");
   await page.getByLabel("Stage height").fill("256");
   await page.getByLabel("Exact duration", { exact: true }).fill("3");

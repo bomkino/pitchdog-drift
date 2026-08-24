@@ -141,11 +141,11 @@ test("Atelier backgrounds render, move gently, close their loop, and survive bot
 test("Atelier is visible and reachable through the real V2 background browser", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-context", /ready|restored/);
-  await page.getByRole("button", { name: "WORLD", exact: true }).click();
+  await page.getByRole("button", { name: "LOOK", exact: true }).click();
 
   const atmosphere = page.locator("details.inspector-group").filter({
-    has: page.locator("summary", { hasText: "Background" }),
-  }).first();
+    has: page.locator(":scope > summary > span", { hasText: /^Background$/ }),
+  });
   await expect(atmosphere).toBeVisible();
   const browser = atmosphere.locator(".visual-background-browser");
   await expect(browser.getByRole("heading", { name: "Background library" })).toBeVisible();
@@ -157,8 +157,13 @@ test("Atelier is visible and reachable through the real V2 background browser", 
   await saffron.click();
 
   await expect(atmosphere.getByLabel("Background", { exact: true })).toHaveValue("atelier");
-  await expect(atmosphere.getByLabel("Composition", { exact: true })).toHaveValue("0");
-  await expect(atmosphere.getByLabel("Palette", { exact: true })).toHaveValue("saffron-manuscript");
+  await page.locator("details.workspace-advanced > summary").click();
+  const tuning = page.locator("details.inspector-group").filter({
+    has: page.locator(":scope > summary > span", { hasText: /^Background tuning$/ }),
+  });
+  await tuning.locator(":scope > summary").click();
+  await expect(tuning.getByLabel("Composition", { exact: true })).toHaveValue("0");
+  await expect(tuning.getByLabel("Palette", { exact: true })).toHaveValue("saffron-manuscript");
   await expect(saffron).toHaveAttribute("aria-pressed", "true");
   await expect(browser.getByText("Saffron Anatomy", { exact: true }).first()).toBeVisible();
 

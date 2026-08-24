@@ -29,7 +29,7 @@ test("WebGL2 denial yields an explicit, usable DOM fallback", async ({ page }) =
   await page.goto("/");
   await expect(page.getByText("Cinematic renderer unavailable.")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/Cinematic export is blocked/)).toBeVisible();
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   await expect(page.getByRole("button", { name: "Save portable project" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add slides" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Export MP4 master" })).toBeDisabled();
@@ -38,7 +38,7 @@ test("WebGL2 denial yields an explicit, usable DOM fallback", async ({ page }) =
 
 test("export lifecycle preserves playback truth and releases a failed GPU preflight", async ({ page }) => {
   await waitForStudio(page);
-  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "EXPORT");
   await page.getByLabel("Stage width").fill("256");
   await page.getByLabel("Stage height").fill("256");
   await page.getByLabel("Exact duration", { exact: true }).fill("3");
