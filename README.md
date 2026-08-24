@@ -10,6 +10,8 @@ This is not a CSS carousel wearing a shader as jewellery. Preview and export sha
 
 Drift is pre-1.0 and currently source-first. Read the [project status](docs/STATUS.md) for the exact boundary between public source, local candidates, verification, and release.
 
+The editor is organised around one visible journey: **Slides → Look → Motion → Export**. The stage and timeline stay put while the task inspector changes. **Apply clean carousel** gives a proof-safe, smooth, continuous starting point without replacing the chosen background, framing, media, or pinned-frame placement. Read the [Mac user guide](docs/MACOS_USER_GUIDE.md#the-shortest-good-path) or the [editor-journey rebuild note](docs/v2/EDITOR_JOURNEY_REBUILD_2026-08-25.md) before opening every advanced control.
+
 ## V2 production boundary
 
 Drift's shipping source now creates an authored V2 Project V4 document. It combines one canonical renderer/export path, eight authored Worlds, sixteen portrait scenes, seventy-two live backgrounds, editorial timing, space, material, analytical light, global optics, tactile sound, and a directable pinned frame. Explicitly imported or previously saved V1 projects remain on the frozen compatibility renderer until the creator applies a V2 World.
@@ -41,6 +43,8 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - One optional pinned image or presenter video, off by default.
 - Independent pinned-frame size, X/Y position, safe inset, aspect, fit, focal point, matte, corners, border, shadow, timing, and track controls.
 - Four cuts, six performances, four motion characters, four pose cadences, six handcrafted stacks, entry/exit direction, exact repeats, and editable tempo envelopes.
+- Outcome-first motion recipes, including a clean continuous carousel and a deck-aware Casino Reveal sequence of `FAST ×2 → READ ×1 → FAST ×1`.
+- One visible editing timeline with transport, scrubbing, pass blocks, current time, and exact authored duration.
 - Ten spatial paths, four material recipes, twelve light rigs, eight lens recipes, seventy-two backgrounds across nine structural families, twenty-eight palettes, and sixteen portrait-native scenes.
 - Optional deterministic tactile sound from 23 local CC0 recordings, with three palettes, three grammars, and presenter-under-voice mixing.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.

@@ -1,10 +1,12 @@
 # Drift V2 current status
 
-Updated: 24 August 2026
+Updated: 25 August 2026
 
 Atelier implementation commit: `9e51740a6367dd5caf29f0cab89787d7d53341ca`. Its follow-up compositor-proof repair changes test evidence only.
 
-Pre-Atelier installed baseline, re-read on 24 August: `/Applications/Drift.app`, release build 298, exact source `23f50b257cfced55a370754851a1f6673f15438c`. It remains the known-good recovery path until the merged candidate is independently installed and read back.
+Editor-journey implementation commit: `8efe4b92d2dac26276b22a23100ecfd32a82899a`. A clean detached worktree produced release build 332 from that exact source; it is a proved candidate, not yet the installed app.
+
+Installed baseline, re-read on 25 August: `/Applications/Drift.app`, release build 305, exact source `077110237bdcdb493b20162e8a8a9ed61814c5c4`, universal executable SHA-256 `452a657f434fd045e0bb6ba18947b0b88a9c44410f4d15013f99c9e35c3d99a5`. It remains the known-good recovery path until the final documented candidate is independently installed and read back.
 
 Historical V1 source: `5fd145207235884790ba071c5d84bc3876ff4989`. Historical V1 and V2 Dev app bundles remain recoverable outside `/Applications`.
 
@@ -67,14 +69,19 @@ Protected pin avoidance is local to the collision neighbourhood. Far-away cards 
 - The preview audition and the exact 48 kHz stereo export master use the same semantic event plan.
 - MP4 export supports sound design alone or one presenter-plus-sound mixed master; audio is never added silently.
 
-### Director workflow and project truth
+### Editor journey and project truth
 
-- Four task-shaped workspaces—Slides, World, Direct, and Master—share one persistent Stage instead of hiding the composition during mode changes.
+- Four task-shaped rooms—Slides, Look, Motion, and Export—share one persistent Stage and one persistent visual Timeline. Their Inspector panes remain mounted, inert while inactive, and restore their exact scroll position.
+- The Media rail, Stage, Timeline, and Inspector preserve their geometry across room changes. A tab click preserves focus; notices no longer displace the timeline.
+- Apply Clean Carousel is the prominent safe action: continuous readable motion plus literal source pixels, while media, Look, background, stage geometry, axis, direction, and pin placement survive.
+- Look exposes Protected artwork versus Literal source pixels. Make Literal removes slide lens, relighting, border, and local finish while keeping the surrounding WebGL world.
 - Per-slide fit, focal point, scale, health, and reset controls preserve local art direction without manufacturing separate render paths.
 - Exact Length and Reading Pace timing can resolve one to one hundred complete passes from the admitted slide count. Authored Fast · Slow · Fast and spin-then-read envelopes close on complete deck cuts and emit an export-duration receipt.
+- Casino Reveal authors `FAST ×2 → READ ×1 → FAST ×1` at 0.22/0.90/0.22 seconds per slide. Content-paced duration derives from the moving-slide count; Exact Length deliberately fits that sequence only when requested.
+- When an authored sequence owns timing, incompatible free-run controls stay hidden. The Timeline makes fast/read blocks, pass boundaries, playhead, current time, and total duration visible.
 - Story, Reel, Combined, and Custom platform guides are preview-only overlays. They can flag pinned-frame overlap without entering exported pixels.
 - Command–K exposes the core directing and export actions without duplicating project authority.
-- Eight authored Worlds provide the fast path; Direct exposes the underlying motion, space, material, light, background, lens, sound, pin, and timing controls.
+- Eight authored Worlds remain a complete-look fast path; advanced controls expose motion, space, material, light, background, lens, sound, pin, and timing without becoming the first-run journey.
 - World application is deterministic and non-compounding, respects domain locks, and records changed domains.
 - Undo and redo retain up to 50 meaningful project states and coalesce continuous gestures.
 - Temporary A/B comparison never mutates autosave or export authority.
@@ -91,15 +98,16 @@ Protected pin avoidance is local to the collision neighbourhood. Far-away cards 
 
 ## Current evidence boundary
 
-- The consolidated repository check is green: 56 test files, 390 unit/integration tests, TypeScript, 11-file Swift/native source contracts, both Mac user guides, native import and hardening contracts, and the production Web build.
+- The editor rebuild's consolidated repository check is green: 69 test files, 495 unit/integration tests, TypeScript, Swift/native source contracts, both Mac user guides, native import and hardening contracts, and the production Web build.
+- The production-browser UI lane passed 19 journeys with one screenshot-only case intentionally skipped. The isolated V2 UI matrix passed 10/10 journeys across production and V2-development identities. Dedicated checks cover Clean Carousel fidelity, Casino pacing, stable geometry and focus, exact room scroll restoration, visual background cards, edge-aware tooltips, disclosure interruption, source-proof rendering, and world-only animated grain.
 - The expanded browser matrix is green across all 46 cases in one clean 13.6-minute run. It covers the production and V2 Dev identities, native/import races, alpha, cancellation, renderer authority, bounded media churn, project quarantine, compatibility persistence, workspaces, timing, guides, Command–K, reduced-motion pixel stability, V2 pin repair, and the Atelier renderer/browser journeys.
 - Cutting Map, Grid, and Wave rendered in real WebGL2 at 1080 × 1920 and 1920 × 1080 with a clean browser console.
 - The final optical atlas contains 35 native-resolution Drift PNG captures across four ratios, eight Worlds, both-axis samples of the three new background families, eight lenses, five finishes, and four grain-isolation plates. Its manifest, contact sheet, and every capture have SHA-256 inventory.
 - The separate Atelier atlas contains 16 real-stage PNG captures: all eight living-pigment studies at 9:16 and 16:9 with bundled slides. A dirty-worktree fingerprint prevents candidate collisions; its manifest, contact sheet, and every capture have SHA-256 inventory.
 - The complete Swift native self-test currently passes from freshly compiled source, including document lifecycle, broker authority, recovery, conflict, Finder reply, and AAC boundaries.
-- The headed installed-Chrome long-export gate is green: all eight nominal-resolution Project V4 frame plans were exact at 24 fps; complete 30-second/8-slide, 60-second/40-slide, and 180-second/200-slide V2 H.264 exports passed mandatory Rec.709/duration/frame/decode readback, bounded cache/decode/heap checks, WebGL context continuity, full unload, and cancellation-without-artifact. Physical encoding used deliberately small dimensions; 1080p/4K throughput and Intel remain separate performance gates.
-- The Atelier candidate universal Mac build 299 records exact source `9e51740`, and its native gauntlet plus all three packaged WKWebView variants are green. Those variants completed durable native import/save, WebContent recovery, stale-generation rejection, media rehydration, and outbound/WebRTC lockdown. This proves the candidate bundle, not installation.
-- Before promotion, `/Applications` contained exactly one Drift app: release build 298 from `23f50b2`, executable SHA-256 `67e35f45c4a6623f840a5569909b8c296a7058b6eae85bdf40340d28726851b4`. That is the retained installed baseline until a merged replacement passes direct-executable and LaunchServices/Finder launch readback.
+- The headed installed-Chrome long-export gate was rerun on editor commit `8efe4b9` and is green: all eight nominal-resolution Project V4 frame plans were exact at 24 fps; complete 30-second/8-slide (720-frame), 60-second/40-slide (1,440-frame), and 180-second/200-slide (4,320-frame) V2 H.264 exports passed mandatory Rec.709/duration/frame/decode readback, bounded cache/decode/heap checks, WebGL context continuity, full unload, and cancellation-without-artifact. Physical encoding used deliberately small dimensions; 1080p/4K throughput and Intel remain separate performance gates.
+- The editor candidate universal Mac build 332 records exact source `8efe4b9`. Its native gauntlet and all three packaged WKWebView variants are green. Production sandboxed, unsandboxed diagnostic control, and self-signed sandbox control completed durable native import/save, WebContent recovery, stale-generation rejection, media rehydration, and outbound/WebRTC lockdown with zero accepted TCP requests and zero WebRTC/STUN token hits. This proves the candidate bundle, not installation.
+- `/Applications` currently contains exactly one Drift app: release build 305 from `0771102`, executable SHA-256 `452a657f434fd045e0bb6ba18947b0b88a9c44410f4d15013f99c9e35c3d99a5`. That is the retained installed baseline until a final documented replacement passes direct-executable and LaunchServices/Finder launch readback.
 
 The older repair list, package matrix, installation, visual evidence, backup path, and preservation boundary are recorded in the [production-promotion receipt](PRODUCTION_PROMOTION_2026-08-23.md). Its build-284 installation is historical evidence, not current state.
 
@@ -114,6 +122,7 @@ The older repair list, package matrix, installation, visual evidence, backup pat
 ## Evidence trail
 
 - [V2 requirement and phase matrix](V2_REQUIREMENT_PHASE_MATRIX.md)
+- [Editor-journey rebuild](EDITOR_JOURNEY_REBUILD_2026-08-25.md)
 - [Atelier backgrounds: design and verification](ATELIER_BACKGROUNDS_2026-08-24.md)
 - [V2 Dev user guide](MACOS_V2_DEV_USER_GUIDE.md)
 - [Project V4 migration contract](V2_PROJECT_MIGRATION.md)

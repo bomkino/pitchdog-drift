@@ -53,22 +53,53 @@ Use **File → Add Presenter Video…** or the Presenter control for one MP4, MO
 
 ## Direct the scene
 
-The editor has three surfaces:
+The editor has four stable surfaces:
 
 - **Media** — slide order, removal, presenter media, and pinned-frame ownership.
 - **Stage** — the live WebGL composition. Drag or use the wheel to move; Space plays or pauses; previous/next commands step the track; F toggles full-frame focus.
-- **Director** — stage/output ratios, path, pace, spacing, depth, tilt, optical bend, focal point, continuous corners, borders, shadows, background, pinned-frame placement, and output settings.
+- **Timeline** — transport, current and total time, a draggable playhead, and the authored pass sequence. Fast and readable sections appear as different blocks instead of hiding inside a speed field.
+- **Inspector** — the task controls for the selected room. Changing rooms does not replace the stage or timeline. Each room keeps its own scroll position, so returning to it returns to the same place.
 
-Director is split into four short journeys rather than one wall of controls:
+The Inspector is split into four short journeys rather than one wall of controls:
 
-- **Slides** — crop the selected slide and place the optional pinned frame.
-- **World** — choose an authored Film World, portrait scene, pressure, and background. Film Worlds stay folded until you need a complete recipe, so the visual background library remains immediately reachable.
-- **Direct** — shape movement, lifecycle, tempo, material, light, lens, and sound.
-- **Master** — set timing ownership, platform guides, output, preflight, and export.
+- **Slides · Deck** — set the shared slide frame, crop the selected slide, and place the optional pinned frame.
+- **Look · World** — choose the background and complete World, then decide how literally Drift must preserve the source artwork.
+- **Motion · Flow** — choose an outcome, cadence, timeline intent, path, pace, material response, and sound.
+- **Export · Output** — set duration, output format, platform guides, preflight, and export.
+
+### The shortest good path
+
+1. Add the deck.
+2. Open **Motion** and choose **Apply clean carousel**. This is the safe motion default: smooth continuous movement, one readable pass, no entry or exit flourish, and literal source pixels. It keeps the existing background, framing, slide order, and pinned-frame placement.
+3. Open **Look** only if the world needs art direction. Choose a visual background card, or keep the current one. **Literal source pixels** means the slide face receives no relighting, finish, border, or lens treatment.
+4. Scrub the timeline. Open **Export**, resolve any blocking preflight item, and export.
+
+This path is intentionally boring to learn and beautiful in motion. The deeper controls remain available, but they are not prerequisites for a coherent carousel.
+
+### Smooth motion and authored sequences
+
+**Motion cadence** chooses whether the track glides continuously or lands on authored poses such as 12 fps. Continuous is the right starting point for a classic carousel. It changes the feel of movement; it does not change the requested export frame rate.
+
+Outcome cards change motion, performance, timing, and sequence as one understandable result. **Casino Reveal** authors exactly:
+
+```text
+FAST ×2 → READ ×1 → FAST ×1
+```
+
+The fast passes use 0.22 seconds per slide and the readable pass uses 0.90 seconds per slide. Drift derives the total from the number of moving slides, so the sequence closes on a complete deck pass. If an authored sequence owns the timeline, free-run speed and deck-pass controls stay out of the way instead of pretending to be active. Choose Exact Length only when a fixed delivery duration should compress or stretch that authored sequence.
+
+Use the local **Reset** actions when one layer has wandered: motion reset keeps timing and Look; sequence reset keeps motion feel and Look. **Apply clean carousel** is the stronger recovery action when both movement and slide fidelity need a known-good baseline.
 
 Choosing **Keep still** opens **Slides → Pinned frame** immediately. That is where you set position, size, source/custom ratio, fit, focal point, safe inset, corners, border, matte, shadow, audio, and whether the same media also appears in the moving track.
 
-Backgrounds are chosen visually in both new V2 projects and restored V1-compatible projects. The **On canvas** card identifies the live result; the library below shows every available look as a preview card with its name and family. Search by mood or name, narrow the library by visual family, then click a card to apply it to the live WebGL canvas. **Transparent** is the first explicit choice. Fine composition, palette, variation, intensity, motion, grain, and vignette controls remain below the library. The canvas—not the small preview—is export truth.
+Backgrounds are chosen visually in both new V2 projects and restored V1-compatible projects. The **On canvas** card identifies the live result; the library below shows every available look as a large preview card with its name and family. Search by mood or name, narrow the library by visual family, then click a card to apply it to the live WebGL canvas. **Transparent** is the first explicit choice. Fine composition, palette, variation, intensity, motion, grain, and vignette controls remain below the library. The canvas—not the small preview—is export truth.
+
+The source-fidelity strip in **Look** always states one of two truths:
+
+- **Protected artwork** — slide-face relighting is blocked, but chosen lens or local finish may still affect the result.
+- **Literal source pixels** — no lens, relighting, border, or local finish touches the slide.
+
+Use **Make literal** when a deck looks washed out, strangely lit, textured, or otherwise unlike the source. The world can remain cinematic around it.
 
 Native menu equivalents exist for the important actions. They use the renderer’s reported state rather than guessing from the visible interface. Commands disable while Drift is hashing media, replacing a project, saving protected state, or exporting.
 
@@ -92,7 +123,7 @@ Use **File → Save Project** or **Command–S** to save the current `.pitched` 
 - SHA-256 digests;
 - validated project settings.
 
-Open it through **File → Open Project…**, the Director panel, Finder, or “Open With Drift.” Finder-open events arriving while the application is launching are queued until React’s importer is ready.
+Open it through **File → Open Project…**, the **Export** room, Finder, or “Open With Drift.” Finder-open events arriving while the application is launching are queued until React’s importer is ready.
 
 Drift verifies an archive before replacing the open project. A malformed, oversized, contradictory, unsupported, or hash-mismatched project is rejected without mutating the current valid one.
 
