@@ -7,6 +7,7 @@ import {
   LOCAL_REOPENED_NOTICE,
   PORTABLE_OPENED_NOTICE,
   PORTABLE_SAVED_NOTICE,
+  presenterAvFixturePath,
   presenterFixturePath,
   switchWorkspace,
   waitForStudio,
@@ -160,6 +161,82 @@ test("presenter export preflight decodes a real frame before rendering", async (
     total: 1,
     message: "Reading presenter video",
   });
+});
+
+test("@physical-encoder full presenter journey closes and verifies the fixed-step MP4 instead of hanging after its last frame", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined });
+  });
+  await waitForStudio(page);
+  await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterAvFixturePath);
+  await expect(page.locator(".presenter-card")).toBeVisible();
+
+  await switchWorkspace(page, "MOTION");
+  await page.getByRole("group", { name: "Timing authority" }).getByText("Exact length", { exact: true }).click();
+  await page.getByLabel("Body duration").fill("1.5");
+
+  await switchWorkspace(page, "EXPORT");
+  await page.getByLabel("Stage width").fill("256");
+  await page.getByLabel("Stage height").fill("256");
+  await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
+  await expect(page.getByRole("status", { name: "Delivery receipt" })).toContainText("36 frames");
+  await expect(page.getByRole("status", { name: "Delivery receipt" }))
+    .toContainText("Presenter on · source checked at export");
+
+  const downloadPromise = page.waitForEvent("download", { timeout: 90_000 });
+  await page.getByRole("button", { name: "Export MP4 master" }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  expect((await readFile(path!)).byteLength).toBeGreaterThan(1_000);
+  await expect(page.locator(".export-overlay")).toBeHidden();
+  await expect(page.locator(".notice")).toContainText(
+    "256 × 256 H.264 master verified: 36 frames at 24 fps · presenter AAC.",
+  );
+});
+
+test("@physical-encoder installed Chrome verifies and downloads a delivery-size vertical presenter master", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined });
+  });
+  await waitForStudio(page);
+  await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterAvFixturePath);
+  await expect(page.locator(".presenter-card")).toBeVisible();
+
+  await switchWorkspace(page, "MOTION");
+  await page.getByRole("group", { name: "Timing authority" }).getByText("Exact length", { exact: true }).click();
+  await page.getByLabel("Body duration").fill("1.5");
+
+  await switchWorkspace(page, "EXPORT");
+  await page.getByLabel("Stage width").fill("1080");
+  await page.getByLabel("Stage height").fill("1920");
+  await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
+  await expect(page.getByRole("status", { name: "Delivery receipt" })).toContainText("36 frames");
+  await expect(page.getByRole("status", { name: "Delivery receipt" }))
+    .toContainText("Presenter on · source checked at export");
+
+  const completion = Promise.any([
+    page.waitForEvent("download", { timeout: 90_000 })
+      .then((download) => ({ kind: "download" as const, download })),
+    page.getByRole("alert").waitFor({ state: "visible", timeout: 90_000 })
+      .then(async () => ({
+        kind: "rejected" as const,
+        message: await page.getByRole("alert").textContent(),
+      })),
+  ]);
+  await page.getByRole("button", { name: "Export MP4 master" }).click();
+  const result = await completion;
+  expect(result.kind, result.kind === "rejected" ? result.message ?? undefined : undefined).toBe("download");
+  if (result.kind !== "download") return;
+  const path = await result.download.path();
+  expect(path).toBeTruthy();
+  expect((await readFile(path!)).byteLength).toBeGreaterThan(100_000);
+  await expect(page.locator(".export-overlay")).toBeHidden();
+  await expect(page.locator(".notice")).toContainText(
+    "1080 × 1920 H.264 master verified: 36 frames at 24 fps · presenter AAC.",
+  );
 });
 
 test("transparent PNG stores straight-alpha colour without dark fringes", async ({ page }) => {

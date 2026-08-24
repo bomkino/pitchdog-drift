@@ -1164,11 +1164,20 @@ export class CinematicCarousel {
     this.renderer.getSize(previousSize);
     const previousPixelRatio = this.renderer.getPixelRatio();
     const previousPaused = this.paused;
+    const previewPresenterAsset = this.presenterAsset;
+    const restorePresenterPreview = previewPresenterAsset?.kind === "video";
     this.pendingPreviewResize = null;
     this.exportInvalidatedByContextLoss = false;
     this.exportActive = true;
     this.paused = true;
     this.syncPresenterPlayback();
+    // A paused HTMLVideoElement still owns its decoder. Keeping that live
+    // preview decoder beside the deterministic presenter decoder and the H.264
+    // encoder can exhaust Chromium's media lane and leave encoder.flush()
+    // pending forever after the final authored frame. Export owns presenter
+    // decoding exclusively; preview is rebuilt from the same local asset once
+    // the export surface is released.
+    if (restorePresenterPreview) this.disposePresenterPreview();
     this.resolvePresenterTexture();
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(width, height, false);
@@ -1194,7 +1203,13 @@ export class CinematicCarousel {
         );
         this.updateCamera();
         this.setPresenterExportFrame(null);
-        this.renderPreview();
+        if (restorePresenterPreview && previewPresenterAsset) {
+          void this.setPresenterAsset(previewPresenterAsset)
+            .then(() => this.renderPreview())
+            .catch(() => this.renderPreview());
+        } else {
+          this.renderPreview();
+        }
       },
     };
   }

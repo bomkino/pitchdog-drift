@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DeliveryReceipt } from "../src/core/timeline/deliveryReceipt";
 import {
   describeDeliveryCadence,
+  describeDeliverySound,
   describeDurationRounding,
   describeUnevenPoseHolds,
 } from "../src/core/preflight/presentation";
@@ -45,6 +46,27 @@ function output(overrides: Partial<DeliveryReceipt["output"]> = {}): DeliveryRec
   };
 }
 
+function presenter(audioEnabled: boolean): DeliveryReceipt["presenter"] {
+  return {
+    enabled: true,
+    audioEnabled,
+    assetId: "presenter",
+    assetKind: "video",
+    trackMode: "pinned-only",
+    participatesInMovingTrack: false,
+    participatesInEntry: false,
+    participatesInExit: false,
+  };
+}
+
+function sound(exportEnabled: boolean, deterministicEventCount: number): DeliveryReceipt["sound"] {
+  return {
+    exportEnabled,
+    masterAudioEnabled: exportEnabled,
+    deterministicEventCount,
+  };
+}
+
 describe("preflight presentation language", () => {
   it("states harmless frame rounding as exact plain information", () => {
     expect(describeDurationRounding(output())).toBe(
@@ -82,6 +104,18 @@ describe("preflight presentation language", () => {
   it("never turns continuous endpoint rounding into a cadence warning", () => {
     expect(describeUnevenPoseHolds(CONTINUOUS, 25)).toBeNull();
     expect(describeDeliveryCadence(CONTINUOUS, 25)).toBe("Continuous motion · 25 fps output");
+  });
+
+  it("states requested presenter audio without falsely claiming it was already decoded", () => {
+    expect(describeDeliverySound(presenter(true), sound(false, 0)))
+      .toBe("Presenter on · source checked at export");
+    expect(describeDeliverySound(presenter(true), sound(true, 3)))
+      .toBe("Presenter + 3 tactile accents · source checked at export");
+  });
+
+  it("describes tactile-only and silent masters in plain language", () => {
+    expect(describeDeliverySound(presenter(false), sound(true, 1))).toBe("1 tactile accent");
+    expect(describeDeliverySound(presenter(false), sound(false, 0))).toBe("Off");
   });
 
   it("fails malformed rounding facts closed instead of showing NaN", () => {

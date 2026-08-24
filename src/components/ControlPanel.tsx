@@ -111,7 +111,12 @@ import {
   type PlatformGuideProfile,
   type PlatformGuideProfileId,
 } from "../core/platformGuides";
-import { describeDeliveryCadence, evaluatePreflight, type GuideOverlapFact } from "../core/preflight";
+import {
+  describeDeliveryCadence,
+  describeDeliverySound,
+  evaluatePreflight,
+  type GuideOverlapFact,
+} from "../core/preflight";
 import type { ExportCapabilityReport } from "../lib/exportStudio";
 import {
   WorkspaceInspector,
@@ -1698,7 +1703,7 @@ export function ControlPanel({
               <div><dt>Pace</dt><dd>{deliveryReceipt.pace.minimumSlidesPerSecond.toFixed(2)}–{deliveryReceipt.pace.peakSlidesPerSecond.toFixed(2)} slides/s</dd></div>
               <div><dt>Cadence</dt><dd>{describeDeliveryCadence(deliveryReceipt.cadence, deliveryReceipt.output.fps)}</dd></div>
               <div><dt>Closure</dt><dd>{deliveryReceipt.seamlessClosure.status.replace("-", " ")}</dd></div>
-              <div><dt>Sound</dt><dd>{deliveryReceipt.sound.exportEnabled ? `${deliveryReceipt.sound.deterministicEventCount} deterministic events` : "off"}</dd></div>
+              <div><dt>Sound</dt><dd>{describeDeliverySound(deliveryReceipt.presenter, deliveryReceipt.sound)}</dd></div>
               <div><dt>Alpha</dt><dd>{deliveryReceipt.transparency.requested ? deliveryReceipt.transparency.compatible ? "compatible" : "MP4 cannot carry transparency" : "opaque"}</dd></div>
               <div><dt>Workload</dt><dd>{deliveryReceipt.workload.class} · {(deliveryReceipt.workload.pixelFrames / 1_000_000_000).toFixed(2)} Gpx-frames</dd></div>
             </dl>

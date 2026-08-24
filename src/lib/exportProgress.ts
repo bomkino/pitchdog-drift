@@ -112,8 +112,7 @@ export function tickExportProgress(
       && current.message === "Reading presenter video"
       && now - clock.lastProgressAt >= 8_000
       ? "first-frame"
-      : current.unit === "frames"
-        && current.completed > 0
+      : current.phase !== "complete"
         && current.completed < current.total
         && now - clock.lastProgressAt >= 15_000
         ? "inactivity"

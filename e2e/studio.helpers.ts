@@ -4,6 +4,7 @@ import path from "node:path";
 export const fixturePath = path.resolve("e2e/fixtures/slide.png");
 export const audioOnlyFixturePath = path.resolve("e2e/fixtures/audio-only.mp4");
 export const presenterFixturePath = path.resolve("e2e/fixtures/presenter.mp4");
+export const presenterAvFixturePath = path.resolve("e2e/fixtures/presenter-av.mp4");
 export const halfAlphaGreyPng = "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAG0lEQVR4AYTIoQ0AAADCMLLLOR0/Q2WpEPkxAAAA//99eYBQAAAABklEQVQDAN2nCAkPbnNjAAAAAElFTkSuQmCC";
 export const LOCAL_REOPENED_NOTICE = "Local project reopened with verified Project V4 media.";
 export const PORTABLE_OPENED_NOTICE = "Portable project verified, migrated when necessary, and copied into local Project V4 storage.";

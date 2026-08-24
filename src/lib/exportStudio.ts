@@ -50,6 +50,7 @@ export {
 } from "./exportContract";
 
 export const AVC_BITRATE = DRIFT_H264_BITRATE;
+export const AVC_LATENCY_MODE = "realtime" as const;
 export const AAC_BITRATE = DRIFT_AAC_BITRATE;
 export const AUDIO_SAMPLE_RATE = 48_000;
 export const AUDIO_CHANNELS = 2;
@@ -719,7 +720,7 @@ export async function probeExportCapabilities(
       width: settings.width,
       height: settings.height,
       quality: avcQuality(),
-      latencyMode: "quality",
+      latencyMode: AVC_LATENCY_MODE,
       alpha: "discard",
     });
   } catch {
@@ -1210,7 +1211,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       width: settings.width,
       height: settings.height,
       quality: avcQuality(),
-      latencyMode: "quality",
+      latencyMode: AVC_LATENCY_MODE,
       alpha: "discard",
     });
     if (!avcSupported) {
@@ -1303,13 +1304,30 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
 
     const format = new Mp4OutputFormat({ fastStart: false });
     output = new Output({ format, target: target.target });
-    const videoSource = new CanvasSource(options.canvas, {
+    // Decouple the live WebGL surface from the H.264 input. Copying each
+    // authored frame into an opaque 2D surface completes the snapshot before
+    // encoding, keeps the fixed-step canvas free for the next render, and
+    // prevents the encoder from retaining the renderer's live surface while
+    // it closes the physical Chrome media pipeline.
+    const encodingCanvas = createScratchCanvas(settings.width, settings.height);
+    const encodingContext = encodingCanvas.getContext("2d", { alpha: false });
+    if (!encodingContext) {
+      throw new ExportStudioError(
+        "ENCODE_FAILED",
+        "Could not create the fixed-step H.264 staging surface.",
+      );
+    }
+    const videoSource = new CanvasSource(encodingCanvas, {
       codec: "avc",
       quality: avcQuality(),
       keyFrameInterval: 2,
       sizeChangeBehavior: "deny",
       alpha: "discard",
-      latencyMode: "quality",
+      // Drift renders one authored frame at a time and awaits encoder
+      // backpressure. Realtime mode avoids an unbounded quality-mode flush in
+      // Chromium while the verifier below still rejects missing frames,
+      // cadence drift, or a changed master configuration.
+      latencyMode: AVC_LATENCY_MODE,
       onEncoderConfig(config) {
         encoderConfigs.video = { ...config };
       },
@@ -1364,6 +1382,8 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       presenter,
       afterRender: async (frame) => {
         try {
+          encodingContext.globalCompositeOperation = "copy";
+          encodingContext.drawImage(options.canvas, 0, 0, settings.width, settings.height);
           await videoSource.add(frame.time, frame.duration, {
             keyFrame: frame.index % Math.max(1, settings.fps * 2) === 0,
           });
@@ -1399,15 +1419,23 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       audioSource.close();
     }
 
+    // The presenter decoder and the output encoder may share scarce platform
+    // codec resources. Once every presenter frame/audio sample has been
+    // consumed, release that input before asking the encoder to flush. Keeping
+    // it alive through Output.finalize() can deadlock Chromium's media lane.
+    presenter?.dispose();
+    presenter = null;
+
     assertEncoderConfigurations(encoderConfigs, settings, hasOutputAudio);
     throwIfAborted(options.signal);
-    report(options.onProgress, "finalizing", 0, 1, 0.97, undefined, "Verifying the private master");
+    report(options.onProgress, "finalizing", 0, 4, 0.96, undefined, "Closing encoded tracks");
     await finalizeInterruptibly(
       () => output!.finalize(),
       abortTarget,
       options.signal,
     );
     throwIfAborted(options.signal);
+    report(options.onProgress, "finalizing", 1, 4, 0.97, undefined, "Reading the finalized MP4");
     const mimeType = await output.getMimeType();
     const blob = await finalizeInterruptibly(
       () => Promise.resolve(target.complete(mimeType)),
@@ -1415,6 +1443,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       options.signal,
     );
     throwIfAborted(options.signal);
+    report(options.onProgress, "finalizing", 2, 4, 0.98, undefined, "Preparing private verification");
     const verificationBlob = blob ?? await finalizeInterruptibly(
       () => Promise.resolve(target.verificationBlob?.()),
       abortTarget,
@@ -1428,6 +1457,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
         { destination: target.kind },
       );
     }
+    report(options.onProgress, "finalizing", 3, 4, 0.99, undefined, "Checking frames and sound");
     const verification = await verifyMp4Artifact(
       verificationBlob,
       settings,
@@ -1435,6 +1465,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       options.signal,
     );
     throwIfAborted(options.signal);
+    report(options.onProgress, "finalizing", 4, 4, 0.995, undefined, "Private verification passed");
     // Cancellation is honored while the artifact is still private. The commit
     // itself is the linearization point: once entered, it either atomically
     // publishes the verified file or rejects and rolls its stage back.
@@ -2760,7 +2791,7 @@ function assertEncoderConfigurations(
     || video.height !== settings.height
     || video.bitrate !== AVC_BITRATE
     || video.bitrateMode !== "variable"
-    || video.latencyMode !== "quality"
+    || video.latencyMode !== AVC_LATENCY_MODE
   ) {
     throw new ExportStudioError(
       "ENCODE_FAILED",
@@ -2771,7 +2802,7 @@ function assertEncoderConfigurations(
           height: settings.height,
           bitrate: AVC_BITRATE,
           bitrateMode: "variable",
-          latencyMode: "quality",
+          latencyMode: AVC_LATENCY_MODE,
         },
         actual: {
           codec: video.codec,

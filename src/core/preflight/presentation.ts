@@ -27,6 +27,25 @@ export function describeDeliveryCadence(
   return `${poseLabel} · uneven ${holdPattern(cadence)}`;
 }
 
+/**
+ * Describes requested sound without pretending the presenter's source track
+ * has already been decoded. Presenter audio is proven during export; tactile
+ * accents are known in advance because their event plan is deterministic.
+ */
+export function describeDeliverySound(
+  presenter: DeliveryReceipt["presenter"],
+  sound: DeliveryReceipt["sound"],
+): string {
+  const accentCount = sound.exportEnabled ? sound.deterministicEventCount : 0;
+  const accentLabel = `${accentCount} tactile accent${accentCount === 1 ? "" : "s"}`;
+  if (presenter.audioEnabled && accentCount > 0) {
+    return `Presenter + ${accentLabel} · source checked at export`;
+  }
+  if (presenter.audioEnabled) return "Presenter on · source checked at export";
+  if (accentCount > 0) return accentLabel;
+  return "Off";
+}
+
 /** A warning exists only when authored poses receive visibly uneven output holds. */
 export function describeUnevenPoseHolds(
   cadence: DeliveryReceipt["cadence"],

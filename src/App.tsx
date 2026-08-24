@@ -1256,6 +1256,15 @@ export function App() {
       time,
       context?.sampleKind === "sequence" ? context.frameIndex : null,
     );
+    if (
+      context?.sampleKind === "sequence"
+      && context.frameIndex === context.frameCount - 1
+    ) {
+      // The last frame is already in the WebGL framebuffer. Release the
+      // decoded-presenter CanvasTexture before the H.264 encoder flushes so a
+      // lingering GPU-backed video surface cannot hold finalization open.
+      engine.setPresenterExportFrame(null);
+    }
   }, []);
 
   const reserveExport = useCallback((): {

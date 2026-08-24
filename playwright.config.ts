@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.e2e.ts",
+  grepInvert: /@physical-encoder/,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   // Retries preserve the first failure's trace, but CI must never turn a

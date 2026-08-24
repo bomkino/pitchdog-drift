@@ -235,7 +235,9 @@ export function Stage({
                 <p className="export-stall" role="alert">
                   {exportProgress.stallKind === "first-frame"
                     ? "Presenter video has not delivered a frame. Cancel, use H.264 MP4 or WebM, or try a shorter source."
-                    : "This frame is taking unusually long. Drift is still working; Cancel remains safe."}
+                    : exportProgress.phase === "finalizing"
+                      ? "Closing and checking the MP4 is taking unusually long. Drift is still working; Cancel remains safe."
+                      : "This export step is taking unusually long. Drift is still working; Cancel remains safe."}
                 </p>
               ) : null}
               <button type="button" onClick={onCancelExport}>Cancel export</button>

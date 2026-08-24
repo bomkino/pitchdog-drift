@@ -51,7 +51,15 @@ describe("truthful export progress clock", () => {
     expect(tickExportProgress(frameThree, clock, 25_999).stallKind).toBeNull();
     expect(tickExportProgress(frameThree, clock, 26_000).stallKind).toBe("inactivity");
 
-    const audioReset = projectExportProgress(progress("audio", 0, 8), clock, 27_000);
+    const finalizing = projectExportProgress(
+      progress("finalizing", 0, 4, "Closing encoded tracks"),
+      clock,
+      27_000,
+    );
+    expect(tickExportProgress(finalizing, clock, 41_999).stallKind).toBeNull();
+    expect(tickExportProgress(finalizing, clock, 42_000).stallKind).toBe("inactivity");
+
+    const audioReset = projectExportProgress(progress("audio", 0, 8), clock, 43_000);
     expect(audioReset).toMatchObject({
       phase: "audio",
       unit: "seconds",
@@ -59,6 +67,6 @@ describe("truthful export progress clock", () => {
       etaSeconds: null,
       stallKind: null,
     });
-    expect(clock.lastProgressAt).toBe(27_000);
+    expect(clock.lastProgressAt).toBe(43_000);
   });
 });

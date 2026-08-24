@@ -225,16 +225,25 @@ test("Project V4 long-export matrix produces exact plans and bounded physical re
         const surface = engine.beginExport(entry.width, entry.height);
         let result: Awaited<ReturnType<typeof exportMp4>>;
         try {
-          result = await exportMp4({
-            canvas,
-            renderAt: async (time, _presenter, context) => {
-              await engine.renderAtAsync(time, context?.frameIndex ?? null);
-              peakTextureCache = Math.max(peakTextureCache, internal.textureCache.size);
-              peakPendingTextures = Math.max(peakPendingTextures, internal.texturePromises.size);
-            },
-            settings: { width: entry.width, height: entry.height, fps, duration: entry.duration },
-            includePresenterAudio: false,
-          });
+          try {
+            result = await exportMp4({
+              canvas,
+              renderAt: async (time, _presenter, context) => {
+                await engine.renderAtAsync(time, context?.frameIndex ?? null);
+                peakTextureCache = Math.max(peakTextureCache, internal.textureCache.size);
+                peakPendingTextures = Math.max(peakPendingTextures, internal.texturePromises.size);
+              },
+              settings: { width: entry.width, height: entry.height, fps, duration: entry.duration },
+              includePresenterAudio: false,
+            });
+          } catch (error) {
+            const failure = error as { code?: string; message?: string; details?: unknown };
+            throw new Error(`Long-export encoder failed: ${JSON.stringify({
+              code: failure.code,
+              message: failure.message,
+              details: failure.details,
+            })}`);
+          }
         } finally {
           surface.restore();
         }
