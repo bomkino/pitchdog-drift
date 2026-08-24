@@ -83,8 +83,12 @@ export function SupplementaryTooltipProvider({ children }: { readonly children: 
     if (activeRef.current?.id === id) return;
     if (pendingRef.current?.id === id) return;
     clearPending();
+    if (reason === "keyboard") {
+      activate(id, true);
+      return;
+    }
     const delay = resolveTooltipOpenDelay(delayStateRef.current, id, monotonicNow());
-    const instant = reason === "keyboard" || delay < TOOLTIP_FIRST_OPEN_DELAY_MS;
+    const instant = delay < TOOLTIP_FIRST_OPEN_DELAY_MS;
     if (delay === 0) {
       activate(id, instant);
       return;

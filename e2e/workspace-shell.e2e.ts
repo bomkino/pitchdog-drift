@@ -190,3 +190,41 @@ test("outcome cards apply and undo complete motion recipes without changing Look
   await expect(page.getByRole("combobox", { name: "Background", exact: true })).toHaveValue(backgroundBefore);
   expectInvariant(await stageBox(page), stageBefore);
 });
+
+test("supplementary workspace help opens for keyboard, escapes cleanly, and stays inside the viewport", async ({ page }) => {
+  await waitForStudio(page);
+  const exportTab = page.getByRole("button", { name: "EXPORT", exact: true });
+  await exportTab.focus();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toBeVisible({ timeout: 250 });
+  await expect(tooltip).toHaveText("Choose the frame and duration, read preflight, then export.");
+  const describedBy = await exportTab.getAttribute("aria-describedby");
+  expect(describedBy).toBeTruthy();
+  await expect(tooltip).toHaveAttribute("id", describedBy!);
+  const tooltipBox = await layoutBox(tooltip, "Export workspace tooltip");
+  const viewport = page.viewportSize()!;
+  expect(tooltipBox.x).toBeGreaterThanOrEqual(12);
+  expect(tooltipBox.y).toBeGreaterThanOrEqual(12);
+  expect(tooltipBox.x + tooltipBox.width).toBeLessThanOrEqual(viewport.width - 12);
+  expect(tooltipBox.y + tooltipBox.height).toBeLessThanOrEqual(viewport.height - 12);
+
+  await page.keyboard.press("Escape");
+  await expect(tooltip).toHaveCount(0);
+  await expect(exportTab).toBeFocused();
+  await expect(exportTab).not.toHaveAttribute("aria-describedby", /drift-tooltip/u);
+
+  await page.locator(".stage-well").click({ position: { x: 20, y: 20 } });
+  await page.waitForTimeout(850);
+  const lookTab = page.getByRole("button", { name: "LOOK", exact: true });
+  await lookTab.hover();
+  await page.waitForTimeout(250);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await expect(page.getByRole("tooltip")).toBeVisible({ timeout: 500 });
+  await expect(page.getByRole("tooltip")).toHaveText("Choose a background first. Scene-wide starters and fine treatment stay in Advanced.");
+
+  await page.getByRole("button", { name: "MOTION", exact: true }).hover();
+  await expect(page.getByRole("tooltip")).toHaveText(
+    "Choose a direction, axis, path, pace, and complete-deck timing.",
+    { timeout: 250 },
+  );
+});

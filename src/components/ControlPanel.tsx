@@ -90,6 +90,7 @@ import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, RangeNumberField, Segmented, SelectField, SwitchField } from "./controls";
 import { BackgroundBrowser, BackgroundStudyPreview } from "./BackgroundBrowser";
 import { OutcomeRecipePicker } from "./OutcomeRecipePicker";
+import { SupplementaryTooltip } from "./tooltip/SupplementaryTooltip";
 import type { SlideHealth } from "../core/media/slideHealth";
 import { resolveMovingMedia } from "../core/project/movingMedia";
 import {
@@ -487,6 +488,7 @@ export function ControlPanel({
   }), [deliveryReceipt, exportCapabilities, exportSurfaceSupported, guideOverlaps, slideHealth]);
 
   return (
+    <SupplementaryTooltip.Provider>
     <aside className="inspector" data-workspace={workspace} aria-label={`${workspaceCopy.title} controls`} aria-busy={exporting} inert={exporting}>
       <div className="panel-heading">
         <div>
@@ -499,9 +501,16 @@ export function ControlPanel({
 
       <nav className="workspace-switcher" aria-label="Director workspaces">
         {(Object.keys(WORKSPACE_COPY) as StudioWorkspace[]).map((id) => (
-          <button type="button" key={id} data-purpose={WORKSPACE_COPY[id].purpose} aria-label={WORKSPACE_COPY[id].kicker} aria-current={workspace === id ? "page" : undefined} onClick={() => changeWorkspace(id)}>
-            {WORKSPACE_COPY[id].kicker}
-          </button>
+          <SupplementaryTooltip.Root key={id}>
+            <SupplementaryTooltip.Trigger>
+              <button type="button" data-purpose={WORKSPACE_COPY[id].purpose} aria-label={WORKSPACE_COPY[id].kicker} aria-current={workspace === id ? "page" : undefined} onClick={() => changeWorkspace(id)}>
+                {WORKSPACE_COPY[id].kicker}
+              </button>
+            </SupplementaryTooltip.Trigger>
+            <SupplementaryTooltip.Content preferredSide="bottom">
+              {WORKSPACE_COPY[id].guide}
+            </SupplementaryTooltip.Content>
+          </SupplementaryTooltip.Root>
         ))}
       </nav>
 
@@ -1725,5 +1734,6 @@ export function ControlPanel({
         </WorkspaceInspector>
       </div>
     </aside>
+    </SupplementaryTooltip.Provider>
   );
 }
