@@ -143,8 +143,8 @@ test("the real V2 background browser starts curated, previews without applying, 
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-context", /ready|restored/);
   await page.getByRole("button", { name: "LOOK", exact: true }).click();
 
-  const atmosphere = page.locator("details.inspector-group").filter({
-    has: page.locator(":scope > summary > span", { hasText: /^Background$/ }),
+  const atmosphere = page.locator(".inspector-group").filter({
+    has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Background$/ }),
   });
   await expect(atmosphere).toBeVisible();
   const browser = atmosphere.locator(".visual-background-browser");
@@ -192,11 +192,11 @@ test("the real V2 background browser starts curated, previews without applying, 
   await saffron.click();
 
   await expect(atmosphere.getByLabel("Background", { exact: true })).toHaveValue("atelier");
-  await page.locator("details.workspace-advanced > summary").click();
-  const tuning = page.locator("details.inspector-group").filter({
-    has: page.locator(":scope > summary > span", { hasText: /^Background tuning$/ }),
+  await page.locator(".workspace-advanced-trigger").click();
+  const tuning = page.locator(".inspector-group").filter({
+    has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Background tuning$/ }),
   });
-  await tuning.locator(":scope > summary").click();
+  await tuning.locator(":scope > .inspector-group-trigger").click();
   await expect(tuning.getByLabel("Composition", { exact: true })).toHaveValue("0");
   await expect(tuning.getByLabel("Palette", { exact: true })).toHaveValue("saffron-manuscript");
   await expect(saffron).toHaveAttribute("aria-pressed", "true");

@@ -26,8 +26,8 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await expect(previewDescription).toContainText("8 slides");
   await expect(previewDescription).toContainText("editorial drift.");
   await switchWorkspace(page, "LOOK");
-  const atmosphere = page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Background$/ }) });
-  if (await atmosphere.getAttribute("open") === null) await atmosphere.locator("summary").click();
+  const atmosphere = page.locator(".inspector-group").filter({ has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Background$/ }) });
+  if (await atmosphere.getAttribute("data-expanded") !== "true") await atmosphere.locator(":scope > .inspector-group-trigger").click();
   const background = page.getByRole("combobox", { name: "Background", exact: true });
   // The restrained Editorial Drift foundation opens on Long Fibres paper.
   // Choosing the richer Editorial Drift Film World later is a separate,
@@ -116,7 +116,7 @@ test("director fields expose concise names and separate supporting descriptions"
   await expect(page.getByLabel("Slide ratio", { exact: true })).toHaveValue("16:9");
   await switchWorkspace(page, "MOTION");
   await page.getByText("Advanced", { exact: true }).click();
-  await page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Motion physics$/ }) }).locator(":scope > summary").click();
+  await page.locator(".inspector-group").filter({ has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Motion physics$/ }) }).locator(":scope > .inspector-group-trigger").click();
   await expect(page.getByRole("slider", { name: "Free-run speed", exact: true })).toBeVisible();
 
   const reducedMotion = page.getByRole("switch", { name: "Reduced-motion master", exact: true });
@@ -124,8 +124,8 @@ test("director fields expose concise names and separate supporting descriptions"
 
   await switchWorkspace(page, "LOOK");
   await page.getByText("Advanced", { exact: true }).click();
-  const surface = page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Card surface$/ }) });
-  await surface.locator(":scope > summary").click();
+  const surface = page.locator(".inspector-group").filter({ has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Card surface$/ }) });
+  await surface.locator(":scope > .inspector-group-trigger").click();
   await expect(page.getByLabel("Border", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Border colour", { exact: true })).toBeVisible();
   await expect(page.getByRole("slider", { name: "Corner smoothing", exact: true })).toHaveAccessibleDescription("60% is the familiar iOS-style continuous corner.");
@@ -200,8 +200,8 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   await expect(page.getByRole("button", { name: "Move Drift study 02.png up" })).toBeDisabled();
 
   await switchWorkspace(page, "SLIDES");
-  const pinnedGroup = page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Pinned frame$/ }) });
-  await pinnedGroup.locator(":scope > summary").click();
+  const pinnedGroup = page.locator(".inspector-group").filter({ has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Pinned frame$/ }) });
+  await pinnedGroup.locator(":scope > .inspector-group-trigger").click();
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   await expect(pinnedSwitch).toBeDisabled();
   const pinButton = page.getByRole("button", { name: "Keep Drift study 02.png still" });

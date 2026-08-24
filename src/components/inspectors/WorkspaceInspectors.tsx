@@ -6,6 +6,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
+import { MeasuredDisclosure } from "../MeasuredDisclosure";
 
 export type StudioWorkspace = "slides" | "look" | "motion" | "export";
 type WorkspaceSectionLevel = "primary" | "advanced";
@@ -43,17 +44,22 @@ function TaskInspector({
     <section className="workspace-content" data-workspace-content={workspace} aria-label={`${workspace} workspace`}>
       {primary}
       {advanced.length ? (
-        <details
+        <MeasuredDisclosure
           className="workspace-advanced"
-          open={advancedOpen}
-          onToggle={(event) => onAdvancedOpen(event.currentTarget.open)}
+          triggerClassName="workspace-advanced-trigger"
+          viewportClassName="workspace-advanced-viewport"
+          contentClassName="workspace-advanced-body"
+          expanded={advancedOpen}
+          onExpandedChange={onAdvancedOpen}
+          trigger={(
+            <>
+              <span>Advanced</span>
+              <small>Fine control</small>
+            </>
+          )}
         >
-          <summary>
-            <span>Advanced</span>
-            <small>Fine control</small>
-          </summary>
-          <div className="workspace-advanced-body">{advanced}</div>
-        </details>
+          {advanced}
+        </MeasuredDisclosure>
       ) : null}
     </section>
   );

@@ -40,6 +40,12 @@ async function readWorkspaceScroll(page: Page): Promise<number> {
   return page.getByTestId("workspace-scroll").evaluate((element) => element.scrollTop);
 }
 
+async function openAdvanced(page: Page): Promise<void> {
+  const trigger = page.locator(".workspace-advanced-trigger");
+  if (await trigger.getAttribute("aria-expanded") === "false") await trigger.click();
+  await expect(page.locator(".workspace-advanced")).toHaveAttribute("data-disclosure-state", "open");
+}
+
 test("workspace switches mount one explicit inspector and keep stage geometry within one pixel", async ({ page }) => {
   await waitForStudio(page);
   const baseline = await stageBox(page);
@@ -56,7 +62,7 @@ test("workspace switches mount one explicit inspector and keep stage geometry wi
     await afterPaint(page);
     await expect(page.locator("[data-workspace-content]")).toHaveCount(1);
     await expect(page.locator(`[data-workspace-content="${id}"]`)).toBeVisible();
-    await expect(page.locator("details.inspector-group").filter({ hasText: primaryGroup }).first()).toBeVisible();
+    await expect(page.locator(".inspector-group").filter({ hasText: primaryGroup }).first()).toBeVisible();
     if (id === "look") {
       await expect(page.getByRole("button", { name: /Browse all backgrounds/i })).toBeVisible();
       await expect(page.getByRole("searchbox", { name: "Find a look" })).toHaveCount(0);
@@ -78,7 +84,7 @@ test("each workspace restores its own scroll position after its content paints",
   await waitForStudio(page);
 
   await switchWorkspace(page, "LOOK");
-  await page.locator("details.workspace-advanced > summary").click();
+  await openAdvanced(page);
   const headingBefore = await layoutBox(page.locator(".inspector > .panel-heading"), "Inspector heading");
   const tabsBefore = await layoutBox(page.locator(".workspace-switcher"), "Workspace tabs");
   const lookScroll = await setWorkspaceScroll(page, 640);
@@ -96,7 +102,7 @@ test("each workspace restores its own scroll position after its content paints",
   );
   expect(Math.abs(motionFirstContentBox.y - motionScrollBox.y)).toBeLessThanOrEqual(1);
   await expect(page.locator('.outcome-card[data-outcome="smooth-carousel"]')).toBeVisible();
-  await page.locator("details.workspace-advanced > summary").click();
+  await openAdvanced(page);
   const motionScroll = await setWorkspaceScroll(page, 360);
   expect(motionScroll).toBeGreaterThan(100);
 
@@ -112,11 +118,11 @@ test("each workspace restores its own scroll position after its content paints",
 test("selection, reorder, and pinning preserve workspace, stage, disclosure, focus, and scroll", async ({ page }) => {
   await waitForStudio(page);
   await switchWorkspace(page, "LOOK");
-  await page.locator("details.workspace-advanced > summary").click();
+  await openAdvanced(page);
   const scrollBefore = await setWorkspaceScroll(page, 520);
   expect(scrollBefore).toBeGreaterThan(100);
   const stageBefore = await stageBox(page);
-  const openBefore = await page.locator(".workspace-scroll details[open] > summary").allTextContents();
+  const openBefore = await page.locator(".workspace-scroll [data-disclosure][data-expanded='true'] > button, .workspace-scroll details[open] > summary").allTextContents();
 
   const selected = page.getByRole("button", { name: "02 Drift study 02.png" });
   await selected.click();
@@ -137,7 +143,7 @@ test("selection, reorder, and pinning preserve workspace, stage, disclosure, foc
   await expect(page.getByRole("button", { name: "LOOK", exact: true })).toHaveAttribute("aria-current", "page");
   expect(Math.abs(await readWorkspaceScroll(page) - scrollBefore)).toBeLessThanOrEqual(1);
   expectInvariant(await stageBox(page), stageBefore);
-  expect(await page.locator(".workspace-scroll details[open] > summary").allTextContents()).toEqual(openBefore);
+  expect(await page.locator(".workspace-scroll [data-disclosure][data-expanded='true'] > button, .workspace-scroll details[open] > summary").allTextContents()).toEqual(openBefore);
 });
 
 test("keyboard reaches every workspace's first primary action in four tabs or fewer", async ({ page }) => {
@@ -154,7 +160,7 @@ test("keyboard reaches every workspace's first primary action in four tabs or fe
     const tab = page.getByRole("button", { name: workspace, exact: true });
     const summary = workspace === "MOTION"
       ? page.locator(".outcome-card:not(:disabled)").first()
-      : page.locator("details.inspector-group > summary").filter({ hasText: group }).first();
+      : page.locator(".inspector-group-trigger").filter({ hasText: group }).first();
     await tab.focus();
     let steps = 0;
     while (steps <= 4 && !(await summary.evaluate((element) => document.activeElement === element))) {

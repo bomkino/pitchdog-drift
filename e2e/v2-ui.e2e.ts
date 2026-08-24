@@ -3,7 +3,11 @@ import { readFile } from "node:fs/promises";
 import { waitForStudio } from "./studio.helpers";
 
 async function ensureInspectorOpen(group: Locator): Promise<void> {
-  if (await group.getAttribute("open") === null) await group.locator("summary").click();
+  if (await group.evaluate((element) => element instanceof HTMLDetailsElement)) {
+    if (await group.getAttribute("open") === null) await group.locator(":scope > summary").click();
+  } else if (await group.getAttribute("data-expanded") !== "true") {
+    await group.locator(":scope > .inspector-group-trigger").click();
+  }
 }
 
 async function samplePngPixels(page: Page, base64: string): Promise<number[]> {
@@ -65,8 +69,8 @@ test("shipping and development identities restore the authored V2 room and repai
   await page.getByRole("button", { name: "LOOK", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Choose the atmosphere." })).toBeVisible();
 
-  const atmosphere = page.locator("details.inspector-group").filter({
-    has: page.locator(":scope > summary > span", { hasText: /^Background$/ }),
+  const atmosphere = page.locator(".inspector-group").filter({
+    has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Background$/ }),
   });
   await ensureInspectorOpen(atmosphere);
   const background = page.getByRole("combobox", { name: "Background", exact: true });
@@ -86,11 +90,11 @@ test("shipping and development identities restore the authored V2 room and repai
   await page.getByRole("button", { name: "SLIDES", exact: true }).click();
   await page.getByRole("button", { name: "Keep Drift study 01.png still" }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("editorial drift");
-  const pinnedGroup = page.locator("details.inspector-group").filter({
-    has: page.locator(":scope > summary > span", { hasText: /^Pinned frame$/ }),
+  const pinnedGroup = page.locator(".inspector-group").filter({
+    has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Pinned frame$/ }),
   });
-  await expect(pinnedGroup).not.toHaveAttribute("open", "");
-  await pinnedGroup.locator("summary").click();
+  await expect(pinnedGroup).toHaveAttribute("data-expanded", "false");
+  await pinnedGroup.locator(":scope > .inspector-group-trigger").click();
 
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   const carouselPresence = page.getByRole("group", { name: "Carousel presence", exact: true });
@@ -101,8 +105,7 @@ test("shipping and development identities restore the authored V2 room and repai
   await expect(pinnedLayer.getByRole("radio", { name: "Protected" })).toBeChecked();
   await expect(pinnedRatio.getByRole("radio", { name: "Use source" })).toBeChecked();
 
-  // The radio inputs are intentionally visually hidden. Click their visible,
-  // associated labels so this remains a real pointer journey.
+  // Click the full-size associated labels so this remains a real pointer journey.
   await carouselPresence.getByText("Still + moving", { exact: true }).click();
   await pinnedLayer.getByText("In scene", { exact: true }).click();
   await pinnedRatio.getByText("Custom", { exact: true }).click();
@@ -145,8 +148,8 @@ test("V2 workspaces keep one live stage and preserve the selected slide", async 
 test("Reading Pace, platform guides, preflight, and Command-K use the settled V2 workflow", async ({ page }) => {
   await waitForStudio(page);
   await page.getByRole("button", { name: "MOTION", exact: true }).click();
-  const timelineIntent = page.locator("details.inspector-group").filter({
-    has: page.locator(":scope > summary > span", { hasText: /^Timeline intent$/ }),
+  const timelineIntent = page.locator(".inspector-group").filter({
+    has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Timeline intent$/ }),
   });
   await ensureInspectorOpen(timelineIntent);
   await timelineIntent.getByText("Reading pace", { exact: true }).click();
@@ -155,8 +158,8 @@ test("Reading Pace, platform guides, preflight, and Command-K use the settled V2
 
   await page.getByRole("button", { name: "EXPORT", exact: true }).click();
   await page.getByText("Advanced", { exact: true }).click();
-  const platformGuides = page.locator("details.inspector-group").filter({
-    has: page.locator(":scope > summary > span", { hasText: /^Platform guides$/ }),
+  const platformGuides = page.locator(".inspector-group").filter({
+    has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Platform guides$/ }),
   });
   await ensureInspectorOpen(platformGuides);
   await platformGuides.getByRole("combobox", { name: "Preview overlay" }).selectOption("instagram-combined");

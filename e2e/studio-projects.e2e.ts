@@ -91,9 +91,9 @@ test("Project V4 keeps one image still without letting a presenter video steal i
   await switchWorkspace(page, "EXPORT");
   await switchWorkspace(page, "SLIDES");
 
-  const pinnedGroup = page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Pinned frame$/ }) });
-  if (await pinnedGroup.getAttribute("open") === null) await pinnedGroup.locator("summary").click();
-  await expect(pinnedGroup).toHaveAttribute("open", "");
+  const pinnedGroup = page.locator(".inspector-group").filter({ has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Pinned frame$/ }) });
+  if (await pinnedGroup.getAttribute("data-expanded") !== "true") await pinnedGroup.locator(":scope > .inspector-group-trigger").click();
+  await expect(pinnedGroup).toHaveAttribute("data-expanded", "true");
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   await pinnedSwitch.click();
   await expect(pinnedSwitch).not.toBeChecked();
@@ -112,8 +112,8 @@ test("Project V4 keeps one image still without letting a presenter video steal i
 
   await page.reload();
   await expect(page.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
-  const reopenedGroup = page.locator("details.inspector-group").filter({ has: page.locator(":scope > summary > span", { hasText: /^Pinned frame$/ }) });
-  await reopenedGroup.locator("summary").click();
+  const reopenedGroup = page.locator(".inspector-group").filter({ has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Pinned frame$/ }) });
+  await reopenedGroup.locator(":scope > .inspector-group-trigger").click();
   const reopenedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   await expect(reopenedSwitch).not.toBeChecked();
   await expect(reopenedSwitch).toBeEnabled();

@@ -327,46 +327,52 @@ a:focus-visible {
   background: rgba(0, 0, 0, 0.08);
 }
 
-.workspace-advanced > summary {
+.workspace-advanced-trigger {
+  width: 100%;
   min-height: 52px;
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 12px;
   padding: 0 18px;
+  border: 0;
   color: #bdb5aa;
+  background: transparent;
+  text-align: left;
   cursor: pointer;
-  list-style: none;
 }
 
-.workspace-advanced > summary::-webkit-details-marker { display: none; }
-
-.workspace-advanced > summary > span {
+.workspace-advanced-trigger > span {
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.04em;
 }
 
-.workspace-advanced > summary > small {
+.workspace-advanced-trigger > small {
   color: var(--faint);
   font: 9px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.workspace-advanced > summary::after {
+.workspace-advanced-trigger::after {
   grid-column: 2;
   color: var(--rust-light);
   content: "+";
 }
 
-.workspace-advanced > summary > small {
+.workspace-advanced-trigger > small {
   grid-column: 2;
   grid-row: 1;
   margin-right: 18px;
 }
 
-.workspace-advanced[open] > summary::after { content: "−"; }
+.workspace-advanced[data-expanded="true"] > .workspace-advanced-trigger::after { content: "−"; }
+
+.measured-disclosure-viewport {
+  height: 0;
+  overflow: clip;
+}
 
 .workspace-advanced-body > .inspector-group:last-child {
   border-bottom: 0;
@@ -656,7 +662,7 @@ a:focus-visible {
 .empty-presenter,
 .action-stack button,
 .project-actions button {
-  min-height: 40px;
+  min-height: 44px;
   border: 1px solid var(--line-strong);
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.025);
@@ -707,7 +713,7 @@ a:focus-visible {
 
 .asset-list li {
   position: relative;
-  min-height: 64px;
+  min-height: 96px;
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr) auto;
   align-items: center;
@@ -723,6 +729,7 @@ a:focus-visible {
 
 .asset-select {
   min-width: 0;
+  min-height: 44px;
   display: grid;
   grid-template-columns: 62px minmax(0, 1fr);
   align-items: center;
@@ -870,7 +877,7 @@ a:focus-visible {
 .timing-summary li span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .timing-repair { display: grid; gap: 8px; padding: 11px; border: 1px solid rgba(216, 179, 103, 0.34); color: #d8b367; }
 .timing-repair p { margin: 0; font-size: 11px; line-height: 1.45; }
-.timing-repair button { min-height: 34px; }
+.timing-repair button { min-height: 44px; }
 .closure-status { color: var(--muted); font-size: 11px; }
 .delivery-receipt > div:first-child { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .delivery-receipt > div:first-child strong { font-size: 13px; font-weight: 520; }
@@ -922,13 +929,13 @@ a:focus-visible {
 
 .asset-actions {
   display: grid;
-  grid-template-columns: repeat(2, 32px);
+  grid-template-columns: repeat(2, 44px);
 }
 
 .asset-actions button,
 .presenter-card button {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: 0;
   color: var(--faint);
@@ -1028,7 +1035,7 @@ a:focus-visible {
 
 .presenter-card button {
   width: auto;
-  min-width: 32px;
+  min-width: 44px;
   padding: 0 3px;
   font-size: 11px;
 }
@@ -1346,8 +1353,8 @@ a:focus-visible {
 }
 
 .transport button {
-  min-width: 36px;
-  height: 36px;
+  min-width: 44px;
+  height: 44px;
   padding: 0 10px;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 99px;
@@ -1794,20 +1801,27 @@ a:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
-.inspector-group summary {
-  min-height: 48px;
+.inspector button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.inspector-group-trigger {
+  width: 100%;
+  min-height: 52px;
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 9px;
   padding: 0 18px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
   cursor: pointer;
-  list-style: none;
 }
 
-.inspector-group summary::-webkit-details-marker { display: none; }
-
-.inspector-group summary::after {
+.inspector-group-trigger::after {
   grid-column: 2;
   grid-row: 1;
   align-self: end;
@@ -1817,14 +1831,14 @@ a:focus-visible {
   content: "+";
 }
 
-.inspector-group[open] summary::after { content: "−"; }
+.inspector-group[data-expanded="true"] > .inspector-group-trigger::after { content: "−"; }
 
-.inspector-group summary > span {
+.inspector-group-trigger > span {
   font-size: 11px;
   font-weight: 630;
 }
 
-.inspector-group summary > small {
+.inspector-group-trigger > small {
   grid-column: 2;
   grid-row: 1;
   align-self: start;
@@ -1888,7 +1902,7 @@ a:focus-visible {
 
 .range-field input[type="range"] {
   width: 100%;
-  height: 22px;
+  height: 44px;
   margin: 6px 0 0;
   appearance: none;
   background: transparent;
@@ -1939,7 +1953,7 @@ a:focus-visible {
 }
 
 .direction-history button {
-  min-height: 36px;
+  min-height: 44px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 2px;
   color: #c7beb2;
@@ -2397,7 +2411,7 @@ a:focus-visible {
 }
 
 .sound-audition-control button {
-  min-height: 40px;
+  min-height: 44px;
   border: 1px solid rgba(225, 155, 106, 0.32);
   border-radius: 2px;
   color: #d7cfc3;
@@ -2470,16 +2484,19 @@ a:focus-visible {
 
 .segmented-control input {
   position: absolute;
-  inset: 0 auto auto 0;
-  width: 1px;
-  height: 1px;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
   margin: 0;
   opacity: 0;
-  pointer-events: none;
+  cursor: pointer;
 }
 
 .segmented-control span {
-  min-height: 30px;
+  position: relative;
+  z-index: 1;
+  min-height: 44px;
   display: grid;
   place-items: center;
   padding: 3px 5px;
@@ -2502,7 +2519,7 @@ a:focus-visible {
 
 .select-field select {
   max-width: 58%;
-  height: 32px;
+  height: 44px;
   padding: 0 24px 0 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 1px;
@@ -2518,14 +2535,13 @@ a:focus-visible {
 .switch-field input[role="switch"] {
   position: relative;
   flex: 0 0 auto;
-  width: 30px;
-  height: 17px;
+  width: 44px;
+  height: 44px;
+  margin: 0;
   appearance: none;
-  border: 1px solid #4b4740;
-  border-radius: 99px;
-  background: #23211d;
+  border: 0;
+  background: transparent;
   cursor: pointer;
-  transition: border-color 130ms ease, background 130ms ease;
 }
 
 .switch-field input[role="switch"]:disabled {
@@ -2533,10 +2549,23 @@ a:focus-visible {
   cursor: not-allowed;
 }
 
+.switch-field input[role="switch"]::before {
+  position: absolute;
+  top: 13px;
+  left: 7px;
+  width: 30px;
+  height: 17px;
+  border: 1px solid #4b4740;
+  border-radius: 99px;
+  background: #23211d;
+  content: "";
+  transition: border-color 130ms ease, background 130ms ease;
+}
+
 .switch-field input[role="switch"]::after {
   position: absolute;
-  top: 2px;
-  left: 2px;
+  top: 16px;
+  left: 10px;
   width: 11px;
   height: 11px;
   border-radius: 50%;
@@ -2546,6 +2575,10 @@ a:focus-visible {
 }
 
 .switch-field input[role="switch"]:checked {
+  background: transparent;
+}
+
+.switch-field input[role="switch"]:checked::before {
   border-color: #a65e3f;
   background: #613723;
 }
@@ -2588,6 +2621,7 @@ a:focus-visible {
 .number-input-wrap input {
   width: 100%;
   min-width: 0;
+  min-height: 44px;
   padding: 9px 6px 9px 10px;
   border: 0;
   outline: 0;
@@ -2619,6 +2653,7 @@ a:focus-visible {
 .range-number-input-wrap input {
   width: 100%;
   min-width: 0;
+  min-height: 44px;
   padding: 3px 2px 3px 5px;
   border: 0;
   outline: 0;
@@ -2639,11 +2674,15 @@ a:focus-visible {
 }
 
 .color-input-wrap input {
-  width: 25px;
-  height: 21px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  width: 44px;
+  height: 44px;
+  padding: 9px;
+  border: 0;
   background: transparent;
+}
+
+.color-input-wrap input::-webkit-color-swatch {
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .color-input-wrap code {
@@ -2688,7 +2727,7 @@ a:focus-visible {
 }
 
 .project-actions button {
-  min-height: 36px;
+  min-height: 44px;
   color: var(--faint);
   font-size: 11px;
 }
@@ -2917,16 +2956,13 @@ a:focus-visible {
   .transport button { min-width: 44px; height: 44px; }
   .timeline-track { min-height: 58px; }
   .theme-card { min-height: 68px; }
-  .inspector-group summary { min-height: 52px; }
+  .inspector-group-trigger { min-height: 52px; }
   .range-field input[type="range"] { height: 44px; }
   .range-field input[type="range"]::-webkit-slider-thumb { width: 20px; height: 20px; margin-top: -9px; }
   .segmented-control span { min-height: 44px; }
   .select-field select { height: 44px; }
   .number-input-wrap input { min-height: 44px; }
-  .color-input-wrap input { width: 44px; height: 32px; }
-  .switch-field input[role="switch"] { width: 44px; height: 28px; }
-  .switch-field input[role="switch"]::after { width: 22px; height: 22px; }
-  .switch-field input[role="switch"]:checked::after { transform: translateX(16px); }
+  .color-input-wrap input { width: 44px; height: 44px; }
 }
 
 @media (prefers-reduced-transparency: reduce) {

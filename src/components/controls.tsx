@@ -1,4 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
+import { MeasuredDisclosure } from "./MeasuredDisclosure";
 
 interface RangeFieldProps {
   label: string;
@@ -320,22 +321,22 @@ interface InspectorGroupProps {
 }
 
 export function InspectorGroup({ title, eyebrow, description, open = false, children }: InspectorGroupProps) {
-  const [expanded, setExpanded] = useState(open);
-
   return (
-    <details
+    <MeasuredDisclosure
       className="inspector-group"
-      open={expanded}
-      onToggle={(event) => setExpanded(event.currentTarget.open)}
+      triggerClassName="inspector-group-trigger"
+      viewportClassName="inspector-group-viewport"
+      contentClassName="inspector-group-body"
+      defaultExpanded={open}
+      trigger={(
+        <>
+          <span>{title}</span>
+          {eyebrow ? <small>{eyebrow}</small> : null}
+        </>
+      )}
     >
-      <summary>
-        <span>{title}</span>
-        {eyebrow ? <small>{eyebrow}</small> : null}
-      </summary>
-      <div className="inspector-group-body">
-        {description ? <p className="inspector-group-description">{description}</p> : null}
-        {children}
-      </div>
-    </details>
+      {description ? <p className="inspector-group-description">{description}</p> : null}
+      {children}
+    </MeasuredDisclosure>
   );
 }
