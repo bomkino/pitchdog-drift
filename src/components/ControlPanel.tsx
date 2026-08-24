@@ -1014,36 +1014,21 @@ export function ControlPanel({
       ) : null}
 
       <InspectorGroup title="Background" eyebrow={settings.background.style} description="Choose visually first. Fine controls below remain fully editable." workspaces="world" open>
-        {v2Active ? (
-          <BackgroundBrowser
-            background={settings.background}
-            activeStudy={backgroundStudy}
-            studies={filteredBackgroundStudies}
-            query={backgroundQuery}
-            family={backgroundFamily}
-            onQuery={setBackgroundQuery}
-            onFamily={setBackgroundFamily}
-            onSelect={(study) => onSettings(applyBackgroundStudy(settings, study))}
-            onTransparent={() => onSettings({
-              ...settings,
-              stage: { ...settings.stage, transparent: true },
-              background: { ...settings.background, style: "transparent" },
-            })}
-          />
-        ) : (
-          <SelectField
-            label={`Background library · all ${BACKGROUND_STUDIES.length}`}
-            value={backgroundStudy?.id ?? "custom"}
-            options={[
-              { value: "custom", label: opaqueBackground ? "Custom direction" : "Transparent" },
-              ...BACKGROUND_STUDIES.map((study) => ({ value: study.id, label: `${study.genre} · ${study.name}` })),
-            ]}
-            onChange={(studyId) => {
-              const study = BACKGROUND_STUDIES.find((entry) => entry.id === studyId);
-              if (study) onSettings(applyBackgroundStudy(settings, study));
-            }}
-          />
-        )}
+        <BackgroundBrowser
+          background={settings.background}
+          activeStudy={backgroundStudy}
+          studies={filteredBackgroundStudies}
+          query={backgroundQuery}
+          family={backgroundFamily}
+          onQuery={setBackgroundQuery}
+          onFamily={setBackgroundFamily}
+          onSelect={(study) => onSettings(applyBackgroundStudy(settings, study))}
+          onTransparent={() => onSettings({
+            ...settings,
+            stage: { ...settings.stage, transparent: true },
+            background: { ...settings.background, style: "transparent" },
+          })}
+        />
         <SelectField
           label="Background"
           value={settings.background.style}
