@@ -62,11 +62,13 @@ The editor has three surfaces:
 Director is split into four short journeys rather than one wall of controls:
 
 - **Slides** — crop the selected slide and place the optional pinned frame.
-- **World** — choose an authored Film World, portrait scene, pressure, and background.
+- **World** — choose an authored Film World, portrait scene, pressure, and background. Film Worlds stay folded until you need a complete recipe, so the visual background library remains immediately reachable.
 - **Direct** — shape movement, lifecycle, tempo, material, light, lens, and sound.
 - **Master** — set timing ownership, platform guides, output, preflight, and export.
 
 Choosing **Keep still** opens **Slides → Pinned frame** immediately. That is where you set position, size, source/custom ratio, fit, focal point, safe inset, corners, border, matte, shadow, audio, and whether the same media also appears in the moving track.
+
+Backgrounds are chosen visually. The **On canvas** card identifies the live result; the library below shows every available look as a preview card with its name and family. Search by mood or name, narrow the library by visual family, then click a card to apply it to the live WebGL canvas. **Transparent** is the first explicit choice. Fine composition, palette, variation, intensity, motion, grain, and vignette controls remain below the library. The canvas—not the small preview—is export truth.
 
 Native menu equivalents exist for the important actions. They use the renderer’s reported state rather than guessing from the visible interface. Commands disable while Drift is hashing media, replacing a project, saving protected state, or exporting.
 

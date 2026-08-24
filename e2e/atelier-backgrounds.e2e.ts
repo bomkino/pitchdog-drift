@@ -138,26 +138,49 @@ test("Atelier backgrounds render, move gently, close their loop, and survive bot
   expect(renderErrors.filter((message) => /shader|webgl|gl_invalid|three\.webglprogram/i.test(message))).toEqual([]);
 });
 
-test("Atelier is reachable through the real V2 background browser", async ({ page }) => {
+test("Atelier is visible and reachable through the real V2 background browser", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-context", /ready|restored/);
   await page.getByRole("button", { name: "WORLD", exact: true }).click();
 
   const atmosphere = page.locator("details.inspector-group").filter({
-    has: page.locator("summary", { hasText: "Atmosphere" }),
+    has: page.locator("summary", { hasText: "Background" }),
   }).first();
   await expect(atmosphere).toBeVisible();
-  const browser = atmosphere.locator("details.background-browser");
-  if (!(await browser.evaluate((element) => (element as HTMLDetailsElement).open))) {
-    await browser.locator("summary").click();
-  }
-  await browser.getByRole("combobox", { name: "Family", exact: true }).selectOption("atelier");
-  const picker = browser.getByRole("combobox", { name: "8 matching backgrounds" });
-  await expect(picker.locator("option")).toHaveCount(9);
-  await picker.selectOption("saffron-anatomy-study");
+  const browser = atmosphere.locator(".visual-background-browser");
+  await expect(browser.getByRole("heading", { name: "Background library" })).toBeVisible();
+  await expect(browser.locator(".background-study-card .background-preview")).toHaveCount(73);
+  await browser.getByRole("combobox", { name: "Visual family", exact: true }).selectOption("atelier");
+  await expect(browser.locator(".background-study-card")).toHaveCount(8);
+  const saffron = browser.getByRole("button", { name: /^Saffron Anatomy\./ });
+  await expect(saffron.locator(".background-preview")).toBeVisible();
+  await saffron.click();
 
   await expect(atmosphere.getByLabel("Background", { exact: true })).toHaveValue("atelier");
   await expect(atmosphere.getByLabel("Composition", { exact: true })).toHaveValue("0");
   await expect(atmosphere.getByLabel("Palette", { exact: true })).toHaveValue("saffron-manuscript");
-  await expect(picker).toHaveValue("saffron-anatomy-study");
+  await expect(saffron).toHaveAttribute("aria-pressed", "true");
+  await expect(browser.getByText("Saffron Anatomy", { exact: true }).first()).toBeVisible();
+
+  await browser.getByRole("searchbox", { name: "Find a look" }).fill("botanical");
+  await expect(browser.locator(".background-study-card")).toHaveCount(1);
+  await expect(browser.getByRole("button", { name: /^Indigo Botanical\./ })).toBeVisible();
+  await browser.getByRole("button", { name: "Clear filters" }).click();
+  await expect(browser.locator(".background-study-card")).toHaveCount(73);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const cards = browser.locator(".background-study-card");
+  const [first, second] = await Promise.all([cards.nth(0).boundingBox(), cards.nth(1).boundingBox()]);
+  expect(first).not.toBeNull();
+  expect(second).not.toBeNull();
+  expect(first!.width).toBeGreaterThan(145);
+  expect(first!.height).toBeGreaterThan(120);
+  expect(Math.abs(first!.y - second!.y)).toBeLessThan(2);
+  expect(second!.x).toBeGreaterThan(first!.x);
+
+  const scroll = await browser.locator(".background-study-grid").evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
 });

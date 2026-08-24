@@ -2116,7 +2116,7 @@ export function App() {
         ))}
       </nav>
 
-      <div id="studio" className="studio-shell">
+      <div id="studio" className="studio-shell" data-workspace={activeWorkspace}>
         <MediaLibrary
           assets={assets}
           presenter={presenter}

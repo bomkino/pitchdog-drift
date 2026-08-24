@@ -314,13 +314,14 @@ export function ColorField({ label, value, onChange }: ColorFieldProps) {
 interface InspectorGroupProps {
   title: string;
   eyebrow?: string;
+  description?: string;
   open?: boolean;
   openRequestId?: number;
   workspaces?: string;
   children: ReactNode;
 }
 
-export function InspectorGroup({ title, eyebrow, open = false, openRequestId, workspaces, children }: InspectorGroupProps) {
+export function InspectorGroup({ title, eyebrow, description, open = false, openRequestId, workspaces, children }: InspectorGroupProps) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const summaryRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState(open);
@@ -344,7 +345,10 @@ export function InspectorGroup({ title, eyebrow, open = false, openRequestId, wo
         <span>{title}</span>
         {eyebrow ? <small>{eyebrow}</small> : null}
       </summary>
-      <div className="inspector-group-body">{children}</div>
+      <div className="inspector-group-body">
+        {description ? <p className="inspector-group-description">{description}</p> : null}
+        {children}
+      </div>
     </details>
   );
 }

@@ -36,7 +36,7 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - Drag, wheel, keyboard, autoplay, pause, reverse, inertia, and seamless-output lock.
 - Custom stage, output, slide, and pinned-frame ratios.
 - Cover/contain fit, focal point, scale, spacing, depth, tilt, velocity bend, continuous corners, borders, and shadows.
-- Transparent output plus seventy-two Solid, Gradient, Aura, Paper, Void, Cutting Map, Grid, Wave, and living-pigment Atelier backgrounds drawn in GLSL, with restrained world-only film grain.
+- Transparent output plus seventy-two Solid, Gradient, Aura, Paper, Void, Cutting Map, Grid, Wave, and living-pigment Atelier backgrounds drawn in GLSL, browsed through an always-visible visual library with restrained world-only film grain.
 - Eight authored V2 Worlds with three directing pressures, plus the preserved V1 theme library.
 - One optional pinned image or presenter video, off by default.
 - Independent pinned-frame size, X/Y position, safe inset, aspect, fit, focal point, matte, corners, border, shadow, timing, and track controls.

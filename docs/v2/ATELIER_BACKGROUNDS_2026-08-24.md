@@ -38,7 +38,7 @@ The reusable ideas are media ideas: transparent glazing, edge pooling, dry marks
 - Background motion remains between 0.04 and 0.14. Authored intensity never exceeds 0.55.
 - Paper tooth is static. Drift's separate monochrome film-grain plate stays background-only and uses its existing deterministic held cadence.
 - Transparent output remains an explicit bypass; applying an Atelier study returns the stage to opaque.
-- The eight studies are available through the real searchable background browser. Saffron Anatomy and Verdigris Fresco also join the twelve-item hero shelf.
+- The eight studies are available through the always-visible visual background browser. Each has a CSS-authored direction preview; the live WebGL canvas remains final visual and export truth.
 
 ## Controls
 

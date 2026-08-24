@@ -38,7 +38,7 @@ The pre-promotion local installation has one production app identity: `/Applicat
 - Twenty-eight palettes, deterministic seeds and recuts, transparent bypass, and twelve curated hero studies.
 - Eight authored Worlds, each with Restrained, Directed, and Fever pressure levels.
 - Sixteen portrait-native scenes: two per World, with vertical travel in both directions represented across the library.
-- A compact hero shelf plus searchable, family-filtered access to the complete background atlas.
+- An always-visible visual browser with a live selected preview, mood/name search, family filtering, clear selection state, and responsive two-column phone layout for the complete background atlas.
 - Eight original Atelier studies translate living pigment, fresco, graphite, manuscript, and botanical marks into aspect-correct, exact-loop-safe GLSL for both horizontal and vertical stages.
 
 ### Pinned slide and presenter

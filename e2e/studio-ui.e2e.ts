@@ -26,7 +26,7 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await expect(previewDescription).toContainText("8 slides");
   await expect(previewDescription).toContainText("editorial drift.");
   await switchWorkspace(page, "WORLD");
-  const atmosphere = page.locator("details").filter({ has: page.locator("summary", { hasText: "Atmosphere" }) });
+  const atmosphere = page.locator("details").filter({ has: page.locator("summary", { hasText: "Background" }) });
   if (await atmosphere.getAttribute("open") === null) await atmosphere.locator("summary").click();
   const background = page.getByRole("combobox", { name: "Background", exact: true });
   // The restrained Editorial Drift foundation opens on Long Fibres paper.
@@ -64,7 +64,9 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await page.getByLabel("Stage height").fill("1920");
 
   await switchWorkspace(page, "WORLD");
-  await page.getByRole("button", { name: /Dread/ }).click();
+  const filmWorlds = page.locator("details.world-browser");
+  if (await filmWorlds.getAttribute("open") === null) await filmWorlds.locator("summary").click();
+  await filmWorlds.getByRole("button", { name: /^Film World: Dread\./ }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("dread");
   await expect(previewDescription).toContainText("dread.");
   await switchWorkspace(page, "MASTER");
@@ -77,7 +79,7 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await switchWorkspace(page, "WORLD");
   await background.selectOption("transparent");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "true");
-  await page.getByRole("button", { name: /Sunstruck Atlas/ }).click();
+  await filmWorlds.getByRole("button", { name: /^Film World: Sunstruck Atlas\./ }).click();
   await expect(background).toHaveValue("gradient");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "false");
 

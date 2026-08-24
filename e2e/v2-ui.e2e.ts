@@ -66,7 +66,7 @@ test("shipping and development identities restore the authored V2 room and repai
   await expect(page.getByRole("heading", { name: "Choose the weather." })).toBeVisible();
 
   const atmosphere = page.locator("details").filter({
-    has: page.locator("summary", { hasText: "Atmosphere" }),
+    has: page.locator("summary", { hasText: "Background" }),
   });
   await ensureInspectorOpen(atmosphere);
   const background = page.getByRole("combobox", { name: "Background", exact: true });
@@ -74,7 +74,9 @@ test("shipping and development identities restore the authored V2 room and repai
   await expect(background).toHaveValue("transparent");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "true");
 
-  await page.getByRole("button", { name: /Editorial Drift/ }).click();
+  const filmWorlds = page.locator("details.world-browser");
+  await ensureInspectorOpen(filmWorlds);
+  await filmWorlds.getByRole("button", { name: /^Film World: Editorial Drift\./ }).click();
   // The authored 9:16 Reading Spine scene uses Orbiting Bloom (Aura), not the
   // older single-World slice's paper-room fallback.
   await expect(background).toHaveValue("aura");
@@ -170,7 +172,9 @@ test("Reading Pace, platform guides, preflight, and Command-K use the settled V2
 test("comparison pixels return after a still export instead of keeping live direction", async ({ page }) => {
   await waitForStudio(page);
   await page.getByRole("button", { name: "WORLD", exact: true }).click();
-  await page.getByRole("button", { name: /Dread/ }).click();
+  const filmWorlds = page.locator("details.world-browser");
+  await ensureInspectorOpen(filmWorlds);
+  await filmWorlds.getByRole("button", { name: /^Film World: Dread\./ }).click();
   const compare = page.getByRole("button", { name: "A/B", exact: true });
   await expect(compare).toBeEnabled();
   await compare.click();
