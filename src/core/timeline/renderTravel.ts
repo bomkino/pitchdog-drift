@@ -3,6 +3,10 @@ import {
   type PerformanceLifecycleSample,
   type PerformanceLifecycleTimeline,
 } from "./performanceLifecycle";
+import {
+  evaluateCompiledSequence,
+  type CompiledSequence,
+} from "./sequenceCompiler";
 
 export interface PerformanceTravelOptions {
   readonly direction: -1 | 1;
@@ -70,6 +74,46 @@ export function evaluatePerformanceTravel(
   return {
     lifecycle,
     distancePerBodyCycle,
+    distance: distance === 0 ? 0 : distance,
+    velocity: velocity === 0 ? 0 : velocity,
+    acceleration: acceleration === 0 ? 0 : acceleration,
+  };
+}
+
+/**
+ * Converts one compiled pass sequence into the same renderer travel contract.
+ * Lifecycle repetition repeats the complete compiled sequence; entry and exit
+ * hold its exact endpoints. The compiled body owns pace and pass boundaries.
+ */
+export function evaluateSequencePerformanceTravel(
+  timeline: PerformanceLifecycleTimeline,
+  masterTime: number,
+  sequence: CompiledSequence,
+  options: Pick<PerformanceTravelOptions, "direction" | "slideLayerCount">,
+): PerformanceTravelSample {
+  if (options.direction !== -1 && options.direction !== 1) {
+    throw new TypeError("direction must be -1 or 1.");
+  }
+  const slideLayerCount = safeCount(options.slideLayerCount, "slideLayerCount");
+  const lifecycle = evaluatePerformanceLifecycle(timeline, masterTime, slideLayerCount);
+  const reducedMotion = lifecycle.reducedMotion;
+  const bodySample = evaluateCompiledSequence(sequence, lifecycle.body.time);
+  const completedBodyDistance = lifecycle.body.cycleIndex * sequence.totalDistanceSlides;
+  const unsignedDistance = reducedMotion
+    ? 0
+    : completedBodyDistance + bodySample.distanceSlides;
+  const activelyTravelling = lifecycle.phase === "body" && !reducedMotion;
+  const distance = options.direction * unsignedDistance;
+  const velocity = activelyTravelling
+    ? options.direction * bodySample.velocitySlidesPerSecond
+    : 0;
+  const acceleration = activelyTravelling
+    ? options.direction * bodySample.accelerationSlidesPerSecondSquared
+    : 0;
+
+  return {
+    lifecycle,
+    distancePerBodyCycle: sequence.totalDistanceSlides,
     distance: distance === 0 ? 0 : distance,
     velocity: velocity === 0 ? 0 : velocity,
     acceleration: acceleration === 0 ? 0 : acceleration,

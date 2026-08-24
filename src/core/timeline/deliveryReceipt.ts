@@ -5,6 +5,12 @@ import { poseCadenceFps } from "./master";
 import type { PerformanceLifecycleTimeline } from "./performanceLifecycle";
 import { evaluateTempoCurve, invertTempoCurveProgress } from "./tempoCurve";
 import { readTimingIntent, type TimingMode, type TimingProtectedInput } from "./timingIntent";
+import { compileSequence, type CompiledSequence } from "./sequenceCompiler";
+import {
+  readSequenceAuthoring,
+  type SequenceAuthoringRead,
+  type SequencePace,
+} from "./sequenceAuthoring";
 
 export type DeliveryContainer = "mp4" | "png-sequence" | "png-still";
 export type ExportWorkloadClass = "light" | "moderate" | "heavy" | "extreme";
@@ -18,6 +24,32 @@ export interface DeckPassBoundary {
   readonly indexInBody: number;
   readonly bodyCycleIndex: number;
   readonly sceneIndex: number;
+  readonly start: number;
+  readonly end: number;
+  readonly duration: number;
+  readonly groupIndex?: number;
+  readonly sourceGroupIndex?: number;
+  readonly repeatIndex?: number;
+  readonly groupId?: string;
+  readonly groupLabel?: string;
+  readonly pace?: SequencePace;
+  readonly relativeSecondsPerPass?: number;
+}
+
+export interface DeckPassGroupBoundary {
+  readonly index: number;
+  readonly indexInBody: number;
+  readonly bodyCycleIndex: number;
+  readonly sceneIndex: number;
+  readonly sourceGroupIndex: number;
+  readonly repeatIndex: number;
+  readonly id: string;
+  readonly label: string;
+  readonly pace: SequencePace;
+  readonly passes: number;
+  readonly relativeSecondsPerPass: number;
+  readonly startPass: number;
+  readonly endPass: number;
   readonly start: number;
   readonly end: number;
   readonly duration: number;
@@ -37,12 +69,15 @@ export interface DeliveryReceipt {
     readonly excludedPinnedOnlyAssetId: string | null;
   };
   readonly passes: {
+    readonly authority?: "legacy-tempo" | "pass-sequence";
+    readonly sequenceStatus?: SequenceAuthoringRead["status"];
     readonly deckPassesPerBody: number;
     readonly totalDeckPasses: number;
     readonly sceneRepeatMode: PerformanceLifecycleTimeline["repeatMode"];
     readonly sceneRepeatCount: number;
     readonly legacyBodyRepeatCount: number;
     readonly boundaries: readonly DeckPassBoundary[];
+    readonly groups?: readonly DeckPassGroupBoundary[];
   };
   readonly segments: {
     readonly entrySeconds: number;
@@ -202,6 +237,64 @@ function passBoundaries(
   return Object.freeze(boundaries);
 }
 
+function compiledPassBoundaries(
+  lifecycle: PerformanceLifecycleTimeline,
+  sequence: CompiledSequence,
+): readonly DeckPassBoundary[] {
+  const boundaries: DeckPassBoundary[] = [];
+  for (const body of lifecycle.bodyCycles) {
+    for (const pass of sequence.passes) {
+      boundaries.push(Object.freeze({
+        index: boundaries.length,
+        indexInBody: pass.index,
+        bodyCycleIndex: body.index,
+        sceneIndex: body.sceneIndex,
+        start: body.start + pass.start,
+        end: body.start + pass.end,
+        duration: pass.duration,
+        groupIndex: pass.groupIndex,
+        sourceGroupIndex: pass.sourceGroupIndex,
+        repeatIndex: pass.repeatIndex,
+        groupId: pass.groupId,
+        groupLabel: pass.groupLabel,
+        pace: pass.pace,
+        relativeSecondsPerPass: pass.relativeSecondsPerPass,
+      }));
+    }
+  }
+  return Object.freeze(boundaries);
+}
+
+function compiledGroupBoundaries(
+  lifecycle: PerformanceLifecycleTimeline,
+  sequence: CompiledSequence,
+): readonly DeckPassGroupBoundary[] {
+  const boundaries: DeckPassGroupBoundary[] = [];
+  for (const body of lifecycle.bodyCycles) {
+    for (const group of sequence.groups) {
+      boundaries.push(Object.freeze({
+        index: boundaries.length,
+        indexInBody: group.index,
+        bodyCycleIndex: body.index,
+        sceneIndex: body.sceneIndex,
+        sourceGroupIndex: group.sourceGroupIndex,
+        repeatIndex: group.repeatIndex,
+        id: group.id,
+        label: group.label,
+        pace: group.pace,
+        passes: group.passes,
+        relativeSecondsPerPass: group.relativeSecondsPerPass,
+        startPass: group.startPass,
+        endPass: group.endPass,
+        start: body.start + group.start,
+        end: body.start + group.end,
+        duration: group.duration,
+      }));
+    }
+  }
+  return Object.freeze(boundaries);
+}
+
 /** Builds immutable export facts. It performs no formatting, mutation, or ETA guess. */
 export function buildDeliveryReceipt(input: BuildDeliveryReceiptInput): DeliveryReceipt {
   const { project, lifecycle, exportSettings } = input;
@@ -218,25 +311,40 @@ export function buildDeliveryReceipt(input: BuildDeliveryReceiptInput): Delivery
   if (Math.abs(exportSettings.duration - project.master.duration) > EPSILON) {
     throw new TypeError("Delivery receipt export duration does not match Project V4 master duration.");
   }
+  const sequenceRead = readSequenceAuthoring(project);
+  const sequence = sequenceRead.authoring
+    ? compileSequence(sequenceRead.authoring, {
+        bodyDurationSeconds: lifecycle.authoring.body.durationSeconds,
+        movingSlideCount: canonicalMovingMedia.count,
+      })
+    : null;
   if (
-    !Number.isSafeInteger(project.motion.seamless.loops)
-    || project.motion.seamless.loops < 1
+    sequence === null
+    && (!Number.isSafeInteger(project.motion.seamless.loops) || project.motion.seamless.loops < 1)
   ) {
     throw new TypeError("Delivery receipt deck-pass count must be a positive safe integer.");
   }
 
   const timingRead = readTimingIntent(project);
-  const deckPasses = project.motion.seamless.loops;
-  const boundaries = passBoundaries(lifecycle, deckPasses);
+  const deckPasses = sequence?.totalPasses ?? project.motion.seamless.loops;
+  const boundaries = sequence
+    ? compiledPassBoundaries(lifecycle, sequence)
+    : passBoundaries(lifecycle, deckPasses);
+  const groupBoundaries = sequence ? compiledGroupBoundaries(lifecycle, sequence) : Object.freeze([]);
   const entrySeconds = lifecycle.scenes.reduce((total, scene) => total + (scene.entry?.duration ?? 0), 0);
   const bodySeconds = lifecycle.bodyCycles.reduce((total, body) => total + body.duration, 0);
   const exitSeconds = lifecycle.scenes.reduce((total, scene) => total + (scene.exit?.duration ?? 0), 0);
   const totalSlideDistance = canonicalMovingMedia.count * boundaries.length;
   const averageSlidesPerSecond = bodySeconds > 0 ? totalSlideDistance / bodySeconds : 0;
-  const tempoVelocities = [0, 0.5, 1]
-    .map((time) => evaluateTempoCurve(lifecycle.tempoCurve, time).velocity);
-  const minimumSlidesPerSecond = averageSlidesPerSecond * Math.min(...tempoVelocities);
-  const peakSlidesPerSecond = averageSlidesPerSecond * Math.max(...tempoVelocities);
+  const tempoVelocities = sequence
+    ? null
+    : [0, 0.5, 1].map((time) => evaluateTempoCurve(lifecycle.tempoCurve, time).velocity);
+  const minimumSlidesPerSecond = sequence
+    ? sequence.minimumVelocitySlidesPerSecond
+    : averageSlidesPerSecond * Math.min(...tempoVelocities!);
+  const peakSlidesPerSecond = sequence
+    ? sequence.peakVelocitySlidesPerSecond
+    : averageSlidesPerSecond * Math.max(...tempoVelocities!);
 
   const frameCount = getExportFrameCount(exportSettings);
   const encodedDurationSeconds = frameCount / exportSettings.fps;
@@ -265,12 +373,15 @@ export function buildDeliveryReceipt(input: BuildDeliveryReceiptInput): Delivery
       excludedPinnedOnlyAssetId: canonicalMovingMedia.excludedPinnedOnlyAssetId,
     }),
     passes: Object.freeze({
+      authority: sequence ? "pass-sequence" as const : "legacy-tempo" as const,
+      sequenceStatus: sequenceRead.status,
       deckPassesPerBody: deckPasses,
       totalDeckPasses: boundaries.length,
       sceneRepeatMode: lifecycle.repeatMode,
       sceneRepeatCount: lifecycle.repeatMode === "full-scene" ? lifecycle.repeatCount : 1,
       legacyBodyRepeatCount: lifecycle.repeatMode === "body" ? lifecycle.repeatCount : 0,
       boundaries,
+      groups: groupBoundaries,
     }),
     segments: Object.freeze({
       entrySeconds,
@@ -305,10 +416,10 @@ export function buildDeliveryReceipt(input: BuildDeliveryReceiptInput): Delivery
       encodedDurationSeconds,
     ),
     seamlessClosure: Object.freeze({
-      closes: project.motion.seamless.enabled && canonicalMovingMedia.count > 0,
+      closes: (sequence !== null || project.motion.seamless.enabled) && canonicalMovingMedia.count > 0,
       status: canonicalMovingMedia.count === 0
         ? "empty-track" as const
-        : project.motion.seamless.enabled
+        : sequence !== null || project.motion.seamless.enabled
           ? "clean" as const
           : "not-authored" as const,
     }),

@@ -3,6 +3,13 @@ import {
   createPerformanceLifecycle,
   type PerformanceLifecycleTimeline,
 } from "./performanceLifecycle";
+import { sequenceContentPacedBodySeconds } from "./sequenceCompiler";
+import {
+  readSequenceAuthoring,
+  sequencePassCount,
+  sequenceRelativePassWeight,
+  type SequenceAuthoringRead,
+} from "./sequenceAuthoring";
 
 export const TIMING_EXTENSION_KEY = "dog.pitch.drift.timing" as const;
 export const TIMING_INTENT_SCHEMA_VERSION = 1 as const;
@@ -37,6 +44,9 @@ export interface TimingRepair {
 export interface TimingResolution {
   readonly intent: TimingIntent;
   readonly protectedInput: TimingProtectedInput;
+  readonly travelAuthority: "legacy-tempo" | "pass-sequence";
+  readonly sequenceStatus: SequenceAuthoringRead["status"];
+  readonly relativePassWeightPerCycle: number;
   readonly movingSlideCount: number;
   readonly deckPasses: number;
   readonly sceneCount: number;
@@ -161,16 +171,28 @@ export function resolveProjectTiming(
     MIN_MASTER_SECONDS,
     transitionSeconds + MIN_TIMING_BODY_SECONDS * bodyCycleCount,
   );
-  const deckPasses = project.motion.seamless.loops;
+  const sequenceRead = readSequenceAuthoring(project);
+  const sequence = sequenceRead.authoring;
+  const deckPasses = sequence
+    ? sequencePassCount(sequence)
+    : project.motion.seamless.loops;
   if (!Number.isSafeInteger(deckPasses) || deckPasses < 1) {
     throw new TypeError("Deck passes must be a positive safe integer.");
   }
   const deckDistanceInSlidesPerCycle = movingSlideCount * deckPasses;
   const deckDistanceInSlides = deckDistanceInSlidesPerCycle * bodyCycleCount;
+  const relativePassWeightPerCycle = sequence
+    ? sequenceRelativePassWeight(sequence)
+    : deckPasses;
 
   const requestedMasterSeconds = intent.mode === "fixed-master"
     ? project.master.duration
-    : transitionSeconds + deckDistanceInSlides * intent.secondsPerSlide;
+    : transitionSeconds + (
+        sequence
+          ? sequenceContentPacedBodySeconds(sequence, movingSlideCount, intent.secondsPerSlide)
+            * bodyCycleCount
+          : deckDistanceInSlides * intent.secondsPerSlide
+      );
   let repair: TimingRepair | null = null;
   if (movingSlideCount === 0) {
     repair = Object.freeze({
@@ -201,6 +223,9 @@ export function resolveProjectTiming(
   return Object.freeze({
     intent,
     protectedInput: intent.mode === "fixed-master" ? "master-duration" : "seconds-per-slide",
+    travelAuthority: sequence ? "pass-sequence" : "legacy-tempo",
+    sequenceStatus: sequenceRead.status,
+    relativePassWeightPerCycle,
     movingSlideCount,
     deckPasses,
     sceneCount,

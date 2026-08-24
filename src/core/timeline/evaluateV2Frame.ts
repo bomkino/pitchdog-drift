@@ -1,6 +1,10 @@
 import type { DriftCreativeState, DriftProjectV4 } from "../project/schema";
 import { deriveSlideGeometry, evaluateSpatialFrame } from "../spatial/spatial";
-import { evaluateCadence } from "./cadence";
+import {
+  cadenceSchedule,
+  evaluateCadence,
+  type CadenceEvaluation,
+} from "./cadence";
 import { planSemanticEventsFromRawTimeline } from "./eventPlanner";
 import type { FrameEvaluation } from "./FrameEvaluation";
 import { poseCadenceFps, samplePoseTime } from "./master";
@@ -11,7 +15,13 @@ import {
   type PerformanceLifecycleSample,
   type PerformanceLifecycleTimeline,
 } from "./performanceLifecycle";
-import { evaluatePerformanceTravel, type PerformanceTravelSample } from "./renderTravel";
+import {
+  evaluatePerformanceTravel,
+  evaluateSequencePerformanceTravel,
+  type PerformanceTravelSample,
+} from "./renderTravel";
+import { compileSequence, type CompiledSequence } from "./sequenceCompiler";
+import { readSequenceAuthoring } from "./sequenceAuthoring";
 
 export interface EvaluateV2FrameOptions {
   frameIndex?: number | null;
@@ -74,32 +84,72 @@ function lifecycleTimeline(project: DriftProjectV4, reducedMotion: boolean): Per
 }
 
 function travelAt(
-  project: DriftCreativeState,
+  project: DriftProjectV4,
   timeline: PerformanceLifecycleTimeline,
   sourceCount: number,
   time: number,
   samplePose: boolean,
+  sequence: CompiledSequence | null,
 ): { time: number; lifecycle: PerformanceLifecycleSample; travel: PerformanceTravelSample } {
   const sampledTime = samplePose
     ? samplePoseTime(time, project.motion.cadence.poseCadence, timeline.totalDuration)
     : Math.max(0, Math.min(timeline.totalDuration, Number.isFinite(time) ? time : 0));
   const lifecycle = evaluatePerformanceLifecycle(timeline, sampledTime, sourceCount);
-  const travel = evaluatePerformanceTravel(timeline, sampledTime, {
-    direction: project.motion.transport.direction,
-    slidesPerSecond: project.motion.transport.slidesPerSecond,
-    stride: 1,
-    // A seamless body owns one exact source-deck pass. Renderer padding is
-    // never allowed to turn into authored content distance.
-    slotCount: sourceCount,
-    slideLayerCount: sourceCount,
-    seamless: project.motion.seamless.enabled,
-    seamlessLoops: Math.max(1, Math.round(project.motion.seamless.loops)),
-  });
+  const travel = sequence
+    ? evaluateSequencePerformanceTravel(timeline, sampledTime, sequence, {
+        direction: project.motion.transport.direction,
+        slideLayerCount: sourceCount,
+      })
+    : evaluatePerformanceTravel(timeline, sampledTime, {
+        direction: project.motion.transport.direction,
+        slidesPerSecond: project.motion.transport.slidesPerSecond,
+        stride: 1,
+        // A seamless body owns one exact source-deck pass. Renderer padding is
+        // never allowed to turn into authored content distance.
+        slotCount: sourceCount,
+        slideLayerCount: sourceCount,
+        seamless: project.motion.seamless.enabled,
+        seamlessLoops: Math.max(1, Math.round(project.motion.seamless.loops)),
+      });
   return { time: sampledTime, lifecycle, travel };
 }
 
-function visibleDistance(project: DriftCreativeState, travel: PerformanceTravelSample): number {
-  const cadence = evaluateCadence(project, Math.abs(travel.distance));
+function continuousCadence(project: DriftCreativeState, rawSlideDistance: number): CadenceEvaluation {
+  const distance = Math.max(0, Number.isFinite(rawSlideDistance) ? rawSlideDistance : 0);
+  const cycle = Math.floor(distance);
+  const rawPhase = distance - cycle;
+  return {
+    cycle,
+    rawPhase,
+    progress: rawPhase,
+    derivative: 1,
+    secondDerivative: 0,
+    beat: "carry",
+    beatProgress: rawPhase,
+    focusHandoff: rawPhase,
+    anticipation: 0,
+    impact: 0,
+    settle: 0,
+    schedule: cadenceSchedule(project),
+  };
+}
+
+function authoredCadence(
+  project: DriftCreativeState,
+  travel: PerformanceTravelSample,
+  continuous: boolean,
+): CadenceEvaluation {
+  return continuous
+    ? continuousCadence(project, Math.abs(travel.distance))
+    : evaluateCadence(project, Math.abs(travel.distance));
+}
+
+function visibleDistance(
+  project: DriftCreativeState,
+  travel: PerformanceTravelSample,
+  continuous: boolean,
+): number {
+  const cadence = authoredCadence(project, travel, continuous);
   return canonicalZero(project.motion.transport.direction * (cadence.cycle + cadence.progress));
 }
 
@@ -137,16 +187,23 @@ export function evaluateV2Frame(
   const frameIndex = options.frameIndex ?? null;
   const reducedMotion = options.reducedMotion === true;
   const timeline = lifecycleTimeline(projectInput, reducedMotion);
+  const sequenceAuthoring = readSequenceAuthoring(project).authoring;
+  const sequence = sequenceAuthoring
+    ? compileSequence(sequenceAuthoring, {
+        bodyDurationSeconds: timeline.authoring.body.durationSeconds,
+        movingSlideCount: sourceOrder.length,
+      })
+    : null;
   const clampedTime = Math.max(0, Math.min(timeline.totalDuration, Number.isFinite(time) ? time : 0));
-  const current = travelAt(project, timeline, sourceOrder.length, clampedTime, true);
-  const cadence = evaluateCadence(project, Math.abs(current.travel.distance));
+  const current = travelAt(project, timeline, sourceOrder.length, clampedTime, true, sequence);
+  const cadence = authoredCadence(project, current.travel, sequence !== null);
   const geometry = deriveSlideGeometry(project, sourceOrder.length);
   const interactionSlides = wrappedInteractionSlides(
     options.interactionSlides,
     geometry.virtualSlotCount,
   );
   const currentVisibleDistance = canonicalZero(
-    visibleDistance(project, current.travel) + interactionSlides,
+    visibleDistance(project, current.travel, sequence !== null) + interactionSlides,
   );
   const poseFps = poseCadenceFps(project.motion.cadence.poseCadence);
   const previousTime = options.previousTime !== undefined
@@ -170,14 +227,14 @@ export function evaluateV2Frame(
     + cadence.derivative * project.motion.transport.direction * current.travel.acceleration
   );
   if (previousTime !== null) {
-    const previous = travelAt(project, timeline, sourceOrder.length, previousTime, true);
+    const previous = travelAt(project, timeline, sourceOrder.length, previousTime, true, sequence);
     if (Math.abs(previous.time - current.time) <= TIMELINE_EPSILON) {
       velocity = 0;
       acceleration = 0;
     } else if (poseFps) {
       const elapsed = Math.max(1 / 240, clampedTime - Math.max(0, previousTime));
       const previousVisibleDistance = canonicalZero(
-        visibleDistance(project, previous.travel) + interactionSlides,
+        visibleDistance(project, previous.travel, sequence !== null) + interactionSlides,
       );
       velocity = (currentVisibleDistance - previousVisibleDistance) / elapsed;
       acceleration = 0;
@@ -197,8 +254,29 @@ export function evaluateV2Frame(
     ? positiveModulo(Math.abs(currentVisibleDistance) / sourceCount, 1) * TAU
     : 0;
   const rawDistanceAtTime = (requestedTime: number) => Math.abs(
-    travelAt(project, timeline, sourceCount, requestedTime, false).travel.distance,
+    travelAt(project, timeline, sourceCount, requestedTime, false, sequence).travel.distance,
   );
+  const timeForDeckPassBoundary = sequence
+    ? (boundaryIndex: number): number => {
+        if (
+          !Number.isSafeInteger(boundaryIndex)
+          || boundaryIndex < 1
+          || boundaryIndex > sequence.totalPasses * timeline.bodyCycleCount
+        ) {
+          throw new RangeError("Deck-pass boundary index is outside the compiled sequence.");
+        }
+        const zeroBased = boundaryIndex - 1;
+        const bodyIndex = Math.floor(zeroBased / sequence.totalPasses);
+        const passIndex = zeroBased % sequence.totalPasses;
+        return timeline.bodyCycles[bodyIndex]!.start + sequence.passes[passIndex]!.end;
+      }
+    : undefined;
+  const semanticTimeline = {
+    duration: timeline.totalDuration,
+    sourceCount,
+    rawDistanceAtTime,
+    ...(timeForDeckPassBoundary ? { timeForDeckPassBoundary } : {}),
+  };
 
   const base: Omit<FrameEvaluation, "slides"> = {
     time: clampedTime,
@@ -236,17 +314,16 @@ export function evaluateV2Frame(
     events: previousTime === null
       ? clampedTime <= TIMELINE_EPSILON
         ? planSemanticEventsFromRawTimeline(project, 0, 0, {
-            duration: timeline.totalDuration,
-            sourceCount,
-            rawDistanceAtTime,
+            ...semanticTimeline,
           })
         : []
       : previousTime <= clampedTime
-        ? planSemanticEventsFromRawTimeline(project, Math.max(0, previousTime), clampedTime, {
-            duration: timeline.totalDuration,
-            sourceCount,
-            rawDistanceAtTime,
-          })
+        ? planSemanticEventsFromRawTimeline(
+            project,
+            Math.max(0, previousTime),
+            clampedTime,
+            semanticTimeline,
+          )
         : [],
   };
 

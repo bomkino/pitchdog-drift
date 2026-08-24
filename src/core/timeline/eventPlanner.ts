@@ -68,6 +68,11 @@ export interface SemanticEventRawTimeline {
   readonly sourceCount: number;
   /** Monotonic unsigned authored slide distance at exact time. */
   rawDistanceAtTime(time: number): number;
+  /**
+   * Optional analytical 1-based deck-pass lookup. New pass-group authority
+   * supplies this so loop receipts and events share the exact same knots.
+   */
+  timeForDeckPassBoundary?(boundaryIndex: number): number;
 }
 
 /**
@@ -117,12 +122,17 @@ export function planSemanticEventsFromRawTimeline(
   }
 
   const sourceCount = timeline.sourceCount;
-  if (project.motion.seamless.enabled && sourceCount > 0) {
+  if (
+    (project.motion.seamless.enabled || timeline.timeForDeckPassBoundary !== undefined)
+    && sourceCount > 0
+  ) {
     const firstBoundary = Math.max(1, Math.floor(startDistance / sourceCount) + 1);
     const finalBoundary = Math.floor((endDistance + TIMELINE_EPSILON) / sourceCount);
     for (let boundary = firstBoundary; boundary <= finalBoundary; boundary += 1) {
       const target = boundary * sourceCount;
-      const rawTime = timeForRawDistance(duration, timeline.rawDistanceAtTime, target);
+      const rawTime = timeline.timeForDeckPassBoundary
+        ? timeline.timeForDeckPassBoundary(boundary)
+        : timeForRawDistance(duration, timeline.rawDistanceAtTime, target);
       const planned = event(project, "loop-boundary", rawTime, target, 0, sourceCount);
       if (planned.time > startTime + TIMELINE_EPSILON && planned.time <= endTime + TIMELINE_EPSILON) events.push(planned);
     }
