@@ -7,10 +7,12 @@ import {
   BACKGROUND_PALETTES,
   BACKGROUND_STUDIES,
   BACKGROUND_VARIATION_COUNT,
+  CURATED_BACKGROUND_STUDY_IDS,
   applyBackgroundStudy,
   backgroundCompositionIndex,
   backgroundVariation,
   encodeBackgroundSeed,
+  curatedBackgroundStudies,
   matchingBackgroundPalette,
   matchingBackgroundStudy,
   withBackgroundComposition,
@@ -63,6 +65,28 @@ describe("background atlas catalogue", () => {
       expect(studies.map((study) => study.composition).sort((a, b) => a - b))
         .toEqual(Array.from({ length: BACKGROUND_COMPOSITIONS_PER_FAMILY }, (_, index) => index));
     }
+  });
+
+  it("keeps the first visual shelf small, diverse, deterministic, and current-first", () => {
+    const shelf = curatedBackgroundStudies(null);
+    expect(shelf.map(({ id }) => id)).toEqual(CURATED_BACKGROUND_STUDY_IDS);
+    expect(shelf).toHaveLength(12);
+    expect(new Set(shelf.map(({ id }) => id)).size).toBe(shelf.length);
+    expect(new Set(shelf.map(({ family }) => family))).toEqual(new Set(FAMILIES));
+
+    const outsideShelf = BACKGROUND_STUDIES.find(({ id }) => id === "aurora-veil")!;
+    const withCurrent = curatedBackgroundStudies(outsideShelf);
+    expect(withCurrent).toHaveLength(12);
+    expect(withCurrent[0]).toBe(outsideShelf);
+    expect(withCurrent.filter(({ id }) => id === outsideShelf.id)).toHaveLength(1);
+    expect(curatedBackgroundStudies(outsideShelf)).toEqual(withCurrent);
+    expect(curatedBackgroundStudies(outsideShelf, 0)).toEqual([]);
+    expect(curatedBackgroundStudies(outsideShelf, 4).map(({ id }) => id)).toEqual([
+      "aurora-veil",
+      "black-leader",
+      "cotton-rag",
+      "road-memory-field",
+    ]);
   });
 
   it("keeps the restrained-motion family registries aligned with their authored studies", () => {

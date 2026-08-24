@@ -383,6 +383,47 @@ export const BACKGROUND_STUDIES: readonly BackgroundStudy[] = [
   makeStudy("oxide-gesture-study", "Oxide Gesture", "atelier", "Abstract", "Dry terracotta bands, one broken orbit, and sparse runs painted over warm plaster.", "oxide-fresco", 7, 94, 0.54, 0.075, 0.11, 0.18),
 ];
 
+/**
+ * The authored first shelf. It is deliberately small enough to scan in one
+ * inspector view and broad enough to reveal the range of Drift's worlds.
+ * The complete atlas remains available behind an explicit Browse all action.
+ */
+export const CURATED_BACKGROUND_STUDY_IDS = Object.freeze([
+  "black-leader",
+  "cotton-rag",
+  "road-memory-field",
+  "projector-bloom",
+  "contact-sheet",
+  "breathing-slit-study",
+  "contour-notes-study",
+  "quiet-thirds-study",
+  "tidal-horizon-study",
+  "verdigris-fresco-study",
+  "rose-madder-bloom-study",
+  "charcoal-cartography-study",
+] as const);
+
+const CURATED_BACKGROUND_STUDIES = Object.freeze(CURATED_BACKGROUND_STUDY_IDS.map((id) => {
+  const study = BACKGROUND_STUDIES.find((candidate) => candidate.id === id);
+  if (!study) throw new Error(`Unknown curated background study: ${id}`);
+  return study;
+}));
+
+/** Current choice first, then the authored shelf, with no duplicate cards. */
+export function curatedBackgroundStudies(
+  current: BackgroundStudy | null,
+  limit: number = CURATED_BACKGROUND_STUDY_IDS.length,
+): readonly BackgroundStudy[] {
+  const safeLimit = Number.isSafeInteger(limit)
+    ? Math.max(0, Math.min(CURATED_BACKGROUND_STUDY_IDS.length, limit))
+    : CURATED_BACKGROUND_STUDY_IDS.length;
+  if (safeLimit === 0) return Object.freeze([]);
+  const studies = current
+    ? [current, ...CURATED_BACKGROUND_STUDIES.filter((study) => study.id !== current.id)]
+    : [...CURATED_BACKGROUND_STUDIES];
+  return Object.freeze(studies.slice(0, safeLimit));
+}
+
 function backgroundMatches(a: BackgroundSettings, b: BackgroundSettings): boolean {
   return (
     a.style === b.style
