@@ -47,7 +47,7 @@ test("workspace switches mount one explicit inspector and keep stage geometry wi
   const expectations = [
     ["SLIDES", "slides", "Slide frame"],
     ["LOOK", "look", "Background"],
-    ["MOTION", "motion", "Motion direction"],
+    ["MOTION", "motion", "Travel"],
     ["EXPORT", "export", "Master frame"],
   ] as const;
 
@@ -58,7 +58,10 @@ test("workspace switches mount one explicit inspector and keep stage geometry wi
     await expect(page.locator(`[data-workspace-content="${id}"]`)).toBeVisible();
     await expect(page.locator("details.inspector-group").filter({ hasText: primaryGroup }).first()).toBeVisible();
     if (id === "look") await expect(page.getByRole("searchbox", { name: "Find a look" })).toBeVisible();
-    if (id === "motion") await expect(page.getByRole("combobox", { name: "Direction recipe" })).toBeVisible();
+    if (id === "motion") {
+      await expect(page.getByRole("heading", { name: "How should the deck move?" })).toBeVisible();
+      await expect(page.locator('.outcome-card[data-outcome="smooth-carousel"]')).toBeVisible();
+    }
     expectInvariant(await stageBox(page), baseline);
     expectInvariant(await layoutBox(page.locator(".inspector"), "Inspector"), inspectorBaseline);
   }
@@ -84,12 +87,12 @@ test("each workspace restores its own scroll position after its content paints",
   await afterPaint(page);
   expect(await readWorkspaceScroll(page)).toBeLessThanOrEqual(1);
   const motionScrollBox = await layoutBox(page.getByTestId("workspace-scroll"), "Motion scroll owner");
-  const motionSummaryBox = await layoutBox(
-    page.locator("details.inspector-group > summary").filter({ hasText: "Motion direction" }).first(),
-    "Motion direction summary",
+  const motionFirstContentBox = await layoutBox(
+    page.locator(".outcome-picker"),
+    "Motion outcome picker",
   );
-  expect(Math.abs(motionSummaryBox.y - motionScrollBox.y)).toBeLessThanOrEqual(1);
-  await expect(page.getByRole("combobox", { name: "Direction recipe" })).toBeVisible();
+  expect(Math.abs(motionFirstContentBox.y - motionScrollBox.y)).toBeLessThanOrEqual(1);
+  await expect(page.locator('.outcome-card[data-outcome="smooth-carousel"]')).toBeVisible();
   await page.locator("details.workspace-advanced > summary").click();
   const motionScroll = await setWorkspaceScroll(page, 360);
   expect(motionScroll).toBeGreaterThan(100);
@@ -139,14 +142,16 @@ test("keyboard reaches every workspace's first primary action in four tabs or fe
   const cases = [
     ["SLIDES", "Slide frame"],
     ["LOOK", "Background"],
-    ["MOTION", "Motion direction"],
+    ["MOTION", "Travel"],
     ["EXPORT", "Master frame"],
   ] as const;
 
   for (const [workspace, group] of cases) {
     await switchWorkspace(page, workspace);
     const tab = page.getByRole("button", { name: workspace, exact: true });
-    const summary = page.locator("details.inspector-group > summary").filter({ hasText: group }).first();
+    const summary = workspace === "MOTION"
+      ? page.locator(".outcome-card:not(:disabled)").first()
+      : page.locator("details.inspector-group > summary").filter({ hasText: group }).first();
     await tab.focus();
     let steps = 0;
     while (steps <= 4 && !(await summary.evaluate((element) => document.activeElement === element))) {
@@ -156,4 +161,32 @@ test("keyboard reaches every workspace's first primary action in four tabs or fe
     expect(steps, `${workspace} primary action took too many tabs`).toBeLessThanOrEqual(4);
     await expect(summary).toBeFocused();
   }
+});
+
+test("outcome cards apply and undo complete motion recipes without changing Look or stage geometry", async ({ page }) => {
+  await waitForStudio(page);
+  await switchWorkspace(page, "LOOK");
+  const backgroundBefore = await page.getByRole("combobox", { name: "Background", exact: true }).inputValue();
+  const stageBefore = await stageBox(page);
+
+  await switchWorkspace(page, "MOTION");
+  const smooth = page.locator('.outcome-card[data-outcome="smooth-carousel"]');
+  const casino = page.locator('.outcome-card[data-outcome="casino-reveal"]');
+  await smooth.click();
+  await expect(smooth).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".outcome-current strong")).toHaveText("Smooth Carousel");
+
+  await casino.click();
+  await expect(casino).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".outcome-current strong")).toHaveText("Casino Reveal");
+  await expect(casino).toContainText("FAST ×2 → READ ×1 → FAST ×1");
+  expectInvariant(await stageBox(page), stageBefore);
+
+  await page.keyboard.press("Meta+z");
+  await expect(page.locator(".outcome-current strong")).toHaveText("Smooth Carousel");
+  await expect(smooth).toHaveAttribute("aria-pressed", "true");
+
+  await switchWorkspace(page, "LOOK");
+  await expect(page.getByRole("combobox", { name: "Background", exact: true })).toHaveValue(backgroundBefore);
+  expectInvariant(await stageBox(page), stageBefore);
 });

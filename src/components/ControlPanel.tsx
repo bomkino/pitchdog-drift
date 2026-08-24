@@ -49,6 +49,12 @@ import {
   applyLensRecipe,
   detectLensRecipe,
 } from "../core/recipes/lens";
+import {
+  applyOutcomeRecipe,
+  getOutcomeRecipe,
+  resetMotion,
+  resetSequence,
+} from "../core/recipes/outcomeRecipes";
 import { PATH_RECIPES, applyPathRecipe } from "../core/spatial/spatial";
 import {
   fitPerformanceLifecycleToDuration,
@@ -83,6 +89,7 @@ import type { TactileRuntimeState } from "../sonic/tactileSound";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, RangeNumberField, Segmented, SelectField, SwitchField } from "./controls";
 import { BackgroundBrowser, BackgroundStudyPreview } from "./BackgroundBrowser";
+import { OutcomeRecipePicker } from "./OutcomeRecipePicker";
 import type { SlideHealth } from "../core/media/slideHealth";
 import { resolveMovingMedia } from "../core/project/movingMedia";
 import {
@@ -782,25 +789,32 @@ export function ControlPanel({
       ) : null}
       </WorkspaceSection>
 
-      <WorkspaceSection workspace="motion">
-      <InspectorGroup title="Motion direction" eyebrow={handcraftedMotion?.name ?? "Custom"} description="Choose a complete direction, then set how the deck travels." open>
-        {v2Active ? (
-          <SelectField
-            label="Direction recipe"
-            value={handcraftedMotion?.id ?? "custom"}
-            options={[
-              { value: "custom", label: "Custom direction" },
-              ...HANDCRAFTED_MOTION_PRESETS.map((preset) => ({ value: preset.id, label: preset.name })),
-            ]}
-            onChange={(presetId) => {
-              if (presetId === "custom") return;
-              directProject(
-                `${HANDCRAFTED_MOTION_PRESETS.find((entry) => entry.id === presetId)?.name ?? "Motion direction"} applied.`,
-                (next) => { applyHandcraftedMotionPreset(next, presetId); },
+      {v2Active ? (
+        <WorkspaceSection workspace="motion">
+          <OutcomeRecipePicker
+            project={project}
+            disabled={exporting}
+            onApply={(id) => {
+              const recipe = getOutcomeRecipe(id);
+              onV2Project(
+                applyOutcomeRecipe(project, id),
+                `${recipe.label.replace(/\s+—\s+Safe Default$/u, "")} applied. Slides and Look untouched.`,
               );
             }}
+            onResetMotion={() => onV2Project(
+              resetMotion(project),
+              "Motion reset. Timing, sequence, slides, and Look untouched.",
+            )}
+            onResetSequence={() => onV2Project(
+              resetSequence(project),
+              "Sequence reset. Motion feel, slides, and Look untouched.",
+            )}
           />
-        ) : null}
+        </WorkspaceSection>
+      ) : null}
+
+      <WorkspaceSection workspace="motion">
+      <InspectorGroup title="Travel" eyebrow={settings.motion.axis} description="Set where the deck travels. The outcome above owns its overall feel and timing." open>
         <Segmented label="Flow axis" value={settings.motion.axis} options={[{ value: "horizontal", label: "Horizontal" }, { value: "vertical", label: "Vertical" }]} onChange={(axis) => patch("motion", { axis })} />
         <Segmented label="Direction" value={settings.motion.direction} options={[{ value: -1 as const, label: "Reverse" }, { value: 1 as const, label: "Forward" }]} onChange={(direction) => patch("motion", { direction })} />
         {v2Active ? (
@@ -834,6 +848,21 @@ export function ControlPanel({
       <WorkspaceSection workspace="motion" level="advanced">
       {v2Active ? (
         <InspectorGroup title="Editorial rhythm" eyebrow={performanceRecipe?.name ?? "Custom"} description="Tune cadence, character, exposure, and individual beats.">
+          <SelectField
+            label="Handcrafted direction"
+            value={handcraftedMotion?.id ?? "custom"}
+            options={[
+              { value: "custom", label: "Custom direction" },
+              ...HANDCRAFTED_MOTION_PRESETS.map((preset) => ({ value: preset.id, label: preset.name })),
+            ]}
+            onChange={(presetId) => {
+              if (presetId === "custom") return;
+              directProject(
+                `${HANDCRAFTED_MOTION_PRESETS.find((entry) => entry.id === presetId)?.name ?? "Motion direction"} applied.`,
+                (next) => { applyHandcraftedMotionPreset(next, presetId); },
+              );
+            }}
+          />
           <SelectField
             label="Editorial cut"
             value={editorialCut?.id ?? "custom"}
