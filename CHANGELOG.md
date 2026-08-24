@@ -8,7 +8,9 @@ Changes intended for a future public release belong here. Nothing in this sectio
 
 ### Added
 
-- The complete V2 Director's Cut surface: eight authored Worlds, three directing pressures, sixteen portrait scenes, sixty-four live backgrounds, twenty palettes, twelve light rigs, eight lens recipes, ten spatial paths, four material systems, and the full editorial motion library.
+- The complete V2 Director's Cut surface: eight authored Worlds, three directing pressures, sixteen portrait scenes, seventy-two live backgrounds, twenty-eight palettes, twelve light rigs, eight lens recipes, ten spatial paths, four material systems, and the full editorial motion library.
+- Atelier, an original eight-study living-pigment background family spanning watercolour, fresco, graphite, manuscript, botanical, and oxide treatments. All studies use aspect-correct raw GLSL, restrained closed-loop motion, deterministic variation, and the existing preview/export renderer.
+- A repeatable Atelier visual-proof lane that captures all eight studies at 9:16 and 16:9 with bundled slides, records a manifest and SHA-256 inventory, and builds a labelled contact sheet.
 - Independently controlled entry and exit performances, body/whole-scene repeat counts, and editable tempo envelopes including Fast · Slow · Fast.
 - Fine pinned-frame direction for position, size, safe inset, aspect, fit, focal point, matte, continuous corners, border, shadow, timing, track membership, presenter level, and mute.
 - Project V4 undo/redo, temporary non-mutating A/B comparison, domain locks, and visible change receipts.
@@ -21,7 +23,7 @@ Changes intended for a future public release belong here. Nothing in this sectio
 
 ### Changed
 
-- The background picker now leads with twelve curated hero studies and keeps all sixty-four backgrounds across eight structural families available through searchable filters.
+- The background picker now leads with twelve curated hero studies and keeps all seventy-two backgrounds across nine structural families available through searchable filters.
 - Slides now have a shared deformed rear shell for material thickness without intersecting the artwork face.
 - New V2 pins begin source-ratio, protected, and still-only. Reapplying Editorial Drift restores its opaque paper room; transparent output remains an explicit option afterward.
 - Browser CI now exercises the shipping V2 identity and the isolated V2 development identity through separate origins and storage namespaces. Explicit V1-import journeys preserve compatibility coverage.

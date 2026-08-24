@@ -37,6 +37,7 @@
     "test": "vitest run",
     "setup:e2e": "playwright install chromium",
     "test:e2e": "playwright test",
+    "qa:atelier-atlas": "node scripts/capture-atelier-atlas.mjs",
     "qa:optical-atlas": "node scripts/capture-v2-optical-atlas.mjs",
     "qa:long-export": "node scripts/qa-long-export.mjs",
     "qa:long-export:full": "node scripts/qa-long-export.mjs --full",

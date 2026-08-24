@@ -1,4 +1,5 @@
 import { auraBackgroundBranch } from "./backgroundShaders/aura";
+import { atelierBackgroundBranch } from "./backgroundShaders/atelier";
 import { cuttingMapBackgroundBranch } from "./backgroundShaders/cuttingMap";
 import { gradientBackgroundBranch } from "./backgroundShaders/gradient";
 import { gridBackgroundBranch } from "./backgroundShaders/grid";
@@ -164,6 +165,7 @@ ${voidBackgroundBranch}
 ${cuttingMapBackgroundBranch}
 ${gridBackgroundBranch}
 ${waveBackgroundBranch}
+${atelierBackgroundBranch}
 
     // Shared treatment: aspect-correct vignette. Grain remains a distinct
     // finishing plate so paper texture, atmosphere and camera stock never blur

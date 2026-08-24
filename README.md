@@ -12,7 +12,7 @@ Drift is pre-1.0 and currently source-first. Read the [project status](docs/STAT
 
 ## V2 production boundary
 
-Drift's shipping source now creates an authored V2 Project V4 document. It combines one canonical renderer/export path, eight authored Worlds, sixteen portrait scenes, sixty-four live backgrounds, editorial timing, space, material, analytical light, global optics, tactile sound, and a directable pinned frame. Explicitly imported or previously saved V1 projects remain on the frozen compatibility renderer until the creator applies a V2 World.
+Drift's shipping source now creates an authored V2 Project V4 document. It combines one canonical renderer/export path, eight authored Worlds, sixteen portrait scenes, seventy-two live backgrounds, editorial timing, space, material, analytical light, global optics, tactile sound, and a directable pinned frame. Explicitly imported or previously saved V1 projects remain on the frozen compatibility renderer until the creator applies a V2 World.
 
 The isolated `Drift V2 Dev.app` identity remains available for development without taking `.pitched` Finder ownership or sharing the production WebKit store, cache, IndexedDB database, or sandbox container. It is a test identity, not a second product users should install beside Drift. See the [current V2 status](docs/v2/CURRENT_STATUS.md), [requirement matrix](docs/v2/V2_REQUIREMENT_PHASE_MATRIX.md), [production-promotion receipt](docs/v2/PRODUCTION_PROMOTION_2026-08-23.md), and [donor ledger](docs/v2/DONOR_LEDGER.yaml).
 
@@ -36,12 +36,12 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - Drag, wheel, keyboard, autoplay, pause, reverse, inertia, and seamless-output lock.
 - Custom stage, output, slide, and pinned-frame ratios.
 - Cover/contain fit, focal point, scale, spacing, depth, tilt, velocity bend, continuous corners, borders, and shadows.
-- Transparent output plus sixty-four solid, gradient, aura, paper, void, cutting-map, quiet-grid, and tidal-wave backgrounds drawn in GLSL, with restrained world-only film grain.
+- Transparent output plus seventy-two Solid, Gradient, Aura, Paper, Void, Cutting Map, Grid, Wave, and living-pigment Atelier backgrounds drawn in GLSL, with restrained world-only film grain.
 - Eight authored V2 Worlds with three directing pressures, plus the preserved V1 theme library.
 - One optional pinned image or presenter video, off by default.
 - Independent pinned-frame size, X/Y position, safe inset, aspect, fit, focal point, matte, corners, border, shadow, timing, and track controls.
 - Four cuts, six performances, four motion characters, four pose cadences, six handcrafted stacks, entry/exit direction, exact repeats, and editable tempo envelopes.
-- Ten spatial paths, four material recipes, twelve light rigs, eight lens recipes, sixty-four backgrounds across eight structural families, twenty palettes, and sixteen portrait-native scenes.
+- Ten spatial paths, four material recipes, twelve light rigs, eight lens recipes, seventy-two backgrounds across nine structural families, twenty-eight palettes, and sixteen portrait-native scenes.
 - Optional deterministic tactile sound from 23 local CC0 recordings, with three palettes, three grammars, and presenter-under-voice mixing.
 - Deterministic H.264 MP4, transparent PNG still, and numbered PNG sequence output.
 - Presenter audio at AAC-LC, 48 kHz stereo, with explicit priming, padding, and A/V-sync checks.
@@ -50,6 +50,14 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - No analytics, cloud upload, remote font, runtime API, or hidden network request.
 
 Moving-track media is deliberately image-only in v1. One pinned video keeps decoder load, export timing, and failure states legible.
+
+## The Atelier collection
+
+![Sixteen Drift captures showing eight Atelier backgrounds in portrait and landscape stages](docs/media/drift-atelier-atlas.png)
+
+Atelier adds eight original living-pigment rooms: **Saffron Anatomy, Verdigris Fresco, Ultramarine Ledger, Rose Madder Bloom, Charcoal Cartography, Gilded Palimpsest, Indigo Botanical,** and **Oxide Gesture**. They translate watercolour glazing, pooled edges, fresco weather, graphite contours, dry brush, manuscript rules, and paper tooth into Drift's existing raw-GLSL renderer. No reference artwork or third-party sketch code ships in the collection.
+
+Each composition is aspect-correct, deterministic, and exact-loop-safe. Preview and export use the same shader and fixed-step phase. Motion stays deliberately low; the background should disclose itself around a deck, not audition for the foreground. The [Atelier design and verification note](docs/v2/ATELIER_BACKGROUNDS_2026-08-24.md) records the authorship boundary, composition grammar, and repeatable two-axis QA lane.
 
 ## Run the browser studio
 

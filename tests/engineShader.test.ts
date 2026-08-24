@@ -37,16 +37,19 @@ describe("custom shader output contract", () => {
       "cutting-map",
       "grid",
       "wave",
-    ].map(backgroundMode)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+      "atelier",
+    ].map(backgroundMode)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   it("keeps authored backgrounds aspect-aware, phase-driven, and on the shared alpha contract", () => {
     expect(backgroundFragmentShader).toContain("p.x *= aspect");
     expect(backgroundFragmentShader).toContain("uMode < 5.5");
     expect(backgroundFragmentShader).toContain("uMode < 6.5");
+    expect(backgroundFragmentShader).toContain("uMode < 7.5");
     expect(backgroundFragmentShader).toContain("cutting-map-0");
     expect(backgroundFragmentShader).toContain("grid-0");
     expect(backgroundFragmentShader).toContain("wave-0");
+    expect(backgroundFragmentShader).toContain("atelier-0");
     expect(backgroundFragmentShader).toContain("sin(uPhase)");
     expect(backgroundFragmentShader).toContain("gl_FragColor.a = clamp(uOpacity, 0.0, 1.0)");
   });

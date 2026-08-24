@@ -1,8 +1,8 @@
 import { deepFreeze, type DeepReadonly } from "./immutability";
 
-export const ATMOSPHERE_FAMILY_COUNT = 8 as const;
+export const ATMOSPHERE_FAMILY_COUNT = 9 as const;
 export const ATMOSPHERE_COMPOSITIONS_PER_FAMILY = 8 as const;
-export const ATMOSPHERE_COMPOSITION_COUNT = 64 as const;
+export const ATMOSPHERE_COMPOSITION_COUNT = 72 as const;
 export const ATMOSPHERE_HERO_COUNT = 12 as const;
 
 export type AtmosphereFamilyId =
@@ -13,7 +13,8 @@ export type AtmosphereFamilyId =
   | "void"
   | "cutting-map"
   | "grid"
-  | "wave";
+  | "wave"
+  | "atelier";
 
 export interface AtmosphereCompositionDefinition {
   readonly id: string;
@@ -29,7 +30,7 @@ export interface AtmosphereFamilyDefinition {
 }
 
 /**
- * Eight structural languages shared with the curated Background Atlas.
+ * Nine structural languages shared with the curated Background Atlas.
  * Colour, treatment, and recut stay independent; these IDs describe space.
  */
 export const ATMOSPHERE_FAMILIES = deepFreeze([
@@ -153,6 +154,21 @@ export const ATMOSPHERE_FAMILIES = deepFreeze([
       { id: "undertow-lines", name: "Undertow Lines", description: "Long submerged bands pulling gently beneath a calm upper field." },
     ],
   },
+  {
+    id: "atelier",
+    name: "Atelier Studies",
+    character: "Living paper, translucent pigment, and sparse constructed marks that feel painted rather than decorated.",
+    compositions: [
+      { id: "saffron-anatomy", name: "Saffron Anatomy", description: "A sunlit pigment bloom crossed by radial ink filaments, marginal notes, and sparse drips." },
+      { id: "verdigris-fresco", name: "Verdigris Fresco", description: "Mineral glaze, plaster tooth, architectural arches, and one hairline seam weathered into the wall." },
+      { id: "ultramarine-ledger", name: "Ultramarine Ledger", description: "A pooled blue wash held against old-paper rules, a dry stroke, and a quiet editorial margin." },
+      { id: "rose-madder-bloom", name: "Rose Madder Bloom", description: "Five translucent lobes with pooled pigment edges, fine veins, and a faded secondary wash." },
+      { id: "charcoal-cartography", name: "Charcoal Cartography", description: "Graphite smudge, topographic contours, and one confident hand-drawn route across pale cloth." },
+      { id: "gilded-palimpsest", name: "Gilded Palimpsest", description: "Faded blocks of old gold, interrupted manuscript rules, and an overwritten calligraphic arc." },
+      { id: "indigo-botanical", name: "Indigo Botanical", description: "A night-blue glaze carrying one restrained stem, alternating leaves, veins, and a ghosted bloom." },
+      { id: "oxide-gesture", name: "Oxide Gesture", description: "Dry terracotta bands, a broken orbital mark, and sparse pigment runs over warm plaster." },
+    ],
+  },
 ] as const satisfies readonly AtmosphereFamilyDefinition[]);
 
 export type AtmosphereCompositionId = (typeof ATMOSPHERE_FAMILIES)[number]["compositions"][number]["id"];
@@ -167,10 +183,10 @@ export interface AtmosphereHeroStudy {
 
 /** Candidate first-shelf metadata. The full atlas remains available through the family registry. */
 export const ATMOSPHERE_HERO_STUDIES = deepFreeze([
-  { id: "hero-pure-field", name: "Pure Field", familyId: "solid", compositionId: "pure-field", direction: "Severe field; typography and negative space hold authority." },
+  { id: "hero-saffron-anatomy", name: "Saffron Anatomy", familyId: "atelier", compositionId: "saffron-anatomy", direction: "Living yellow paper, a loose pigment bloom, and sparse radial ink." },
   { id: "hero-projector-wash", name: "Projector Wash", familyId: "solid", compositionId: "projector-wash", direction: "Warm off-axis light with enough falloff to feel projected." },
   { id: "hero-horizon-melt", name: "Horizon Melt", familyId: "gradient", compositionId: "horizon-melt", direction: "Patient weather and a dissolving line, useful for travel and memory." },
-  { id: "hero-radial-dusk", name: "Radial Dusk", familyId: "gradient", compositionId: "radial-dusk", direction: "Last light held behind the focal corridor." },
+  { id: "hero-verdigris-fresco", name: "Verdigris Fresco", familyId: "atelier", compositionId: "verdigris-fresco", direction: "Mineral wash and architectural evidence weathered into quiet plaster." },
   { id: "hero-orbiting-bloom", name: "Orbiting Bloom", familyId: "aura", compositionId: "orbiting-bloom", direction: "Two dim sources breathe around the deck, never across it." },
   { id: "hero-stained-light", name: "Stained Light", familyId: "aura", compositionId: "stained-light", direction: "Irregular colour panes with no literal window effect." },
   { id: "hero-aurora-veil", name: "Aurora Veil", familyId: "aura", compositionId: "aurora-veil", direction: "Vertical light weather authored for portrait movement." },

@@ -31,6 +31,14 @@ Animated grain is treated as a finishing process, not decorative static.
 
 Drift’s resulting judgment is specific rather than universal: monochrome world-only grain; a correlated fine/clump plate; one deterministic plate per export frame; preview cadence capped at 30 Hz; no procedural grain on slide or presenter pixels; exact stillness under Pause and Reduce Motion; and a bounded display-space finish so dark palettes survive 8-bit quantisation without turning into digital snow. Final approval includes a second-generation H.264 transcode because social delivery can turn beautiful high-frequency texture into codec mosquitoes.
 
+## Generative painting and living pigment
+
+[Surya Mattu's account of prompting Qwen to paint with code](https://surya.website/rling-qwen-to-paint-with-code) was a visual provocation for a more classical background family: translucent colour bodies, exposed construction lines, marginal notation, paper as an active material, and accidents that feel composed rather than sprayed on. The linked public p5.js sketches were treated as view-only references because an accessible editor page is not itself a reuse licence; Drift includes none of their source.
+
+[p5.brush](https://github.com/acamposuribe/p5.brush) is an MIT-licensed open-source library for watercolour, bleeding, hatching, flow fields, and plotter-like marks. It proved that this territory has a healthy reusable commons. Drift does not add the dependency: its renderer already needs deterministic raw GLSL, fixed-step export, and one WebGL draw path. Atelier therefore translates the general media principles—not the library's implementation—into eight original, aspect-correct shader compositions.
+
+The resulting rules are narrow: transparent glazes before linework; pooled edges without simulated-fluid theatre; static paper tooth separated from animated film grain; a few closed integer harmonics for motion; stable negative space for slides; and distinct material structure before palette. The reference image is not bundled, traced, sampled, or reconstructed.
+
 ## Borders and shadows
 
 [Evan Wallace’s rounded-rectangle shadow derivation](https://madebyevan.com/shaders/fast-rounded-rectangle-shadows/) treats a shadow as Gaussian falloff from the original shape and bounds useful support around the blur. That distinction repaired Drift’s earlier failure: the expanded shadow plane is support for the falloff, never the shadow caster itself.

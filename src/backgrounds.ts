@@ -4,7 +4,8 @@ import type { AtmosphereSettings } from "./core/project/schema";
 export type OpaqueBackgroundStyle = Exclude<BackgroundStyle, "transparent">;
 
 export const BACKGROUND_COMPOSITIONS_PER_FAMILY = 8;
-export const BACKGROUND_COMPOSITION_COUNT = BACKGROUND_COMPOSITIONS_PER_FAMILY * 8;
+export const BACKGROUND_FAMILY_COUNT = 9;
+export const BACKGROUND_COMPOSITION_COUNT = BACKGROUND_COMPOSITIONS_PER_FAMILY * BACKGROUND_FAMILY_COUNT;
 export const BACKGROUND_ATLAS_SEED_BASE = 10_000;
 export const BACKGROUND_VARIATION_COUNT = 100;
 
@@ -44,6 +45,7 @@ export const BACKGROUND_FAMILY_LABELS: Readonly<Record<OpaqueBackgroundStyle, st
   "cutting-map": "Cutting map",
   grid: "Quiet grid",
   wave: "Tidal wave",
+  atelier: "Atelier studies",
 };
 
 export const BACKGROUND_COMPOSITIONS: Readonly<Record<OpaqueBackgroundStyle, readonly BackgroundComposition[]>> = {
@@ -127,6 +129,16 @@ export const BACKGROUND_COMPOSITIONS: Readonly<Record<OpaqueBackgroundStyle, rea
     { id: "contour-current", name: "Contour current", description: "Flow lines bending around the focal corridor like water around stone." },
     { id: "undertow-lines", name: "Undertow lines", description: "Long submerged bands pulling gently beneath a calm upper field." },
   ],
+  atelier: [
+    { id: "saffron-anatomy", name: "Saffron anatomy", description: "A sunlit pigment bloom crossed by radial ink filaments, marginal notes, and sparse drips." },
+    { id: "verdigris-fresco", name: "Verdigris fresco", description: "Mineral glaze, plaster tooth, architectural arches, and one hairline seam weathered into the wall." },
+    { id: "ultramarine-ledger", name: "Ultramarine ledger", description: "A pooled blue wash held against old-paper rules, a dry stroke, and a quiet editorial margin." },
+    { id: "rose-madder-bloom", name: "Rose madder bloom", description: "Five translucent lobes with pooled pigment edges, fine veins, and a faded secondary wash." },
+    { id: "charcoal-cartography", name: "Charcoal cartography", description: "Graphite smudge, topographic contours, and one confident hand-drawn route across pale cloth." },
+    { id: "gilded-palimpsest", name: "Gilded palimpsest", description: "Faded blocks of old gold, interrupted manuscript rules, and an overwritten calligraphic arc." },
+    { id: "indigo-botanical", name: "Indigo botanical", description: "A night-blue glaze carrying one restrained stem, alternating leaves, veins, and a ghosted bloom." },
+    { id: "oxide-gesture", name: "Oxide gesture", description: "Dry terracotta bands, a broken orbital mark, and sparse pigment runs over warm plaster." },
+  ],
 };
 
 export const BACKGROUND_PALETTES: readonly BackgroundPalette[] = [
@@ -150,6 +162,14 @@ export const BACKGROUND_PALETTES: readonly BackgroundPalette[] = [
   { id: "noir-violet", name: "Noir violet", description: "Black plum, violet shadow and a faded lavender sign.", colorA: "#050407", colorB: "#1d1327", accent: "#a874cb" },
   { id: "coral-broadcast", name: "Coral broadcast", description: "Wine shadow, broadcast coral and soft peach light.", colorA: "#2d1216", colorB: "#a9434d", accent: "#ffd1bb" },
   { id: "daylight-paper", name: "Daylight paper", description: "Warm stock, pale cream and clean window light.", colorA: "#d8cfbd", colorB: "#f2eadb", accent: "#fef9ed" },
+  { id: "saffron-manuscript", name: "Saffron manuscript", description: "Sun-warmed saffron, burnt orange pigment and dry umber ink.", colorA: "#d8ba3a", colorB: "#d95d2b", accent: "#2e241f" },
+  { id: "verdigris-plaster", name: "Verdigris plaster", description: "Aged lime plaster, mineral green and one oxidised red trace.", colorA: "#d5ceb2", colorB: "#4c756d", accent: "#87483a" },
+  { id: "ultramarine-ledger", name: "Ultramarine ledger", description: "Old cotton paper, deep blue pigment and near-black editorial ink.", colorA: "#e1d7bb", colorB: "#285287", accent: "#28251f" },
+  { id: "rose-madder-paper", name: "Rose madder paper", description: "Warm rag stock, transparent madder red and bruised plum linework.", colorA: "#e4d2bb", colorB: "#a94e48", accent: "#52343a" },
+  { id: "graphite-cloth", name: "Graphite cloth", description: "Pale woven stock, rubbed graphite and decisive charcoal black.", colorA: "#d7d2c5", colorB: "#68645e", accent: "#262626" },
+  { id: "gilded-vellum", name: "Gilded vellum", description: "Handled vellum, muted old gold and dark manuscript brown.", colorA: "#d7c790", colorB: "#8a672f", accent: "#2d231a" },
+  { id: "indigo-herbarium", name: "Indigo herbarium", description: "Inky night blue, mineral teal and a faded botanical gold.", colorA: "#111a30", colorB: "#28516a", accent: "#d4c78e" },
+  { id: "oxide-fresco", name: "Oxide fresco", description: "Warm plaster, iron-oxide red and a dry earthen line.", colorA: "#d6c2a6", colorB: "#a54832", accent: "#4b3028" },
 ];
 
 function whole(value: number, min: number, max: number): number {
@@ -352,6 +372,15 @@ export const BACKGROUND_STUDIES: readonly BackgroundStudy[] = [
   makeStudy("radial-echo-study", "Radial Echo", "wave", "Memory", "Off-centre silver echoes fading into photographic black.", "silver-gelatin", 5, 86, 0.42, 0.1, 0.14, 0.52),
   makeStudy("contour-current-study", "Contour Current", "wave", "Documentary", "Moss-green flow lines bending around an open reading corridor.", "forest-negative", 6, 21, 0.4, 0.09, 0.12, 0.38),
   makeStudy("undertow-lines-study", "Undertow Lines", "wave", "Noir", "Long sodium bands pulling quietly beneath an asphalt-dark field.", "sodium-night", 7, 74, 0.44, 0.12, 0.14, 0.5),
+
+  makeStudy("saffron-anatomy-study", "Saffron Anatomy", "atelier", "Generative painting", "A bright living-paper field, translucent orange wash, radial ink filaments, marginal marks, and restrained pigment drips.", "saffron-manuscript", 0, 37, 0.54, 0.07, 0.1, 0.14),
+  makeStudy("verdigris-fresco-study", "Verdigris Fresco", "atelier", "Classical", "Mineral-green glaze, plaster weather, quiet architectural arches, and one oxidised seam.", "verdigris-plaster", 1, 62, 0.52, 0.055, 0.12, 0.16),
+  makeStudy("ultramarine-ledger-study", "Ultramarine Ledger", "atelier", "Editorial", "Pooled blue pigment meeting old-paper rules, a dry brush trace, and one ink-dark margin.", "ultramarine-ledger", 2, 18, 0.55, 0.06, 0.1, 0.12),
+  makeStudy("rose-madder-bloom-study", "Rose Madder Bloom", "atelier", "Romance", "A translucent five-lobed bloom with pooled edges and vein-like ink held below the deck.", "rose-madder-paper", 3, 83, 0.54, 0.05, 0.11, 0.13),
+  makeStudy("charcoal-cartography-study", "Charcoal Cartography", "atelier", "Field notes", "Rubbed graphite, fine topography, and one loose route gesture across quiet cloth.", "graphite-cloth", 4, 29, 0.5, 0.045, 0.13, 0.17),
+  makeStudy("gilded-palimpsest-study", "Gilded Palimpsest", "atelier", "Archive", "Old-gold blocks, interrupted manuscript rules, and a slowly breathing calligraphic arc.", "gilded-vellum", 5, 71, 0.5, 0.04, 0.1, 0.15),
+  makeStudy("indigo-botanical-study", "Indigo Botanical", "atelier", "Botanical", "A restrained gold herbarium drawing surfacing through layered indigo and mineral-blue glaze.", "indigo-herbarium", 6, 46, 0.5, 0.065, 0.12, 0.34),
+  makeStudy("oxide-gesture-study", "Oxide Gesture", "atelier", "Abstract", "Dry terracotta bands, one broken orbit, and sparse runs painted over warm plaster.", "oxide-fresco", 7, 94, 0.54, 0.075, 0.11, 0.18),
 ];
 
 function backgroundMatches(a: BackgroundSettings, b: BackgroundSettings): boolean {

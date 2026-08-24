@@ -26,7 +26,8 @@ export type BackgroundStyle =
   | "void"
   | "cutting-map"
   | "grid"
-  | "wave";
+  | "wave"
+  | "atelier";
 export type ThemeId = "editorial-drift" | "road-memory" | "dread" | "noir-contact" | "tender-light" | "chrome-dream";
 
 export interface StageSettings {

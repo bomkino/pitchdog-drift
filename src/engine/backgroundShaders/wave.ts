@@ -1,5 +1,5 @@
 export const waveBackgroundBranch = /* glsl */ `
-    } else {
+    } else if (uMode < 7.5) {
       vec3 waveBase = mix(uColorA, uColorB, smoothstep(-0.82, 0.82, q.y) * 0.28);
 
       // wave-0 · Tidal horizon
@@ -66,5 +66,4 @@ export const waveBackgroundBranch = /* glsl */ `
         color = mix(waveBase, uColorB, lowerField * 0.16 * uIntensity);
         color = mix(color, uAccent, (bandA * 0.1 + bandB * 0.075 + bandC * 0.05) * uIntensity);
       }
-    }
 `;
