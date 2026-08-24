@@ -13,7 +13,9 @@ import {
 export interface OutcomeRecipePickerProps {
   readonly project: DriftProjectV4;
   readonly disabled?: boolean;
+  readonly safeDefaultReady: boolean;
   readonly onApply: (id: OutcomeRecipeId) => void;
+  readonly onRestoreSafeDefault: () => void;
   readonly onResetMotion: () => void;
   readonly onResetSequence: () => void;
 }
@@ -53,8 +55,12 @@ export function outcomeRecipeCardModel(
     (total, group) => total + group.passes,
     0,
   ) * recipe.sequence.repeatCount;
+  const relativePassWeight = recipe.sequence.groups.reduce(
+    (total, group) => total + group.relativeSecondsPerPass * group.passes,
+    0,
+  ) * recipe.sequence.repeatCount;
   const durationSeconds = recipe.timing.mode === "content-paced"
-    ? Math.max(0.5, movingSlideCount * recipe.timing.secondsPerSlide * sequencePasses)
+    ? Math.max(0.5, movingSlideCount * recipe.timing.secondsPerSlide * relativePassWeight)
     : masterDuration;
   const grammar = recipe.grammar === "continuous-glide"
     ? "Continuous glide"
@@ -109,7 +115,9 @@ function OutcomeTrace({ model }: { readonly model: OutcomeRecipeCardModel }) {
 export function OutcomeRecipePicker({
   project,
   disabled = false,
+  safeDefaultReady,
   onApply,
+  onRestoreSafeDefault,
   onResetMotion,
   onResetSequence,
 }: OutcomeRecipePickerProps) {
@@ -134,6 +142,22 @@ export function OutcomeRecipePicker({
         </output>
       </header>
 
+      <div className="outcome-safe-default">
+        <button
+          type="button"
+          className="restore-default-action"
+          disabled={disabled || safeDefaultReady}
+          onClick={onRestoreSafeDefault}
+        >
+          <span>
+            <strong>{safeDefaultReady ? "Clean carousel active" : "Apply clean carousel"}</strong>
+            <small>Smooth continuous motion + literal source pixels</small>
+          </span>
+          <em>Safe default</em>
+        </button>
+        <small>Background, framing, media, and pin stay exactly where you put them.</small>
+      </div>
+
       <div className="outcome-card-grid" role="list" aria-label="Motion outcomes">
         {cards.map((card) => {
           const active = identity === card.id;
@@ -151,7 +175,7 @@ export function OutcomeRecipePicker({
               >
                 <span className="outcome-card-title">
                   <strong>{card.label}</strong>
-                  {card.recommended ? <em>Safe default</em> : null}
+                  {card.recommended ? <em>Motion default</em> : null}
                 </span>
                 <span className="outcome-card-description">{card.description}</span>
                 <OutcomeTrace model={card} />
@@ -167,14 +191,6 @@ export function OutcomeRecipePicker({
       </div>
 
       <footer className="outcome-picker-actions">
-        <button
-          type="button"
-          className="restore-default-action"
-          disabled={disabled || identity === "smooth-carousel"}
-          onClick={() => onApply("smooth-carousel")}
-        >
-          Restore Smooth Carousel
-        </button>
         <span className="outcome-reset-actions" aria-label="Scoped defaults">
           <button type="button" disabled={disabled} onClick={onResetMotion}>Reset motion only</button>
           <button type="button" disabled={disabled} onClick={onResetSequence}>Reset sequence only</button>

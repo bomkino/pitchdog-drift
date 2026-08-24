@@ -88,8 +88,9 @@ describe("timeline dock presentation helpers", () => {
     expect(resolveTimelineKeyboardSeek(model, firstPassEnd, "ArrowRight", true, 30))
       .toBe(model.passBoundaries[2]!.time);
     expect(resolveTimelineKeyboardSeek(model, 4, "Home", false, 30)).toBe(0);
-    expect(resolveTimelineKeyboardSeek(model, 4, "End", false, 30)).toBe(10);
-    expect(resolveTimelineKeyboardSeek(model, 10, "ArrowRight", false, 30)).toBe(10);
+    expect(resolveTimelineKeyboardSeek(model, 4, "End", false, 30)).toBe(model.totalDuration);
+    expect(resolveTimelineKeyboardSeek(model, model.totalDuration, "ArrowRight", false, 30))
+      .toBe(model.totalDuration);
   });
 });
 

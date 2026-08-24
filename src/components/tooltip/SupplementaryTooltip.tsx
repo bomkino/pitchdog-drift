@@ -13,6 +13,7 @@ import {
   useState,
   type CSSProperties,
   type FocusEventHandler,
+  type MouseEventHandler,
   type PointerEventHandler,
   type ReactElement,
   type ReactNode,
@@ -149,7 +150,13 @@ function useTooltipRoot(): TooltipRootValue {
   return value;
 }
 
-export function SupplementaryTooltipRoot({ children }: { readonly children: ReactNode }) {
+export function SupplementaryTooltipRoot({
+  children,
+  disabled = false,
+}: {
+  readonly children: ReactNode;
+  readonly disabled?: boolean;
+}) {
   const provider = useTooltipProvider();
   const active = provider.active;
   const requestOpen = provider.requestOpen;
@@ -160,26 +167,31 @@ export function SupplementaryTooltipRoot({ children }: { readonly children: Reac
   const triggerRef = useRef<HTMLElement | null>(null);
   const hoveredRef = useRef(false);
   const keyboardFocusedRef = useRef(false);
-  const open = active?.id === id;
+  const open = !disabled && active?.id === id;
 
   const pointerEntered = useCallback(() => {
+    if (disabled) return;
     hoveredRef.current = true;
     requestOpen(id, "pointer");
-  }, [id, requestOpen]);
+  }, [disabled, id, requestOpen]);
   const pointerLeft = useCallback(() => {
     hoveredRef.current = false;
     if (!keyboardFocusedRef.current) close(id);
   }, [close, id]);
   const focused = useCallback((keyboardVisible: boolean) => {
+    if (disabled) return;
     keyboardFocusedRef.current = keyboardVisible;
     if (keyboardVisible) requestOpen(id, "keyboard");
-  }, [id, requestOpen]);
+  }, [disabled, id, requestOpen]);
   const blurred = useCallback(() => {
     keyboardFocusedRef.current = false;
     if (!hoveredRef.current) close(id);
   }, [close, id]);
 
   useEffect(() => () => close(id), [close, id]);
+  useEffect(() => {
+    if (disabled) close(id);
+  }, [close, disabled, id]);
 
   const value = useMemo<TooltipRootValue>(() => ({
     id,
@@ -200,6 +212,8 @@ interface TriggerElementProps {
   readonly "aria-describedby"?: string;
   readonly onPointerEnter?: PointerEventHandler<HTMLElement>;
   readonly onPointerLeave?: PointerEventHandler<HTMLElement>;
+  readonly onPointerDown?: PointerEventHandler<HTMLElement>;
+  readonly onClick?: MouseEventHandler<HTMLElement>;
   readonly onFocus?: FocusEventHandler<HTMLElement>;
   readonly onBlur?: FocusEventHandler<HTMLElement>;
 }
@@ -242,6 +256,16 @@ export function SupplementaryTooltipTrigger({ children }: { readonly children: R
     onPointerLeave: composeEventHandlers(onlyChild.props.onPointerLeave, (event) => {
       if (event.pointerType !== "touch") tooltip.pointerLeft();
     }),
+    // A tooltip may explain a target while the pointer rests on it, but it
+    // must get out of the way the instant that target is used. Pointer-down
+    // also cancels a pending delayed open, so workspace changes never summon
+    // an explanation over the newly selected controls.
+    onPointerDown: composeEventHandlers(onlyChild.props.onPointerDown, (event) => {
+      if (event.pointerType !== "touch") tooltip.pointerLeft();
+    }),
+    // Keyboard activation dispatches click without pointer-down. Dismiss here
+    // too, then keep the tooltip quiet until focus genuinely leaves and returns.
+    onClick: composeEventHandlers(onlyChild.props.onClick, () => tooltip.pointerLeft()),
     onFocus: composeEventHandlers(onlyChild.props.onFocus, (event) => {
       tooltip.focused(event.currentTarget.matches(":focus-visible"));
     }),
@@ -327,7 +351,6 @@ export function SupplementaryTooltipContent({
     ...style,
     left: placement?.x ?? 0,
     top: placement?.y ?? 0,
-    maxWidth: `calc(100vw - ${TOOLTIP_VIEWPORT_PADDING_PX * 2}px)`,
     maxHeight: `calc(100vh - ${TOOLTIP_VIEWPORT_PADDING_PX * 2}px)`,
     transformOrigin: placement?.transformOrigin,
     visibility: placement ? "visible" : "hidden",

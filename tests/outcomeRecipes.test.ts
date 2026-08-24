@@ -381,24 +381,30 @@ describe("outcome recipe contract", () => {
     expect(detectOutcomeRecipe(afterRepin)).toBe("smooth-carousel");
   });
 
-  it("leaves Custom and fixed-master Casino as exact reconciliation no-ops", () => {
+  it("keeps Custom identity while Reading Pace and Casino reflow when moving-slide count changes", () => {
     const custom = applyOutcomeRecipe(fixture(), "smooth-carousel");
     custom.motion.path.curvature += 0.01;
     custom.presenter.enabled = false;
     expect(detectOutcomeRecipe(custom)).toBe("custom");
     expect(resolveMovingMedia(custom).count).toBe(6);
-    expect(reconcileOutcomeRecipeTiming(custom)).toBe(custom);
+    const reflowedCustom = reconcileOutcomeRecipeTiming(custom);
+    expect(reflowedCustom).not.toBe(custom);
     expect(custom.master.duration).toBeCloseTo(4.5, 12);
-    expect(detectOutcomeRecipe(custom)).toBe("custom");
+    expect(reflowedCustom.master.duration).toBeCloseTo(5.4, 12);
+    expect(reflowedCustom.performance.body.durationSeconds).toBeCloseTo(5.4, 12);
+    expect(detectOutcomeRecipe(reflowedCustom)).toBe("custom");
+    expect(reconcileOutcomeRecipeTiming(reflowedCustom)).toBe(reflowedCustom);
 
     const casino = applyOutcomeRecipe(fixture(), "casino-reveal");
     const casinoDuration = casino.master.duration;
     casino.presenter.enabled = false;
     expect(resolveMovingMedia(casino).count).toBe(6);
     expect(detectOutcomeRecipe(casino)).toBe("casino-reveal");
-    expect(reconcileOutcomeRecipeTiming(casino)).toBe(casino);
-    expect(casino.master.duration).toBe(casinoDuration);
-    expect(detectOutcomeRecipe(casino)).toBe("casino-reveal");
+    const reflowedCasino = reconcileOutcomeRecipeTiming(casino);
+    expect(reflowedCasino).not.toBe(casino);
+    expect(reflowedCasino.master.duration).toBeCloseTo(6 * 0.9 * 1.66, 12);
+    expect(reflowedCasino.master.duration).toBeGreaterThan(casinoDuration);
+    expect(detectOutcomeRecipe(reflowedCasino)).toBe("casino-reveal");
   });
 
   it("keeps Reset Motion and Reset Sequence scopes exact and command-owned", () => {
@@ -516,7 +522,7 @@ describe("outcome recipe contract", () => {
       for (const id of OUTCOME_RECIPE_IDS) {
         const applied = applyOutcomeRecipe(source, id);
         expect(resolveMovingMedia(applied).count).toBe(0);
-        expect(applied.master.duration).toBe(id === "casino-reveal" ? source.master.duration : 0.5);
+        expect(applied.master.duration).toBe(0.5);
         expect(validateDriftProjectV4(applied)).toEqual(applied);
         expect(reconcileOutcomeRecipeTiming(applied)).toBe(applied);
       }

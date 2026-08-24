@@ -174,9 +174,9 @@ test("the real V2 background browser starts curated, previews without applying, 
   await verdigris.hover();
   await expect(browser.getByText("PREVIEW · NOT APPLIED", { exact: true })).toBeVisible();
   await expect(browser.getByText("Verdigris Fresco", { exact: true }).first()).toBeVisible();
-  await expect(atmosphere.getByLabel("Background", { exact: true })).not.toHaveValue("atelier");
+  await expect(browser.locator(".current-background")).toHaveAttribute("data-previewing", "true");
   await verdigris.click();
-  await expect(atmosphere.getByLabel("Background", { exact: true })).toHaveValue("atelier");
+  await expect(browser.locator(".current-background-stage .background-preview")).toHaveAttribute("data-family", "atelier");
   await expect(verdigris).toHaveAttribute("aria-pressed", "true");
   await expect(browser.getByText("ON CANVAS", { exact: true })).toBeVisible();
 
@@ -190,8 +190,8 @@ test("the real V2 background browser starts curated, previews without applying, 
   await expect(saffron.locator(".background-preview")).toBeVisible();
   await saffron.click();
 
-  await expect(atmosphere.getByLabel("Background", { exact: true })).toHaveValue("atelier");
-  await page.locator(".workspace-advanced-trigger").click();
+  await expect(browser.locator(".current-background-stage .background-preview")).toHaveAttribute("data-family", "atelier");
+  await page.getByTestId("workspace-scroll").locator(".workspace-advanced-trigger").click();
   const tuning = page.locator(".inspector-group").filter({
     has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Background tuning$/ }),
   });
@@ -217,16 +217,28 @@ test("the real V2 background browser starts curated, previews without applying, 
   await expect(browser.locator(".background-study-card")).toHaveCount(12);
   await expect(browser.getByRole("searchbox", { name: "Find a look" })).toHaveCount(0);
 
+  const portraitCardStage = await browser.locator(".background-card-stage").first().boundingBox();
   const portraitPreview = await browser.locator(".background-card-stage .background-preview").first().boundingBox();
+  const portraitHero = await browser.locator(".current-background-stage .background-preview").boundingBox();
+  expect(portraitCardStage).not.toBeNull();
   expect(portraitPreview).not.toBeNull();
-  expect(portraitPreview!.width / portraitPreview!.height).toBeCloseTo(9 / 16, 1);
+  expect(portraitPreview!.width).toBeGreaterThanOrEqual(portraitCardStage!.width * 0.82);
+  expect(portraitPreview!.height).toBeGreaterThanOrEqual(portraitCardStage!.height * 0.82);
+  expect(portraitHero).not.toBeNull();
+  expect(portraitHero!.width / portraitHero!.height).toBeCloseTo(9 / 16, 1);
 
   await page.getByRole("button", { name: "EXPORT", exact: true }).click();
   await page.getByRole("group", { name: "Stage ratio", exact: true }).getByText("16:9", { exact: true }).click();
   await page.getByRole("button", { name: "LOOK", exact: true }).click();
+  const landscapeCardStage = await page.locator(".visual-background-browser .background-card-stage").first().boundingBox();
   const landscapePreview = await page.locator(".visual-background-browser .background-card-stage .background-preview").first().boundingBox();
+  const landscapeHero = await page.locator(".visual-background-browser .current-background-stage .background-preview").boundingBox();
+  expect(landscapeCardStage).not.toBeNull();
   expect(landscapePreview).not.toBeNull();
-  expect(landscapePreview!.width / landscapePreview!.height).toBeCloseTo(16 / 9, 1);
+  expect(landscapePreview!.width).toBeGreaterThanOrEqual(landscapeCardStage!.width * 0.82);
+  expect(landscapePreview!.height).toBeGreaterThanOrEqual(landscapeCardStage!.height * 0.82);
+  expect(landscapeHero).not.toBeNull();
+  expect(landscapeHero!.width / landscapeHero!.height).toBeCloseTo(16 / 9, 1);
 
   await page.setViewportSize({ width: 390, height: 844 });
   const cards = page.locator(".visual-background-browser .background-study-card");

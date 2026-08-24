@@ -173,13 +173,13 @@ describe("canonical visual timeline model", () => {
     const delivery = receipt(project);
 
     expect(result).toMatchObject({
-      totalDuration: 10,
       authority: "pass-sequence",
       sequenceStatus: "stored",
       movingSlideCount: 6,
       sceneCount: 1,
       bodyCycleCount: 1,
     });
+    expect(result.totalDuration).toBeCloseTo(8.964, 12);
     expect(result.entrySegments).toEqual([]);
     expect(result.exitSegments).toEqual([]);
     expect(result.bodySegments.map(({ label, pace, passCount }) => ({ label, pace, passCount })))
@@ -324,6 +324,7 @@ describe("canonical visual timeline model", () => {
 
   it("samples clamped playheads, exact joins, and strict keyboard boundaries", () => {
     const result = model(casinoProject(6, 10));
+    const duration = result.totalDuration;
     const join = result.bodySegments[0]!.end;
     const atJoin = sampleVisualTimeline(result, join);
     expect(atJoin.segmentIndex).toBe(1);
@@ -345,8 +346,8 @@ describe("canonical visual timeline model", () => {
 
     const end = sampleVisualTimeline(result, Number.POSITIVE_INFINITY);
     expect(end).toMatchObject({
-      requestedTime: 10,
-      time: 10,
+      requestedTime: duration,
+      time: duration,
       atEnd: true,
       normalizedPlayhead: 1,
       localProgress: 1,
@@ -357,7 +358,7 @@ describe("canonical visual timeline model", () => {
     const before = sampleVisualTimeline(result, -42);
     const after = sampleVisualTimeline(result, 42);
     expect(before.time).toBe(0);
-    expect(after.time).toBe(10);
+    expect(after.time).toBe(duration);
     expect(before.requestedTime).toBe(-42);
     expect(after.requestedTime).toBe(42);
   });

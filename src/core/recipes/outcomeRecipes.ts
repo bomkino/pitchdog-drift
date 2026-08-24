@@ -27,6 +27,7 @@ import {
   DEFAULT_SECONDS_PER_SLIDE,
   TIMING_EXTENSION_KEY,
   applyTimingResolution,
+  readTimingIntent,
   resolveProjectTiming,
   withTimingIntent,
   type TimingIntent,
@@ -255,7 +256,7 @@ export const OUTCOME_RECIPES: readonly OutcomeRecipeDefinition[] = [
     id: "casino-reveal",
     label: "Casino Reveal",
     description: "Two fast deck spins, one readable reveal, then one fast closing spin.",
-    changesSummary: "Changes Motion, Performance, Timing, and Sequence: continuous glide and exact FAST ×2, READ ×1, FAST ×1 inside the current master duration; entry and exit off.",
+    changesSummary: "Changes Motion, Performance, Timing, and Sequence: continuous glide and FAST ×2, READ ×1, FAST ×1 with a protected 0.90 s-per-slide reveal; entry and exit off. Choose Exact length only when you want to squeeze the sequence into a fixed runtime.",
     axisCompatibility: "horizontal-and-vertical",
     ownedDomains: OWNED_DOMAINS,
     ownedPaths: OWNED_PATHS,
@@ -282,11 +283,7 @@ export const OUTCOME_RECIPES: readonly OutcomeRecipeDefinition[] = [
         edgeFade: 0.11,
       },
     },
-    timing: {
-      schemaVersion: 1,
-      mode: "fixed-master",
-      secondsPerSlide: DEFAULT_SECONDS_PER_SLIDE,
-    },
+    timing: { schemaVersion: 1, mode: "content-paced", secondsPerSlide: 0.9 },
     sequence: CASINO_SEQUENCE,
   },
 ] as const;
@@ -431,19 +428,27 @@ export function applyOutcomeRecipe(project: DriftProjectV4, id: OutcomeRecipeId)
 }
 
 /**
- * Reconciles a still-valid content-paced outcome after media or pin changes.
- * Custom projects and fixed-master outcomes are exact referential no-ops.
+ * Reconciles stored Reading Pace after media or pin changes. Timing authority
+ * survives visual or motion customization: changing a World must not turn a
+ * later pin into an unresolved master. A still-valid outcome reference is
+ * refreshed; Custom projects remain Custom while their authored pace holds.
  */
 export function reconcileOutcomeRecipeTiming(project: DriftProjectV4): DriftProjectV4 {
+  const timing = readTimingIntent(project);
+  if (timing.status !== "stored" || timing.intent.mode !== "content-paced") return project;
+
   const identity = detectOutcomeRecipe(project);
-  if (identity === "custom") return project;
-  const recipe = getOutcomeRecipe(identity);
-  if (recipe.timing.mode !== "content-paced") return project;
+  const resolution = resolveProjectTiming(project, countMovingMedia(project), timing.intent);
+  const reconciled = applyTimingResolution(project, resolution);
+  if (identity === "custom") {
+    return reconciled.master.duration === project.master.duration
+        && reconciled.performance.body.durationSeconds === project.performance.body.durationSeconds
+      ? project
+      : reconciled;
+  }
 
   const reference = parseOutcomeRecipeReference(project.extensions[OUTCOME_RECIPE_EXTENSION_KEY]);
-  if (!reference) return project;
-  const resolution = resolveProjectTiming(project, countMovingMedia(project), recipe.timing);
-  const reconciled = applyTimingResolution(project, resolution);
+  if (!reference) return reconciled;
   if (ownedFingerprint(reconciled, identity) === reference.ownedFingerprint) return project;
   return withOutcomeReference(reconciled, identity);
 }

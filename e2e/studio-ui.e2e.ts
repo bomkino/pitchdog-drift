@@ -28,11 +28,10 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await switchWorkspace(page, "LOOK");
   const atmosphere = page.locator(".inspector-group").filter({ has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Background$/ }) });
   if (await atmosphere.getAttribute("data-expanded") !== "true") await atmosphere.locator(":scope > .inspector-group-trigger").click();
-  const background = page.getByRole("combobox", { name: "Background", exact: true });
   // The restrained Editorial Drift foundation opens on Long Fibres paper.
   // Choosing the richer Editorial Drift Film World later is a separate,
   // explicit authored scene operation and moves to Orbiting Bloom/Aura.
-  await expect(background).toHaveValue("paper");
+  await expect(page.locator(".current-background-stage .background-preview")).toHaveAttribute("data-family", "paper");
 
   await switchWorkspace(page, "MOTION");
   const flowAxis = page.getByRole("group", { name: "Flow axis" });
@@ -64,7 +63,7 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await page.getByLabel("Stage height").fill("1920");
 
   await switchWorkspace(page, "LOOK");
-  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
   const filmWorlds = page.locator("details.world-browser");
   if (await filmWorlds.getAttribute("open") === null) await filmWorlds.locator("summary").click();
   await filmWorlds.getByRole("button", { name: /^Film World: Dread\./ }).click();
@@ -78,10 +77,10 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
   await expect(page.locator(".stage-hud")).toContainText("1200 × 1080");
 
   await switchWorkspace(page, "LOOK");
-  await background.selectOption("transparent");
+  await page.locator('.background-study-card[data-background-id="transparent"]').click();
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "true");
   await filmWorlds.getByRole("button", { name: /^Film World: Sunstruck Atlas\./ }).click();
-  await expect(background).toHaveValue("gradient");
+  await expect(page.locator(".current-background-stage .background-preview")).toHaveAttribute("data-family", "gradient");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "false");
 
   const contextExtension = await page.locator("[data-testid=webgl-stage]").evaluate((canvas) => {
@@ -115,15 +114,16 @@ test("director fields expose concise names and separate supporting descriptions"
   await switchWorkspace(page, "SLIDES");
   await expect(page.getByLabel("Slide ratio", { exact: true })).toHaveValue("16:9");
   await switchWorkspace(page, "MOTION");
-  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
   await page.locator(".inspector-group").filter({ has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Motion physics$/ }) }).locator(":scope > .inspector-group-trigger").click();
-  await expect(page.getByRole("slider", { name: "Free-run speed", exact: true })).toBeVisible();
+  await expect(page.getByRole("slider", { name: "Free-run speed", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/authored sequence owns speed/i).first()).toBeVisible();
 
   const reducedMotion = page.getByRole("switch", { name: "Reduced-motion master", exact: true });
   await expect(reducedMotion).toHaveAccessibleDescription(/Independent from your OS preview preference/);
 
   await switchWorkspace(page, "LOOK");
-  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
   const surface = page.locator(".inspector-group").filter({ has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Card surface$/ }) });
   await surface.locator(":scope > .inspector-group-trigger").click();
   await expect(page.getByLabel("Border", { exact: true })).toBeVisible();
@@ -206,7 +206,7 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
   await expect(pinnedSwitch).toBeDisabled();
   const pinButton = page.getByRole("button", { name: "Keep Drift study 02.png still" });
   await pinButton.click();
-  await expect(pinnedGroup).toHaveAttribute("open", "");
+  await expect(pinnedGroup).toHaveAttribute("data-expanded", "true");
   await expect(page.getByRole("button", { name: "Return Drift study 02.png to the carousel" })).toBeFocused();
   await expect(pinnedSwitch).toBeEnabled();
   await expect(pinnedSwitch).toBeChecked();
@@ -220,8 +220,9 @@ test("keyboard controls stay visible, file pickers stay out of Tab order, and sl
 test("reduced motion yields a stable rendered interval without animated grain", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await waitForStudio(page);
-  await expect(page.getByText("OS MOTION HOLD · MASTER UNCHANGED", { exact: true })).toBeVisible();
-  await expect(page.getByText("OS MOTION HOLD · MASTER UNCHANGED", { exact: true })).toHaveAttribute("title", /Export still follows/);
+  await expect(page.getByText("OS motion hold · scrub still works", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Cinematic preview" }))
+    .toHaveAccessibleDescription(/held by the Mac Reduce Motion setting/i);
   // Element screenshots include DOM layers painted over the canvas. Hide the
   // live FPS counter and timed notices so their independent updates cannot
   // impersonate WebGL motion in this exact-pixel assertion.

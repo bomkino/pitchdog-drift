@@ -34,7 +34,7 @@ function expectMonotone(
 test("measured disclosure reverses in place and removes closed content from focus", async ({ page, request }) => {
   const sourceResponse = await request.get("/src/components/MeasuredDisclosure.tsx");
   expect(sourceResponse.ok()).toBe(true);
-  expect(await sourceResponse.text()).toContain("DISCLOSURE_DURATION_MS = 200");
+  expect(await sourceResponse.text()).toContain("MAX_DISCLOSURE_DURATION_MS = 420");
 
   await waitForStudio(page);
   await page.getByRole("button", { name: "Pause preview" }).click();
@@ -60,26 +60,30 @@ test("measured disclosure reverses in place and removes closed content from focu
       animation.pause();
       return animation;
     };
-    const sample = (animation: Animation, times: number[]) => times.map((time) => {
-      animation.currentTime = time;
+    const sample = (animation: Animation) => {
+      const duration = Number(animation.effect?.getTiming().duration);
+      if (!Number.isFinite(duration)) throw new Error("Disclosure animation has no finite duration.");
+      return [0, 0.2, 0.4, 0.6, 0.8, 1].map((fraction) => {
+      animation.currentTime = duration * fraction;
       return height();
-    });
+      });
+    };
 
     disclosureTrigger.click();
     const openingAnimation = await nextAnimation();
-    const opening = sample(openingAnimation, [0, 20, 40, 60, 80]);
+    const opening = sample(openingAnimation);
     const beforeClose = height();
 
     disclosureTrigger.click();
     const closingAnimation = await nextAnimation();
     const closeContinuity = Math.abs(height() - beforeClose);
-    const closing = sample(closingAnimation, [0, 15, 30, 45, 60]);
+    const closing = sample(closingAnimation);
     const beforeReopen = height();
 
     disclosureTrigger.click();
     const reopeningAnimation = await nextAnimation();
     const reopenContinuity = Math.abs(height() - beforeReopen);
-    const reopening = sample(reopeningAnimation, [0, 40, 80, 120, 160, 200]);
+    const reopening = sample(reopeningAnimation);
     reopeningAnimation.finish();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     return {
@@ -141,8 +145,10 @@ test("open disclosure retargets measured height when conditional content changes
     }
     if (!animation) throw new Error("ResizeObserver did not retarget the open disclosure.");
     animation.pause();
-    const samples = [0, 40, 80, 120, 160, 200].map((time) => {
-      animation.currentTime = time;
+    const duration = Number(animation.effect?.getTiming().duration);
+    if (!Number.isFinite(duration)) throw new Error("Disclosure animation has no finite duration.");
+    const samples = [0, 0.2, 0.4, 0.6, 0.8, 1].map((fraction) => {
+      animation.currentTime = duration * fraction;
       return element.getBoundingClientRect().height;
     });
     animation.finish();
@@ -170,16 +176,16 @@ test("desktop action targets stay at least 44px and disclosures cannot move the 
 
   for (const workspace of ["SLIDES", "LOOK", "MOTION", "EXPORT"] as const) {
     await switchWorkspace(page, workspace);
-    const advanced = page.locator(".workspace-advanced-trigger");
+    const advanced = page.getByTestId("workspace-scroll").locator(".workspace-advanced-trigger");
     if (await advanced.getAttribute("aria-expanded") === "false") await advanced.click();
-    await page.locator(".inspector-group-trigger[aria-expanded='false']").evaluateAll((buttons) => {
+    await page.getByTestId("workspace-scroll").locator(".inspector-group-trigger[aria-expanded='false']").evaluateAll((buttons) => {
       for (const button of buttons) (button as HTMLButtonElement).click();
     });
     if (workspace === "LOOK") {
       const worldBrowser = page.locator("details.world-browser");
       if (await worldBrowser.getAttribute("open") === null) await worldBrowser.locator(":scope > summary").click();
     }
-    await page.waitForTimeout(240);
+    await page.waitForTimeout(340);
 
     const failures = await page.locator([
       ".workspace-switcher button",
@@ -219,7 +225,7 @@ test("captures the Advanced disclosure closed and open at 1920x1080", async ({ p
   await page.getByRole("button", { name: "Pause preview" }).click();
   await switchWorkspace(page, "LOOK");
   const scrollOwner = page.getByTestId("workspace-scroll");
-  const advanced = page.locator(".workspace-advanced-trigger");
+  const advanced = page.getByTestId("workspace-scroll").locator(".workspace-advanced-trigger");
   await advanced.scrollIntoViewIfNeeded();
   await scrollOwner.evaluate((element) => { element.scrollTop = element.scrollHeight; });
   await expect(advanced).toHaveAttribute("aria-expanded", "false");
@@ -229,7 +235,7 @@ test("captures the Advanced disclosure closed and open at 1920x1080", async ({ p
   });
 
   await advanced.click();
-  await expect(page.locator(".workspace-advanced")).toHaveAttribute("data-disclosure-state", "open");
+  await expect(page.getByTestId("workspace-scroll").locator(".workspace-advanced")).toHaveAttribute("data-disclosure-state", "open");
   await advanced.evaluate((element) => element.scrollIntoView({ block: "start" }));
   await page.evaluate(() => new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));

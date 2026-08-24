@@ -2,20 +2,21 @@ import { expect, test, type Locator } from "@playwright/test";
 import { switchWorkspace, waitForStudio } from "./studio.helpers";
 
 async function ensureOpen(group: Locator): Promise<void> {
-  if (await group.getAttribute("open") === null) await group.locator(":scope > summary").click();
+  if (await group.getAttribute("data-expanded") !== "true") {
+    await group.locator(":scope > .inspector-group-trigger").click();
+  }
 }
 
 test("preflight separates harmless endpoint rounding from uneven pose holds", async ({ page }) => {
   await waitForStudio(page);
   await switchWorkspace(page, "MOTION");
-  await page.getByText("Advanced", { exact: true }).click();
-  const editorialRhythm = page.locator("details.inspector-group").filter({
-    has: page.locator(":scope > summary > span", { hasText: /^Editorial rhythm$/ }),
+  const travel = page.locator(".inspector-group").filter({
+    has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Travel$/ }),
   });
-  await ensureOpen(editorialRhythm);
-  await editorialRhythm.getByRole("group", { name: "Pose cadence" }).getByText("12", { exact: true }).click();
-  const timelineIntent = page.locator("details.inspector-group").filter({
-    has: page.locator(":scope > summary > span", { hasText: /^Timeline intent$/ }),
+  await ensureOpen(travel);
+  await travel.getByRole("group", { name: "Motion cadence" }).getByText("12 fps", { exact: true }).click();
+  const timelineIntent = page.locator(".inspector-group").filter({
+    has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Timeline intent$/ }),
   });
   await ensureOpen(timelineIntent);
   await timelineIntent.getByRole("group", { name: "Timing authority" }).getByText("Exact length", { exact: true }).click();

@@ -24,7 +24,7 @@ describe("outcome recipe picker", () => {
       label: "Casino Reveal",
       sequence: "FAST ×2 → READ ×1 → FAST ×1",
       behavior: "4 passes · Continuous glide",
-      duration: "30 s master",
+      duration: "12 s for 8 slides",
     });
     expect(casino.trace.map(({ label, passes, pace }) => ({ label, passes, pace }))).toEqual([
       { label: "FAST ×2", passes: 2, pace: "fast" },
@@ -39,7 +39,9 @@ describe("outcome recipe picker", () => {
     const markup = renderToStaticMarkup(
       <OutcomeRecipePicker
         project={project}
+        safeDefaultReady={false}
         onApply={() => undefined}
+        onRestoreSafeDefault={() => undefined}
         onResetMotion={() => undefined}
         onResetSequence={() => undefined}
       />,
@@ -48,10 +50,12 @@ describe("outcome recipe picker", () => {
     expect(markup).toContain("How should the deck move?");
     expect(markup).toContain("Your slides and Look never change.");
     expect(markup).toContain("Current · <strong>Casino Reveal</strong>");
-    expect(markup).toContain("Safe default");
+    expect(markup).toContain("Motion default");
     expect(markup).toContain("FAST ×2");
     expect(markup).toContain("READ ×1");
-    expect(markup).toContain("Restore Smooth Carousel");
+    expect(markup).toContain("Apply clean carousel");
+    expect(markup).toContain("Safe default");
+    expect(markup).toContain("Smooth continuous motion + literal source pixels");
     expect(markup).toContain("Reset motion only");
     expect(markup).toContain("Reset sequence only");
     expect((markup.match(/class="outcome-card"/gu) ?? [])).toHaveLength(OUTCOME_RECIPES.length);
@@ -73,7 +77,9 @@ describe("outcome recipe picker", () => {
     const lookMarkup = renderToStaticMarkup(
       <OutcomeRecipePicker
         project={lookEdited}
+        safeDefaultReady={false}
         onApply={() => undefined}
+        onRestoreSafeDefault={() => undefined}
         onResetMotion={() => undefined}
         onResetSequence={() => undefined}
       />,
@@ -83,7 +89,9 @@ describe("outcome recipe picker", () => {
     const motionMarkup = renderToStaticMarkup(
       <OutcomeRecipePicker
         project={motionEdited}
+        safeDefaultReady={false}
         onApply={() => undefined}
+        onRestoreSafeDefault={() => undefined}
         onResetMotion={() => undefined}
         onResetSequence={() => undefined}
       />,

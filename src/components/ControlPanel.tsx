@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   BACKGROUND_COMPOSITIONS,
   BACKGROUND_FAMILY_LABELS,
@@ -52,6 +52,7 @@ import {
 } from "../core/recipes/lens";
 import {
   applyOutcomeRecipe,
+  detectOutcomeRecipe,
   getOutcomeRecipe,
   resetMotion,
   resetSequence,
@@ -116,8 +117,13 @@ import {
   describeDeliverySound,
   evaluatePreflight,
   type GuideOverlapFact,
+  type PreflightIssue,
 } from "../core/preflight";
 import type { ExportCapabilityReport } from "../lib/exportStudio";
+import {
+  applySourceFaithfulLook,
+  isSourceFaithfulLook,
+} from "../core/recipes/sourceFaithfulLook";
 import {
   WorkspaceInspector,
   WorkspaceSection,
@@ -177,6 +183,42 @@ function bodyDurationForTotal(
     case "full-scene":
       return totalDuration / performance.repeat.count - entryDuration - exitDuration;
   }
+}
+
+interface PreflightDisplayIssue {
+  readonly key: string;
+  readonly severity: PreflightIssue["severity"];
+  readonly message: string;
+}
+
+function groupPreflightIssues(
+  issues: readonly PreflightIssue[],
+  project: DriftProjectV4,
+): readonly PreflightDisplayIssue[] {
+  const groups = new Map<string, { issue: PreflightIssue; subjects: string[] }>();
+  for (const issue of issues) {
+    const key = `${issue.severity}\u0000${issue.id}\u0000${issue.message}`;
+    const group = groups.get(key) ?? { issue, subjects: [] };
+    if (issue.subjectId && !group.subjects.includes(issue.subjectId)) group.subjects.push(issue.subjectId);
+    groups.set(key, group);
+  }
+  return [...groups.entries()].map(([key, { issue, subjects }]) => {
+    if (!subjects.length) return { key, severity: issue.severity, message: issue.message };
+    const labels = subjects.map((subjectId) => {
+      const orderIndex = project.media.order.indexOf(subjectId);
+      const asset = project.media.assets[subjectId];
+      return asset
+        ? `${orderIndex >= 0 ? String(orderIndex + 1).padStart(2, "0") : "Media"} · ${asset.name}`
+        : subjectId;
+    });
+    const visible = labels.slice(0, 3).join(", ");
+    const remainder = labels.length > 3 ? ` + ${labels.length - 3} more` : "";
+    return {
+      key,
+      severity: issue.severity,
+      message: `${issue.message} Affected: ${visible}${remainder}.`,
+    };
+  });
 }
 
 function minimumTotalDuration(performance: PerformanceLifecycleAuthoring): number {
@@ -279,41 +321,7 @@ export function ControlPanel({
   const [backgroundQuery, setBackgroundQuery] = useState("");
   const [backgroundFamily, setBackgroundFamily] = useState<"all" | OpaqueBackgroundStyle>("all");
   const [worldLibraryOpen, setWorldLibraryOpen] = useState(false);
-  const workspaceScrollRef = useRef<HTMLDivElement>(null);
-  const workspaceScrollPositionsRef = useRef<Record<StudioWorkspace, number>>({
-    slides: 0,
-    look: 0,
-    motion: 0,
-    export: 0,
-  });
-  const restoringWorkspaceRef = useRef<StudioWorkspace | null>(null);
-  useLayoutEffect(() => {
-    const scrollOwner = workspaceScrollRef.current;
-    if (!scrollOwner) return;
-    const restoredTop = workspaceScrollPositionsRef.current[workspace];
-    restoringWorkspaceRef.current = workspace;
-    let settleFrame = 0;
-    scrollOwner.scrollTop = restoredTop;
-    const frame = requestAnimationFrame(() => {
-      scrollOwner.scrollTop = restoredTop;
-      settleFrame = requestAnimationFrame(() => {
-        scrollOwner.scrollTop = restoredTop;
-        workspaceScrollPositionsRef.current[workspace] = scrollOwner.scrollTop;
-        if (restoringWorkspaceRef.current === workspace) restoringWorkspaceRef.current = null;
-      });
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      cancelAnimationFrame(settleFrame);
-      if (restoringWorkspaceRef.current === workspace) restoringWorkspaceRef.current = null;
-    };
-  }, [workspace]);
-  const changeWorkspace = (nextWorkspace: StudioWorkspace) => {
-    if (workspaceScrollRef.current) {
-      workspaceScrollPositionsRef.current[workspace] = workspaceScrollRef.current.scrollTop;
-    }
-    onWorkspace(nextWorkspace);
-  };
+  const changeWorkspace = (nextWorkspace: StudioWorkspace) => onWorkspace(nextWorkspace);
   const patch = <K extends keyof StudioSettings>(key: K, values: Partial<StudioSettings[K]>) => {
     onSettings({
       ...settings,
@@ -428,6 +436,7 @@ export function ControlPanel({
   const finishRecipe = detectFinishRecipe(project);
   const lightingRecipe = detectLightingRecipe(project);
   const lensRecipe = detectLensRecipe(project);
+  const sourceFaithfulLook = isSourceFaithfulLook(project);
   const handcraftedMotion = HANDCRAFTED_MOTION_PRESETS.find((preset) => (
     preset.cutId === project.motion.cadence.cutId
     && preset.performanceId === project.motion.performance.id
@@ -493,6 +502,14 @@ export function ControlPanel({
       ? { supported: true }
       : { supported: false, reason: "The cinematic renderer is not available for this master." },
   }), [deliveryReceipt, exportCapabilities, exportSurfaceSupported, guideOverlaps, slideHealth]);
+  const preflightProblems = useMemo(
+    () => groupPreflightIssues([...preflight.blockers, ...preflight.warnings], project),
+    [preflight.blockers, preflight.warnings, project],
+  );
+  const preflightNotes = useMemo(
+    () => groupPreflightIssues(preflight.notes, project),
+    [preflight.notes, project],
+  );
 
   return (
     <SupplementaryTooltip.Provider>
@@ -507,30 +524,24 @@ export function ControlPanel({
       </div>
 
       <nav className="workspace-switcher" aria-label="Director workspaces">
-        {(Object.keys(WORKSPACE_COPY) as StudioWorkspace[]).map((id) => (
-          <SupplementaryTooltip.Root key={id}>
-            <SupplementaryTooltip.Trigger>
-              <button type="button" data-purpose={WORKSPACE_COPY[id].purpose} aria-label={WORKSPACE_COPY[id].kicker} aria-current={workspace === id ? "page" : undefined} onClick={() => changeWorkspace(id)}>
-                {WORKSPACE_COPY[id].kicker}
-              </button>
-            </SupplementaryTooltip.Trigger>
-            <SupplementaryTooltip.Content preferredSide="bottom">
-              {WORKSPACE_COPY[id].guide}
-            </SupplementaryTooltip.Content>
-          </SupplementaryTooltip.Root>
-        ))}
+        {(Object.keys(WORKSPACE_COPY) as StudioWorkspace[]).map((id) => {
+          const tab = (
+            <button type="button" data-purpose={WORKSPACE_COPY[id].purpose} aria-label={WORKSPACE_COPY[id].kicker} aria-current={workspace === id ? "page" : undefined} onClick={() => changeWorkspace(id)}>
+              {WORKSPACE_COPY[id].kicker}
+            </button>
+          );
+          return (
+            <SupplementaryTooltip.Root key={id} disabled={workspace === id}>
+              <SupplementaryTooltip.Trigger>{tab}</SupplementaryTooltip.Trigger>
+              <SupplementaryTooltip.Content preferredSide="top">
+                {WORKSPACE_COPY[id].guide}
+              </SupplementaryTooltip.Content>
+            </SupplementaryTooltip.Root>
+          );
+        })}
       </nav>
 
-      <div
-        ref={workspaceScrollRef}
-        className="workspace-scroll"
-        data-testid="workspace-scroll"
-        onScroll={(event) => {
-          if (restoringWorkspaceRef.current === workspace) return;
-          workspaceScrollPositionsRef.current[workspace] = event.currentTarget.scrollTop;
-        }}
-      >
-        <WorkspaceInspector workspace={workspace}>
+      <WorkspaceInspector workspace={workspace}>
 
       <WorkspaceSection workspace="look" level="advanced">
       <section className="theme-section" aria-labelledby="themes-title">
@@ -810,11 +821,20 @@ export function ControlPanel({
           <OutcomeRecipePicker
             project={project}
             disabled={exporting}
+            safeDefaultReady={sourceFaithfulLook && detectOutcomeRecipe(project) === "smooth-carousel"}
             onApply={(id) => {
               const recipe = getOutcomeRecipe(id);
               onV2Project(
                 applyOutcomeRecipe(project, id),
                 `${recipe.label.replace(/\s+—\s+Safe Default$/u, "")} applied. Slides and Look untouched.`,
+              );
+            }}
+            onRestoreSafeDefault={() => {
+              const next = applyOutcomeRecipe(project, "smooth-carousel");
+              applySourceFaithfulLook(next);
+              onV2Project(
+                next,
+                "Safe default restored: smooth motion and faithful source pixels. Background and framing kept.",
               );
             }}
             onResetMotion={() => onV2Project(
@@ -833,6 +853,25 @@ export function ControlPanel({
       <InspectorGroup title="Travel" eyebrow={settings.motion.axis} description="Set where the deck travels. The outcome above owns its overall feel and timing." open>
         <Segmented label="Flow axis" value={settings.motion.axis} options={[{ value: "horizontal", label: "Horizontal" }, { value: "vertical", label: "Vertical" }]} onChange={(axis) => patch("motion", { axis })} />
         <Segmented label="Direction" value={settings.motion.direction} options={[{ value: -1 as const, label: "Reverse" }, { value: 1 as const, label: "Forward" }]} onChange={(direction) => patch("motion", { direction })} />
+        {v2Active ? (
+          <>
+            <Segmented
+              label="Motion cadence"
+              value={project.motion.cadence.poseCadence}
+              options={[
+                { value: "continuous" as PoseCadence, label: "Smooth" },
+                { value: "24fps" as PoseCadence, label: "24 fps" },
+                { value: "18fps" as PoseCadence, label: "18 fps" },
+                { value: "12fps" as PoseCadence, label: "12 fps" },
+              ]}
+              onChange={(poseCadence) => directProject(
+                `Motion cadence set to ${poseCadence === "continuous" ? "smooth and continuous" : poseCadence}.`,
+                (next) => { next.motion.cadence.poseCadence = poseCadence; },
+              )}
+            />
+            <p className="performance-note">Smooth moves continuously. The frame-rate choices deliberately hold poses for a handcrafted cadence.</p>
+          </>
+        ) : null}
         {v2Active ? (
           <SelectField
             label="Path"
@@ -914,20 +953,6 @@ export function ControlPanel({
               directProject(`${character?.name ?? "Motion character"} applied.`, (next) => { applyMotionCharacter(next, characterId); });
             }}
           />
-          <Segmented
-            label="Pose cadence"
-            value={project.motion.cadence.poseCadence}
-            options={[
-              { value: "continuous" as PoseCadence, label: "Fluid" },
-              { value: "24fps" as PoseCadence, label: "24" },
-              { value: "18fps" as PoseCadence, label: "18" },
-              { value: "12fps" as PoseCadence, label: "12" },
-            ]}
-            onChange={(poseCadence) => directProject(
-              `Pose cadence set to ${poseCadence === "continuous" ? "fluid" : poseCadence}.`,
-              (next) => { next.motion.cadence.poseCadence = poseCadence; },
-            )}
-          />
           <RangeField label="Read" value={project.motion.cadence.read * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Read beat directed.", (next) => { next.motion.cadence.read = value / 100; next.motion.cadence.cutId = "custom"; })} />
           <RangeField label="Anticipate" value={project.motion.cadence.anticipation * 100} min={0} max={50} step={1} unit="%" onChange={(value) => directProject("Anticipation directed.", (next) => { next.motion.cadence.anticipation = value / 100; next.motion.cadence.cutId = "custom"; })} />
           <RangeField label="Carry" value={project.motion.cadence.carry * 100} min={1} max={100} step={1} unit="%" onChange={(value) => directProject("Carry beat directed.", (next) => { next.motion.cadence.carry = value / 100; next.motion.cadence.cutId = "custom"; })} />
@@ -980,20 +1005,28 @@ export function ControlPanel({
               }}
             />
           ) : null}
-          <RangeNumberField
-            label="Deck passes"
-            value={project.motion.seamless.loops}
-            softMin={1}
-            softMax={12}
-            hardMin={1}
-            hardMax={100}
-            step={1}
-            hint="One pass shows every moving slide once. Export remains finite."
-            onChange={(loops) => commitResolvedTiming("Deck-pass count changed.", (next) => {
-              next.motion.seamless.enabled = true;
-              next.motion.seamless.loops = loops;
-            })}
-          />
+          {timingResolution.travelAuthority === "pass-sequence" ? (
+            <div className="sequence-authority" role="status">
+              <span>AUTHORED SEQUENCE</span>
+              <strong>{deliveryReceipt.passes.totalDeckPasses} deck pass{deliveryReceipt.passes.totalDeckPasses === 1 ? "" : "es"}</strong>
+              <small>{deliveryReceipt.passes.groups?.map((group) => group.label).join(" → ") ?? "The visual timeline owns the pass order."}</small>
+            </div>
+          ) : (
+            <RangeNumberField
+              label="Deck passes"
+              value={project.motion.seamless.loops}
+              softMin={1}
+              softMax={12}
+              hardMin={1}
+              hardMax={100}
+              step={1}
+              hint="One pass shows every moving slide once. Export remains finite."
+              onChange={(loops) => commitResolvedTiming("Deck-pass count changed.", (next) => {
+                next.motion.seamless.enabled = true;
+                next.motion.seamless.loops = loops;
+              })}
+            />
+          )}
           <div className="timing-summary" role="status">
             <span>{movingMedia.count} MOVING · {deliveryReceipt.passes.totalDeckPasses} PASS{deliveryReceipt.passes.totalDeckPasses === 1 ? "" : "ES"}</span>
             <strong>{timingResolution.masterSeconds.toFixed(2)} s master</strong>
@@ -1030,7 +1063,11 @@ export function ControlPanel({
 
       <WorkspaceSection workspace="motion" level="advanced">
       <InspectorGroup title="Motion physics" eyebrow={`${settings.motion.speed.toFixed(2)} slides/s`} description="Tune transport, curvature, depth, banking, and optical response.">
-        <RangeNumberField label="Free-run speed" value={settings.motion.speed} softMin={0.02} softMax={4} hardMin={0} hardMax={8} step={0.01} decimals={2} unit=" slides/s" hint="Used only when exact deck-pass lock is off." onChange={(speed) => patch("motion", { speed })} />
+        {timingResolution.travelAuthority === "legacy-tempo" ? (
+          <RangeNumberField label="Free-run speed" value={settings.motion.speed} softMin={0.02} softMax={4} hardMin={0} hardMax={8} step={0.01} decimals={2} unit=" slides/s" hint="Used only when exact deck-pass lock is off." onChange={(speed) => patch("motion", { speed })} />
+        ) : (
+          <p className="performance-note">The authored sequence owns speed. Use its outcome card and Timeline intent above; free-run speed is intentionally inactive.</p>
+        )}
         <RangeField label="Curve" value={settings.motion.curvature * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("motion", { curvature: value / 100 })} />
         <RangeField label="Depth" value={settings.motion.depth * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("motion", { depth: value / 100 })} />
         <RangeNumberField label="Banking" value={settings.motion.tilt} softMin={-45} softMax={45} hardMin={-45} hardMax={45} step={0.5} decimals={1} unit="°" onChange={(tilt) => patch("motion", { tilt })} />
@@ -1142,6 +1179,26 @@ export function ControlPanel({
       </WorkspaceSection>
 
       <WorkspaceSection workspace="look">
+      <section className="source-fidelity-strip" data-faithful={sourceFaithfulLook} aria-label="Source artwork protection">
+        <div>
+          <span>SOURCE ART</span>
+          <strong>{sourceFaithfulLook ? "Literal source pixels" : "Protected artwork"}</strong>
+          <small>{sourceFaithfulLook ? "No lens, relighting, border, or local finish touches the slide." : "Slide-face lighting is blocked. Use Literal when you also want to remove lens and local finish."}</small>
+        </div>
+        <button
+          type="button"
+          disabled={sourceFaithfulLook}
+          onClick={() => directProject(
+            "Source-faithful slides restored. Background, motion, corners, shadows, and card physics kept.",
+            (next) => { applySourceFaithfulLook(next); },
+          )}
+        >
+          Make literal
+        </button>
+      </section>
+      </WorkspaceSection>
+
+      <WorkspaceSection workspace="look">
       <InspectorGroup title="Background" eyebrow={settings.background.style} description="Choose visually first. Fine controls below remain fully editable." open>
         <BackgroundBrowser
           background={settings.background}
@@ -1161,8 +1218,13 @@ export function ControlPanel({
             background: { ...settings.background, style: "transparent" },
           })}
         />
+      </InspectorGroup>
+      </WorkspaceSection>
+
+      <WorkspaceSection workspace="look" level="advanced">
+      <InspectorGroup title="Background tuning" eyebrow={backgroundStudy?.name ?? settings.background.style} description="Fine-tune composition, palette, colour, atmosphere, and grain.">
         <SelectField
-          label="Background"
+          label="Background family"
           value={settings.background.style}
           options={[
             { value: "transparent" as const, label: "Transparent" },
@@ -1173,11 +1235,6 @@ export function ControlPanel({
           ]}
           onChange={(style) => onSettings({ ...settings, stage: { ...settings.stage, transparent: style === "transparent" }, background: { ...settings.background, style } })}
         />
-      </InspectorGroup>
-      </WorkspaceSection>
-
-      <WorkspaceSection workspace="look" level="advanced">
-      <InspectorGroup title="Background tuning" eyebrow={backgroundStudy?.name ?? settings.background.style} description="Fine-tune composition, palette, colour, atmosphere, and grain.">
         {opaqueBackground ? (
           <>
             <SelectField
@@ -1345,11 +1402,16 @@ export function ControlPanel({
           onChange={(layoutMode) => patch("presenter", { layoutMode })}
         />
         <RangeNumberField label="Width" value={settings.presenter.width * 100} softMin={5} softMax={100} hardMin={5} hardMax={100} step={1} unit="%" onChange={(value) => patch("presenter", { width: value / 100 })} />
-        <RangeField label="Horizontal position" value={settings.presenter.x * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("presenter", { x: value / 100 })} />
-        <RangeField label="Vertical position" value={settings.presenter.y * 100} min={0} max={100} step={1} unit="%" onChange={(value) => patch("presenter", { y: value / 100 })} />
+        <RangeField label="Left ↔ right placement" value={settings.presenter.x * 100} min={0} max={100} step={1} unit="%" hint="0 puts the complete frame at the left safe edge; 100 puts it at the right safe edge." onChange={(value) => patch("presenter", { x: value / 100 })} />
+        <RangeField label="Top ↔ bottom placement" value={settings.presenter.y * 100} min={0} max={100} step={1} unit="%" hint="The complete frame and its shadow remain inside the safe area." onChange={(value) => patch("presenter", { y: value / 100 })} />
         {settings.presenter.layoutMode === "safe-overlay" ? (
           <RangeField label="Safe inset" value={settings.presenter.safeInset * 100} min={0} max={25} step={0.5} decimals={1} unit="%" onChange={(value) => patch("presenter", { safeInset: value / 100 })} />
         ) : null}
+      </InspectorGroup>
+      </WorkspaceSection>
+
+      <WorkspaceSection workspace="slides" level="advanced">
+      <InspectorGroup title="Pinned crop and shape" eyebrow={settings.presenter.aspectMode === "source" ? "SOURCE RATIO" : `${settings.presenter.aspectWidth}:${settings.presenter.aspectHeight}`} description="Choose the pinned frame's crop, ratio, corners, and focal point.">
         <Segmented label="Ratio" value={settings.presenter.aspectMode} options={[{ value: "source", label: "Use source" }, { value: "custom", label: "Custom" }]} onChange={(aspectMode) => patch("presenter", { aspectMode })} />
         {settings.presenter.aspectMode === "custom" ? (
           <>
@@ -1530,24 +1592,26 @@ export function ControlPanel({
             })}
           />
         ) : <p className="performance-note">Body duration is derived from moving slides × deck passes × reading pace.</p>}
-        <SelectField
-          label="Tempo"
-          value={tempoSelection}
-          options={TEMPO_OPTIONS}
-          onChange={(tempo) => commitPerformance({
-            ...performance,
-            body: {
-              ...performance.body,
-              tempo: tempo === "custom"
-                ? {
-                    kind: "custom",
-                    envelope: { ...performanceTimeline.tempoCurve.authoredEnvelope },
-                  }
-                : { kind: "preset", preset: tempo },
-            },
-          })}
-        />
-        {customTempo ? (
+        {timingResolution.travelAuthority === "legacy-tempo" ? (
+          <SelectField
+            label="Tempo"
+            value={tempoSelection}
+            options={TEMPO_OPTIONS}
+            onChange={(tempo) => commitPerformance({
+              ...performance,
+              body: {
+                ...performance.body,
+                tempo: tempo === "custom"
+                  ? {
+                      kind: "custom",
+                      envelope: { ...performanceTimeline.tempoCurve.authoredEnvelope },
+                    }
+                  : { kind: "preset", preset: tempo },
+              },
+            })}
+          />
+        ) : <p className="performance-note">Sequence groups own the speed changes. Remove the authored sequence before using a free-form tempo curve.</p>}
+        {timingResolution.travelAuthority === "legacy-tempo" && customTempo ? (
           <>
             <RangeField
               label="Start speed"
@@ -1717,18 +1781,18 @@ export function ControlPanel({
                 ? `MP4 READY${preflight.warnings.length ? ` · ${preflight.warnings.length} WARN` : ""}`
                 : `${preflight.blockers.length} BLOCKED`}</strong>
             </div>
-            {preflight.blockers.length || preflight.warnings.length ? (
+            {preflightProblems.length ? (
               <ul>
-                {[...preflight.blockers, ...preflight.warnings].slice(0, 5).map((entry) => (
-                  <li key={`${entry.id}-${entry.subjectId ?? "master"}`} data-severity={entry.severity}>{entry.message}</li>
+                {preflightProblems.slice(0, 5).map((entry) => (
+                  <li key={entry.key} data-severity={entry.severity}>{entry.message}</li>
                 ))}
               </ul>
             ) : <p>Media, timing, cadence, renderer, and H.264 capability hold.</p>}
-            {preflight.blockers.length + preflight.warnings.length > 5 ? (
-              <small>+ {preflight.blockers.length + preflight.warnings.length - 5} more objective checks</small>
+            {preflightProblems.length > 5 ? (
+              <small>+ {preflightProblems.length - 5} more objective checks</small>
             ) : null}
-            {preflight.notes.map((entry) => (
-              <p key={`${entry.id}-${entry.subjectId ?? "master"}`}>{entry.message}</p>
+            {preflightNotes.map((entry) => (
+              <p key={entry.key}>{entry.message}</p>
             ))}
           </div>
         ) : null}
@@ -1744,8 +1808,7 @@ export function ControlPanel({
         </div>
       </InspectorGroup>
       </WorkspaceSection>
-        </WorkspaceInspector>
-      </div>
+      </WorkspaceInspector>
     </aside>
     </SupplementaryTooltip.Provider>
   );

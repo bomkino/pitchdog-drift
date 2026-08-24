@@ -3,6 +3,7 @@
   position: fixed;
   z-index: 2147483000;
   width: max-content;
+  max-width: min(260px, calc(100vw - 24px));
   overflow: visible;
   padding: 8px 10px;
   border: 1px solid rgb(255 255 255 / 12%);

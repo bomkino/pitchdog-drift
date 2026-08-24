@@ -6,8 +6,17 @@ import {
   type ReactNode,
 } from "react";
 
-const DISCLOSURE_DURATION_MS = 200;
-const DISCLOSURE_EASING = "cubic-bezier(0.16, 1, 0.3, 1)";
+const MIN_DISCLOSURE_DURATION_MS = 240;
+const MAX_DISCLOSURE_DURATION_MS = 420;
+const DISCLOSURE_MS_PER_PIXEL = 0.15;
+const DISCLOSURE_EASING = "cubic-bezier(0.22, 0.61, 0.36, 1)";
+
+export function disclosureDuration(distancePx: number): number {
+  return Math.min(
+    MAX_DISCLOSURE_DURATION_MS,
+    Math.max(MIN_DISCLOSURE_DURATION_MS, Math.round(Math.abs(distancePx) * DISCLOSURE_MS_PER_PIXEL + 210)),
+  );
+}
 
 type DisclosureMotionState = "closed" | "closing" | "opening" | "open";
 
@@ -109,6 +118,7 @@ export function MeasuredDisclosure({
     }
 
     setMotionState(nextExpanded ? "opening" : "closing");
+    const duration = disclosureDuration(targetHeight - currentHeight);
     targetHeightRef.current = targetHeight;
     targetExpandedRef.current = nextExpanded;
     heightAnimationRef.current = viewport.animate(
@@ -117,7 +127,7 @@ export function MeasuredDisclosure({
         { height: `${targetHeight}px` },
       ],
       {
-        duration: DISCLOSURE_DURATION_MS,
+        duration,
         easing: DISCLOSURE_EASING,
         fill: "forwards",
       },
@@ -131,7 +141,7 @@ export function MeasuredDisclosure({
         },
       ],
       {
-        duration: DISCLOSURE_DURATION_MS,
+        duration,
         easing: DISCLOSURE_EASING,
         fill: "forwards",
       },

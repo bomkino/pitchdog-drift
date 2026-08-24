@@ -212,7 +212,7 @@ export function MediaLibrary({
                 aria-pressed={pinnedAssetId === asset.id}
                 title={pinnedAssetId === asset.id ? "Return to carousel" : "Keep still"}
               >
-                {pinnedAssetId === asset.id ? "↻" : "⌖"}
+                {pinnedAssetId === asset.id ? "UNPIN" : "PIN"}
               </button>
               <button
                 type="button"
@@ -254,7 +254,7 @@ export function MediaLibrary({
               aria-label={pinnedAssetId === presenter.id ? `Return ${presenter.name} to its media slot` : `Keep ${presenter.name} still`}
               aria-pressed={pinnedAssetId === presenter.id}
             >
-              {pinnedAssetId === presenter.id ? "Return" : "Keep still"}
+              {pinnedAssetId === presenter.id ? "Unpin" : "Keep still"}
             </button>
             <button
               type="button"

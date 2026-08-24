@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const productionPort = Number(process.env.DRIFT_E2E_PRODUCTION_PORT ?? 5187);
+const developmentPort = Number(process.env.DRIFT_E2E_DEVELOPMENT_PORT ?? 5188);
+
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.e2e.ts",
@@ -18,12 +21,12 @@ export default defineConfig({
     {
       name: "production",
       testIgnore: "**/v2-long-export-qa.e2e.ts",
-      use: { baseURL: "http://127.0.0.1:5187" },
+      use: { baseURL: `http://127.0.0.1:${productionPort}` },
     },
     {
       name: "v2-dev",
       testMatch: "**/v2-ui.e2e.ts",
-      use: { baseURL: "http://127.0.0.1:5188" },
+      use: { baseURL: `http://127.0.0.1:${developmentPort}` },
     },
   ],
   use: {
@@ -41,16 +44,16 @@ export default defineConfig({
     {
       // The shipping identity must exercise the current V2 product. Individual
       // journeys still import explicit V1 projects to prove compatibility.
-      command: "npm run dev:v1 -- --port 5187",
-      url: "http://127.0.0.1:5187",
+      command: `npm run dev:v1 -- --port ${productionPort}`,
+      url: `http://127.0.0.1:${productionPort}`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
     {
       // V2 app-path assertions run against the authored development build,
       // never against V1 with a feature flag implied by the test name.
-      command: "npm run dev -- --port 5188",
-      url: "http://127.0.0.1:5188",
+      command: `npm run dev -- --port ${developmentPort}`,
+      url: `http://127.0.0.1:${developmentPort}`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

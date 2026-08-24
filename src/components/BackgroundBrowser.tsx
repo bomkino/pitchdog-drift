@@ -107,7 +107,7 @@ export function BackgroundBrowser({
   const filtersActive = family !== "all" || query.length > 0;
   const currentName = background.style === "transparent"
     ? "Transparent"
-    : activeStudy?.name ?? "Custom direction";
+    : activeStudy?.name ?? `Custom ${BACKGROUND_FAMILY_LABELS[opaqueFamily!]}`;
   const currentDescription = background.style === "transparent"
     ? "No background pixels. Slides export over alpha where output format supports it."
     : activeStudy?.description ?? "Your edited family, composition, palette, and controls.";

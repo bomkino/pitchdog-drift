@@ -73,18 +73,18 @@ test("shipping and development identities restore the authored V2 room and repai
     has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Background$/ }),
   });
   await ensureInspectorOpen(atmosphere);
-  const background = page.getByRole("combobox", { name: "Background", exact: true });
-  await background.selectOption("transparent");
-  await expect(background).toHaveValue("transparent");
+  const transparent = page.locator('.background-study-card[data-background-id="transparent"]');
+  await transparent.click();
+  await expect(transparent).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "true");
 
-  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
   const filmWorlds = page.locator("details.world-browser");
   await ensureInspectorOpen(filmWorlds);
   await filmWorlds.getByRole("button", { name: /^Film World: Editorial Drift\./ }).click();
   // The authored 9:16 Reading Spine scene uses Orbiting Bloom (Aura), not the
   // older single-World slice's paper-room fallback.
-  await expect(background).toHaveValue("aura");
+  await expect(page.locator(".current-background-stage .background-preview")).toHaveAttribute("data-family", "aura");
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "false");
 
   await page.getByRole("button", { name: "SLIDES", exact: true }).click();
@@ -99,6 +99,11 @@ test("shipping and development identities restore the authored V2 room and repai
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   const carouselPresence = page.getByRole("group", { name: "Carousel presence", exact: true });
   const pinnedLayer = page.getByRole("group", { name: "Layer", exact: true });
+  await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
+  const pinnedCrop = page.locator(".inspector-group").filter({
+    has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Pinned crop and shape$/ }),
+  });
+  await pinnedCrop.locator(":scope > .inspector-group-trigger").click();
   const pinnedRatio = page.getByRole("group", { name: "Ratio", exact: true });
   await expect(pinnedSwitch).toBeChecked();
   await expect(carouselPresence.getByRole("radio", { name: "Still only" })).toBeChecked();
@@ -152,12 +157,12 @@ test("Reading Pace, platform guides, preflight, and Command-K use the settled V2
     has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Timeline intent$/ }),
   });
   await ensureInspectorOpen(timelineIntent);
-  await timelineIntent.getByText("Reading pace", { exact: true }).click();
+  await timelineIntent.locator(".segmented-control label").filter({ hasText: /^Reading pace$/ }).click();
   await expect(timelineIntent.getByRole("radio", { name: "Reading pace" })).toBeChecked();
   await expect(timelineIntent.getByText(/moving/i).first()).toBeVisible();
 
   await page.getByRole("button", { name: "EXPORT", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
   const platformGuides = page.locator(".inspector-group").filter({
     has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Platform guides$/ }),
   });
@@ -177,7 +182,7 @@ test("Reading Pace, platform guides, preflight, and Command-K use the settled V2
 test("comparison pixels return after a still export instead of keeping live direction", async ({ page }) => {
   await waitForStudio(page);
   await page.getByRole("button", { name: "LOOK", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
   const filmWorlds = page.locator("details.world-browser");
   await ensureInspectorOpen(filmWorlds);
   await filmWorlds.getByRole("button", { name: /^Film World: Dread\./ }).click();
