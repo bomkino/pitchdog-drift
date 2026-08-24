@@ -2,7 +2,7 @@
 
 Date: 24 August 2026
 
-Status: implemented and locally verified on the `codex/atelier-backgrounds` candidate branch. Merge, CI, Mac packaging, installation, notarisation, publication, and owner approval are separate gates.
+Status: implemented and locally verified. Merge, exact-head CI, Mac packaging, installation, notarisation, publication, and owner approval are separate gates; this note does not collapse them.
 
 ## Outcome
 
