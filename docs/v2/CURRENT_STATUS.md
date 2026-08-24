@@ -6,7 +6,7 @@ Atelier implementation commit: `9e51740a6367dd5caf29f0cab89787d7d53341ca`. Its f
 
 Editor-journey implementation commit: `8efe4b92d2dac26276b22a23100ecfd32a82899a`. A clean detached worktree produced release build 332 from that exact source; it is a proved candidate, not yet the installed app.
 
-Installed baseline, re-read on 25 August: `/Applications/Drift.app`, release build 305, exact source `077110237bdcdb493b20162e8a8a9ed61814c5c4`, universal executable SHA-256 `452a657f434fd045e0bb6ba18947b0b88a9c44410f4d15013f99c9e35c3d99a5`. It remains the known-good recovery path until the final documented candidate is independently installed and read back.
+Pre-promotion installation baseline, re-read on 25 August: `/Applications/Drift.app`, release build 305, exact source `077110237bdcdb493b20162e8a8a9ed61814c5c4`, universal executable SHA-256 `452a657f434fd045e0bb6ba18947b0b88a9c44410f4d15013f99c9e35c3d99a5`. This is the recovery snapshot entering promotion; later installation state must be read from `/Applications/Drift.app` rather than inferred from this dated document.
 
 Historical V1 source: `5fd145207235884790ba071c5d84bc3876ff4989`. Historical V1 and V2 Dev app bundles remain recoverable outside `/Applications`.
 
@@ -107,7 +107,7 @@ Protected pin avoidance is local to the collision neighbourhood. Far-away cards 
 - The complete Swift native self-test currently passes from freshly compiled source, including document lifecycle, broker authority, recovery, conflict, Finder reply, and AAC boundaries.
 - The headed installed-Chrome long-export gate was rerun on editor commit `8efe4b9` and is green: all eight nominal-resolution Project V4 frame plans were exact at 24 fps; complete 30-second/8-slide (720-frame), 60-second/40-slide (1,440-frame), and 180-second/200-slide (4,320-frame) V2 H.264 exports passed mandatory Rec.709/duration/frame/decode readback, bounded cache/decode/heap checks, WebGL context continuity, full unload, and cancellation-without-artifact. Physical encoding used deliberately small dimensions; 1080p/4K throughput and Intel remain separate performance gates.
 - The editor candidate universal Mac build 332 records exact source `8efe4b9`. Its native gauntlet and all three packaged WKWebView variants are green. Production sandboxed, unsandboxed diagnostic control, and self-signed sandbox control completed durable native import/save, WebContent recovery, stale-generation rejection, media rehydration, and outbound/WebRTC lockdown with zero accepted TCP requests and zero WebRTC/STUN token hits. This proves the candidate bundle, not installation.
-- `/Applications` currently contains exactly one Drift app: release build 305 from `0771102`, executable SHA-256 `452a657f434fd045e0bb6ba18947b0b88a9c44410f4d15013f99c9e35c3d99a5`. That is the retained installed baseline until a final documented replacement passes direct-executable and LaunchServices/Finder launch readback.
+- The pre-promotion `/Applications` snapshot contained exactly one Drift app: release build 305 from `0771102`, executable SHA-256 `452a657f434fd045e0bb6ba18947b0b88a9c44410f4d15013f99c9e35c3d99a5`. This proves the starting baseline only; any later replacement requires its own direct-executable and LaunchServices/Finder launch readback.
 
 The older repair list, package matrix, installation, visual evidence, backup path, and preservation boundary are recorded in the [production-promotion receipt](PRODUCTION_PROMOTION_2026-08-23.md). Its build-284 installation is historical evidence, not current state.
 
