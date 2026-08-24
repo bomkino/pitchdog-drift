@@ -1022,7 +1022,41 @@ a:focus-visible {
 .export-overlay progress::-webkit-progress-value { background: var(--rust-light); }
 .export-overlay progress::-webkit-progress-bar { background: #38342e; }
 .export-overlay small { color: var(--muted); font-family: ui-monospace, monospace; }
+.export-progress-indeterminate {
+  width: min(270px, 70vw);
+  height: 2px;
+  overflow: hidden;
+  background: #38342e;
+}
+.export-progress-indeterminate i {
+  display: block;
+  width: 38%;
+  height: 100%;
+  background: var(--rust-light);
+  animation: export-progress-search 1.25s ease-in-out infinite alternate;
+}
+.export-progress-facts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px 11px;
+  max-width: 440px;
+}
+.export-progress-facts span + span::before { content: "·"; margin-right: 11px; color: #575149; }
+.export-stall {
+  max-width: 470px;
+  margin: 2px 0 0;
+  color: #e7c8b8;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
 .export-overlay button { margin-top: 5px; border: 0; color: #b8b0a5; background: transparent; text-decoration: underline; cursor: pointer; }
+
+@keyframes export-progress-search {
+  from { transform: translateX(-15%); }
+  to { transform: translateX(178%); }
+}
 
 .transport {
   display: flex;

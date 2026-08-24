@@ -12,6 +12,7 @@ const CAPABILITIES: ExportCapabilityReport = Object.freeze({
     aac: true,
     presenterAudioFpsSupported: true,
     maximumPresenterAudioFps: 30,
+    nativeAacMaximumDurationSeconds: null,
     reasons: Object.freeze([]),
   }),
   png: Object.freeze({ still: true, sequenceZip: true, sequenceDirectory: true }),
@@ -88,6 +89,7 @@ function receipt(
     sound: { exportEnabled: false, masterAudioEnabled: false, deterministicEventCount: 0 },
     presenter: {
       enabled: false,
+      audioEnabled: false,
       assetId: null,
       assetKind: null,
       trackMode: "moving-and-pinned",
@@ -225,6 +227,42 @@ describe("objective preflight", () => {
       "output-invalid-dimensions",
       "output-invalid-fps",
     ]);
+  });
+
+  it("blocks only audio-bearing native masters above the real 35-second AAC ceiling", () => {
+    const nativeCapabilities: ExportCapabilityReport = {
+      ...CAPABILITIES,
+      mp4: {
+        ...CAPABILITIES.mp4,
+        nativeAacMaximumDurationSeconds: 35,
+      },
+    };
+    const tooLong = evaluatePreflight(input({
+      capabilities: nativeCapabilities,
+      receipt: receipt({
+        output: { encodedDurationSeconds: 60, frameCount: 1_440 },
+        presenter: { enabled: true, audioEnabled: true, assetKind: "video", assetId: "presenter" },
+      }),
+    }));
+    expect(tooLong.blockers.map(({ id }) => id)).toContain("native-aac-duration-limit");
+
+    const exactLimit = evaluatePreflight(input({
+      capabilities: nativeCapabilities,
+      receipt: receipt({
+        output: { encodedDurationSeconds: 35, frameCount: 840 },
+        presenter: { enabled: true, audioEnabled: true, assetKind: "video", assetId: "presenter" },
+      }),
+    }));
+    expect(exactLimit.blockers.map(({ id }) => id)).not.toContain("native-aac-duration-limit");
+
+    const muted = evaluatePreflight(input({
+      capabilities: nativeCapabilities,
+      receipt: receipt({
+        output: { encodedDurationSeconds: 60, frameCount: 1_440 },
+        presenter: { enabled: true, audioEnabled: false, assetKind: "video", assetId: "presenter" },
+      }),
+    }));
+    expect(muted.blockers.map(({ id }) => id)).not.toContain("native-aac-duration-limit");
   });
 
   it("uses actual storage facts and the existing PNG ZIP memory estimator as blockers", () => {

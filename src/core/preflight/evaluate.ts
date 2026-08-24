@@ -216,6 +216,21 @@ function outputIssues(input: PreflightInput): MutableIssue[] {
       input.receipt.presenter.assetId ?? undefined,
     ));
   }
+  const nativeAacMaximumDuration = capabilities?.mp4.nativeAacMaximumDurationSeconds ?? null;
+  const hasRequestedAudio = input.receipt.presenter.audioEnabled || input.receipt.sound.exportEnabled;
+  if (
+    output.container === "mp4"
+    && nativeAacMaximumDuration !== null
+    && hasRequestedAudio
+    && output.encodedDurationSeconds > nativeAacMaximumDuration
+  ) {
+    issues.push(issue(
+      "native-aac-duration-limit",
+      "blocker",
+      "output",
+      `This Mac build safely supports audio-bearing masters up to ${nativeAacMaximumDuration.toFixed(2)} seconds. Shorten the master, or mute presenter and sound-design audio.`,
+    ));
+  }
   return issues;
 }
 

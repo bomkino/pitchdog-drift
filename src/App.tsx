@@ -81,6 +81,12 @@ import type {
   RenderAtContext,
 } from "./lib/exportStudio";
 import {
+  createExportProgressClock,
+  projectExportProgress,
+  tickExportProgress,
+  type ExportProgressClock,
+} from "./lib/exportProgress";
+import {
   abandonNativeMacDocumentOpen,
   completeNativeMacDocumentSave,
   confirmNativeMacDocumentOpen,
@@ -178,7 +184,8 @@ interface PickerWindow extends Window {
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
+  return (error instanceof DOMException && error.name === "AbortError")
+    || (!!error && typeof error === "object" && "code" in error && error.code === "CANCELLED");
 }
 
 function makeLocalProjectId(): string {
@@ -227,35 +234,6 @@ function timestampSlug(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
-function encoderProgress(progress: EncoderProgress): ExportProgress {
-  const phase: ExportProgress["phase"] = progress.phase === "rendering" || progress.phase === "writing"
-    ? "frames"
-    : progress.phase === "preparing"
-      ? "preparing"
-      : progress.phase === "audio"
-        ? "audio"
-        : progress.phase === "complete"
-          ? "complete"
-          : progress.phase === "finalizing"
-            ? "finalizing"
-            : "video";
-  const label = {
-    preparing: "Preparing deterministic timeline",
-    video: "Encoding fixed-step video",
-    audio: "Aligning presenter audio",
-    rendering: "Rendering exact frames",
-    writing: "Writing frames to disk",
-    finalizing: "Closing and verifying output",
-    complete: "Master complete",
-  }[progress.phase];
-  return {
-    phase,
-    completed: Math.round(progress.ratio * 1_000),
-    total: 1_000,
-    message: label,
-  };
-}
-
 async function assetFromSnapshot(
   entry: ProjectSnapshot<StudioProjectPayload>["assets"][number],
   descriptor: AssetDescriptor,
@@ -281,6 +259,7 @@ export function App() {
   const presenterInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const exportProgressClockRef = useRef<ExportProgressClock | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const projectRef = useRef<DriftProjectV4 | null>(null);
   if (projectRef.current === null) {
@@ -359,6 +338,25 @@ export function App() {
   settingsRef.current = settings;
   assetsRef.current = assets;
   presenterRef.current = presenter;
+
+  const acceptEncoderProgress = useCallback((progress: EncoderProgress) => {
+    const clock = exportProgressClockRef.current;
+    if (!clock) return;
+    setExportProgress(projectExportProgress(progress, clock, performance.now()));
+  }, []);
+
+  useEffect(() => {
+    if (!exportProgress) return;
+    const timer = window.setInterval(() => {
+      const clock = exportProgressClockRef.current;
+      if (!clock) return;
+      const now = performance.now();
+      setExportProgress((current) => current
+        ? tickExportProgress(current, clock, now)
+        : null);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [exportProgress !== null]);
 
   const v2Active = liveProject.renderContract === DRIFT_V2_RENDER_CONTRACT;
   const nativeDocumentState = useMemo(
@@ -1268,11 +1266,20 @@ export function App() {
       presenter: presenterRef.current,
     });
     abortRef.current = controller;
+    const now = performance.now();
+    exportProgressClockRef.current = createExportProgressClock(now);
     setExportProgress({
       phase: "preparing",
       completed: 0,
-      total: 1_000,
+      total: 1,
+      frameIndex: null,
       message: "Preparing one locked creative snapshot",
+      unit: "steps",
+      determinate: false,
+      elapsedSeconds: 0,
+      etaSeconds: null,
+      ratePerSecond: null,
+      stallKind: null,
     });
     return { controller, authority };
   }, []);
@@ -1328,6 +1335,8 @@ export function App() {
     reservation: { controller: AbortController },
     surface?: { restore: () => void },
   ) => {
+    exportProgressClockRef.current = null;
+    setExportProgress(null);
     try {
       surface?.restore();
       const engine = engineRef.current;
@@ -1343,7 +1352,6 @@ export function App() {
       announce("Export finished, but the live preview could not be restored. Reload Drift before directing further.", "error");
     } finally {
       if (abortRef.current === reservation.controller) abortRef.current = null;
-      setExportProgress(null);
     }
   }, [activePinnedAsset, announce, assets, displayedProject, settings]);
 
@@ -1400,7 +1408,7 @@ export function App() {
         soundtrack: soundtrack ?? undefined,
         soundtrackGainWhenMixed: reservation.authority.project.sound.underVoice,
         signal: session.controller.signal,
-        onProgress: (progress) => setExportProgress(encoderProgress(progress)),
+        onProgress: acceptEncoderProgress,
         target,
       });
       if (result.blob) await downloadBlob(result.blob, `drift-master-${timestampSlug()}.mp4`);
@@ -1413,7 +1421,7 @@ export function App() {
     } finally {
       await endExport(reservation, session?.surface);
     }
-  }, [announce, beginExport, endExport, mp4Supported, nativeMac, renderForExport, reserveExport]);
+  }, [acceptEncoderProgress, announce, beginExport, endExport, mp4Supported, nativeMac, renderForExport, reserveExport]);
 
   const exportStill = useCallback(async () => {
     let reservation: ReturnType<typeof reserveExport> | null = null;
@@ -1440,7 +1448,7 @@ export function App() {
         signal: session.controller.signal,
         requireAlpha: true,
         requireTransparentPixels: session.plan.requireTransparentPixels,
-        onProgress: (progress) => setExportProgress(encoderProgress(progress)),
+        onProgress: acceptEncoderProgress,
       });
       await downloadBlob(result.blob, `drift-still-${timestampSlug()}.png`);
       announce(`${result.width} × ${result.height} PNG saved with an alpha-capable channel.`, "good");
@@ -1449,7 +1457,7 @@ export function App() {
     } finally {
       if (reservation) await endExport(reservation, session?.surface);
     }
-  }, [announce, beginExport, endExport, renderForExport, reserveExport]);
+  }, [acceptEncoderProgress, announce, beginExport, endExport, renderForExport, reserveExport]);
 
   const exportFrames = useCallback(async () => {
     let reservation: ReturnType<typeof reserveExport> | null = null;
@@ -1472,7 +1480,7 @@ export function App() {
         signal: session.controller.signal,
         requireAlpha: true,
         requireTransparentPixels: session.plan.requireTransparentPixels,
-        onProgress: (progress: EncoderProgress) => setExportProgress(encoderProgress(progress)),
+        onProgress: acceptEncoderProgress,
       };
       const picker = (window as PickerWindow).showDirectoryPicker;
       if (picker) {
@@ -1490,7 +1498,7 @@ export function App() {
     } finally {
       if (reservation) await endExport(reservation, session?.surface);
     }
-  }, [announce, beginExport, endExport, renderForExport, reserveExport]);
+  }, [acceptEncoderProgress, announce, beginExport, endExport, renderForExport, reserveExport]);
 
   const savePortableProjectNow = useCallback(async (operation: "save" | "save-as" = "save") => {
     try {

@@ -4,6 +4,27 @@ import type { ExportProgress, StudioAsset } from "../model";
 import { fitStagePreview, type StagePreviewSize } from "./stageGeometry";
 import type { PlatformGuideProfile } from "../core/platformGuides";
 
+function formatExportTime(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(whole / 60);
+  return `${minutes}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+function exportCount(progress: ExportProgress): string {
+  if (progress.unit === "frames") {
+    const frameNumber = progress.frameIndex === null
+      ? Math.round(progress.completed)
+      : progress.frameIndex + 1;
+    return `Frame ${frameNumber} of ${Math.round(progress.total)}`;
+  }
+  if (progress.unit === "seconds") {
+    return `${progress.completed.toFixed(1)} of ${progress.total.toFixed(1)} seconds`;
+  }
+  return progress.determinate
+    ? `${Math.round(progress.completed)} of ${Math.round(progress.total)}`
+    : "Preparing";
+}
+
 interface StageProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   frameRef: RefObject<HTMLDivElement | null>;
@@ -191,8 +212,24 @@ export function Stage({
             <div className="export-overlay" role="status" aria-live="polite">
               <span>{exportProgress.phase}</span>
               <strong>{exportProgress.message}</strong>
-              <progress value={exportProgress.completed} max={Math.max(1, exportProgress.total)} />
-              <small>{Math.round((exportProgress.completed / Math.max(1, exportProgress.total)) * 100)}%</small>
+              {exportProgress.determinate ? (
+                <progress value={exportProgress.completed} max={Math.max(1, exportProgress.total)} />
+              ) : <div className="export-progress-indeterminate" aria-hidden="true"><i /></div>}
+              <small className="export-progress-facts">
+                <span>{exportCount(exportProgress)}</span>
+                <span>Elapsed {formatExportTime(exportProgress.elapsedSeconds)}</span>
+                <span>{exportProgress.etaSeconds === null ? "Estimating…" : `ETA ${formatExportTime(exportProgress.etaSeconds)}`}</span>
+                {exportProgress.ratePerSecond !== null ? (
+                  <span>{exportProgress.ratePerSecond.toFixed(1)} {exportProgress.unit === "frames" ? "frames/s" : exportProgress.unit === "seconds" ? "seconds/s" : "steps/s"}</span>
+                ) : null}
+              </small>
+              {exportProgress.stallKind ? (
+                <p className="export-stall" role="alert">
+                  {exportProgress.stallKind === "first-frame"
+                    ? "Presenter video has not delivered a frame. Cancel, use H.264 MP4 or WebM, or try a shorter source."
+                    : "This frame is taking unusually long. Drift is still working; Cancel remains safe."}
+                </p>
+              ) : null}
               <button type="button" onClick={onCancelExport}>Cancel export</button>
             </div>
           ) : null}

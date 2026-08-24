@@ -122,6 +122,7 @@ export interface DeliveryReceipt {
   };
   readonly presenter: {
     readonly enabled: boolean;
+    readonly audioEnabled: boolean;
     readonly assetId: string | null;
     readonly assetKind: "image" | "video" | null;
     readonly trackMode: DriftProjectV4["presenter"]["trackMode"];
@@ -432,6 +433,10 @@ export function buildDeliveryReceipt(input: BuildDeliveryReceiptInput): Delivery
     }),
     presenter: Object.freeze({
       enabled: project.presenter.enabled,
+      audioEnabled: project.presenter.enabled
+        && presenterAsset?.kind === "video"
+        && project.master.audio.enabled
+        && !project.presenter.muted,
       assetId: project.presenter.assetId,
       assetKind: presenterAsset?.kind ?? null,
       trackMode: project.presenter.trackMode,

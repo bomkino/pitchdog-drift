@@ -236,7 +236,14 @@ export interface ExportProgress {
   phase: "preparing" | "audio" | "video" | "frames" | "finalizing" | "complete";
   completed: number;
   total: number;
+  frameIndex: number | null;
   message: string;
+  unit: "frames" | "seconds" | "steps";
+  determinate: boolean;
+  elapsedSeconds: number;
+  etaSeconds: number | null;
+  ratePerSecond: number | null;
+  stallKind: "first-frame" | "inactivity" | null;
 }
 
 export const DEFAULT_SETTINGS: StudioSettings = {

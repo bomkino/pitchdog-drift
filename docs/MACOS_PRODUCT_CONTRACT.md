@@ -64,12 +64,13 @@ The contract is specific:
 
 - H.264 video remains capability-gated through WKWebView.
 - Presenter audio uses native AAC-LC, 48 kHz stereo, 192 kbit/s.
-- Native AAC accepts only bounded sessions compatible with Drift’s 3–30 second output range.
+- Native AAC accepts at most 35.00 seconds of PCM in one bounded session. Audio-bearing masters above that limit fail preflight before rendering. Muted, video-only masters may use Drift’s wider duration range.
 - The receipt must include packet bytes, AudioSpecificConfig, magic-cookie data, leading priming frames, trailing padding frames, and frame counts.
 - `representedFrames` must equal `leadingFrames + inputFrames + trailingFrames`.
 - Packet timestamps must represent priming truthfully rather than pretending audio begins at zero.
 - Presenter-audio masters remain limited to 24, 25, or 30 fps. Muted presenter video may use 50/60 fps.
 - Any codec or metadata failure is visible. Drift never silently strips audio and never labels unverified output complete.
+- Presenter video must decode one real frame before the private output starts. Every later decoder advance has an abort-aware inactivity deadline; timeout cancels staging and preserves the existing destination.
 - The finished app bundle must contain no `.wasm`, FFmpeg runtime, or libavcodec marker.
 
 ## Protected boundaries

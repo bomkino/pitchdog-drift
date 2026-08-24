@@ -124,6 +124,10 @@ The app does **not** bundle the browser build’s FFmpeg-derived AAC WebAssembly
 
 Presenter-audio exports support 24, 25, or 30 fps. For 50 or 60 fps, mute presenter audio. Drift never silently deletes audio to make an export appear successful.
 
+The native AAC session holds at most 35.00 seconds of audio. Drift blocks a longer audio-bearing master before rendering. A longer muted, video-only master remains valid.
+
+Export progress is evidence-based: preparation is indeterminate; video reports real `Frame N of M` counts; elapsed time starts immediately; throughput and ETA appear only after enough completed samples. If presenter decoding produces no first frame, Drift says so, keeps Cancel responsive, and stops with a specific timeout instead of remaining at a synthetic percentage.
+
 MP4 completion checks:
 
 - nonempty MP4 container;
@@ -190,7 +194,7 @@ A native AAC failure can come from unsupported system behavior, bridge/session c
 
 ## Cancellation and protected work
 
-An active export can be cancelled from the progress overlay or native menu. Drift aborts the renderer and native write session, then reports cleanup.
+An active export can be cancelled from the progress overlay or native menu. Drift abandons any waiting presenter decoder, aborts the renderer and staged native write exactly once, preserves the existing destination, then reports cleanup.
 
 Closing the window or quitting during any of these states triggers a warning:
 

@@ -16,6 +16,7 @@ export type PreflightIssueId =
   | "output-invalid-frame-count"
   | "output-container-unsupported"
   | "output-surface-unsupported"
+  | "native-aac-duration-limit"
   | "storage-insufficient"
   | "png-zip-memory-insufficient"
   | "low-resolution"

@@ -6,6 +6,7 @@ import {
   assertPngTransparencyCoverage,
   assessPresenterAvSync,
   assertPresenterAudioFpsSupported,
+  assertNativeMacAacDurationSupported,
   assertPngZipMemoryBudget,
   buildExportFramePlan,
   createDeterministicZipMtime,
@@ -21,6 +22,7 @@ import {
   inspectRgbaAlpha,
   makePngFrameFilename,
   mergePngAlphaCoverage,
+  nextPresenterDecodeWithWatchdog,
   resolvePngStillTime,
   resolvePresenterAudioEnabled,
   validateExportSettings,
@@ -91,6 +93,127 @@ describe("deterministic export timeline", () => {
 });
 
 describe("export safety checks", () => {
+  it("times out a presenter decoder that never yields and abandons it exactly once", async () => {
+    vi.useFakeTimers();
+    const returnIterator = vi.fn().mockResolvedValue({ value: undefined, done: true });
+    const iterator = {
+      next: vi.fn(() => new Promise<IteratorResult<unknown>>(() => undefined)),
+      return: returnIterator,
+    };
+    const closeIterator = (() => {
+      let closed = false;
+      return () => {
+        if (closed) return;
+        closed = true;
+        void iterator.return();
+      };
+    })();
+    const disposeInput = vi.fn();
+
+    try {
+      const decoding = nextPresenterDecodeWithWatchdog({
+        iterator,
+        timeoutMs: 250,
+        frameIndex: 0,
+        closeIterator,
+        disposeInput,
+      });
+      const rejection = expect(decoding).rejects.toMatchObject({
+        code: "PRESENTER_DECODE_TIMEOUT",
+        details: { timeoutMs: 250, frameIndex: 0 },
+      });
+      await vi.advanceTimersByTimeAsync(250);
+      await rejection;
+      expect(iterator.next).toHaveBeenCalledTimes(1);
+      expect(returnIterator).toHaveBeenCalledTimes(1);
+      expect(disposeInput).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a never-yield presenter decoder without waiting for its deadline", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const returnIterator = vi.fn().mockResolvedValue({ value: undefined, done: true });
+    const iterator = {
+      next: vi.fn(() => new Promise<IteratorResult<unknown>>(() => undefined)),
+      return: returnIterator,
+    };
+    let closed = false;
+    const closeIterator = () => {
+      if (closed) return;
+      closed = true;
+      void iterator.return();
+    };
+    const disposeInput = vi.fn();
+
+    try {
+      const decoding = nextPresenterDecodeWithWatchdog({
+        iterator,
+        signal: controller.signal,
+        timeoutMs: 60_000,
+        closeIterator,
+        disposeInput,
+      });
+      const rejection = expect(decoding).rejects.toMatchObject({ code: "CANCELLED" });
+      controller.abort(new Error("cancel presenter decode"));
+      await rejection;
+      expect(returnIterator).toHaveBeenCalledTimes(1);
+      expect(disposeInput).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("observes cancellation that lands immediately before abort-listener attachment", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const nativeSignal = controller.signal;
+    const raceSignal = {
+      get aborted() {
+        return nativeSignal.aborted;
+      },
+      get reason() {
+        return nativeSignal.reason;
+      },
+      addEventListener: ((
+        type: string,
+        listener: EventListenerOrEventListenerObject,
+        options?: boolean | AddEventListenerOptions,
+      ) => {
+        // Abort immediately before the real listener is attached. Native
+        // AbortSignal does not replay that event for the late listener.
+        controller.abort(new Error("cancel during listener attachment"));
+        nativeSignal.addEventListener(type, listener, options);
+      }) as AbortSignal["addEventListener"],
+      removeEventListener: nativeSignal.removeEventListener.bind(nativeSignal),
+    } as AbortSignal;
+    const returnIterator = vi.fn().mockResolvedValue({ value: undefined, done: true });
+    const iterator = {
+      next: vi.fn(() => new Promise<IteratorResult<unknown>>(() => undefined)),
+      return: returnIterator,
+    };
+    const disposeInput = vi.fn();
+
+    try {
+      await expect(nextPresenterDecodeWithWatchdog({
+        iterator,
+        signal: raceSignal,
+        timeoutMs: 60_000,
+        closeIterator: () => { void iterator.return(); },
+        disposeInput,
+      })).rejects.toMatchObject({ code: "CANCELLED" });
+      expect(raceSignal.aborted).toBe(true);
+      expect(returnIterator).toHaveBeenCalledTimes(1);
+      expect(disposeInput).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rolls back an owned target when preflight rejects", async () => {
     const abort = vi.fn();
     const target = {
@@ -568,6 +691,26 @@ describe("export safety checks", () => {
 });
 
 describe("presenter timing", () => {
+  it("preflights the real native AAC duration ceiling", () => {
+    expect(() => assertNativeMacAacDurationSupported(35, true, true)).not.toThrow();
+    expectExportCode(
+      () => assertNativeMacAacDurationSupported(35.001, true, true),
+      "AAC_UNSUPPORTED",
+    );
+    expect(() => assertNativeMacAacDurationSupported(60, true, false)).not.toThrow();
+  });
+
+  it("admits a long native video-only presenter but blocks proven presenter audio or soundtrack", () => {
+    // Before presenter inspection, a presenter is not evidence of an audio
+    // track. The same helper is called again after inspection with the real
+    // hasOutputAudio fact, covering both presenter audio and soundtracks.
+    expect(() => assertNativeMacAacDurationSupported(60, false, true)).not.toThrow();
+    expectExportCode(
+      () => assertNativeMacAacDurationSupported(60, true, true),
+      "AAC_UNSUPPORTED",
+    );
+  });
+
   it("keeps presenter video while audio defaults on and can be explicitly muted", () => {
     expect(resolvePresenterAudioEnabled()).toBe(true);
     expect(resolvePresenterAudioEnabled(true)).toBe(true);

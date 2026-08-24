@@ -79,6 +79,10 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
     page.locator(".export-overlay").waitFor({ state: "visible" }),
     page.getByRole("button", { name: "Export PNG sequence" }).click(),
   ]);
+  const progressOverlay = page.locator(".export-overlay");
+  await expect(progressOverlay).toContainText(/Elapsed \d+:\d{2}/);
+  await expect(progressOverlay).toContainText(/Estimating…|ETA \d+:\d{2}/);
+  await expect(progressOverlay).not.toContainText(/\d+%/);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("Space");
   await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
@@ -108,6 +112,54 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   await page.getByRole("button", { name: "Save portable project" }).click();
   expect(await (await projectDownload).path()).toBeTruthy();
   await expect(page.locator(".notice")).toContainText(PORTABLE_SAVED_NOTICE);
+});
+
+test("presenter export preflight decodes a real frame before rendering", async ({ page }) => {
+  await page.goto("/");
+  const presenterBase64 = (await readFile(presenterFixturePath)).toString("base64");
+  const result = await page.evaluate(async (encoded) => {
+    const { exportPngStill } = await import("/src/lib/exportStudio.ts");
+    const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+    const presenter = new Blob([bytes], { type: "video/mp4" });
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const progress: Array<{ phase: string; completed: number; total: number; message: string | null }> = [];
+    let decodedSourceTime: number | null = null;
+    try {
+      const still = await exportPngStill({
+        canvas,
+        presenter,
+        time: 0.25,
+        settings: { width: 128, height: 128, fps: 24, duration: 1 },
+        renderAt: (_time, frame) => {
+          if (!frame) throw new Error("Presenter frame was missing after decode preflight.");
+          decodedSourceTime = frame.sourceTime;
+          const context = canvas.getContext("2d")!;
+          context.fillStyle = "#000";
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          context.drawImage(frame.image, 0, 0, canvas.width, canvas.height);
+        },
+        onProgress: (entry) => progress.push({
+          phase: entry.phase,
+          completed: entry.completed,
+          total: entry.total,
+          message: entry.message ?? null,
+        }),
+      });
+      return { decodedSourceTime, bytes: still.blob.size, progress };
+    } finally {
+      canvas.remove();
+    }
+  }, presenterBase64);
+
+  expect(result.decodedSourceTime).not.toBeNull();
+  expect(result.bytes).toBeGreaterThan(0);
+  expect(result.progress[0]).toEqual({
+    phase: "preparing",
+    completed: 0,
+    total: 1,
+    message: "Reading presenter video",
+  });
 });
 
 test("transparent PNG stores straight-alpha colour without dark fringes", async ({ page }) => {
