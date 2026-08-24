@@ -70,7 +70,7 @@ describe("background atlas catalogue", () => {
   it("keeps the first visual shelf small, diverse, deterministic, and spatially stable", () => {
     const shelf = curatedBackgroundStudies(null);
     expect(shelf.map(({ id }) => id)).toEqual(CURATED_BACKGROUND_STUDY_IDS);
-    expect(shelf).toHaveLength(12);
+    expect(shelf).toHaveLength(11);
     expect(new Set(shelf.map(({ id }) => id)).size).toBe(shelf.length);
     expect(new Set(shelf.map(({ family }) => family))).toEqual(new Set(FAMILIES));
 
@@ -79,7 +79,7 @@ describe("background atlas catalogue", () => {
 
     const outsideShelf = BACKGROUND_STUDIES.find(({ id }) => id === "aurora-veil")!;
     const withCurrent = curatedBackgroundStudies(outsideShelf);
-    expect(withCurrent).toHaveLength(12);
+    expect(withCurrent).toHaveLength(11);
     expect(withCurrent[0]).toBe(outsideShelf);
     expect(withCurrent.filter(({ id }) => id === outsideShelf.id)).toHaveLength(1);
     expect(curatedBackgroundStudies(outsideShelf)).toEqual(withCurrent);

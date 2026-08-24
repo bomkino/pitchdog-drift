@@ -150,7 +150,7 @@ test("the real V2 background browser starts curated, previews without applying, 
   const browser = atmosphere.locator(".visual-background-browser");
   await expect(browser.getByRole("heading", { name: "Choose a background" })).toBeVisible();
   await expect(browser).toHaveAttribute("data-browser-mode", "curated");
-  await expect(browser.locator(".background-study-card")).toHaveCount(13);
+  await expect(browser.locator(".background-study-card")).toHaveCount(12);
   expect(await browser.locator(".background-study-card").evaluateAll((cards) => cards.map((card) => card.getAttribute("data-background-id")))).toEqual([
     "transparent",
     "black-leader",
@@ -164,7 +164,6 @@ test("the real V2 background browser starts curated, previews without applying, 
     "tidal-horizon-study",
     "verdigris-fresco-study",
     "rose-madder-bloom-study",
-    "charcoal-cartography-study",
   ]);
   expect(new Set(await browser.locator(".background-study-card .background-preview[data-family]").evaluateAll((previews) => (
     previews.map((preview) => preview.getAttribute("data-family"))
@@ -215,7 +214,7 @@ test("the real V2 background browser starts curated, previews without applying, 
   expect(scrollAuthority).toEqual({ overflowY: "visible", workspaceScrollOwner: true });
 
   await browser.getByRole("button", { name: /Curated shelf/i }).click();
-  await expect(browser.locator(".background-study-card")).toHaveCount(13);
+  await expect(browser.locator(".background-study-card")).toHaveCount(12);
   await expect(browser.getByRole("searchbox", { name: "Find a look" })).toHaveCount(0);
 
   const portraitPreview = await browser.locator(".background-card-stage .background-preview").first().boundingBox();

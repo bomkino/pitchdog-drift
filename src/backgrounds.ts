@@ -386,6 +386,8 @@ export const BACKGROUND_STUDIES: readonly BackgroundStudy[] = [
 /**
  * The authored first shelf. It is deliberately small enough to scan in one
  * inspector view and broad enough to reveal the range of Drift's worlds.
+ * Eleven opaque studies plus the ever-present Transparent choice keep the
+ * visible shelf at twelve decisions total.
  * The complete atlas remains available behind an explicit Browse all action.
  */
 export const CURATED_BACKGROUND_STUDY_IDS = Object.freeze([
@@ -400,7 +402,6 @@ export const CURATED_BACKGROUND_STUDY_IDS = Object.freeze([
   "tidal-horizon-study",
   "verdigris-fresco-study",
   "rose-madder-bloom-study",
-  "charcoal-cartography-study",
 ] as const);
 
 const CURATED_BACKGROUND_STUDIES = Object.freeze(CURATED_BACKGROUND_STUDY_IDS.map((id) => {
