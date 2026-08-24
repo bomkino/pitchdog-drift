@@ -1,6 +1,7 @@
 import { createDefaultDriftProjectV4 } from "./defaults";
 import type { DriftProjectV4 } from "./schema";
 import { applyEditorialDriftFoundation } from "../worlds";
+import { applySafeStartOutcome } from "../recipes/outcomeRecipes";
 
 /**
  * Creates a new Drift document with the current authored product foundation.
@@ -11,9 +12,11 @@ export function createInitialDriftProjectV4(
   projectId: string,
   now = new Date().toISOString(),
 ): DriftProjectV4 {
-  return applyEditorialDriftFoundation(
-    createDefaultDriftProjectV4(projectId, now),
-    "9:16",
-    now,
+  return applySafeStartOutcome(
+    applyEditorialDriftFoundation(
+      createDefaultDriftProjectV4(projectId, now),
+      "9:16",
+      now,
+    ),
   );
 }

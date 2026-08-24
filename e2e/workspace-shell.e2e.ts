@@ -57,7 +57,10 @@ test("workspace switches mount one explicit inspector and keep stage geometry wi
     await expect(page.locator("[data-workspace-content]")).toHaveCount(1);
     await expect(page.locator(`[data-workspace-content="${id}"]`)).toBeVisible();
     await expect(page.locator("details.inspector-group").filter({ hasText: primaryGroup }).first()).toBeVisible();
-    if (id === "look") await expect(page.getByRole("searchbox", { name: "Find a look" })).toBeVisible();
+    if (id === "look") {
+      await expect(page.getByRole("button", { name: /Browse all backgrounds/i })).toBeVisible();
+      await expect(page.getByRole("searchbox", { name: "Find a look" })).toHaveCount(0);
+    }
     if (id === "motion") {
       await expect(page.getByRole("heading", { name: "How should the deck move?" })).toBeVisible();
       await expect(page.locator('.outcome-card[data-outcome="smooth-carousel"]')).toBeVisible();
@@ -172,6 +175,8 @@ test("outcome cards apply and undo complete motion recipes without changing Look
   await switchWorkspace(page, "MOTION");
   const smooth = page.locator('.outcome-card[data-outcome="smooth-carousel"]');
   const casino = page.locator('.outcome-card[data-outcome="casino-reveal"]');
+  await expect(smooth).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".outcome-current strong")).toHaveText("Smooth Carousel");
   await smooth.click();
   await expect(smooth).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".outcome-current strong")).toHaveText("Smooth Carousel");
@@ -189,6 +194,35 @@ test("outcome cards apply and undo complete motion recipes without changing Look
   await switchWorkspace(page, "LOOK");
   await expect(page.getByRole("combobox", { name: "Background", exact: true })).toHaveValue(backgroundBefore);
   expectInvariant(await stageBox(page), stageBefore);
+});
+
+test("content-paced Smooth reflows after pin changes while fixed-master Casino stays exact", async ({ page }) => {
+  await waitForStudio(page);
+  await switchWorkspace(page, "MOTION");
+  const smooth = page.locator('.outcome-card[data-outcome="smooth-carousel"]');
+  const casino = page.locator('.outcome-card[data-outcome="casino-reveal"]');
+  const timing = page.locator(".timing-summary");
+
+  await expect(smooth).toHaveAttribute("aria-pressed", "true");
+  await expect(timing).toContainText("8 MOVING");
+  await expect(timing.locator("strong")).toHaveText("7.20 s master");
+
+  await page.getByRole("button", { name: "Keep Drift study 01.png still" }).click();
+  await expect(timing).toContainText("7 MOVING");
+  await expect(timing.locator("strong")).toHaveText("6.30 s master");
+  await expect(smooth).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("button", { name: "Return Drift study 01.png to the carousel" }).click();
+  await expect(timing).toContainText("8 MOVING");
+  await expect(timing.locator("strong")).toHaveText("7.20 s master");
+
+  await casino.click();
+  const fixedDuration = await timing.locator("strong").textContent();
+  expect(fixedDuration).not.toBeNull();
+  await page.getByRole("button", { name: "Keep Drift study 01.png still" }).click();
+  await expect(timing).toContainText("7 MOVING");
+  await expect(timing.locator("strong")).toHaveText(fixedDuration!);
+  await expect(casino).toHaveAttribute("aria-pressed", "true");
 });
 
 test("supplementary workspace help opens for keyboard, escapes cleanly, and stays inside the viewport", async ({ page }) => {

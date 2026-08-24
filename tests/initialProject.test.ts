@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInitialDriftProjectV4 } from "../src/core/project/initialProject";
 import { DRIFT_V2_RENDER_CONTRACT } from "../src/core/project/schema";
+import { detectOutcomeRecipe } from "../src/core/recipes/outcomeRecipes";
 
 describe("new Drift project authority", () => {
   it("always begins on the authored V2 foundation, independent of build identity", () => {
@@ -10,5 +11,8 @@ describe("new Drift project authority", () => {
     expect(project.composition).toMatchObject({ width: 1080, height: 1920, alphaMode: "opaque" });
     expect(project.provenance.world?.id).toBe("editorial-drift/9:16");
     expect(project.provenance.worldVariant).toBe("restrained");
+    expect(detectOutcomeRecipe(project)).toBe("smooth-carousel");
+    expect(project.motion.cadence.poseCadence).toBe("continuous");
+    expect(project.lighting.artworkProtection).toBe(1);
   });
 });

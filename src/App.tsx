@@ -11,6 +11,7 @@ import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
 import { CommandPalette } from "./components/CommandPalette";
 import { createInitialDriftProjectV4 } from "./core/project/initialProject";
+import { reconcileOutcomeRecipeTiming } from "./core/recipes/outcomeRecipes";
 import { evaluateDeckSlideHealth } from "./core/media/slideHealth";
 import { resolveMovingMedia } from "./core/project/movingMedia";
 import type { StudioCommandDefinition } from "./core/commands/studioCommandRegistry";
@@ -456,6 +457,15 @@ export function App() {
     setLiveProject(project);
   }, []);
 
+  const synchronizeProjectedSettings = useCallback((project: DriftProjectV4): StudioSettings => {
+    const projected = studioSettingsFromDriftProject(project);
+    if (JSON.stringify(projected) !== JSON.stringify(settingsRef.current)) {
+      settingsRef.current = projected;
+      setSettings(projected);
+    }
+    return projected;
+  }, []);
+
   const reconcileLiveProject = useCallback((
     nextSettings: StudioSettings,
     nextAssets: readonly StudioAsset[],
@@ -463,17 +473,18 @@ export function App() {
     baseProject = projectRef.current,
   ): DriftProjectV4 => {
     if (!baseProject) throw new Error("Project V4 creative authority is unavailable.");
-    const project = reconcileStudioProject({
+    const project = reconcileOutcomeRecipeTiming(reconcileStudioProject({
       project: baseProject,
       settings: nextSettings,
       slideAssets: nextAssets.map(describeProjectAsset),
       presenterAsset: nextPresenter ? describeProjectAsset(nextPresenter) : null,
       // Live creative edits do not impersonate persistence revisions.
       updatedAt: baseProject.updatedAt,
-    });
+    }));
     publishLiveProject(project);
+    synchronizeProjectedSettings(project);
     return project;
-  }, [publishLiveProject]);
+  }, [publishLiveProject, synchronizeProjectedSettings]);
 
   const settingsForCurrentAuthority = useCallback((): StudioSettings => {
     const project = projectRef.current;
@@ -630,14 +641,15 @@ export function App() {
     setSaveState("saving");
     const updatedAt = new Date().toISOString();
     const baseProject = projectRef.current ?? createInitialProject(makeLocalProjectId(), updatedAt);
-    const nextProject = reconcileStudioProject({
+    const nextProject = reconcileOutcomeRecipeTiming(reconcileStudioProject({
       project: baseProject,
       settings: nextSettings,
       slideAssets: nextAssets.map(describeProjectAsset),
       presenterAsset: nextPresenter ? describeProjectAsset(nextPresenter) : null,
       updatedAt,
-    });
+    }));
     publishLiveProject(nextProject);
+    synchronizeProjectedSettings(nextProject);
     const payload = createDriftProjectPayload(nextProject);
     const projectAssets = [...nextAssets, ...(nextPresenter ? [nextPresenter] : [])].map((asset) => ({
       id: asset.id,
@@ -672,7 +684,7 @@ export function App() {
       },
     );
     return task;
-  }, [publishLiveProject, settingsForCurrentAuthority]);
+  }, [publishLiveProject, settingsForCurrentAuthority, synchronizeProjectedSettings]);
 
   const persistExactProject = useCallback((
     project: DriftProjectV4,
@@ -1013,13 +1025,14 @@ export function App() {
         rejectImport("Project V4 creative authority is unavailable.");
         return;
       }
-      const nextProject = reconcileStudioProject({
+      const nextProject = reconcileOutcomeRecipeTiming(reconcileStudioProject({
         project: baseProject,
         settings: nextSettings,
         slideAssets: next.map(describeProjectAsset),
         presenterAsset: nextPresenter ? describeProjectAsset(nextPresenter) : null,
         updatedAt: new Date().toISOString(),
-      });
+      }));
+      const reconciledSettings = studioSettingsFromDriftProject(nextProject);
       try {
         await persistExactProject(nextProject, next, nextPresenter);
       } catch (error) {
@@ -1030,13 +1043,14 @@ export function App() {
         return;
       }
       directPersistenceSnapshotRef.current = {
-        settings: nextSettings,
+        settings: reconciledSettings,
         assets: next,
         presenter: nextPresenter,
       };
       recordDocumentMutation();
       assetsRef.current = next;
       publishLiveProject(nextProject);
+      synchronizeProjectedSettings(nextProject);
       setAssets(next);
       if (replacingDemos) current.forEach(disposeAsset);
     } else {
@@ -1054,7 +1068,7 @@ export function App() {
       `${accepted.length} slide${accepted.length === 1 ? "" : "s"} added${rejected ? `; ${rejected} rejected by format, count, decode, or project-media budget` : ""}. ${formatProjectMiB(usedBytes)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
       rejected ? "quiet" : "good",
     );
-  }, [announce, markProjectDirty, persistExactProject, publishLiveProject, reconcileLiveProject, recordDocumentMutation, settingsForCurrentAuthority]);
+  }, [announce, markProjectDirty, persistExactProject, publishLiveProject, reconcileLiveProject, recordDocumentMutation, settingsForCurrentAuthority, synchronizeProjectedSettings]);
 
   const addImages = useCallback((files: File[]) => {
     void enqueueProjectOperation(() => addImagesNow(files));
@@ -1097,34 +1111,32 @@ export function App() {
       if (options.persistBeforeReply) {
         const baseProject = projectRef.current;
         if (!baseProject) throw new Error("Project V4 creative authority is unavailable.");
-        const nextProject = reconcileStudioProject({
+        const nextProject = reconcileOutcomeRecipeTiming(reconcileStudioProject({
           project: baseProject,
           settings: nextSettings,
           slideAssets: assetsRef.current.map(describeProjectAsset),
           presenterAsset: describeProjectAsset(next),
           updatedAt: new Date().toISOString(),
-        });
+        }));
+        const reconciledSettings = studioSettingsFromDriftProject(nextProject);
         await persistExactProject(nextProject, assetsRef.current, next);
         directPersistenceSnapshotRef.current = {
-          settings: nextSettings,
+          settings: reconciledSettings,
           assets: assetsRef.current,
           presenter: next,
         };
         recordDocumentMutation();
         presenterRef.current = next;
-        settingsRef.current = nextSettings;
         publishLiveProject(nextProject);
+        synchronizeProjectedSettings(nextProject);
         setPresenter(next);
-        setSettings(nextSettings);
         if (previous) disposeAsset(previous);
       } else {
         if (previous) disposeAsset(previous);
         presenterRef.current = next;
         setPresenter(next);
         markProjectDirty();
-        settingsRef.current = nextSettings;
         reconcileLiveProject(nextSettings, assetsRef.current, next);
-        setSettings(nextSettings);
       }
       decodedPresenter = null;
       announce(
@@ -1136,7 +1148,7 @@ export function App() {
       announce(error instanceof Error ? error.message : "Presenter video could not be opened.", "error");
       if (options.propagateFailure) throw error;
     }
-  }, [announce, markProjectDirty, persistExactProject, publishLiveProject, reconcileLiveProject, recordDocumentMutation, settingsForCurrentAuthority]);
+  }, [announce, markProjectDirty, persistExactProject, publishLiveProject, reconcileLiveProject, recordDocumentMutation, settingsForCurrentAuthority, synchronizeProjectedSettings]);
 
   const addPresenter = useCallback((file: File) => {
     void enqueueProjectOperation(() => addPresenterNow(file));
@@ -1150,10 +1162,8 @@ export function App() {
     markProjectDirty();
     assetsRef.current = nextAssets;
     const nextSettings = clearPinnedAssetIfRemoved(settingsForCurrentAuthority(), id);
-    settingsRef.current = nextSettings;
     reconcileLiveProject(nextSettings, nextAssets, presenterRef.current);
     setAssets(nextAssets);
-    setSettings(nextSettings);
   }, [markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const reorder = useCallback((fromId: string, toId: string) => {
@@ -1184,9 +1194,7 @@ export function App() {
       },
     };
     markProjectDirty();
-    settingsRef.current = nextSettings;
     reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
-    setSettings(nextSettings);
     if (asset) {
       if (asset.kind === "image") setSelectedSlideId(asset.id);
       announce(`${asset.name} will stay still. Pinned-frame controls remain in Slides.`);
@@ -1208,9 +1216,7 @@ export function App() {
     }
     const nextSettings = resetPinnedFrameComposition(current, asset);
     markProjectDirty();
-    settingsRef.current = nextSettings;
     reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
-    setSettings(nextSettings);
     announce("Pinned frame reset to its source ratio, protected layer, and still-only track.", "good");
   }, [announce, markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
@@ -1223,9 +1229,7 @@ export function App() {
 
     const nextSettings = clearPinnedAssetIfRemoved(settingsForCurrentAuthority(), removedPresenterId);
     markProjectDirty();
-    settingsRef.current = nextSettings;
     reconcileLiveProject(nextSettings, assetsRef.current, null);
-    setSettings(nextSettings);
   }, [markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const renderForExport = useCallback(async (
@@ -1575,13 +1579,13 @@ export function App() {
           : await (() => {
               const updatedAt = new Date().toISOString();
               const baseProject = projectRef.current ?? createInitialProject(makeLocalProjectId(), updatedAt);
-              const project = reconcileStudioProject({
+              const project = reconcileOutcomeRecipeTiming(reconcileStudioProject({
                 project: baseProject,
                 settings: settingsForCurrentAuthority(),
                 slideAssets: assetsRef.current.map(describeProjectAsset),
                 presenterAsset: presenterRef.current ? describeProjectAsset(presenterRef.current) : null,
                 updatedAt,
-              });
+              }));
               publishLiveProject(project);
               return createProjectBundle({
                 payload: createDriftProjectPayload(project),
@@ -1728,9 +1732,7 @@ export function App() {
     const theme = getTheme(id);
     const nextSettings = applyTheme(settingsForCurrentAuthority(), theme);
     markProjectDirty();
-    settingsRef.current = nextSettings;
     reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
-    setSettings(nextSettings);
     announce(`${theme.name} is now directing the scene.`);
   }, [announce, markProjectDirty, publishLiveProject, reconcileLiveProject, settingsForCurrentAuthority]);
 
@@ -1793,10 +1795,8 @@ export function App() {
       announce("Custom stage size kept your direction and released the authored ratio recut.");
     }
     markProjectDirty();
-    settingsRef.current = nextSettings;
     const nextProject = reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
     if (currentProject) recordV2History(currentProject, nextProject, "Director control changed.");
-    setSettings(nextSettings);
   }, [announce, markProjectDirty, publishLiveProject, reconcileLiveProject, recordV2History, settingsForCurrentAuthority]);
 
   const updateV2Project = useCallback((candidate: DriftProjectV4, message: string) => {
