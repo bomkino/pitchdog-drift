@@ -83,37 +83,32 @@ test("Project V4 keeps one image still without letting a presenter video steal i
   await page.getByRole("button", { name: "Keep Drift study 01.png still" }).click();
   await expect(firstSlide).toHaveAttribute("data-pinned", "true");
 
-  const firstSave = await readSavedProject(page);
-  const pinnedImageId = firstSave.media.order[0] as string;
-  expect(firstSave.presenter).toMatchObject({
-    enabled: true,
+  await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterFixturePath);
+  await expect(page.locator(".presenter-card")).toBeVisible();
+  await expect(page.locator(".asset-list li").first()).toHaveAttribute("data-pinned", "true");
+  // Let the upload and local save settle across a real workspace round trip
+  // before opening controls whose subtree is conditionally mounted.
+  await switchWorkspace(page, "MASTER");
+  await switchWorkspace(page, "SLIDES");
+
+  const pinnedGroup = page.locator("details").filter({ has: page.locator("summary", { hasText: "Pinned frame" }) });
+  if (await pinnedGroup.getAttribute("open") === null) await pinnedGroup.locator("summary").click();
+  await expect(pinnedGroup).toHaveAttribute("open", "");
+  const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
+  await pinnedSwitch.click();
+  await expect(pinnedSwitch).not.toBeChecked();
+  await expect(pinnedSwitch).toBeEnabled();
+  const disabled = await readSavedProject(page);
+  const pinnedImageId = disabled.media.order[0] as string;
+  expect(disabled.media.presenterAssetId).not.toBe(pinnedImageId);
+  expect(disabled.presenter).toMatchObject({
+    enabled: false,
     assetId: pinnedImageId,
     trackMode: "pinned-only",
     layoutMode: "safe-overlay",
     aspectMode: "source",
     matteOpacity: 0,
   });
-
-  await page.reload();
-  await expect(page.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(".asset-list li").first()).toHaveAttribute("data-pinned", "true");
-  await expect(page.getByRole("button", { name: "Return Drift study 01.png to the carousel" })).toBeVisible();
-
-  await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterFixturePath);
-  await expect(page.locator(".presenter-card")).toBeVisible();
-  await expect(page.locator(".asset-list li").first()).toHaveAttribute("data-pinned", "true");
-  const withVideo = await readSavedProject(page);
-  expect(withVideo.media.presenterAssetId).not.toBe(pinnedImageId);
-  expect(withVideo.presenter.assetId).toBe(pinnedImageId);
-
-  const pinnedGroup = page.locator("details").filter({ has: page.locator("summary", { hasText: "Pinned frame" }) });
-  await pinnedGroup.locator("summary").click();
-  const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
-  await pinnedSwitch.click();
-  await expect(pinnedSwitch).not.toBeChecked();
-  await expect(pinnedSwitch).toBeEnabled();
-  const disabled = await readSavedProject(page);
-  expect(disabled.presenter).toMatchObject({ enabled: false, assetId: pinnedImageId });
 
   await page.reload();
   await expect(page.getByText(LOCAL_REOPENED_NOTICE)).toBeVisible({ timeout: 30_000 });

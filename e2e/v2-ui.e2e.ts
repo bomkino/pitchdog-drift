@@ -1,8 +1,29 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import { waitForStudio } from "./studio.helpers";
 
 async function ensureInspectorOpen(group: Locator): Promise<void> {
   if (await group.getAttribute("open") === null) await group.locator("summary").click();
+}
+
+async function samplePngPixels(page: Page, base64: string): Promise<number[]> {
+  return page.evaluate(async (encoded) => {
+    const binary = atob(encoded);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }), {
+      resizeWidth: 16,
+      resizeHeight: 16,
+      resizeQuality: "high",
+    });
+    const surface = document.createElement("canvas");
+    surface.width = 16;
+    surface.height = 16;
+    const context = surface.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Stage sampling canvas is unavailable.");
+    context.drawImage(bitmap, 0, 0, surface.width, surface.height);
+    bitmap.close();
+    return Array.from(context.getImageData(1, 1, 15, 15).data);
+  }, base64);
 }
 
 async function sampleStagePixels(page: Page, canvas: Locator): Promise<number[]> {
@@ -20,21 +41,9 @@ async function sampleStagePixels(page: Page, canvas: Locator): Promise<number[]>
       clip: { ...bounds, scale },
     }));
   } finally {
-    await session.detach();
+    if (!page.isClosed()) await session.detach();
   }
-  return page.evaluate(async (base64) => {
-    const binary = atob(base64);
-    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
-    const surface = document.createElement("canvas");
-    surface.width = 16;
-    surface.height = 16;
-    const context = surface.getContext("2d", { willReadFrequently: true });
-    if (!context) throw new Error("Stage sampling canvas is unavailable.");
-    context.drawImage(bitmap, 0, 0, surface.width, surface.height);
-    bitmap.close();
-    return Array.from(context.getImageData(1, 1, 15, 15).data);
-  }, data);
+  return samplePngPixels(page, data);
 }
 
 function pixelDistance(left: number[], right: number[]): number {
@@ -173,22 +182,25 @@ test("comparison pixels return after a still export instead of keeping live dire
   const before = await sampleStagePixels(page, canvas);
   await page.getByRole("button", { name: "Before", exact: true }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("dread");
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  const live = await sampleStagePixels(page, canvas);
   await page.getByRole("button", { name: "A/B", exact: true }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("editorial drift");
 
   await page.getByRole("button", { name: "MASTER", exact: true }).click();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
-  expect(await (await download).path()).toBeTruthy();
+  const exportPath = await (await download).path();
+  expect(exportPath).toBeTruthy();
+  // A still export must render the live Dread direction even while the stage
+  // is showing Before. Use the exported pixels as the live-state receipt,
+  // avoiding a redundant, very expensive SwiftShader stage capture.
+  const exportedLive = await samplePngPixels(page, (await readFile(exportPath!)).toString("base64"));
 
   await page.getByRole("button", { name: "WORLD", exact: true }).click();
   await expect(page.getByRole("button", { name: "Before", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".stage-topline").first()).toContainText("editorial drift");
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   const after = await sampleStagePixels(page, canvas);
-  expect(pixelDistance(after, before)).toBeLessThan(pixelDistance(after, live));
+  expect(pixelDistance(after, before)).toBeLessThan(pixelDistance(after, exportedLive));
 });
 
 test("Command-K traps keyboard focus, exposes active results, and restores its trigger", async ({ page }) => {
