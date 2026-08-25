@@ -42,6 +42,7 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   await switchWorkspace(page, "EXPORT");
   await page.getByLabel("Stage width").fill("256");
   await page.getByLabel("Stage height").fill("256");
+  await page.getByRole("group", { name: "Master duration" }).getByText("Exact length", { exact: true }).click();
   await page.getByLabel("Exact duration", { exact: true }).fill("3");
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
   await expect(page.locator(".stage-hud")).toContainText("256 × 256");

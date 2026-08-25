@@ -65,7 +65,7 @@ The Inspector is split into four short journeys rather than one wall of controls
 - **Slides · Deck** — set the shared slide frame, crop the selected slide, and place the optional pinned frame.
 - **Look · World** — choose the background and complete World, then decide how literally Drift must preserve the source artwork.
 - **Motion · Flow** — choose an outcome, cadence, timeline intent, path, pace, material response, and sound.
-- **Export · Output** — set duration, output format, platform guides, preflight, and export.
+- **Export · Output** — choose **Exact length** or **Fit to slides** directly in the room, then set output format, platform guides, preflight, and export. Exact length reveals an editable master duration; Fit to slides derives the master from moving slides, complete deck passes, and reading pace.
 
 ### The shortest good path
 

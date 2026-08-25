@@ -65,6 +65,8 @@ The app distinguishes four concepts that were previously easy to conflate:
 3. **Sequence** — the ordered fast/read blocks and complete deck passes.
 4. **Delivery length** — content-paced duration or an exact requested duration.
 
+The same delivery-length decision appears at the top of **Export → Output** as **Exact length / Fit to slides**. Users no longer have to leave Export to discover why the runtime is derived or to take exact control of it.
+
 When a sequence owns timing, incompatible free-run speed and pass controls are hidden. The Timeline shows the active blocks and their proportional duration. The playhead is draggable and keyboard-operable; current and total time remain visible.
 
 **Casino Reveal** is content-paced by default:

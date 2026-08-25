@@ -467,6 +467,14 @@ export function ControlPanel({
   const selectedSlideKey = selectedSlide && selectedDirective ? selectedSlideId : null;
   const movingMedia = useMemo(() => resolveMovingMedia(project), [project]);
   const timingRead = useMemo(() => readTimingIntent(project), [project]);
+  const chooseTimingMode = (mode: TimingMode) => {
+    const intent: TimingIntent = { ...timingRead.intent, mode };
+    commitResolvedTiming(
+      mode === "fixed-master" ? "Exact master length now owns timing." : "Reading pace now owns timing.",
+      (next) => { Object.assign(next, withTimingIntent(next, intent)); },
+      intent,
+    );
+  };
   const timingResolution = useMemo(
     () => resolveProjectTiming(project, movingMedia.count, timingRead.intent),
     [movingMedia.count, project, timingRead.intent],
@@ -978,14 +986,7 @@ export function ControlPanel({
               { value: "fixed-master", label: "Exact length" },
               { value: "content-paced", label: "Reading pace" },
             ]}
-            onChange={(mode) => {
-              const intent: TimingIntent = { ...timingRead.intent, mode };
-              commitResolvedTiming(
-                mode === "fixed-master" ? "Exact master length now owns timing." : "Reading pace now owns timing.",
-                (next) => { Object.assign(next, withTimingIntent(next, intent)); },
-                intent,
-              );
-            }}
+            onChange={chooseTimingMode}
           />
           {timingRead.intent.mode === "content-paced" ? (
             <RangeNumberField
@@ -1719,6 +1720,15 @@ export function ControlPanel({
 
       <WorkspaceSection workspace="export">
       <InspectorGroup title="Output" eyebrow={`${settings.output.width} × ${settings.output.height}`} description="Confirm runtime, frame rate, readiness, and export format." open>
+        <Segmented<TimingMode>
+          label="Master duration"
+          value={timingRead.intent.mode}
+          options={[
+            { value: "fixed-master", label: "Exact length" },
+            { value: "content-paced", label: "Fit to slides" },
+          ]}
+          onChange={chooseTimingMode}
+        />
         {timingRead.intent.mode === "fixed-master" ? (
           <RangeNumberField
             label="Exact duration"

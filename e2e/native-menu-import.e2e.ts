@@ -471,6 +471,7 @@ test("Finder-style project delivery rejects when an export wins the admission ra
   await switchWorkspace(page, "EXPORT");
   await page.getByLabel("Stage width").fill("256");
   await page.getByLabel("Stage height").fill("256");
+  await page.getByRole("group", { name: "Master duration" }).getByText("Exact length", { exact: true }).click();
   await page.getByLabel("Exact duration", { exact: true }).fill("3");
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
   const exportButton = page.getByRole("button", { name: "Export PNG sequence" });

@@ -157,7 +157,11 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
         duration: 2,
         objectUrl,
       });
-      const video = (engine as unknown as { presenterVideo: HTMLVideoElement }).presenterVideo;
+      const presenterVideo = () => (
+        engine as unknown as { presenterVideo: HTMLVideoElement | null }
+      ).presenterVideo;
+      let video = presenterVideo();
+      if (!video) throw new Error("Presenter preview was not prepared.");
       const clock = engine as unknown as {
         animationFrame: number;
         elapsed: number;
@@ -248,6 +252,20 @@ test("presenter playback follows the master clock, pause, reduced motion, and ex
 
       surface.restore();
       surface = null;
+      const releasedPreview = video;
+      const replacementDeadline = performance.now() + 5_000;
+      while (performance.now() < replacementDeadline) {
+        const replacement = presenterVideo();
+        if (replacement && replacement !== releasedPreview) {
+          video = replacement;
+          break;
+        }
+        await delay(20);
+      }
+      if (video === releasedPreview) {
+        throw new Error("Presenter preview was not rebuilt after export.");
+      }
+      await waitForPresenterSettled();
       const restoredElapsedStart = clock.elapsed;
       const restoredSchedulerArmed = clock.animationFrame !== 0;
       const restoredExportActive = clock.exportActive;
