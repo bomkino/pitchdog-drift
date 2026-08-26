@@ -12,6 +12,9 @@ import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
 import { CommandPalette } from "./components/CommandPalette";
 import { InterfaceScaleMenu } from "./components/InterfaceScaleMenu";
+import { AutomationAccessView } from "./components/AutomationAccessView";
+import { createDriftSelfDescription } from "./core/automation/selfDescription";
+import { createProductAutomationService } from "./core/automation/productAutomationService";
 import { createInitialDriftProjectV4 } from "./core/project/initialProject";
 import { reconcileOutcomeRecipeTiming } from "./core/recipes/outcomeRecipes";
 import { evaluateDeckSlideHealth } from "./core/media/slideHealth";
@@ -108,6 +111,10 @@ import {
   requireDesktopPlatformCompletion,
 } from "./lib/desktopPlatform";
 import type { InterfaceScaleCommand } from "./lib/interfaceScale";
+import {
+  createDevelopmentMcpAdapter,
+  type DevelopmentMcpAdapter,
+} from "./lib/developmentMcpAdapter";
 import {
   PROJECT_MEDIA_LIMITS,
   formatProjectMiB,
@@ -337,6 +344,8 @@ export function App() {
   const [interfaceScale, setInterfaceScale] = useState(
     () => desktopPlatform.presentation.interfaceScale.getSnapshot(),
   );
+  const [automationEnabled, setAutomationEnabled] = useState(false);
+  const [automationConnectionState, setAutomationConnectionState] = useState<"disconnected" | "connected">("disconnected");
   const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
     __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
   }).__DRIFT_NATIVE_SELF_TEST_DB__;
@@ -410,6 +419,87 @@ export function App() {
       : stagePresentationFromV1Settings(settings),
     [displayedProject, settings, v2Active],
   );
+  const automationPlayheadSeconds = Math.round(previewTime * 4) / 4;
+  const automationService = useMemo(() => createProductAutomationService(
+    createDriftSelfDescription({
+      project: liveProject,
+      documentRevision: documentRevisionRef.current.currentRevision,
+      savedDocumentRevision: documentRevisionRef.current.savedRevision,
+      documentBound,
+      documentConflict,
+      selectedAssetId: selectedSlideId,
+      presentation: {
+        interfaceScale: interfaceScale.value,
+        workspace: activeWorkspace,
+        panel: activePanel,
+        focusMode,
+        playheadSeconds: automationPlayheadSeconds,
+      },
+      platform: {
+        target: desktopPlatform.target,
+        buildChannel: driftBuildIdentity.channel,
+        packaged: nativeMac,
+      },
+      exportCapabilities,
+      jobs: exportProgress ? [{
+        id: "active-export",
+        kind: "export",
+        state: exportProgress.phase === "complete" ? "completed" : "running",
+        progress: exportProgress.total > 0
+          ? exportProgress.completed / exportProgress.total
+          : 0,
+      }] : [],
+    }),
+  ), [
+    activePanel,
+    activeWorkspace,
+    desktopPlatform.target,
+    documentRevisionVersion,
+    documentBound,
+    documentConflict,
+    exportCapabilities,
+    exportProgress,
+    focusMode,
+    interfaceScale.value,
+    liveProject,
+    nativeMac,
+    automationPlayheadSeconds,
+    selectedSlideId,
+  ]);
+  const automationAdapterRef = useRef<DevelopmentMcpAdapter | null>(null);
+  if (automationAdapterRef.current === null) {
+    automationAdapterRef.current = createDevelopmentMcpAdapter(automationService);
+  }
+  const automationAdapter = automationAdapterRef.current;
+
+  useEffect(() => {
+    automationAdapter.replaceService(automationService);
+  }, [automationAdapter, automationService]);
+
+  useEffect(() => automationAdapter.subscribe(setAutomationConnectionState), [automationAdapter]);
+
+  useEffect(() => {
+    const developmentEnabled = driftBuildIdentity.isDevelopment && automationEnabled;
+    automationAdapter.setEnabled(developmentEnabled);
+    const host = globalThis as typeof globalThis & {
+      __DRIFT_DEVELOPMENT_MCP__?: Readonly<Pick<
+        DevelopmentMcpAdapter,
+        "connect" | "request" | "disconnect"
+      >>;
+    };
+    const clientSurface = Object.freeze({
+      connect: automationAdapter.connect,
+      request: automationAdapter.request,
+      disconnect: automationAdapter.disconnect,
+    });
+    if (developmentEnabled) host.__DRIFT_DEVELOPMENT_MCP__ = clientSurface;
+    return () => {
+      if (host.__DRIFT_DEVELOPMENT_MCP__ === clientSurface) {
+        delete host.__DRIFT_DEVELOPMENT_MCP__;
+      }
+      automationAdapter.setEnabled(false);
+    };
+  }, [automationAdapter, automationEnabled]);
 
   useEffect(() => {
     if (selectedSlideId && assets.some((asset) => asset.id === selectedSlideId)) return;
@@ -2340,6 +2430,15 @@ export function App() {
 
       <footer className="app-footer">
         <span>LOCAL FIRST · NO CLOUD · NO TRACKING</span>
+        {driftBuildIdentity.isDevelopment ? (
+          <AutomationAccessView
+            enabled={automationEnabled}
+            connectionState={automationConnectionState}
+            service={automationService}
+            onEnabledChange={setAutomationEnabled}
+            onDisconnect={() => automationAdapter.revokeAll()}
+          />
+        ) : null}
         <details className="legal-notice">
           <summary>SOURCE · AGPL</summary>
           <div role="note" aria-label="Free software notice">

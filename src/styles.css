@@ -3103,6 +3103,98 @@ a:focus-visible {
   position: relative;
 }
 
+.automation-access {
+  position: relative;
+}
+
+.automation-access > summary {
+  color: var(--faint);
+  cursor: pointer;
+  font: 700 10px/1 var(--mono);
+  letter-spacing: 0.08em;
+  list-style: none;
+  text-transform: uppercase;
+}
+
+.automation-access > summary::-webkit-details-marker { display: none; }
+
+.automation-access > summary:focus-visible,
+.automation-access[open] > summary { color: var(--rust-light); }
+
+.automation-access > summary:focus-visible {
+  outline: 2px solid var(--rust-light);
+  outline-offset: 4px;
+}
+
+.automation-access__body {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--ui-footer-height) + 8px);
+  z-index: 30;
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(620px, calc(100dvh - var(--ui-footer-height) - 32px));
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--ui-radius);
+  background: #161412;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.48);
+  color: var(--paper);
+  white-space: normal;
+}
+
+.automation-access__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+
+.automation-access__status strong { color: var(--rust-light); }
+
+.automation-access__body > label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 36px;
+}
+
+.automation-access__body > p {
+  margin: 10px 0;
+  color: var(--faint);
+  font-family: var(--mono);
+}
+
+.automation-access__resources {
+  display: grid;
+  gap: 6px;
+}
+
+.automation-access__resources details {
+  border: 1px solid var(--line);
+  border-radius: calc(var(--ui-radius) * 0.75);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.automation-access__resources summary {
+  min-height: 36px;
+  padding: 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.automation-access__resources pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border-top: 1px solid var(--line);
+  font: 10px/1.5 var(--mono);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .legal-notice summary {
   list-style: none;
   color: var(--muted);
