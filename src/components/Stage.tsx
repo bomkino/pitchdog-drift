@@ -221,7 +221,7 @@ export function Stage({
               <span>{exportProgress.phase}</span>
               <strong>{exportProgress.message}</strong>
               {exportProgress.determinate ? (
-                <progress value={exportProgress.completed} max={Math.max(1, exportProgress.total)} />
+                <progress value={exportProgress.ratio} max={1} />
               ) : <div className="export-progress-indeterminate" aria-hidden="true"><i /></div>}
               <small className="export-progress-facts">
                 <span>{exportCount(exportProgress)}</span>

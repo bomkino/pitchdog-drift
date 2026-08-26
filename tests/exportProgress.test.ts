@@ -30,6 +30,7 @@ describe("truthful export progress clock", () => {
       0,
     );
     expect(awaitingFirstFrame).toMatchObject({
+      ratio: 0,
       completed: 0,
       total: 120,
       unit: "frames",
@@ -48,15 +49,17 @@ describe("truthful export progress clock", () => {
     expect(frameTwo.etaSeconds).toBeNull();
     expect(frameThree.ratePerSecond).toBeCloseTo(1, 6);
     expect(frameThree.etaSeconds).toBeCloseTo(117, 6);
+    expect(frameThree.ratio).toBeCloseTo(3 / 120, 6);
     expect(tickExportProgress(frameThree, clock, 25_999).stallKind).toBeNull();
     expect(tickExportProgress(frameThree, clock, 26_000).stallKind).toBe("inactivity");
 
     const finalizing = projectExportProgress(
-      progress("finalizing", 0, 4, "Closing encoded tracks"),
+      { ...progress("finalizing", 0, 4, "Closing encoded tracks"), ratio: 0.96 },
       clock,
       27_000,
     );
     expect(finalizing.phase).toBe("finalize");
+    expect(finalizing.ratio).toBe(0.96);
     expect(tickExportProgress(finalizing, clock, 41_999).stallKind).toBeNull();
     expect(tickExportProgress(finalizing, clock, 42_000).stallKind).toBe("inactivity");
 
@@ -70,7 +73,10 @@ describe("truthful export progress clock", () => {
     });
     expect(clock.lastProgressAt).toBe(43_000);
 
-    expect(projectExportProgress(progress("verifying", 1, 2), clock, 44_000).phase).toBe("verify");
-    expect(projectExportProgress(progress("committing", 0, 1), clock, 45_000).phase).toBe("commit");
+    const verifying = projectExportProgress({ ...progress("verifying", 1, 2), ratio: 0.99 }, clock, 44_000);
+    const committing = projectExportProgress({ ...progress("committing", 0, 1), ratio: 0.98 }, clock, 45_000);
+    expect(verifying.phase).toBe("verify");
+    expect(committing.phase).toBe("commit");
+    expect(committing.ratio).toBe(0.99);
   });
 });

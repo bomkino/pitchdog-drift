@@ -205,6 +205,7 @@ describe("guided Export intent and capability seam", () => {
 
     project.master = { ...project.master, fps: 24 };
     settings.output = { ...settings.output, fps: 24 };
+    assets[0]!.name = "changed-after-capture.png";
     assets.push(imageAsset("slide-b"));
 
     expect(snapshot).toMatchObject({
@@ -215,6 +216,7 @@ describe("guided Export intent and capability seam", () => {
     expect(snapshot.project.master.fps).toBe(30);
     expect(snapshot.settings.output.fps).toBe(30);
     expect(snapshot.assets).toHaveLength(1);
+    expect(snapshot.assets[0]!.name).toBe("slide-a.png");
     expect(Object.isFrozen(snapshot)).toBe(true);
 
     expect(() => assertGuidedExportIntentMatchesPlan(snapshot.intent, {

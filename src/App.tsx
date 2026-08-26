@@ -455,9 +455,7 @@ export function App() {
         id: activeExportSnapshotId ?? "export-preparing",
         kind: "export",
         state: exportProgress.phase === "complete" ? "completed" : "running",
-        progress: exportProgress.total > 0
-          ? exportProgress.completed / exportProgress.total
-          : 0,
+        progress: exportProgress.ratio,
       }] : [],
     }),
   ), [
@@ -1457,6 +1455,7 @@ export function App() {
     exportProgressClockRef.current = createExportProgressClock(now);
     setExportProgress({
       phase: "preparing",
+      ratio: 0,
       completed: 0,
       total: 1,
       frameIndex: null,
@@ -1573,6 +1572,20 @@ export function App() {
       );
       return null;
     }
+    let fileHandle: FileSystemFileHandle | null = null;
+    const savePicker = (window as PickerWindow).showSaveFilePicker;
+    if (savePicker) {
+      try {
+        fileHandle = await savePicker({
+          id: "pitchdog-drift-master",
+          suggestedName: `drift-master-${timestampSlug()}.mp4`,
+          types: [{ description: "H.264 MP4 master", accept: { "video/mp4": [".mp4"] } }],
+        });
+      } catch (error) {
+        announce(isAbortError(error) ? "MP4 destination canceled." : error instanceof Error ? error.message : "Could not choose an MP4 destination.", isAbortError(error) ? "quiet" : "error");
+        return null;
+      }
+    }
     let reservation: ReturnType<typeof reserveExport>;
     try {
       reservation = reserveExport(intent);
@@ -1580,17 +1593,8 @@ export function App() {
       announce(error instanceof Error ? error.message : "Could not start MP4 export.", "error");
       return null;
     }
-    let fileHandle: FileSystemFileHandle | null = null;
     let session: Awaited<ReturnType<typeof beginExport>> | null = null;
     try {
-      const savePicker = (window as PickerWindow).showSaveFilePicker;
-      if (savePicker) {
-        fileHandle = await savePicker({
-          id: "pitchdog-drift-master",
-          suggestedName: `drift-master-${timestampSlug()}.mp4`,
-          types: [{ description: "H.264 MP4 master", accept: { "video/mp4": [".mp4"] } }],
-        });
-      }
       session = await beginExport(reservation);
       const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { createFileSystemMp4Target, exportMp4 } = await import("./lib/exportStudio");

@@ -504,8 +504,8 @@ export function captureGuidedExportSnapshot(input: Readonly<{
     assetFingerprint: input.authority.assetFingerprint,
     project: structuredClone(input.authority.project),
     settings: structuredClone(input.authority.settings),
-    assets: Object.freeze([...input.authority.assets]),
-    presenter: input.authority.presenter,
+    assets: Object.freeze(structuredClone(input.authority.assets)),
+    presenter: structuredClone(input.authority.presenter),
   });
 }
 

@@ -273,7 +273,7 @@ export function GuidedExportWizard({
             <h3>{progress?.message ?? "Waiting for destination authority"}</h3>
             <p>{formatEta(progress)}</p>
           </div>
-          {progress?.determinate ? <progress value={progress.completed} max={Math.max(1, progress.total)} /> : <div className="guided-export-pulse" aria-hidden="true"><i /></div>}
+          {progress?.determinate ? <progress value={progress.ratio} max={1} /> : <div className="guided-export-pulse" aria-hidden="true"><i /></div>}
           <dl className="guided-export-facts compact">
             <div><dt>Phase</dt><dd>{progress?.phase ?? "preparing"}</dd></div>
             <div><dt>Work</dt><dd>{progress ? `${progress.completed.toLocaleString()} / ${progress.total.toLocaleString()} ${progress.unit}` : "Not started"}</dd></div>

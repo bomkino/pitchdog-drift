@@ -9,6 +9,7 @@ export interface ExportProgressClock {
   previousSampleAt: number;
   ratePerSecond: number | null;
   observations: number;
+  overallRatio: number;
 }
 
 export function createExportProgressClock(now: number): ExportProgressClock {
@@ -20,6 +21,7 @@ export function createExportProgressClock(now: number): ExportProgressClock {
     previousSampleAt: now,
     ratePerSecond: null,
     observations: 0,
+    overallRatio: 0,
   };
 }
 
@@ -54,6 +56,7 @@ export function projectExportProgress(
     committing: "Publishing verified output",
     complete: "Master complete",
   }[progress.phase];
+  clock.overallRatio = Math.max(clock.overallRatio, Math.max(0, Math.min(1, progress.ratio)));
 
   const phaseReset = clock.phase !== progress.phase || progress.completed < clock.previousCompleted;
   if (phaseReset) {
@@ -93,6 +96,7 @@ export function projectExportProgress(
 
   return {
     phase,
+    ratio: clock.overallRatio,
     completed: progress.completed,
     total: progress.total,
     frameIndex: progress.frameIndex ?? null,
