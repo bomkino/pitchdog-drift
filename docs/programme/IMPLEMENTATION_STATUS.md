@@ -41,8 +41,24 @@ Receipt: [`receipts/D01-platform-port-tracer.md`](receipts/D01-platform-port-tra
 
 Receipt: [`receipts/D03-interface-scale-tracer.md`](receipts/D03-interface-scale-tracer.md)
 
+## D04 — MCP self-description and read-only tracer
+
+- Starting SHA: `448bd5f0987b60ebc63e229e45151a30f23eab9d`.
+- Task branch: `codex/d04-mcp-self-description`.
+- Source commit: `13554073c408440d85f6cfce5f764c1521b38cef` (tree `9ed43b8a9a8ec8dc5383a1e6b436d5e4ee574921`).
+- State: tested and production-web built; source-ready, not complete or accepted.
+- Public seams: generated `createDriftSelfDescription`, immutable `ProductAutomationService`, disabled-default `createDevelopmentMcpAdapter`, and service-backed `AutomationAccessView`.
+- Truth: protocol/build, command vocabulary, canonical new-project/reset/outcome defaults, revision/hash-bound redacted document, presentation, capability, and job manifests share one source.
+- Development route: explicit `v2-dev` opt-in exposes only frozen connect/request/disconnect functions; disable/revoke destroys sessions. Release identity exposes no client surface.
+- Security: metadata only; no raw names, paths, blobs, media bytes, grants, Project mutation, direct patch, filesystem, shell, listener, network, preview, or export tool.
+- Causal checks: deterministic equality, factory/reset/recipe derivation, private-name redaction, visible/service identity, fresh client transcript, mutation invariance, wrong identity, read-only rejection, size bound, and revocation.
+- Blocker: manual visible UI/resource comparison and real focus/layout inspection could not run because the cloud browser rejects the local URL. External standard transport and packaged Mac/Garuda client proof remain future gates; D08 is not unblocked.
+
+Receipt: [`receipts/D04-mcp-self-description.md`](receipts/D04-mcp-self-description.md)
+
 ## Frontier
 
 - D00: Apple-Silicon-only package migration and x86_64 removal. Separate future ticket.
-- D02, D04, and D05 remain dependency-ready source-frontier candidates.
+- D02 and D05 remain dependency-ready source-frontier candidates.
 - D03 remains active but blocked on real browser visual/layout evidence; D10 remains blocked by D03 and owns the complete pinned-frame contract.
+- D04 is source-ready but blocked on manual/host evidence; D08 remains blocked.
