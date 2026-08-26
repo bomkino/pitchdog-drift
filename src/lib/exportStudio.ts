@@ -114,6 +114,8 @@ export type ExportProgressPhase =
   | "rendering"
   | "writing"
   | "finalizing"
+  | "verifying"
+  | "committing"
   | "complete";
 
 export type ExportProgress = Readonly<{
@@ -1443,7 +1445,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       options.signal,
     );
     throwIfAborted(options.signal);
-    report(options.onProgress, "finalizing", 2, 4, 0.98, undefined, "Preparing private verification");
+    report(options.onProgress, "verifying", 0, 2, 0.98, undefined, "Preparing private verification");
     const verificationBlob = blob ?? await finalizeInterruptibly(
       () => Promise.resolve(target.verificationBlob?.()),
       abortTarget,
@@ -1457,7 +1459,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
         { destination: target.kind },
       );
     }
-    report(options.onProgress, "finalizing", 3, 4, 0.99, undefined, "Checking frames and sound");
+    report(options.onProgress, "verifying", 1, 2, 0.99, undefined, "Checking frames and sound");
     const verification = await verifyMp4Artifact(
       verificationBlob,
       settings,
@@ -1465,12 +1467,16 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       options.signal,
     );
     throwIfAborted(options.signal);
-    report(options.onProgress, "finalizing", 4, 4, 0.995, undefined, "Private verification passed");
+    report(options.onProgress, "verifying", 2, 2, 0.995, undefined, "Private verification passed");
     // Cancellation is honored while the artifact is still private. The commit
     // itself is the linearization point: once entered, it either atomically
     // publishes the verified file or rejects and rolls its stage back.
-    if (target.commit) await target.commit();
-    report(options.onProgress, "complete", 1, 1, 1, undefined, "Master complete");
+    if (target.commit) {
+      report(options.onProgress, "committing", 0, 1, 0.997, undefined, "Publishing verified artifact");
+      await target.commit();
+      report(options.onProgress, "committing", 1, 1, 0.999, undefined, "Verified artifact published");
+    }
+    report(options.onProgress, "complete", 1, 1, 1, undefined, target.commit ? "Master complete" : "Master verified and ready");
 
     return {
       blob,
@@ -1945,7 +1951,7 @@ async function exportPngSequenceZip(
     if (requireTransparency) assertPngTransparencyCoverage(alphaCoverage, "sequence");
 
     throwIfAborted(options.signal);
-    report(options.onProgress, "finalizing", 0, 1, 0.95, undefined, "Verifying frame archive");
+    report(options.onProgress, "finalizing", 0, 1, 0.92, undefined, "Finalizing frame archive");
     const zipped = zipSync(files, { level: 0, mtime: FIXED_ZIP_MTIME });
     const verificationPeak =
       options.settings.width * options.settings.height * 8
@@ -1959,11 +1965,13 @@ async function exportPngSequenceZip(
       );
     }
 
+    report(options.onProgress, "verifying", 0, 1, 0.96, undefined, "Reopening frame archive");
     const roundTripFiles = unzipSync(zipped);
     verifyPngZipEntries(files, roundTripFiles, filenames);
     throwIfAborted(options.signal);
     const blob = new Blob([zipped], { type: "application/zip" });
-    report(options.onProgress, "complete", 1, 1, 1, undefined, "Frame archive complete");
+    report(options.onProgress, "verifying", 1, 1, 0.99, undefined, "Frame archive readback passed");
+    report(options.onProgress, "complete", 1, 1, 1, undefined, "Frame archive verified and ready");
 
     return {
       destination: "zip",
@@ -2063,6 +2071,8 @@ async function exportPngSequenceDirectory(
     });
     if (requireTransparency) assertPngTransparencyCoverage(alphaCoverage, "sequence");
 
+    report(options.onProgress, "verifying", 1, 1, 0.99, undefined, "Every written frame reopened and verified");
+    report(options.onProgress, "committing", 1, 1, 0.999, undefined, "Verified frame directory published");
     report(options.onProgress, "complete", 1, 1, 1, undefined, "Frame sequence complete");
     return {
       destination: "directory",

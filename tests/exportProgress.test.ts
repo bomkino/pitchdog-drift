@@ -56,6 +56,7 @@ describe("truthful export progress clock", () => {
       clock,
       27_000,
     );
+    expect(finalizing.phase).toBe("finalize");
     expect(tickExportProgress(finalizing, clock, 41_999).stallKind).toBeNull();
     expect(tickExportProgress(finalizing, clock, 42_000).stallKind).toBe("inactivity");
 
@@ -68,5 +69,8 @@ describe("truthful export progress clock", () => {
       stallKind: null,
     });
     expect(clock.lastProgressAt).toBe(43_000);
+
+    expect(projectExportProgress(progress("verifying", 1, 2), clock, 44_000).phase).toBe("verify");
+    expect(projectExportProgress(progress("committing", 0, 1), clock, 45_000).phase).toBe("commit");
   });
 });

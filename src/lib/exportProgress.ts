@@ -29,7 +29,7 @@ export function projectExportProgress(
   now: number,
 ): ExportProgressView {
   const phase: ExportProgressView["phase"] = progress.phase === "rendering" || progress.phase === "writing"
-    ? "frames"
+    ? "render"
     : progress.phase === "preparing"
       ? "preparing"
       : progress.phase === "audio"
@@ -37,8 +37,12 @@ export function projectExportProgress(
         : progress.phase === "complete"
           ? "complete"
           : progress.phase === "finalizing"
-            ? "finalizing"
-            : "video";
+            ? "finalize"
+            : progress.phase === "verifying"
+              ? "verify"
+              : progress.phase === "committing"
+                ? "commit"
+                : "encode";
   const message = progress.message ?? {
     preparing: "Preparing deterministic timeline",
     video: "Encoding fixed-step video",
@@ -46,6 +50,8 @@ export function projectExportProgress(
     rendering: "Rendering exact frames",
     writing: "Writing frames to disk",
     finalizing: "Closing and verifying output",
+    verifying: "Reopening and verifying output",
+    committing: "Publishing verified output",
     complete: "Master complete",
   }[progress.phase];
 

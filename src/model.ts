@@ -233,7 +233,7 @@ export interface StoredAssetDescriptor {
 }
 
 export interface ExportProgress {
-  phase: "preparing" | "audio" | "video" | "frames" | "finalizing" | "complete";
+  phase: "preparing" | "audio" | "render" | "encode" | "finalize" | "verify" | "commit" | "complete";
   completed: number;
   total: number;
   frameIndex: number | null;

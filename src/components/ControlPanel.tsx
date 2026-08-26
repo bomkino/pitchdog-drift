@@ -60,6 +60,7 @@ import {
 import { PATH_RECIPES, applyPathRecipe } from "../core/spatial/spatial";
 import {
   fitPerformanceLifecycleToDuration,
+  type ExportProgress,
   type StudioSettings,
   type ThemeId,
 } from "../model";
@@ -91,6 +92,7 @@ import type { TactileRuntimeState } from "../sonic/tactileSound";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, RangeNumberField, Segmented, SelectField, SwitchField } from "./controls";
 import { BackgroundBrowser, BackgroundStudyPreview } from "./BackgroundBrowser";
+import { GuidedExportWizard } from "./GuidedExportWizard";
 import { OutcomeRecipePicker } from "./OutcomeRecipePicker";
 import { SupplementaryTooltip } from "./tooltip/SupplementaryTooltip";
 import type { SlideHealth } from "../core/media/slideHealth";
@@ -120,6 +122,11 @@ import {
   type PreflightIssue,
 } from "../core/preflight";
 import type { ExportCapabilityReport } from "../lib/exportStudio";
+import type {
+  ExportIntent,
+  GuidedExportCompletion,
+  GuidedExportRunRequest,
+} from "../core/export/guidedExport";
 import {
   applySourceFaithfulLook,
   isSourceFaithfulLook,
@@ -258,8 +265,7 @@ interface ControlPanelProps {
   onTheme: (id: ThemeId) => void;
   onResetPinnedFrame: () => void;
   onExportStill: () => void;
-  onExportVideo: () => void;
-  onExportFrames: () => void;
+  onRunGuidedExport: (request: GuidedExportRunRequest) => Promise<GuidedExportCompletion | null>;
   onExportProject: () => void;
   onImportProject: () => void;
   projectFilesEnabled: boolean;
@@ -276,6 +282,8 @@ interface ControlPanelProps {
   onPlatformGuide: (id: PlatformGuideProfileId) => void;
   onCustomGuideInsets: (insets: NormalizedInsets) => void;
   exportCapabilities: ExportCapabilityReport | null;
+  guidedExportIntent: ExportIntent;
+  exportProgress: ExportProgress | null;
   exportSurfaceSupported: boolean;
 }
 
@@ -298,8 +306,7 @@ export function ControlPanel({
   onTheme,
   onResetPinnedFrame,
   onExportStill,
-  onExportVideo,
-  onExportFrames,
+  onRunGuidedExport,
   onExportProject,
   onImportProject,
   projectFilesEnabled,
@@ -316,6 +323,8 @@ export function ControlPanel({
   onPlatformGuide,
   onCustomGuideInsets,
   exportCapabilities,
+  guidedExportIntent,
+  exportProgress,
   exportSurfaceSupported,
 }: ControlPanelProps) {
   const [backgroundQuery, setBackgroundQuery] = useState("");
@@ -1806,11 +1815,21 @@ export function ControlPanel({
             ))}
           </div>
         ) : null}
-        <div className="action-stack">
-          <button type="button" className="primary-action" onClick={onExportVideo} disabled={exporting || !preflight.canExport}>Export MP4 master</button>
-          <button type="button" onClick={onExportStill} disabled={exporting}>Save transparent-safe PNG</button>
-          <button type="button" onClick={onExportFrames} disabled={exporting}>Export PNG sequence</button>
-        </div>
+        <GuidedExportWizard
+          sourceIntent={guidedExportIntent}
+          runtimeCapabilities={exportCapabilities}
+          exportSurfaceSupported={exportSurfaceSupported}
+          applicationBlockers={preflight.blockers
+            .filter(({ id }) => ![
+              "output-container-unsupported",
+              "native-aac-duration-limit",
+            ].includes(id))
+            .map(({ message }) => message)}
+          progress={exportProgress}
+          busy={exporting}
+          onRun={onRunGuidedExport}
+          onQuickStill={onExportStill}
+        />
         <div className="project-actions">
           <button type="button" onClick={onExportProject} disabled={exporting || !projectFilesEnabled}>Save portable project</button>
           <button type="button" onClick={onImportProject} disabled={exporting || !projectFilesEnabled}>Open project</button>
