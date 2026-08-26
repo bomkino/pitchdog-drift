@@ -53,7 +53,7 @@ No Swift, native JavaScript bridge, project schema, evaluator, renderer, exporte
 - Baseline: targeted native/project/App tests — 30 passed; typecheck passed.
 - Red: `tests/desktopPlatform.test.ts` failed because `src/lib/desktopPlatform.ts` did not exist.
 - Focused green: DesktopPlatform + native Mac tests — 23 passed.
-- `npm run check` — passed: typecheck; 70 test files, 498 tests; macOS source/import/hardening contracts; production Vite build.
+- Final `npm run check` — passed: typecheck; 70 test files, 499 tests; macOS source/import/hardening contracts; production Vite build.
 - Focused Playwright portable-project journey — not run. Installed browser absent: `Chromium distribution 'chrome' is not found at /opt/google/chrome/chrome`. Browser installation was outside authority.
 
 ## Fixed-point review
