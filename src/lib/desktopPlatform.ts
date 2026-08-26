@@ -164,8 +164,9 @@ function failureCode(error: unknown, operation: DesktopDocumentOperation): Deskt
   if (!(error instanceof DOMException)) return "internal_error";
   switch (error.name) {
   case "NotAllowedError":
-  case "SecurityError":
     return "permission_denied";
+  case "SecurityError":
+    return operation === "choose" ? "permission_denied" : "verification_failed";
   case "TypeMismatchError":
   case "TypeError":
   case "InvalidStateError":
@@ -179,7 +180,7 @@ function failureCode(error: unknown, operation: DesktopDocumentOperation): Deskt
   case "InvalidModificationError":
     return "conflict";
   case "DataError":
-    return operation === "open" ? "corrupt_input" : "verification_failed";
+    return "verification_failed";
   default:
     return "internal_error";
   }

@@ -7,7 +7,7 @@ Updated: 26 August 2026
 - Starting branch: `main`
 - Starting SHA: `e87ee2bc0dcf202be88731b9a12ca60a4c709714`
 - Task branch: `codex/d01-platform-port-tracer`
-- Source state: implementation in progress; final commit identity pending.
+- Source state: tested and production-web built at implementation commit `25c5d70e174ee1a8542419dde417e893fbdce68a`; review fix/receipt follows on same task branch.
 - Integration state: not integrated. Exact-SHA packaged Apple-Silicon Mac Open → Save → reopen proof not run.
 - Public seam: `DesktopPlatform.documents`.
 - Browser adapter: typed choose/open/save results; exact Project V4 archive round trip covered at public seam.
@@ -21,6 +21,8 @@ Updated: 26 August 2026
 - Exact packaged Mac Open → Save → quit/reopen journey against D01 commit.
 - Native build/package/install checks; unavailable on current Linux host and not claimed.
 - Human visual acceptance; D01 changes no renderer or visual controls.
+
+Receipt: [`receipts/D01-platform-port-tracer.md`](receipts/D01-platform-port-tracer.md)
 
 ## Frontier
 

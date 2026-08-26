@@ -331,6 +331,26 @@ describe("DesktopPlatform portable-project tracer", () => {
     expect(release).toHaveBeenCalledTimes(2);
   });
 
+  it("classifies a mismatched native Open receipt as verification failure", async () => {
+    const file = new File(["native portable project"], "native.pitched");
+    setWindow({
+      __DRIFT_NATIVE_MAC__: nativeMarker(),
+      __driftNativeConfirmProjectOpen: vi.fn(async () => ({
+        sha256: "0".repeat(64),
+        byteLength: file.size,
+        bound: true,
+        conflict: false,
+        verified: true,
+      })),
+    });
+    const platform = createNativeMacDesktopPlatform();
+
+    await expect(platform.documents.finalizePortableProjectOpen(file)).resolves.toMatchObject({
+      status: "failed",
+      failure: { code: "verification_failed", operation: "open" },
+    });
+  });
+
   it("returns typed cancellation and failure without advancing document revisions", async () => {
     const revisionState = createProjectRevisionState();
     const host: BrowserDesktopDocumentHost = {
