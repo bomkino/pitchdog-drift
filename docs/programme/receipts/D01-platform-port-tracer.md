@@ -38,6 +38,19 @@ App portable-project journey
 
 No Swift, native JavaScript bridge, project schema, evaluator, renderer, exporter, Electron, or architecture-slice source changed.
 
+## Files changed
+
+- `src/lib/desktopPlatform.ts` — typed document port plus browser and native-Mac adapters.
+- `src/App.tsx` — migrated visible portable-project choose/open/save/reopen/Revert journey.
+- `tests/desktopPlatform.test.ts` — browser round trip, complete pinned-frame contract, Mac delegation, cancellation, failure mapping.
+- `scripts/check-macos-source.mjs` — source contract now requires port delegation and forbids direct App document calls.
+- `scripts/check-macos-hardening.mjs` — hardening contract follows same earned seam.
+- `docs/programme/PRODUCT_SPEC.md` — compact durable product direction.
+- `docs/programme/IMPLEMENTATION_STATUS.md` — D01 state and frontier.
+- `docs/programme/adr/0001-desktop-platform-document-direction.md` — seam decision.
+- `docs/programme/D00-apple-silicon-only-package.md` — separate future x86_64-removal/package-proof ticket.
+- `docs/programme/receipts/D01-platform-port-tracer.md` — this evidence receipt.
+
 ## Demonstrated
 
 - Browser adapter chose canonical `.pitched` fixture, imported it through real Project bundle parser, published exact archive, chose saved bytes again, and reopened equal Project V4 state.
