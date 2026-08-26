@@ -13,7 +13,7 @@ Updated: 26 August 2026
 - Browser adapter: typed choose/open/save results; exact Project V4 archive round trip covered at public seam.
 - macOS adapter: delegates to existing `nativeMac.ts` document picker, verified Open binding, save transaction/readback, revision completion, abandon, and Revert functions.
 - App migration: visible portable-project choose/open/save/reopen/Revert journey uses platform port. Other native commands remain on established bridge until future slices.
-- Pinned-frame contract: selection, position, size, crop/fit/focal intent, treatment, timing, save/reopen, preview, and export parity covered by one canonical round-trip test.
+- Pinned-frame transport regression: existing Project V4 selection, position, size, crop/fit/focal intent, treatment, and timing survive this document round trip. D10 owns controls, safe-area/layer semantics, and preview/scrub/export parity acceptance.
 - Cancellation/failure: typed cancellation; stable failure code; no document revision completion on failed browser publication.
 
 ## Deferred proof
@@ -27,4 +27,5 @@ Receipt: [`receipts/D01-platform-port-tracer.md`](receipts/D01-platform-port-tra
 ## Frontier
 
 - D00: Apple-Silicon-only package migration and x86_64 removal. Separate future ticket.
-- D02, D03, D04, D05 become source-frontier candidates only after D01 source receipt is reconciled.
+- D02, D03, D04, D05 are dependency-ready source-frontier candidates after D01 source reconciliation.
+- D10 remains blocked by D03 and owns the complete pinned-frame contract.

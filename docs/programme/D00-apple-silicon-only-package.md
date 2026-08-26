@@ -6,6 +6,8 @@ Status: future ticket; not part of D01
 
 Remove x86_64 build, verification, packaging, documentation, and release assumptions. Prove one Apple-Silicon-only Drift package against exact source SHA without changing product behaviour.
 
+Keep the current macOS 13.3 deployment floor. Architecture migration does not opportunistically raise it.
+
 ## Scope
 
 - audit every architecture declaration and universal-binary check;
@@ -17,7 +19,7 @@ Remove x86_64 build, verification, packaging, documentation, and release assumpt
 
 ## Boundaries
 
-No `DesktopPlatform` redesign, Linux work, renderer/schema change, signing/notarization, installation replacement, publication, release, or merge without separate authority.
+No `DesktopPlatform` redesign, Linux work, renderer/schema change, macOS deployment-floor change, signing/notarization, installation replacement, publication, release, or merge without separate authority.
 
 ## Acceptance
 

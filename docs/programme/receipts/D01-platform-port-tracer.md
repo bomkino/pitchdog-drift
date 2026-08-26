@@ -42,7 +42,7 @@ No Swift, native JavaScript bridge, project schema, evaluator, renderer, exporte
 
 - `src/lib/desktopPlatform.ts` — typed document port plus browser and native-Mac adapters.
 - `src/App.tsx` — migrated visible portable-project choose/open/save/reopen/Revert journey.
-- `tests/desktopPlatform.test.ts` — browser round trip, complete pinned-frame contract, Mac delegation, cancellation, failure mapping.
+- `tests/desktopPlatform.test.ts` — browser round trip, existing pinned-frame transport regression, Mac delegation, cancellation, failure mapping.
 - `scripts/check-macos-source.mjs` — source contract now requires port delegation and forbids direct App document calls.
 - `scripts/check-macos-hardening.mjs` — hardening contract follows same earned seam.
 - `docs/programme/PRODUCT_SPEC.md` — compact durable product direction.
@@ -54,8 +54,8 @@ No Swift, native JavaScript bridge, project schema, evaluator, renderer, exporte
 ## Demonstrated
 
 - Browser adapter chose canonical `.pitched` fixture, imported it through real Project bundle parser, published exact archive, chose saved bytes again, and reopened equal Project V4 state.
-- Pinned-frame asset selection, position, size/aspect, fit/crop/focal intent, border/matte/shadow, lens treatment, timing/audio, and all other Project V4 fields round-tripped equal.
-- Preview and fixed-step export evaluation matched at same explicit time; pinned-only asset stayed outside moving-track authority.
+- Existing pinned-frame asset selection, position, size/aspect, fit/crop/focal intent, border/matte/shadow, lens treatment, timing/audio, and all other Project V4 fields round-tripped equal.
+- Existing preview and fixed-step export evaluation matched at same explicit time; pinned-only asset stayed outside moving-track authority. This is a D01 transport regression, not D10 controls or full pinned-frame acceptance.
 - Native adapter contract test delegated choose, verified Open, transactional Save/readback, revision completion, and reopen to existing `nativeMac.ts` seam.
 - Browser cancellation returned `{ status: "cancelled" }`.
 - Failed browser publication returned `permission_denied` and did not advance document revision state.
@@ -76,7 +76,8 @@ No Swift, native JavaScript bridge, project schema, evaluator, renderer, exporte
 - Pass: one complete document slice crosses earned interface in App and both adapters.
 - Pass: native adapter reuses existing Mac seam; no parallel abstraction or Swift rewrite.
 - Pass: cancellation/failure typed; Project mutation/rollback stays in existing transactional App path.
-- Pass: complete pinned-frame persistence and evaluator parity covered.
+- Pass: existing pinned-frame intent survives the migrated document transport unchanged.
+- Deferred to D10: complete controls, safe-area/layer semantics, and preview/scrub/export parity acceptance.
 - Pass: D00 recorded separately; no x86_64 edits.
 - Deferred: exact packaged Mac Open → Save → quit/reopen remains unproved and D01 is not integrated.
 
