@@ -5,6 +5,10 @@ import {
 } from "../core/project/revisions";
 import { sanitizeFilename } from "./assets";
 import {
+  createInterfaceScalePreferenceStore,
+  type InterfaceScalePreferenceStore,
+} from "./interfaceScale";
+import {
   abandonNativeMacDocumentOpen,
   completeNativeMacDocumentSave,
   confirmNativeMacDocumentOpen,
@@ -118,6 +122,11 @@ export interface DesktopPlatformDocuments {
 export interface DesktopPlatform {
   readonly target: DesktopPlatformTarget;
   readonly documents: DesktopPlatformDocuments;
+  readonly presentation: DesktopPlatformPresentation;
+}
+
+export interface DesktopPlatformPresentation {
+  readonly interfaceScale: InterfaceScalePreferenceStore;
 }
 
 export interface BrowserDesktopDocumentHost {
@@ -254,6 +263,7 @@ const DEFAULT_BROWSER_DOCUMENT_HOST: BrowserDesktopDocumentHost = Object.freeze(
 
 export function createBrowserDesktopPlatform(
   host: BrowserDesktopDocumentHost = DEFAULT_BROWSER_DOCUMENT_HOST,
+  interfaceScale: InterfaceScalePreferenceStore = createInterfaceScalePreferenceStore(),
 ): DesktopPlatform {
   const issuedSaveReceipts = new WeakSet<object>();
   const documents: DesktopPlatformDocuments = {
@@ -307,10 +317,16 @@ export function createBrowserDesktopPlatform(
       "Browser downloads are not bound documents. Choose the saved project to reopen it.",
     ),
   };
-  return Object.freeze({ target: "browser-development", documents: Object.freeze(documents) });
+  return Object.freeze({
+    target: "browser-development",
+    documents: Object.freeze(documents),
+    presentation: Object.freeze({ interfaceScale }),
+  });
 }
 
-export function createNativeMacDesktopPlatform(): DesktopPlatform {
+export function createNativeMacDesktopPlatform(
+  interfaceScale: InterfaceScalePreferenceStore = createInterfaceScalePreferenceStore(),
+): DesktopPlatform {
   const nativeReceipts = new WeakMap<object, NativeMacDocumentReceipt>();
   const documents: DesktopPlatformDocuments = {
     choosePortableProject: () => capture("choose", async () => {
@@ -389,13 +405,18 @@ export function createNativeMacDesktopPlatform(): DesktopPlatform {
       });
     }),
   };
-  return Object.freeze({ target: "macos", documents: Object.freeze(documents) });
+  return Object.freeze({
+    target: "macos",
+    documents: Object.freeze(documents),
+    presentation: Object.freeze({ interfaceScale }),
+  });
 }
 
 export function createDesktopPlatform(
   browserHost: BrowserDesktopDocumentHost = DEFAULT_BROWSER_DOCUMENT_HOST,
 ): DesktopPlatform {
+  const interfaceScale = createInterfaceScalePreferenceStore();
   return isNativeMacRuntime()
-    ? createNativeMacDesktopPlatform()
-    : createBrowserDesktopPlatform(browserHost);
+    ? createNativeMacDesktopPlatform(interfaceScale)
+    : createBrowserDesktopPlatform(browserHost, interfaceScale);
 }

@@ -5,11 +5,13 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type CSSProperties,
 } from "react";
 import { ControlPanel, type StudioWorkspace } from "./components/ControlPanel";
 import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
 import { CommandPalette } from "./components/CommandPalette";
+import { InterfaceScaleMenu } from "./components/InterfaceScaleMenu";
 import { createInitialDriftProjectV4 } from "./core/project/initialProject";
 import { reconcileOutcomeRecipeTiming } from "./core/recipes/outcomeRecipes";
 import { evaluateDeckSlideHealth } from "./core/media/slideHealth";
@@ -105,6 +107,7 @@ import {
   DesktopPlatformDocumentError,
   requireDesktopPlatformCompletion,
 } from "./lib/desktopPlatform";
+import type { InterfaceScaleCommand } from "./lib/interfaceScale";
 import {
   PROJECT_MEDIA_LIMITS,
   formatProjectMiB,
@@ -331,6 +334,9 @@ export function App() {
   const [changeReceipt, setChangeReceipt] = useState("No V2 direction changed yet.");
   const nativeMac = isNativeMacRuntime();
   const desktopPlatform = useMemo(() => createDesktopPlatform(), []);
+  const [interfaceScale, setInterfaceScale] = useState(
+    () => desktopPlatform.presentation.interfaceScale.getSnapshot(),
+  );
   const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
     __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
   }).__DRIFT_NATIVE_SELF_TEST_DB__;
@@ -341,6 +347,22 @@ export function App() {
   settingsRef.current = settings;
   assetsRef.current = assets;
   presenterRef.current = presenter;
+
+  const changeInterfaceScale = useCallback((command: InterfaceScaleCommand) => {
+    try {
+      setInterfaceScale(desktopPlatform.presentation.interfaceScale.dispatch(command));
+    } catch (error) {
+      setNoticeKind("error");
+      setNotice(error instanceof Error
+        ? `Interface Scale could not be saved: ${error.message}`
+        : "Interface Scale could not be saved.");
+    }
+  }, [desktopPlatform]);
+
+  useEffect(
+    () => desktopPlatform.presentation.interfaceScale.subscribe(setInterfaceScale),
+    [desktopPlatform],
+  );
 
   const acceptEncoderProgress = useCallback((progress: EncoderProgress) => {
     const clock = exportProgressClockRef.current;
@@ -920,6 +942,25 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const editing = Boolean(target?.closest("input, select, textarea, [contenteditable=true]"));
+      if ((event.metaKey || event.ctrlKey) && !editing) {
+        if (event.key === "-" || event.code === "NumpadSubtract") {
+          event.preventDefault();
+          changeInterfaceScale({ type: "smaller" });
+          return;
+        }
+        if (event.key === "+" || event.key === "=" || event.code === "NumpadAdd") {
+          event.preventDefault();
+          changeInterfaceScale({ type: "larger" });
+          return;
+        }
+        if (event.key === "0" || event.code === "Numpad0") {
+          event.preventDefault();
+          changeInterfaceScale({ type: "reset" });
+          return;
+        }
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         if (!exportProgress && !projectBusy && !abortRef.current && saveState !== "loading") {
@@ -933,7 +974,6 @@ export function App() {
         return;
       }
       if (exportProgress || projectBusy || abortRef.current || projectPendingRef.current > 0 || saveState === "loading") return;
-      const target = event.target as HTMLElement | null;
       if (target?.closest("[data-timeline-dock]")) return;
       if (target?.closest("input, select, textarea, button, [contenteditable=true]")) return;
       if (event.code === "Space") {
@@ -952,7 +992,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [exportProgress, focusMode, paused, projectBusy, saveState]);
+  }, [changeInterfaceScale, exportProgress, focusMode, paused, projectBusy, saveState]);
 
   useEffect(() => () => {
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
@@ -2123,6 +2163,15 @@ export function App() {
       case "export.mp4":
         void exportVideo();
         return;
+      case "presentation.interface-scale.smaller":
+        changeInterfaceScale({ type: "smaller" });
+        return;
+      case "presentation.interface-scale.larger":
+        changeInterfaceScale({ type: "larger" });
+        return;
+      case "presentation.interface-scale.reset":
+        changeInterfaceScale({ type: "reset" });
+        return;
       case "history.undo":
         undoV2Project();
         return;
@@ -2133,7 +2182,16 @@ export function App() {
   };
 
   return (
-    <main className="app" data-focus={focusMode} data-active-panel={activePanel} data-build-channel={driftBuildIdentity.channel} aria-busy={interactionBusy}>
+    <main
+      className="app"
+      data-focus={focusMode}
+      data-active-panel={activePanel}
+      data-build-channel={driftBuildIdentity.channel}
+      data-interface-scale={interfaceScale.value}
+      data-interface-layout={interfaceScale.layout}
+      style={{ "--interface-scale": interfaceScale.value / 100 } as CSSProperties}
+      aria-busy={interactionBusy}
+    >
       <header className="app-header">
         <a className="wordmark" href="#studio" aria-label="Drift studio home">
           <span>pitch.dog</span>
@@ -2148,6 +2206,11 @@ export function App() {
             <span className="header-divider" />
             <span>{localSaveStatusLabel}</span>
           </div>
+          <InterfaceScaleMenu
+            snapshot={interfaceScale}
+            disabled={interactionBusy}
+            onCommand={changeInterfaceScale}
+          />
           <button type="button" className="command-trigger" aria-label="Open command palette" onClick={() => setCommandPaletteOpen(true)} disabled={interactionBusy}>⌘K</button>
         </div>
       </header>

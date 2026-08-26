@@ -16,6 +16,9 @@ export type StudioCommandAction =
   | { readonly type: "export.still" }
   | { readonly type: "export.sequence" }
   | { readonly type: "export.mp4" }
+  | { readonly type: "presentation.interface-scale.smaller" }
+  | { readonly type: "presentation.interface-scale.larger" }
+  | { readonly type: "presentation.interface-scale.reset" }
   | { readonly type: "history.undo" }
   | { readonly type: "history.redo" };
 
@@ -67,6 +70,9 @@ const DEFINITIONS: readonly StudioCommandDefinition[] = [
   command("preview.focus.toggle", "Toggle Full Frame", ["focus", "stage", "fullscreen", "preview"], "global", { type: "preview.focus.toggle" }),
   command("guide.toggle", "Toggle Platform Guides", ["safe area", "instagram", "story", "reel", "overlay"], "export", { type: "guide.toggle" }),
   command("comparison.toggle", "Toggle A/B Comparison", ["before", "after", "compare", "direction"], "global", { type: "comparison.toggle" }),
+  command("presentation.interface-scale.smaller", "Make Interface Smaller", ["interface scale", "chrome", "density", "zoom out"], "global", { type: "presentation.interface-scale.smaller" }),
+  command("presentation.interface-scale.larger", "Make Interface Larger", ["interface scale", "chrome", "readability", "zoom in"], "global", { type: "presentation.interface-scale.larger" }),
+  command("presentation.interface-scale.reset", "Reset Interface Scale", ["interface scale", "chrome", "100 percent", "default size"], "global", { type: "presentation.interface-scale.reset" }),
 
   command("timing.mode.fixed-master", "Use Exact Length", ["fixed master", "duration", "seconds", "protected"], "motion", { type: "timing.mode.set", mode: "fixed-master" }),
   command("timing.mode.content-paced", "Use Reading Pace", ["dynamic length", "seconds per slide", "content paced", "protected"], "motion", { type: "timing.mode.set", mode: "content-paced" }),
