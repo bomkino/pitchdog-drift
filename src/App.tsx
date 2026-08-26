@@ -46,7 +46,6 @@ import {
 import { projectV4ChangePaths } from "./core/commands/projectCommand";
 import { installPreviewAuthority } from "./core/render/previewAuthority";
 import {
-  beginProjectSave,
   createProjectRevisionState,
   recordProjectMutation,
   type ProjectRevisionState,
@@ -93,22 +92,19 @@ import {
   type ExportProgressClock,
 } from "./lib/exportProgress";
 import {
-  abandonNativeMacDocumentOpen,
-  completeNativeMacDocumentSave,
-  confirmNativeMacDocumentOpen,
   installNativeMacAppBridge,
   isNativeMacRuntime,
   nativeMacDocumentClientState,
-  pickNativeMacFiles,
   reportNativeMacClientState,
-  revertNativeMacDocument,
-  saveNativeMacDocument,
-  saveNativeMacDocumentAs,
   saveNativeMacBlob,
-  NativeMacDocumentConflictError,
   type NativeMacCommand,
   type NativeMacImportKind,
 } from "./lib/nativeMac";
+import {
+  createDesktopPlatform,
+  DesktopPlatformDocumentError,
+  requireDesktopPlatformCompletion,
+} from "./lib/desktopPlatform";
 import {
   PROJECT_MEDIA_LIMITS,
   formatProjectMiB,
@@ -334,6 +330,7 @@ export function App() {
   const [comparisonActive, setComparisonActive] = useState(false);
   const [changeReceipt, setChangeReceipt] = useState("No V2 direction changed yet.");
   const nativeMac = isNativeMacRuntime();
+  const desktopPlatform = useMemo(() => createDesktopPlatform(), []);
   const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
     __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
   }).__DRIFT_NATIVE_SELF_TEST_DB__;
@@ -1535,44 +1532,50 @@ export function App() {
         blob = await exportProject(snapshot);
       }
 
-      if (nativeMac) {
-        const started = beginProjectSave(documentRevisionRef.current);
-        documentRevisionRef.current = started.state;
+      const prepared = desktopPlatform.documents.preparePortableProjectSave(
+        documentRevisionRef.current,
+      );
+      documentRevisionRef.current = prepared.revisions;
+      if (prepared.ticket) {
         setDocumentRevisionVersion((version) => version + 1);
-        const request = {
+      }
+      const receipt = requireDesktopPlatformCompletion(
+        await desktopPlatform.documents.savePortableProject({
+          operation,
           transactionId: `project-${globalThis.crypto.randomUUID()}`,
-          ticket: started.ticket,
+          ticket: prepared.ticket,
           blob,
-        };
-        const receipt = operation === "save-as"
-          ? await saveNativeMacDocumentAs(request)
-          : await saveNativeMacDocument(request);
-        if (!receipt) throw new DOMException("The native project document bridge is unavailable.", "NotSupportedError");
-        documentRevisionRef.current = completeNativeMacDocumentSave(
-          documentRevisionRef.current,
-          started.ticket,
-          receipt,
-        );
+          suggestedName: `drift-project-${timestampSlug()}.pitched`,
+        }),
+      );
+      documentRevisionRef.current = desktopPlatform.documents.completePortableProjectSave(
+        documentRevisionRef.current,
+        prepared.ticket,
+        receipt,
+      );
+      if (receipt.bound) {
         documentSha256Ref.current = receipt.sha256;
         setDocumentBound(true);
         setDocumentConflict(false);
         setDocumentRevisionVersion((version) => version + 1);
-        announce(
-          hydratedRef.current
-            ? `Portable Project V4 ${operation === "save-as" ? "saved as a new document" : "saved"} with exact native readback.`
-            : "Locked saved project re-verified and saved without replacing fallback media.",
-          "good",
-        );
-        return;
       }
-
-      await downloadBlob(blob, `drift-project-${timestampSlug()}.pitched`);
-      announce("Portable Project V4 saved with original media and SHA-256 manifest.", "good");
+      announce(
+        receipt.bound && receipt.readbackVerified
+          ? hydratedRef.current
+            ? `Portable Project V4 ${operation === "save-as" ? "saved as a new document" : "saved"} with exact native readback.`
+            : "Locked saved project re-verified and saved without replacing fallback media."
+          : hydratedRef.current
+            ? "Portable Project V4 download started with original media and SHA-256 manifest."
+            : "Locked saved project was packaged for download without replacing fallback media.",
+        "good",
+      );
     } catch (error) {
-      if (error instanceof NativeMacDocumentConflictError) setDocumentConflict(true);
+      if (error instanceof DesktopPlatformDocumentError && error.code === "conflict") {
+        setDocumentConflict(true);
+      }
       announce(isAbortError(error) ? "Portable project save canceled." : error instanceof Error ? error.message : "Portable project could not be saved.", isAbortError(error) ? "quiet" : "error");
     }
-  }, [announce, nativeMac, persist]);
+  }, [announce, desktopPlatform, persist]);
 
   const savePortableProject = useCallback(() => {
     void enqueueProjectOperation(savePortableProjectNow);
@@ -1585,7 +1588,7 @@ export function App() {
   const openPortableProjectFile = useCallback(async (
     file: File,
     propagateFailure = false,
-    bindNativeDocument = true,
+    finalizeDesktopDocument = true,
   ) => {
     try {
       const verified = await importProject<StudioProjectPayload>(file);
@@ -1631,11 +1634,13 @@ export function App() {
             prepared.presenter,
           );
           identityRef.current = { projectId: saved.manifest.projectId, createdAt: saved.manifest.createdAt };
-          if (bindNativeDocument) {
-            const nativeReceipt = await confirmNativeMacDocumentOpen(file);
-            if (nativeReceipt) {
+          if (finalizeDesktopDocument) {
+            const documentReceipt = requireDesktopPlatformCompletion(
+              await desktopPlatform.documents.finalizePortableProjectOpen(file),
+            );
+            if (documentReceipt.bound) {
               documentRevisionRef.current = createProjectRevisionState();
-              documentSha256Ref.current = nativeReceipt.sha256;
+              documentSha256Ref.current = documentReceipt.sha256;
               setDocumentBound(true);
               setDocumentConflict(false);
               setDocumentRevisionVersion((version) => version + 1);
@@ -1662,26 +1667,23 @@ export function App() {
       }
       announce("Portable project verified, migrated when necessary, and copied into local Project V4 storage.", "good");
     } catch (error) {
-      if (bindNativeDocument) await abandonNativeMacDocumentOpen();
+      if (finalizeDesktopDocument) await desktopPlatform.documents.abandonPortableProjectOpen();
       announce(error instanceof Error ? `Project rejected: ${error.message}` : "Project was rejected.", "error");
       if (propagateFailure) throw error;
     }
-  }, [announce, installPreparedProjectState, persist, persistExactProject, prepareProjectState, publishLiveProject, replaceProjectState, settingsForCurrentAuthority]);
+  }, [announce, desktopPlatform, installPreparedProjectState, persist, persistExactProject, prepareProjectState, publishLiveProject, replaceProjectState, settingsForCurrentAuthority]);
 
   const requestPortableProject = useCallback(() => {
-    void pickNativeMacFiles("project", false)
-      .then((files) => {
-        if (files === null) {
-          importInputRef.current?.click();
-          return;
-        }
-        const file = files[0];
-        if (file) void enqueueProjectOperation(() => openPortableProjectFile(file, true), true).catch(() => undefined);
+    void desktopPlatform.documents.choosePortableProject()
+      .then((result) => {
+        if (result.status === "cancelled") return;
+        const { file } = requireDesktopPlatformCompletion(result);
+        void enqueueProjectOperation(() => openPortableProjectFile(file, true), true).catch(() => undefined);
       })
       .catch((error: unknown) => {
         if (!isAbortError(error)) announce(error instanceof Error ? error.message : "Project could not be opened.", "error");
       });
-  }, [announce, enqueueProjectOperation, openPortableProjectFile]);
+  }, [announce, desktopPlatform, enqueueProjectOperation, openPortableProjectFile]);
 
   const revertPortableProject = useCallback(() => {
     void enqueueProjectOperation(async () => {
@@ -1690,11 +1692,12 @@ export function App() {
         throw new DOMException("This project has no conflict-free saved document to revert to.", "InvalidStateError");
       }
       try {
-        const result = await revertNativeMacDocument({
-          transactionId: `revert-${globalThis.crypto.randomUUID()}`,
-          expectedSha256,
-        });
-        if (!result) throw new DOMException("The native project document bridge is unavailable.", "NotSupportedError");
+        const result = requireDesktopPlatformCompletion(
+          await desktopPlatform.documents.revertPortableProject({
+            transactionId: `revert-${globalThis.crypto.randomUUID()}`,
+            expectedSha256,
+          }),
+        );
         const file = new File([result.blob], "Reverted Project.pitched", {
           type: "application/vnd.pitchdog.pitched+zip",
         });
@@ -1705,13 +1708,15 @@ export function App() {
         setDocumentRevisionVersion((version) => version + 1);
         announce("Reverted to the last native-verified .pitched bytes.", "good");
       } catch (error) {
-        if (error instanceof NativeMacDocumentConflictError) setDocumentConflict(true);
+        if (error instanceof DesktopPlatformDocumentError && error.code === "conflict") {
+          setDocumentConflict(true);
+        }
         throw error;
       }
     }, true).catch((error: unknown) => {
       announce(error instanceof Error ? error.message : "Project could not be reverted.", "error");
     });
-  }, [announce, documentBound, enqueueProjectOperation, nativeDocumentState.revertible, openPortableProjectFile]);
+  }, [announce, desktopPlatform, documentBound, enqueueProjectOperation, nativeDocumentState.revertible, openPortableProjectFile]);
 
   const openPortableProject = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
