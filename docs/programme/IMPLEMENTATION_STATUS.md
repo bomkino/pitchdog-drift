@@ -25,6 +25,23 @@ Updated: 27 August 2026
 
 Receipt: [`receipts/D01-platform-port-tracer.md`](receipts/D01-platform-port-tracer.md)
 
+## D00 — Apple-Silicon-only package migration
+
+- Starting SHA: `f94596c5480d7cb5e8ae94f419342f9ee468d2f0`.
+- Task branch: `codex/d00-apple-silicon-only-source`.
+- Source commit: `707b4d3f6dbb955a9d7f9fdf668dd55fa9923f1a` (tree `6630a1d12ea1a145d9fa737e89e6b1d4c04f1268`).
+- State: source-ready and source-green; no native app was built, packaged, installed, launched, released, or accepted on this Linux host.
+- Canonical Mac build, CI, runtime identity, verifier, release manifest, and local-DMG defaults now require exactly `arm64`. Intel/universal overrides fail closed.
+- GitHub macOS jobs remain on the documented `macos-15` Apple-Silicon label and additionally require runtime `uname -m = arm64` before build or secret use.
+- App runtime identity returns `arm64` on the supported compiler target and `unsupported` otherwise.
+- The DMG default is `Drift-<version>-macOS-arm64.dmg`; release receipts require the exact one-element architecture array `["arm64"]`.
+- The macOS 13.3 deployment floor remains unchanged and is still enforced by packaged verification.
+- Current README, build, product-contract, QA, threat-model, release, and release-checklist documentation state Apple-Silicon-only support. Dated universal-build receipts and changelog facts remain preserved as history.
+- New `check:mac-arm64` source contract is part of `check:mac-source`; it is explicitly not Mach-O, package, launch, or hardware acceptance.
+- Unrun gate: build the exact source commit on Apple Silicon, inspect every shipped Mach-O as arm64-only, then run D01 Open → Save → quit/reopen plus cancellation/recovery against the exact package.
+
+Receipt: [`receipts/D00-apple-silicon-only-source.md`](receipts/D00-apple-silicon-only-source.md)
+
 ## D03 — Interface Scale tracer
 
 - Starting SHA: `a24badfa79a7d607b13a3cbc4e8dfc2b2e83995b`.
@@ -76,7 +93,8 @@ Receipt: [`receipts/D05-guided-export-foundation.md`](receipts/D05-guided-export
 
 ## Frontier
 
-- D00: Apple-Silicon-only package migration and x86_64 removal. Separate future ticket.
-- D05 is source-ready but blocked on unavailable runtime/human evidence. D02 is the next independently dependency-ready source frontier and must begin on its own isolated `codex/` branch after its ticket brief is reconciled.
+- D00 is source-ready; exact Apple-Silicon build/package/launch and D01 document-journey acceptance remain hardware-gated.
+- D05 is source-ready but blocked on unavailable runtime/human evidence. D02 is independently source-ready on `codex/d02-linux-electron-shell-tracer` but its hardened runtime proof requires a compatible non-root Linux host.
 - D03 remains active but blocked on real browser visual/layout evidence; D10 remains blocked by D03 and owns the complete pinned-frame contract.
 - D04 is source-ready but blocked on manual/host evidence; D08 remains blocked.
+- R01 requires an exact Garuda/KDE target; R02 requires Apple-Silicon macOS. No additional Drift implementation ticket is dependency-ready on the current evidence frontier.

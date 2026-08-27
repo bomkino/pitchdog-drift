@@ -1,6 +1,6 @@
 # D00 — Apple-Silicon-only package migration
 
-Status: future ticket; not part of D01
+Status: source-ready at `707b4d3`; exact Apple-Silicon package/runtime acceptance pending
 
 ## Destination
 
@@ -28,3 +28,12 @@ No `DesktopPlatform` redesign, Linux work, renderer/schema change, macOS deploym
 - packaged Apple-Silicon app completes verified Open → Save → quit/reopen with Project V4 and pinned-frame intent intact;
 - package identity matches exact source SHA;
 - prior installed app remains untouched unless installation is separately approved.
+
+## Current evidence
+
+The maintained source/build/CI/package/documentation path is arm64-only on
+`codex/d00-apple-silicon-only-source`. Linux source gates are green. No native
+Mac app, Mach-O, DMG, installation, launch, or D01 packaged journey has been
+produced from this source commit; those remain exact Apple-Silicon gates.
+
+Receipt: [`receipts/D00-apple-silicon-only-source.md`](receipts/D00-apple-silicon-only-source.md)
