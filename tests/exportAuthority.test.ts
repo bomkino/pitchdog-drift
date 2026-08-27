@@ -52,7 +52,7 @@ describe("export authority snapshot", () => {
     expect(snapshot.project.master.fps).not.toBe(current.project.master.fps);
   });
 
-  it("accepts the captured project, settings, media, and presenter identities unchanged", () => {
+  it("accepts the captured project, settings, media, and presenter values unchanged", () => {
     const current = authority();
     const snapshot = captureExportAuthority(current);
 
@@ -60,5 +60,19 @@ describe("export authority snapshot", () => {
     expect(snapshot.project).not.toBe(current.project);
     expect(snapshot.settings).not.toBe(current.settings);
     expect(snapshot.assets).not.toBe(current.assets);
+  });
+
+  it("accepts structurally equal replacements and a persistence-only timestamp advance", () => {
+    const current = authority();
+    const snapshot = captureExportAuthority(current);
+    const persisted = {
+      project: structuredClone(current.project),
+      settings: structuredClone(current.settings),
+      assets: [...current.assets],
+      presenter: current.presenter,
+    };
+    persisted.project.updatedAt = "2026-08-23T00:00:01.000Z";
+
+    expect(() => assertExportAuthorityUnchanged(snapshot, persisted)).not.toThrow();
   });
 });
