@@ -64,7 +64,15 @@ jobs:
           DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
         run: |
           set -euo pipefail
-          npm run test:e2e
+          npx playwright test \
+            e2e/interface-scale.e2e.ts \
+            e2e/native-menu-import.e2e.ts \
+            e2e/studio-export.e2e.ts \
+            e2e/studio-projects.e2e.ts \
+            e2e/studio-renderer.e2e.ts \
+            e2e/studio-ui.e2e.ts \
+            e2e/timeline-dock.e2e.ts \
+            e2e/v2-ui.e2e.ts
           npm test -- --run \
             tests/linuxSandboxContract.test.mjs \
             tests/linuxDocumentAuthority.test.mjs \
