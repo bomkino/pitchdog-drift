@@ -5,6 +5,8 @@ const preload = await readFile(new URL("../linux/preload.cjs", import.meta.url),
 const authority = await readFile(new URL("../linux/documentAuthority.cjs", import.meta.url), "utf8");
 const ipc = await readFile(new URL("../linux/ipcContract.cjs", import.meta.url), "utf8");
 const builder = await readFile(new URL("./build-linux-tracer.mjs", import.meta.url), "utf8");
+const verifier = await readFile(new URL("./verify-linux-tracer.mjs", import.meta.url), "utf8");
+const sandboxContract = await readFile(new URL("./linux-sandbox-contract.mjs", import.meta.url), "utf8");
 
 function requireText(source, fragment, label) {
   if (!source.includes(fragment)) throw new Error(`Linux tracer source is missing ${label}.`);
@@ -65,8 +67,12 @@ for (const fragment of [
 
 requireText(builder, 'ELECTRON_VERSION = "44.0.0"', "Electron version pin");
 requireText(builder, 'ELECTRON_ARCHIVE_SHA256 = "d65286d812719f2b4c1a1b806a80f288a1058c89c7b058dae1e03ab25e499446"', "Electron archive pin");
+requireText(builder, "assertLinuxSandboxMetadata", "build-time sandbox metadata validation");
+requireText(verifier, "assertLinuxSandboxMetadata", "independent sandbox metadata validation");
+requireText(sandboxContract, "metadata.uid !== 0", "root sandbox owner validation");
+requireText(sandboxContract, "metadata.gid !== 0", "root sandbox group validation");
 if (/electron-on-mac|darwin-electron/iu.test(main + preload + authority + ipc + builder)) {
   throw new Error("Linux tracer source contains an Electron-on-Mac route.");
 }
 
-console.log("Linux tracer source contract passed: pinned external Electron toolchain, strict packaged origin, sandbox/context isolation/Node denial, narrow preload, bounded opaque grants, runtime IPC validation, readback, revocation, and default-deny navigation/network authority.");
+console.log("Linux tracer source contract passed: pinned external Electron toolchain, root-owned setuid sandbox validation, strict packaged origin, sandbox/context isolation/Node denial, narrow preload, bounded opaque grants, runtime IPC validation, readback, revocation, and default-deny navigation/network authority.");

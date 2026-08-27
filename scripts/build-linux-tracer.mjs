@@ -10,6 +10,10 @@ import {
 } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import {
+  assertLinuxSandboxMetadata,
+  linuxSandboxSetupInstructions,
+} from "./linux-sandbox-contract.mjs";
 
 const ELECTRON_VERSION = "44.0.0";
 const ELECTRON_ARCHIVE_SHA256 = "d65286d812719f2b4c1a1b806a80f288a1058c89c7b058dae1e03ab25e499446";
@@ -147,8 +151,11 @@ await writeFile(join(appRoot, "BuildReceipt.json"), `${JSON.stringify(receipt, n
 await chmod(join(output, "electron"), 0o755);
 await chmod(join(output, "chrome-sandbox"), 0o4755);
 const electronMode = (await stat(join(output, "electron"))).mode & 0o7777;
-const sandboxMode = (await stat(join(output, "chrome-sandbox"))).mode & 0o7777;
-if (electronMode !== 0o755 || sandboxMode !== 0o4755) {
-  fail("Linux tracer runtime modes could not be established exactly (electron 0755, chrome-sandbox 04755).");
+if (electronMode !== 0o755) fail("Linux tracer Electron runtime mode could not be established exactly (0755).");
+const sandboxPath = join(output, "chrome-sandbox");
+try {
+  assertLinuxSandboxMetadata(await stat(sandboxPath));
+} catch (error) {
+  fail(`${error instanceof Error ? error.message : "Linux sandbox metadata validation failed."}\n${linuxSandboxSetupInstructions(output, sandboxPath)}`);
 }
 console.log(output);

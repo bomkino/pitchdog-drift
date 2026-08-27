@@ -10,6 +10,10 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import {
+  assertLinuxSandboxMetadata,
+  linuxSandboxSetupInstructions,
+} from "./linux-sandbox-contract.mjs";
 
 const artifactInput = process.env.DRIFT_LINUX_TRACER_DIR;
 if (!artifactInput) {
@@ -47,8 +51,12 @@ for (const entry of receipt.appFiles) {
     fail(`Linux app file failed receipt verification: ${entry.path}`);
   }
 }
-const sandboxMode = (await stat(join(artifact, "chrome-sandbox"))).mode & 0o7777;
-if (sandboxMode !== 0o4755) fail("Electron chrome-sandbox is not root-owned setuid 4755 in the tracer artifact.");
+const sandboxPath = join(artifact, "chrome-sandbox");
+try {
+  assertLinuxSandboxMetadata(await stat(sandboxPath));
+} catch (error) {
+  fail(`${error instanceof Error ? error.message : "Linux sandbox metadata validation failed."}\n${linuxSandboxSetupInstructions(artifact, sandboxPath)}`);
+}
 const electronMode = (await stat(join(artifact, "electron"))).mode & 0o7777;
 if ((electronMode & 0o111) === 0) fail("Electron runtime is not executable in the tracer artifact.");
 
