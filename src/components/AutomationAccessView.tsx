@@ -4,10 +4,12 @@ import { stableAutomationJson } from "../core/automation/selfDescription";
 export interface AutomationAccessViewProps {
   readonly enabled: boolean;
   readonly writeEnabled?: boolean;
+  readonly previewEnabled?: boolean;
   readonly connectionState: "disconnected" | "connected";
   readonly service: ProductAutomationService;
   readonly onEnabledChange: (enabled: boolean) => void;
   readonly onWriteEnabledChange?: (enabled: boolean) => void;
+  readonly onPreviewEnabledChange?: (enabled: boolean) => void;
   readonly onUndoReceipt?: (receiptId: string) => void;
   readonly onDisconnect?: () => void;
 }
@@ -16,10 +18,12 @@ export interface AutomationAccessViewProps {
 export function AutomationAccessView({
   enabled,
   writeEnabled = false,
+  previewEnabled = false,
   connectionState,
   service,
   onEnabledChange,
   onWriteEnabledChange,
+  onPreviewEnabledChange,
   onUndoReceipt,
   onDisconnect,
 }: AutomationAccessViewProps) {
@@ -28,7 +32,9 @@ export function AutomationAccessView({
       <summary>Show what Codex can see</summary>
       <div className="automation-access__body">
         <div className="automation-access__status">
-          <strong>{writeEnabled ? "Metadata + typed Project changes" : "Metadata only"}</strong>
+          <strong>{writeEnabled
+            ? previewEnabled ? "Metadata + typed Project changes + bounded previews" : "Metadata + typed Project changes"
+            : previewEnabled ? "Metadata + bounded previews" : "Metadata only"}</strong>
           <span>{enabled ? "Enabled for local development" : "Disabled"}</span>
           <span>{connectionState}</span>
         </div>
@@ -49,6 +55,17 @@ export function AutomationAccessView({
               onChange={(event) => onWriteEnabledChange?.(event.currentTarget.checked)}
             />
             Allow typed Project changes with plan, apply, and receipt
+          </label>
+        ) : null}
+        {service.preview ? (
+          <label>
+            <input
+              type="checkbox"
+              checked={previewEnabled}
+              disabled={!enabled}
+              onChange={(event) => onPreviewEnabledChange?.(event.currentTarget.checked)}
+            />
+            Allow bounded, expiring PNG previews
           </label>
         ) : null}
         <p>Drift grants only this local app session. Your configured client or model provider has separate privacy terms.</p>

@@ -22,6 +22,13 @@ import {
   type AutomationMutationCommit,
   type ProductAutomationMutationService,
 } from "./core/automation/productAutomationMutation";
+import {
+  DRIFT_AUTOMATION_PREVIEW_SCOPE,
+  createProductAutomationPreviewService,
+  type AutomationPreviewAuthority,
+  type AutomationPreviewRenderInput,
+  type ProductAutomationPreviewService,
+} from "./core/automation/productAutomationPreview";
 import { createInitialDriftProjectV4 } from "./core/project/initialProject";
 import {
   applyOutcomeRecipeCommand,
@@ -339,10 +346,18 @@ export function App() {
     files: readonly File[],
   ) => void | Promise<void>>(() => undefined);
   const automationWriteEnabledRef = useRef(false);
+  const automationPreviewEnabledRef = useRef(false);
   const automationCommitRef = useRef<(change: AutomationMutationCommit) => void>(() => {
     throw new Error("Automation mutation authority is not ready.");
   });
   const automationMutationAuthorityRef = useRef<AutomationMutationAuthority | null>(null);
+  const automationPreviewRenderRef = useRef<(input: AutomationPreviewRenderInput) => Promise<{
+    mimeType: "image/png";
+    bytes: Uint8Array;
+  }>>(async () => {
+    throw new Error("Automation preview renderer is not ready.");
+  });
+  const automationPreviewAuthorityRef = useRef<AutomationPreviewAuthority | null>(null);
   if (automationMutationAuthorityRef.current === null) {
     automationMutationAuthorityRef.current = {
       read: () => {
@@ -356,6 +371,21 @@ export function App() {
         };
       },
       commit: (change) => automationCommitRef.current(change),
+    };
+  }
+  if (automationPreviewAuthorityRef.current === null) {
+    automationPreviewAuthorityRef.current = {
+      read: () => {
+        const project = projectRef.current;
+        if (!project) throw new Error("Project V4 creative authority is unavailable.");
+        return {
+          project: structuredClone(project),
+          revisions: structuredClone(documentRevisionRef.current),
+          documentId: project.projectId,
+          scopes: automationPreviewEnabledRef.current ? [DRIFT_AUTOMATION_PREVIEW_SCOPE] : [],
+        };
+      },
+      render: (input) => automationPreviewRenderRef.current(input),
     };
   }
 
@@ -400,6 +430,7 @@ export function App() {
   );
   const [automationEnabled, setAutomationEnabled] = useState(false);
   const [automationWriteEnabled, setAutomationWriteEnabled] = useState(false);
+  const [automationPreviewEnabled, setAutomationPreviewEnabled] = useState(false);
   const [automationConnectionState, setAutomationConnectionState] = useState<"disconnected" | "connected">("disconnected");
   const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
     __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
@@ -412,6 +443,7 @@ export function App() {
   assetsRef.current = assets;
   presenterRef.current = presenter;
   automationWriteEnabledRef.current = automationWriteEnabled;
+  automationPreviewEnabledRef.current = automationPreviewEnabled;
 
   const changeInterfaceScale = useCallback((command: InterfaceScaleCommand) => {
     try {
@@ -504,6 +536,7 @@ export function App() {
       },
       exportCapabilities,
       mutationAccess: automationWriteEnabled,
+      previewAccess: automationPreviewEnabled,
       jobs: exportJobStatus ? [{
         id: exportJobStatus.id,
         kind: "export",
@@ -526,6 +559,7 @@ export function App() {
     nativeMac,
     automationPlayheadSeconds,
     automationWriteEnabled,
+    automationPreviewEnabled,
     selectedSlideId,
   ]);
   const automationMutationServiceRef = useRef<ProductAutomationMutationService | null>(null);
@@ -538,10 +572,18 @@ export function App() {
     automationMutationServiceRef.current.replaceManifests(automationManifests);
   }
   const automationMutationService = automationMutationServiceRef.current;
+  const automationPreviewServiceRef = useRef<ProductAutomationPreviewService | null>(null);
+  if (automationPreviewServiceRef.current === null) {
+    automationPreviewServiceRef.current = createProductAutomationPreviewService(
+      automationPreviewAuthorityRef.current,
+    );
+  }
+  const automationPreviewService = automationPreviewServiceRef.current;
   const automationService = useMemo(() => createProductAutomationService(
     automationManifests,
     automationMutationService,
-  ), [automationManifests, automationMutationService]);
+    automationPreviewService,
+  ), [automationManifests, automationMutationService, automationPreviewService]);
   const automationAdapterRef = useRef<DevelopmentMcpAdapter | null>(null);
   if (automationAdapterRef.current === null) {
     automationAdapterRef.current = createDevelopmentMcpAdapter(automationService);
@@ -558,6 +600,7 @@ export function App() {
     const developmentEnabled = driftBuildIdentity.isDevelopment && automationEnabled;
     automationAdapter.setEnabled(developmentEnabled);
     automationAdapter.setWriteScopeEnabled(developmentEnabled && automationWriteEnabled);
+    automationAdapter.setPreviewScopeEnabled(developmentEnabled && automationPreviewEnabled);
     const host = globalThis as typeof globalThis & {
       __DRIFT_DEVELOPMENT_MCP__?: Readonly<Pick<
         DevelopmentMcpAdapter,
@@ -576,7 +619,7 @@ export function App() {
       }
       automationAdapter.setEnabled(false);
     };
-  }, [automationAdapter, automationEnabled, automationWriteEnabled]);
+  }, [automationAdapter, automationEnabled, automationPreviewEnabled, automationWriteEnabled]);
 
   useEffect(() => {
     if (selectedSlideId && assets.some((asset) => asset.id === selectedSlideId)) return;
@@ -1494,6 +1537,50 @@ export function App() {
       engine.setPresenterExportFrame(null);
     }
   }, []);
+
+  automationPreviewRenderRef.current = async (input) => {
+    if (abortRef.current || projectPendingRef.current > 0) {
+      throw new Error("Renderer is busy with another bounded operation.");
+    }
+    const engine = engineRef.current;
+    if (!engine) throw new Error("Cinematic renderer is unavailable.");
+    const previewAssets = [...assetsRef.current, ...(presenterRef.current ? [presenterRef.current] : [])];
+    const previewPresentation = stagePresentationFromProject(input.project);
+    const previewPinned = previewPresentation.pinnedAssetId === null
+      ? null
+      : previewAssets.find((asset) => asset.id === previewPresentation.pinnedAssetId) ?? null;
+    const abort = () => {
+      if (input.signal.aborted) throw new DOMException("Automation preview cancelled.", "AbortError");
+    };
+    abort();
+    await installPreviewAuthority(engine, {
+      project: input.project,
+      settings: studioSettingsFromDriftProject(input.project),
+      assets: assetsRef.current.filter((asset) => input.project.media.order.includes(asset.id)),
+      pinnedAsset: previewPinned,
+    });
+    try {
+      abort();
+      const blob = await engine.captureStill(input.width, input.height, input.timeSeconds);
+      abort();
+      return { mimeType: "image/png", bytes: new Uint8Array(await blob.arrayBuffer()) };
+    } finally {
+      const current = projectRef.current;
+      if (current) {
+        const currentAssets = [...assetsRef.current, ...(presenterRef.current ? [presenterRef.current] : [])];
+        const currentPresentation = stagePresentationFromProject(current);
+        const currentPinned = currentPresentation.pinnedAssetId === null
+          ? null
+          : currentAssets.find((asset) => asset.id === currentPresentation.pinnedAssetId) ?? null;
+        await installPreviewAuthority(engine, {
+          project: current,
+          settings: studioSettingsFromDriftProject(current),
+          assets: assetsRef.current.filter((asset) => current.media.order.includes(asset.id)),
+          pinnedAsset: currentPinned,
+        });
+      }
+    }
+  };
 
   const reserveExport = useCallback((intent: ExportIntent = guidedExportIntent, trackGuidedJob = true): {
     controller: AbortController;
@@ -2703,13 +2790,16 @@ export function App() {
           <AutomationAccessView
             enabled={automationEnabled}
             writeEnabled={automationWriteEnabled}
+            previewEnabled={automationPreviewEnabled}
             connectionState={automationConnectionState}
             service={automationService}
             onEnabledChange={(enabled) => {
               setAutomationEnabled(enabled);
               if (!enabled) setAutomationWriteEnabled(false);
+              if (!enabled) setAutomationPreviewEnabled(false);
             }}
             onWriteEnabledChange={setAutomationWriteEnabled}
+            onPreviewEnabledChange={setAutomationPreviewEnabled}
             onUndoReceipt={(receiptId) => {
               try {
                 automationService.mutation?.undo(receiptId);
