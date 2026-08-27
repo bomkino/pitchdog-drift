@@ -5,12 +5,12 @@ This is a falsification plan, not a ceremonial checklist. Automated checks estab
 ## Evidence classes
 
 1. **Source contract** — bridge parity, fixed commands, packaging, sandbox, codec, release, and workflow invariants.
-2. **Compilation** — Swift `arm64`/`x86_64`; JavaScript, TypeScript, Python, and shell syntax.
+2. **Compilation** — Swift `arm64`; JavaScript, TypeScript, Python, and shell syntax.
 3. **Bundle** — plist, resources, icon, legal files, signature, hardened runtime, entitlements, architecture, codec exclusions, and byte manifest.
 4. **Native behavior** — file broker, staged replacement, menus, Finder, app lifecycle, and packaged WebView self-tests.
 5. **Browser editor behavior** — Vitest and real-Chromium E2E.
 6. **Hosted macOS media evidence** — WKWebView WebGL/AVC/PNG, native AudioToolbox AAC, deterministic MP4/PNG output.
-7. **Physical-hardware evidence** — full user journeys on supported Apple Silicon and Intel Macs.
+7. **Physical-hardware evidence** — full user journeys on supported Apple Silicon Macs.
 8. **Human review** — visual pacing, legibility, native fit, accessibility, diagnostics privacy, and failure clarity.
 
 Every receipt must say which class produced a claim.
@@ -334,13 +334,12 @@ Before public binary release, run at minimum:
 
 - Apple Silicon Mac on the oldest supported macOS;
 - Apple Silicon Mac on the current macOS;
-- Intel Mac on a supported macOS;
 - one low-memory machine under a 30-second 1080 × 1920 export;
 - one external/removable destination;
 - sleep/wake and full-screen transitions;
 - a clean quarantine-setting download and Gatekeeper launch.
 
-CI cross-compilation of `x86_64` is evidence that the slice builds. It is not evidence that Intel WebKit, GPU, VideoEncoder, AudioToolbox, Finder, or sandbox behavior ran.
+Intel Macs and Windows are outside the supported Product boundary. Do not build, test, or imply compatibility slices in the maintained package path.
 
 ## Release receipt
 

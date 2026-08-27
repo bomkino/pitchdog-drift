@@ -49,7 +49,7 @@ The native layer must disappear when things are going well and become unusually 
 - Symlink, traversal, unsafe-leaf, and recursive-delete rejection.
 - Persistent WebKit storage for the current local project.
 - Crash recovery that rolls back incomplete native output before reload.
-- Universal `arm64` and `x86_64` compilation.
+- Apple-Silicon-only `arm64` compilation; Intel Mac and Windows are unsupported.
 - Hardened-runtime signing, bundle byte manifest, native self-tests, and packaged WebView probe.
 - A drag-to-Applications DMG for local testing.
 - Native AudioToolbox AAC sessions with explicit packet and timeline receipts.
@@ -94,7 +94,7 @@ The contract is specific:
 2. **A native save panel followed by browser-style fake success.** Countercheck: suppress premature notices and report completion only after staged commit.
 3. **“Atomic” writes in a forbidden sibling path.** Countercheck: use `itemReplacementDirectory`, abort, then byte-compare the pre-existing destination.
 4. **A sandbox badge paired with a false “no network entitlement” claim.** Countercheck: extract entitlements from the signed finished bundle, require the app-wide network-client entitlement and absence of network-server/broad-directory entitlements, then independently prove the packaged WebKit policy produces zero TCP and UDP loopback hits.
-5. **A universal claim with one architecture.** Countercheck: inspect `lipo -archs`; separately record that cross-compilation is not Intel runtime evidence.
+5. **An Apple-Silicon claim with a hidden second slice.** Countercheck: require `lipo -archs` to return exactly `arm64` and bind that value into the build and release receipts.
 6. **A distributable DMG that quietly contains codec WASM.** Countercheck: dedicated macOS Vite alias plus bundle scan for `.wasm`, FFmpeg, and libavcodec markers.
 7. **A “native AAC” bridge that ignores priming.** Countercheck: require exact leading/input/trailing frame accounting and negative priming timestamps before muxing.
 8. **A web wrapper with no Mac behavior.** Countercheck: menus, document opening, Finder reveal, restored window, full-screen, external-link handoff, crash reload, and quit interlocks.
@@ -113,7 +113,7 @@ The branch holds only when all of the following are direct evidence, not aspirat
 
 ### Native build
 
-- `npm run build:mac` produces a signed universal app on macOS.
+- `npm run build:mac` produces a signed arm64-only app on macOS.
 - `npm run verify:mac` passes manifest, architecture, entitlement, smoke, broker, and packaged-WebView checks.
 - `npm run package:mac:dmg` creates a verifiable disk image without uploading it.
 - App Sandbox, user-selected read/write, and network-client entitlements are present in the signed app; network-server and broad-directory entitlements are absent.

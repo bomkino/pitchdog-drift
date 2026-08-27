@@ -4,7 +4,7 @@ This document covers the distance between “a local `.app` builds” and “a s
 
 Drift’s normal development build is ad-hoc signed and suitable for local testing. A public binary requires all of the following:
 
-1. a universal `arm64` + `x86_64` application;
+1. an Apple-Silicon-only `arm64` application;
 2. a real Developer ID Application signature;
 3. hardened runtime and the frozen App Sandbox entitlements;
 4. complete legal notices and a dependency inventory inside the app;
@@ -12,7 +12,7 @@ Drift’s normal development build is ad-hoc signed and suitable for local testi
 6. direct proof that the native AudioToolbox AAC path still produces coherent packets and timeline metadata;
 7. Apple notarization of the app and disk image;
 8. stapled tickets, Gatekeeper assessment, detached DMG verification, and checksums;
-9. a human journey test on physical Apple Silicon and Intel Macs;
+9. a human journey test on physical Apple Silicon Macs at the supported OS boundaries;
 10. explicit authority to publish.
 
 The release scripts create evidence. They do not publish a GitHub Release, push a tag, deploy a website, merge a branch, or email anyone.
@@ -61,7 +61,7 @@ This is a distribution boundary, not a claim that all obligations disappear. The
 - Xcode command-line tools;
 - a **Developer ID Application** certificate installed in a usable keychain;
 - App Store Connect notarization credentials;
-- access to physical Apple Silicon and Intel Macs for the final run;
+- access to physical Apple Silicon Macs for the final run;
 - for Developer ID/notarization, a clean checkout of the exact already-reviewed candidate commit reachable from `origin/main`.
 
 Find the signing identity:
@@ -115,7 +115,7 @@ The script performs this sequence:
 
 1. clean dependency installation;
 2. complete TypeScript, Vitest, source-contract, Vite, and browser checks;
-3. universal native app build;
+3. arm64-only native app build;
 4. macOS-specific Vite build with the native AudioToolbox adapter;
 5. legal bundle and CycloneDX SBOM assembly;
 6. bundle scan for source maps, WebAssembly, browser AAC extension, FFmpeg, and libavcodec markers;
@@ -152,7 +152,7 @@ Before merge, the standalone app workflow and the WKWebView runtime workflow pro
 
 This lane builds and verifies the actual `.app`:
 
-- universal slices;
+- exact arm64-only executable identity;
 - app structure and resources;
 - signing flags and entitlements;
 - truthful App Sandbox, user-selected read/write, and app-wide network-client entitlements, with no network-server/broad-filesystem exceptions;

@@ -18,7 +18,7 @@ npm run build:mac
 open build/macos/Drift.app
 ```
 
-The default build creates a universal application:
+The default and only maintained Mac build creates an Apple-Silicon `arm64` application:
 
 ```text
 build/macos/Drift.app
@@ -44,11 +44,13 @@ build/macos/Drift.app
     └── Info.plist
 ```
 
-A fast Apple-Silicon-only iteration build is available:
+The optional architecture variable is accepted only when it states the canonical target exactly:
 
 ```bash
 DRIFT_MACOS_ARCHS=arm64 npm run build:mac
 ```
+
+Intel Macs and Windows are unsupported. The deployment floor remains macOS 13.3.
 
 A local disk image can be created only after the app verifies:
 

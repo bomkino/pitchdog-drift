@@ -50,7 +50,7 @@ THIRD_PARTY_LICENSE_DIR="${LEGAL_DIR}/ThirdPartyLicenses"
 DOCS_DIR="${RESOURCES_DIR}/Documentation"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/drift-macos.XXXXXX")"
 MINIMUM_MACOS="${DRIFT_MACOS_DEPLOYMENT_TARGET:-13.3}"
-ARCHITECTURES="${DRIFT_MACOS_ARCHS:-arm64 x86_64}"
+ARCHITECTURES="${DRIFT_MACOS_ARCHS:-arm64}"
 SIGNING_IDENTITY="${DRIFT_CODESIGN_IDENTITY:--}"
 ENTITLEMENTS="${ROOT_DIR}/macos/Drift.entitlements"
 
@@ -68,6 +68,11 @@ require_command() {
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "The standalone Drift app must be built on macOS." >&2
+  exit 1
+fi
+
+if [[ "${ARCHITECTURES}" != "arm64" ]]; then
+  echo "Drift's maintained macOS build is Apple-Silicon-only; DRIFT_MACOS_ARCHS must be exactly arm64." >&2
   exit 1
 fi
 
@@ -223,7 +228,7 @@ fi
 BINARIES=()
 for architecture in ${ARCHITECTURES}; do
   case "${architecture}" in
-    arm64|x86_64) ;;
+    arm64) ;;
     *)
       echo "Unsupported architecture: ${architecture}" >&2
       exit 1
