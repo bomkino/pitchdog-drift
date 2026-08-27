@@ -95,14 +95,15 @@ Receipt: [`receipts/D05-guided-export-foundation.md`](receipts/D05-guided-export
 
 - Starting SHA: `2d5ab4bb27bbd8cc557281b35632cf04aabf0b9d`.
 - Task branch: `codex/d08-automation-writes-foundation`.
-- Current source commit: `3957109beca045a55e25bf7daf3301bf4fa6d99c` (tree `a0ec754fbb108a979c90f6ae289672fa8bd86a19`).
-- State: active; plan/apply/undo foundation is source-green and production/`v2-dev` web-built, but D08 is not source-ready or accepted yet.
+- Current source commit: `f983417309ea471853bd64229097c3d8896fc36d` (tree `5215e8ec3a0ce69ae2b7bc695f9e6d74e12de10b`).
+- State: source-ready, tested, and production/`v2-dev` web-built; runtime, installed-client, artifact, accessibility, and human acceptance remain open.
 - Typed foundation: one `apply-outcome-recipe` intent plans and applies through the existing outcome recipe, `applyProjectV4Command`, document revision, application history, persistence, and `undoProjectV4Command` seams. Manual Outcome selection uses the same command path.
 - Plan truth: product/protocol/build/manifests/capabilities/client session/document/Project hash/revision/target/scope/expiry/idempotency are bound. Complete changed paths and redacted before/after identities are returned; private media/path/grant data is absent.
 - Safety: metadata-only remains default; `project-write` is separately visible and revocable. Stale human edits, replay, expiry, capability drift, idempotency collision, later edit, disconnect/reconnect, and scope revocation fail before mutation. Retention is bounded.
 - Receipt truth: one visible apply receipt records exact before/after Project identity and revision; eligible Undo restores exact prior Project through canonical undo and then becomes ineligible.
-- Open D08 source work: separately consented bounded preview lifecycle, then asynchronous export preflight/start/status/reconnect/cancel/receipt by reuse of D05 jobs. No second evaluator/exporter is authorized.
-- Unrun evidence: real browser Settings/receipt/focus inspection, external client transport, installed Mac/Garuda client, preview/export transcript, accessibility, and human review.
+- Preview truth: separately consented, revision/hash/time/dimension-bound still capture reuses the existing preview authority and renderer. Dimension/pixel/byte/duration/concurrency/retention/expiry/cancel/revoke bounds fail closed and late output is discarded without Project mutation.
+- Export truth: separately consented preflight/start/status/reconnect/cancel/receipt wraps the existing App destination path and one D05 controller. Pending cancellation prevents late reservation; running cancellation uses the real D05 abort controller; verified receipts come only from the existing sink/verifier completion. Opaque reconnect tokens survive local-session disconnect; no destination path or grant is accepted.
+- Unrun evidence: real browser Settings/receipt/focus inspection, actual preview pixels, actual export artifact/receipt, external client transport, installed Mac/Garuda client, accessibility, and human review.
 
 Receipt: [`receipts/D08-automation-writes-foundation.md`](receipts/D08-automation-writes-foundation.md)
 
@@ -110,6 +111,7 @@ Receipt: [`receipts/D08-automation-writes-foundation.md`](receipts/D08-automatio
 
 - D00 is source-ready; exact Apple-Silicon build/package/launch and D01 document-journey acceptance remain hardware-gated.
 - D05 is source-ready but blocked on unavailable runtime/human evidence. D02 is independently source-ready on `codex/d02-linux-electron-shell-tracer` but its hardened runtime proof requires a compatible non-root Linux host.
-- D03 remains active but blocked on real browser visual/layout evidence; D10 remains blocked by D03 and owns the complete pinned-frame contract.
-- D04 and D05 remain incomplete at their browser/host evidence gates, but their source seams are sufficient for the explicitly authorized D08 AFK development lane. D08 is active; its bounded preview lifecycle is the next non-Mac source frontier, followed by D05 export-job reuse.
-- R01 requires an exact Garuda/KDE target; R02 requires Apple-Silicon macOS. D06, D07, D09, and installed acceptance remain blocked; D08 source work can continue without those targets.
+- D03 remains source-green but blocked on real browser visual/layout evidence. D10 owns the complete pinned-frame contract; source work may proceed, but D03 browser evidence remains a D10 acceptance dependency.
+- D04, D05, and D08 are source-ready but incomplete at browser/host/artifact evidence gates. Their source seams contain no authority for an acceptance claim.
+- D10 is the next non-Mac source frontier. D03's missing real-browser scale review remains an acceptance blocker, not permission to weaken D10's complete pinned-frame contract.
+- R01 requires an exact Garuda/KDE target; R02 requires Apple-Silicon macOS. D06, D07, D09, and installed acceptance remain blocked on their target/runtime gates.

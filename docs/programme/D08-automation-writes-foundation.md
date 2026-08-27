@@ -1,8 +1,8 @@
 # D08 — Revisioned automation writes, preview, and export
 
-Status: active; plan/apply/undo foundation source-green at `3957109`
+Status: source-ready at `f983417`; runtime and installed acceptance remain open
 
-## Current tranche
+## Delivered source tranche
 
 One typed `apply-outcome-recipe` intent now plans, applies, and undoes through
 the existing `ProductAutomationService`, outcome-recipe command, Project V4
@@ -15,15 +15,22 @@ document, Project hash, revision, target, scope, expiry, and idempotency. Apply
 is one-use. Receipt Undo is eligible only while the exact applied Project and
 revision remain current. Human edits win.
 
-## Still inside D08
+`bounded-preview` adds a separately consented, revision/hash/time/dimension
+snapshot around the existing preview authority and still renderer. Pixel,
+dimension, byte, duration, concurrency, retention, expiry, cancel, revoke, and
+requester bounds fail closed without Project mutation.
 
-- separately consented bounded preview with dimension, duration, byte, expiry,
-  cancellation, revocation, and no-mutation proof;
-- asynchronous export preflight/start/status/reconnect/cancel/receipt by reuse
-  of D05 `ExportJobController` and opaque destination authority;
-- broader typed Drift intents only where they enter existing command truth;
+`export-jobs` adds asynchronous preflight/start/status/reconnect/cancel/receipt
+around the existing App destination authority, Guided Export request, and one
+D05 `ExportJobController`. It creates no evaluator, exporter, sink, verifier,
+or second controller. Reconnect uses an opaque bounded token; no path or grant
+is accepted.
+
+## Still open for D08 acceptance
+
 - real visible Settings/receipt/focus inspection and a fresh development-client
   end-to-end transcript when a browser can reach the app;
+- actual bounded PNG preview pixels and actual H.264/PNG export job receipts;
 - installed helper/client acceptance, deferred to D09.
 
 ## Boundaries

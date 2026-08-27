@@ -1,4 +1,4 @@
-# D08 evidence receipt — revisioned automation writes foundation
+# D08 evidence receipt — revisioned automation writes, preview, and export
 
 Date: 27 August 2026
 
@@ -8,121 +8,120 @@ Start: `codex/d00-apple-silicon-only-source@2d5ab4bb27bbd8cc557281b35632cf04aabf
 
 Task branch: `codex/d08-automation-writes-foundation`
 
-Source commit: `3957109beca045a55e25bf7daf3301bf4fa6d99c`
+Source commits:
 
-Source tree: `a0ec754fbb108a979c90f6ae289672fa8bd86a19`
+- plan/apply/undo: `3957109beca045a55e25bf7daf3301bf4fa6d99c`
+- bounded preview: `0d21fe154c59077714469dd2b9861b530eda19a6`
+- D05 export-job reuse: `f983417309ea471853bd64229097c3d8896fc36d`
+
+Final source tree: `5215e8ec3a0ce69ae2b7bc695f9e6d74e12de10b`
 
 ## Ticket boundary
 
-- Destination for this tranche: one revision/hash-bound typed plan → apply →
-  undo path through the existing D04 automation service and canonical Project
-  command/undo authority.
-- Demo exercised at public seams: opt in to `project-write`, connect a
-  development session, plan Casino Reveal, inspect its complete redacted
-  impact, apply once, observe the exact canonical command result, undo by
-  receipt, then prove stale/replayed/expired/reconnected requests do not mutate.
-- Public seams: `ProductAutomationService.mutation`,
-  `createProductAutomationMutationService`, scoped
-  `createDevelopmentMcpAdapter`, and service-backed receipt controls in
-  `AutomationAccessView`.
-- Preserved exclusions: no preview tool, export tool, evaluator, exporter,
-  Project schema, raw media/path/grant authority, native target, package,
-  D10 pinned-frame control, release, or publication.
-
-## Files changed
-
-- `src/core/automation/productAutomationMutation.ts`
-- `src/core/automation/productAutomationService.ts`
-- `src/core/automation/selfDescription.ts`
-- `src/lib/developmentMcpAdapter.ts`
-- `src/components/AutomationAccessView.tsx`
-- `src/components/ControlPanel.tsx`
-- `src/App.tsx`
-- `src/styles.css`
-- `tests/automationMutationService.test.ts`
+- Destination: one generated Product automation service with independently
+  consented metadata, typed Project write, bounded preview, and Guided Export
+  job scopes.
+- Public seams: `ProductAutomationService.mutation`, `.preview`, and `.exports`,
+  the disabled-default development adapter, and the existing App command,
+  preview-authority, Guided Export, D05 controller, sink, and verifier paths.
+- Preserved exclusions: no generic patch, Project schema change, second reducer,
+  evaluator, renderer, exporter, job controller, sink, verifier, raw media/path/
+  grant access, filesystem/shell/process/network escape hatch, installed helper,
+  native target, D10 pinned-frame control, release, or publication.
 
 ## Demonstrated
 
-- The only mutation intent in this tranche is typed Drift vocabulary:
-  `apply-outcome-recipe` with one canonical outcome-recipe ID. Generic JSON
-  patches and arbitrary paths are not accepted.
-- Plan identity binds product/protocol, build, manifest and capability hashes,
-  originating client session, document ID, Project hash, document revision,
-  target ID, required scope, expiry, and idempotency key.
-- Complete impact lists every canonical changed path plus redacted before/after
-  value identities and the exact result Project hash. A fixture path
-  `/Users/manali/Secret/launch.png` is absent from the serialized plan.
-- The visible Outcome picker and automation use the same
-  `applyOutcomeRecipeCommand` → `applyProjectV4Command` path. The App commits
-  one history group, the reducer-produced revision, projected settings, dirty
-  persistence scheduling, visible receipt, and announcement.
-- Plan and apply produce exact Project/revision equality with a direct canonical
-  command invocation. Apply is one-use; replay fails.
-- Receipt Undo delegates to `undoProjectV4Command`, restores the exact prior
-  serialized Project, advances revision once, and becomes ineligible.
-- Concurrent human Project/revision change, expiry, missing/revoked scope,
-  capability drift, idempotency collision, and later human edit all fail before
-  commit.
-- Plans are bound to the originating session. Disconnect/reconnect cannot apply
-  an older session's plan. Disabling write scope disconnects write sessions.
-- Metadata-only remains the default; protocol resources truthfully expose the
-  current enabled scopes. Drift's UI distinguishes local app permission from
-  the configured client/model provider's separate privacy terms.
-- Retention is bounded to 64 plans and 32 undo-eligible apply receipts; expired
-  or consumed plans and undone receipts are eligible for eviction.
+### Plan, apply, and undo
+
+- The only write intent is typed `apply-outcome-recipe`. Plans bind product,
+  protocol, build, manifest/capability hashes, originating session, document,
+  Project hash/revision, target, scope, expiry, and idempotency.
+- Plans disclose complete canonical changed paths and redacted before/after
+  identities. Apply is one-use and enters the same
+  `applyOutcomeRecipeCommand` → `applyProjectV4Command` path as the visible
+  Outcome control. Receipt Undo uses `undoProjectV4Command` and is eligible only
+  while the exact applied revision and Project remain current.
+- Human edits, capability drift, expiry, replay, idempotency collision,
+  disconnect/reconnect, and scope revocation fail before mutation. Plan and
+  receipt retention is bounded.
+
+### Bounded preview
+
+- `bounded-preview` is separately consented. It binds the current document
+  revision, Project hash, requested dimensions, and story time before capture.
+- Requests are limited to 64–1024 pixels per axis, 1,048,576 pixels, 2,000,000
+  PNG bytes, 60 seconds, 16 retained records, and one active preview.
+- Status/result/cancel/revoke/expiry are client-session bound. Cancellation and
+  revocation discard late renderer output. Disconnect revokes preview bytes.
+- App capture temporarily installs the existing preview authority and calls the
+  existing `CinematicCarousel.captureStill`; authority is restored in `finally`.
+  Preview does not mutate the Project and no alternate evaluator or renderer
+  was added.
+
+### Guided Export job reuse
+
+- `export-jobs` is separately consented. Preflight delegates to current Guided
+  Export intent/capability truth before destination selection or reservation.
+- Start returns an asynchronous request ID and opaque reconnect token. The
+  existing App destination picker remains the only destination authority.
+- After reservation, status/progress/cancel/receipt delegate to the one D05
+  `ExportJobController`. Completion receipts exist only after the existing sink
+  and verifier path returns a verified `GuidedExportCompletion`.
+- Cancel while destination selection is pending prevents late reservation;
+  cancel after reservation reaches the real D05 abort controller. Disconnect
+  does not cancel an export, so a new local session may reconnect with the
+  opaque request/token pair. Request history is bounded to 20.
+- Only current H.264 MP4 and PNG Frames choices are accepted. Strict shapes
+  reject unexpected fields, including path-shaped input. No destination path,
+  media bytes, grant, or host failure enters the protocol.
 
 ## Commands and results
 
-- Focused final: `npm test -- --run tests/automationMutationService.test.ts tests/automationSelfDescription.test.ts tests/projectCommands.test.ts tests/outcomeRecipes.test.ts` — 4 files / 31 tests passed.
-- Full source gate: `npm run check` — typecheck passed; 77 files / 526 tests passed; macOS source, import, hardening, and arm64 contracts passed; production Vite build passed with 239 modules.
-- Development build: `npm run build:v2-dev` — passed with 239 modules.
+- Focused final: `npm test -- --run tests/automationExportService.test.ts tests/automationPreviewService.test.ts tests/automationMutationService.test.ts tests/exportJobController.test.ts tests/guidedExport.test.ts tests/automationSelfDescription.test.ts` — 6 files / 29 tests passed.
+- Full source gate: `npm run check` — typecheck passed; 79 files / 535 tests
+  passed; macOS source/import/hardening/arm64 contracts passed; production Vite
+  build passed with 241 modules.
+- Development build: `npm run build:v2-dev` — passed with 241 modules.
 - `git diff --check` — passed.
 
-Both Vite builds emitted the existing large-chunk advisory. No new dependency,
+Both Vite builds emitted the existing large-chunk advisory. No dependency,
 native binary, package, or distributable was added.
 
 ## Fixed-point review
 
 ### Spec
 
-- Pass for this tranche: plan/apply/undo is typed, revision/hash-bound,
-  scope-gated, expiring, idempotent at plan creation, one-use at apply, visibly
-  receipted, and exact-state undoable while eligible.
-- Pass: human edits, capability/manifests changes, session replacement, replay,
-  and revocation win without mutation.
-- Pass: the existing Product automation service, recipe command, Project
-  reducer/undo, application history/persistence, and D04 development adapter are
-  deepened; no parallel reducer or automation service was created.
-- Deferred within D08: bounded preview consent/lifecycle and D05 export-job
-  reuse. Installed transport/client acceptance remains D09.
+- Pass: all four scopes are generated from current app truth and remain
+  independently visible and consented. Metadata-only is the default.
+- Pass: writes use canonical Project command/revision/history/persistence truth;
+  preview uses the existing evaluator/renderer authority; export uses existing
+  Guided Export and D05 job/sink/verifier truth.
+- Pass: snapshot, cancellation, progress, receipt, reconnect, expiry,
+  revocation, and no-mutation behavior are covered at their public seams.
+- Deferred: a real development client transcript against the running app,
+  actual preview pixels, actual export artifact/receipt, and installed standard
+  transport belong to runtime/host evidence, not source simulation.
 
 ### Standards
 
-- Pass: public plans/receipts contain hashes, stable IDs, bounded paths, and
-  outcome summaries, never Project snapshots, media names, raw bytes, paths,
-  grants, host failures, shell/process/network authority, or generic patches.
-- Pass: strict intent shape, request/session limits, write-scope revocation,
-  session binding, idempotency collision rejection, expiry, bounded retention,
-  stale-state checks, and exact-result verification fail closed.
-- Fixed during review: manual Outcome application was moved onto the same
-  command/revision path; live scope truth entered the protocol manifest; plan
-  retention was bounded; idempotency collisions were rejected; disconnected
-  sessions could no longer reuse plans.
-- No source-blocking finding remains in `3957109` for this bounded tranche.
+- Pass: strict typed input, machine IDs, opaque tokens, request/byte/pixel/time/
+  history bounds, stale-state rejection, revocation, redaction, and exact
+  canonical delegation fail closed.
+- Fixed during review: the adapter now enforces `additionalProperties: false`
+  instead of merely advertising it; UI wording no longer implies that
+  disconnecting a local session cancels a reconnectable export job.
+- No source-blocking D08 finding remains in the final source tree.
 
 ## State and gaps
 
-Highest state: **built** production and `v2-dev` web bundles.
+Highest state: **built** production and `v2-dev` web bundles. D08 is
+**source-ready**, not runtime-complete or accepted.
 
-Also tested: typed intent validation, plan equality/redaction/bindings,
-idempotency, one-use apply, exact undo, concurrent edit, expiry, capability
-drift, scope denial/revocation, disconnect/reconnect, visible receipt markup,
-and current repository contracts.
-
-Not browser-exercised, packaged, installed, released, merged, or accepted. No
-visual, motion, audio, export-artifact, accessibility, or human acceptance is
-claimed. The cloud browser's earlier local-URL blocker was not retested because
-this tranche required no experiential claim.
+No browser interaction, PNG preview image, H.264/PNG export artifact, long
+export, installed client/helper, packaged Apple-Silicon/Garuda target, visual,
+motion, audio, accessibility, or human acceptance was exercised or claimed.
+No merge, push, release, publication, signing, notarization, installation, or
+credential use occurred.
 
 D00 Apple-Silicon package/runtime proof and D10 pinned-frame ownership remain
 unchanged.
@@ -130,13 +129,11 @@ unchanged.
 ## Exact resume
 
 Resume `bomkino/pitchdog-drift` on local branch
-`codex/d08-automation-writes-foundation` from source commit
-`3957109beca045a55e25bf7daf3301bf4fa6d99c` and this receipt. Verify the clean
-worktree, source tree `a0ec754fbb108a979c90f6ae289672fa8bd86a19`,
-implementation ledger, D04/D05 receipts, and D08 ticket first. Continue D08
-only: add the smallest separately consented bounded preview lifecycle around
-the existing evaluator, with dimension/duration/byte/expiry/cancel/revoke and
-no-mutation tests. Do not create another evaluator, renderer, exporter, raw
-media/path bridge, listener, or generic patch tool. Run focused causal tests,
-the full source gate, and one fresh Spec/Standards review. Claim no browser,
-package, artifact, accessibility, or human acceptance without exact evidence.
+`codex/d08-automation-writes-foundation` from the D08 evidence commit following
+source `f983417309ea471853bd64229097c3d8896fc36d`. Inspect the clean worktree,
+implementation ledger, D08 receipt, and D10 ticket first. D08 is source-ready;
+do not add another evaluator, renderer, exporter, job controller, sink,
+verifier, or generic patch tool. Continue the next dependency-ready non-Mac
+source frontier while preserving D00/D05/D10 boundaries. Claim no browser,
+package, preview/export artifact, accessibility, or human acceptance without
+exact evidence.
