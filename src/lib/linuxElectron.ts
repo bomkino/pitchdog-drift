@@ -98,6 +98,9 @@ function replyResult<T>(
   }
   if (reply.status === "cancelled") return Object.freeze({ status: "cancelled" as const });
   if (reply.status === "failed") {
+    if (!reply.failure || typeof reply.failure !== "object") {
+      return failed(operation, "verification_failed", "Linux host returned an invalid failure reply.");
+    }
     const code = FAILURE_CODES.has(reply.failure.code as DesktopDocumentFailure["code"])
       ? reply.failure.code as DesktopDocumentFailure["code"]
       : "internal_error";
@@ -171,7 +174,8 @@ export function createLinuxElectronDesktopPlatform(
           || typeof result.value.grantId !== "string"
           || !/^drift-grant-[a-f0-9-]{36}$/u.test(result.value.grantId)
           || typeof result.value.name !== "string"
-          || result.value.name.length > 180) {
+          || result.value.name.length > 180
+          || result.value.mimeType !== "application/vnd.pitchdog.pitched+zip") {
           return failed("choose", "verification_failed", "Linux picker returned invalid project authority.");
         }
         const file = new File([Uint8Array.from(bytes).buffer], result.value.name, {
@@ -194,7 +198,8 @@ export function createLinuxElectronDesktopPlatform(
           if (result.value.byteLength !== file.size
             || !/^[a-f0-9]{64}$/u.test(result.value.sha256)
             || !result.value.readbackVerified
-            || !result.value.bound) {
+            || !result.value.bound
+            || result.value.conflict !== false) {
             return failed("open", "verification_failed", "Linux Open receipt did not match the selected project.");
           }
         }
@@ -232,7 +237,8 @@ export function createLinuxElectronDesktopPlatform(
           || receipt.byteLength !== request.blob.size
           || !/^[a-f0-9]{64}$/u.test(receipt.sha256)
           || !receipt.bound
-          || !receipt.readbackVerified) {
+          || !receipt.readbackVerified
+          || receipt.conflict !== false) {
           return failed(request.operation, "verification_failed", "Linux Save receipt did not match the requested transaction.");
         }
         issuedSaveReceipts.set(receipt, receipt);
@@ -257,7 +263,9 @@ export function createLinuxElectronDesktopPlatform(
         if (!bytes
           || result.value.receipt.sha256 !== request.expectedSha256
           || result.value.receipt.byteLength !== bytes.byteLength
-          || !result.value.receipt.readbackVerified) {
+          || !result.value.receipt.readbackVerified
+          || !result.value.receipt.bound
+          || result.value.receipt.conflict !== false) {
           return failed("revert", "verification_failed", "Linux Revert receipt did not match the bound project.");
         }
         return Object.freeze({

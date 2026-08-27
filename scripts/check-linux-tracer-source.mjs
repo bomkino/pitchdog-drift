@@ -25,6 +25,7 @@ for (const [fragment, label] of [
 ]) requireText(main, fragment, label);
 
 requireText(preload, 'contextBridge.exposeInMainWorld("__DRIFT_LINUX_DESKTOP__"', "narrow preload API");
+requireText(preload, "validateDesktopReply", "renderer-side reply validation");
 for (const method of [
   "choosePortableProject",
   "finalizePortableProjectOpen",
@@ -57,6 +58,7 @@ for (const fragment of [
 for (const fragment of [
   "MAX_CONTROL_BYTES",
   "exactKeys",
+  "validateDesktopReply",
   "validateDesktopRequest",
   "safeDesktopFailure",
 ]) requireText(ipc, fragment, `IPC marker ${fragment}`);

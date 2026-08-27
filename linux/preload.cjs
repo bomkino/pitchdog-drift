@@ -1,22 +1,28 @@
 "use strict";
 
 const { contextBridge, ipcRenderer } = require("electron");
-const { IPC_CHANNEL, IPC_PROTOCOL } = require("./ipcContract.cjs");
+const {
+  IPC_CHANNEL,
+  IPC_PROTOCOL,
+  validateDesktopReply,
+} = require("./ipcContract.cjs");
 
 const prefix = "--drift-linux-generation=";
 const generation = process.argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length) ?? "";
 if (!/^[a-f0-9-]{36}$/u.test(generation)) throw new Error("Drift Linux session generation is unavailable.");
 
 let sequence = 0;
-const invoke = (method, payload) => {
+const invoke = async (method, payload) => {
   sequence += 1;
-  return ipcRenderer.invoke(IPC_CHANNEL, Object.freeze({
+  const requestId = `renderer-${sequence}`;
+  const reply = await ipcRenderer.invoke(IPC_CHANNEL, Object.freeze({
     protocol: IPC_PROTOCOL,
-    requestId: `renderer-${sequence}`,
+    requestId,
     generation,
     method,
     payload,
   }));
+  return validateDesktopReply(reply, requestId);
 };
 
 const marker = Object.freeze({

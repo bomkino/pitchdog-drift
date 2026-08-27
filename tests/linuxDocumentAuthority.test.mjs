@@ -6,7 +6,12 @@ import authorityModule from "../linux/documentAuthority.cjs";
 import ipcModule from "../linux/ipcContract.cjs";
 
 const { LinuxDocumentAuthorityError, createLinuxDocumentAuthority } = authorityModule;
-const { IPC_PROTOCOL, safeDesktopFailure, validateDesktopRequest } = ipcModule;
+const {
+  IPC_PROTOCOL,
+  safeDesktopFailure,
+  validateDesktopReply,
+  validateDesktopRequest,
+} = ipcModule;
 const roots = [];
 
 async function fixture() {
@@ -126,6 +131,13 @@ describe("Linux document authority", () => {
     expect(() => validateDesktopRequest({ ...base, method: "filesystem.read" }, generation)).toThrowError(/unavailable/iu);
     expect(() => validateDesktopRequest({ ...base, payload: { path: "/home/ada/private.pitched" } }, generation)).toThrowError(/shape/iu);
     expect(() => validateDesktopRequest({ ...base, requestId: "x".repeat(97) }, generation)).toThrowError(/identity/iu);
+
+    expect(validateDesktopReply({ requestId: "request-1", status: "cancelled" }, "request-1"))
+      .toEqual({ requestId: "request-1", status: "cancelled" });
+    expect(() => validateDesktopReply({ requestId: "replayed", status: "cancelled" }, "request-1"))
+      .toThrowError(/did not match/iu);
+    expect(() => validateDesktopReply({ requestId: "request-1", status: "failed", failure: null }, "request-1"))
+      .toThrowError(/failure/iu);
 
     const failure = safeDesktopFailure(new Error("/home/ada/private.pitched token=secret"));
     expect(failure).toEqual({ code: "internal_error", message: "Linux document authority failed." });

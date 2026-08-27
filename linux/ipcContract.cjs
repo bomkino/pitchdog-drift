@@ -116,6 +116,34 @@ function validateDesktopRequest(value, expectedGeneration) {
   });
 }
 
+function validateDesktopReply(value, expectedRequestId) {
+  if (!plainRecord(value)) invalid("Desktop reply envelope is invalid.");
+  const requestId = boundedString(value.requestId, "Desktop reply identity", 96);
+  if (requestId !== expectedRequestId) invalid("Desktop reply identity did not match its request.");
+  if (value.status === "cancelled") {
+    exactKeys(value, ["requestId", "status"]);
+    return Object.freeze({ requestId, status: "cancelled" });
+  }
+  if (value.status === "failed") {
+    exactKeys(value, ["failure", "requestId", "status"]);
+    if (!plainRecord(value.failure)) invalid("Desktop reply failure is invalid.");
+    exactKeys(value.failure, ["code", "message"]);
+    return Object.freeze({
+      requestId,
+      status: "failed",
+      failure: Object.freeze({
+        code: boundedString(value.failure.code, "Desktop failure code", 64),
+        message: boundedString(value.failure.message, "Desktop failure message", 256),
+      }),
+    });
+  }
+  if (value.status === "completed") {
+    exactKeys(value, ["requestId", "status", "value"]);
+    return Object.freeze({ requestId, status: "completed", value: value.value });
+  }
+  invalid("Desktop reply status is invalid.");
+}
+
 function safeDesktopFailure(error) {
   if (error instanceof LinuxDocumentAuthorityError) {
     return Object.freeze({ code: error.code, message: error.message.slice(0, 256) });
@@ -131,5 +159,6 @@ module.exports = Object.freeze({
   IPC_PROTOCOL,
   METHODS,
   safeDesktopFailure,
+  validateDesktopReply,
   validateDesktopRequest,
 });
