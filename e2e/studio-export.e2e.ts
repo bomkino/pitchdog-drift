@@ -1,5 +1,6 @@
-import { expect, test } from "@playwright/test";
-import { readFile } from "node:fs/promises";
+import { expect, test, type Download } from "@playwright/test";
+import { mkdir, readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import {
   audioOnlyFixturePath,
   fixturePath,
@@ -14,6 +15,16 @@ import {
   switchWorkspace,
   waitForStudio,
 } from "./studio.helpers";
+
+async function retainRuntimeEvidence(download: Download, fileName: string): Promise<string | null> {
+  const path = await download.path();
+  const evidenceDirectory = process.env.DRIFT_RUNTIME_EVIDENCE_DIR?.trim();
+  if (path && evidenceDirectory) {
+    await mkdir(evidenceDirectory, { recursive: true });
+    await download.saveAs(resolve(evidenceDirectory, fileName));
+  }
+  return path;
+}
 
 test("WebGL2 denial yields an explicit, usable DOM fallback", async ({ page }) => {
   await page.addInitScript(() => {
@@ -55,7 +66,7 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
 
   const stillDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save one PNG still" }).click();
-  expect(await (await stillDownload).path()).toBeTruthy();
+  expect(await retainRuntimeEvidence(await stillDownload, "preview-still.png")).toBeTruthy();
   const pause = page.getByRole("button", { name: "Pause preview" });
   await expect(pause).toBeEnabled();
   await pause.click();
@@ -201,7 +212,7 @@ test("@physical-encoder full presenter journey closes and verifies the fixed-ste
   await prepareGuidedExport(page, "H.264 MP4");
   await startGuidedExport(page);
   const download = await downloadPromise;
-  const path = await download.path();
+  const path = await retainRuntimeEvidence(download, "presenter-256x256.mp4");
   expect(path).toBeTruthy();
   expect((await readFile(path!)).byteLength).toBeGreaterThan(1_000);
   await expect(page.locator(".export-overlay")).toBeHidden();
@@ -245,7 +256,7 @@ test("@physical-encoder installed Chrome verifies and downloads a delivery-size 
   const result = await completion;
   expect(result.kind, result.kind === "rejected" ? result.message ?? undefined : undefined).toBe("download");
   if (result.kind !== "download") return;
-  const path = await result.download.path();
+  const path = await retainRuntimeEvidence(result.download, "presenter-1080x1920.mp4");
   expect(path).toBeTruthy();
   expect((await readFile(path!)).byteLength).toBeGreaterThan(100_000);
   await expect(page.locator(".export-overlay")).toBeHidden();

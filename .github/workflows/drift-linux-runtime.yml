@@ -60,6 +60,8 @@ jobs:
           git diff --check
 
       - name: Run browser and hostile authority journeys
+        env:
+          DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
         run: |
           set -euo pipefail
           npm run test:e2e
@@ -72,6 +74,8 @@ jobs:
             tests/exportStudio.test.ts
 
       - name: Run installed-Chrome encoder journeys
+        env:
+          DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
         run: |
           set -euo pipefail
           command -v xvfb-run
