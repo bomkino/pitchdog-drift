@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  chown,
   chmod,
   mkdtemp,
   readFile,
@@ -81,10 +80,8 @@ if (fixtureResult.status !== 0) {
   await rm(work, { recursive: true, force: true });
   fail(`Canonical Linux fixture generation failed:\n${fixtureResult.stdout ?? ""}${fixtureResult.stderr ?? ""}`);
 }
-await chmod(fixture, 0o644);
-await chmod(work, 0o755);
-await chown(work, 65534, 65534);
-await chown(fixture, 65534, 65534);
+await chmod(fixture, 0o666);
+await chmod(work, 0o777);
 
 const result = spawnSync("setpriv", [
   "--reuid=65534",
@@ -105,7 +102,6 @@ const result = spawnSync("setpriv", [
   env: {
     PATH: process.env.PATH,
     HOME: work,
-    XDG_RUNTIME_DIR: work,
     ELECTRON_DISABLE_SECURITY_WARNINGS: "false",
   },
 });
