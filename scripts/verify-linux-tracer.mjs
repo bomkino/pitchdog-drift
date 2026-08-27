@@ -49,6 +49,8 @@ for (const entry of receipt.appFiles) {
 }
 const sandboxMode = (await stat(join(artifact, "chrome-sandbox"))).mode & 0o7777;
 if (sandboxMode !== 0o4755) fail("Electron chrome-sandbox is not root-owned setuid 4755 in the tracer artifact.");
+const electronMode = (await stat(join(artifact, "electron"))).mode & 0o7777;
+if ((electronMode & 0o111) === 0) fail("Electron runtime is not executable in the tracer artifact.");
 
 const mainSource = await readFile(join(appRoot, "linux", "main.cjs"), "utf8");
 const preloadSource = await readFile(join(appRoot, "linux", "preload.cjs"), "utf8");
@@ -83,10 +85,7 @@ if (fixtureResult.status !== 0) {
 await chmod(fixture, 0o666);
 await chmod(work, 0o777);
 
-const result = spawnSync("setpriv", [
-  "--reuid=65534",
-  "--regid=65534",
-  "--clear-groups",
+const electronArguments = [
   join(artifact, "electron"),
   "--headless",
   "--disable-gpu",
@@ -95,7 +94,13 @@ const result = spawnSync("setpriv", [
   `--drift-linux-self-test-fixture=${fixture}`,
   `--drift-linux-self-test-destination=${destination}`,
   `--drift-linux-self-test-receipt=${runtimeReceipt}`,
-], {
+];
+const runningAsRoot = typeof process.getuid === "function" && process.getuid() === 0;
+const runtimeProgram = runningAsRoot ? "setpriv" : electronArguments.shift();
+if (runningAsRoot) {
+  electronArguments.unshift("--reuid=65534", "--regid=65534", "--clear-groups");
+}
+const result = spawnSync(runtimeProgram, electronArguments, {
   cwd: artifact,
   encoding: "utf8",
   timeout: 60_000,
@@ -107,6 +112,9 @@ const result = spawnSync("setpriv", [
 });
 if (result.status !== 0) {
   await rm(work, { recursive: true, force: true });
+  if (runningAsRoot && /setresuid failed: Invalid argument/u.test(result.stderr ?? "")) {
+    fail("Linux packaged runtime cannot execute on this host: its user namespace maps only UID 0, so the verifier cannot leave root and will not add Chromium --no-sandbox.");
+  }
   fail(`Linux packaged runtime self-test failed (${String(result.status)}):\n${result.stdout ?? ""}${result.stderr ?? ""}`);
 }
 const runtime = JSON.parse(await readFile(runtimeReceipt, "utf8"));

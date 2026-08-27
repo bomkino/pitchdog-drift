@@ -165,7 +165,6 @@ function createLinuxDocumentAuthority() {
       const backup = join(dirname(destination), `.${basename(destination)}.drift-backup-${randomUUID()}`);
       let handle = null;
       let previous = null;
-      let committed = false;
       try {
         handle = await fs.open(stage, "wx", 0o600);
         await handle.writeFile(bytes);
@@ -199,7 +198,6 @@ function createLinuxDocumentAuthority() {
           previous = null;
         }
         await fs.rename(stage, destination);
-        committed = true;
         try {
           const published = await readRegularProject(destination);
           if (published.byteLength !== bytes.byteLength || sha256(published) !== expectedSha256) {
@@ -208,7 +206,6 @@ function createLinuxDocumentAuthority() {
         } catch (error) {
           if (previous) await fs.rename(backup, destination);
           else await fs.rm(destination, { force: true });
-          committed = false;
           throw error;
         }
         boundDocument = Object.freeze({

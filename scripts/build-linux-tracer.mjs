@@ -142,4 +142,13 @@ await writeFile(join(appRoot, "BuildReceipt.json"), `${JSON.stringify(receipt, n
   mode: 0o644,
   flag: "wx",
 });
+// Some archive and shared-filesystem combinations restore entry modes late. Set
+// and verify the two security-critical runtime modes after all package writes.
+await chmod(join(output, "electron"), 0o755);
+await chmod(join(output, "chrome-sandbox"), 0o4755);
+const electronMode = (await stat(join(output, "electron"))).mode & 0o7777;
+const sandboxMode = (await stat(join(output, "chrome-sandbox"))).mode & 0o7777;
+if (electronMode !== 0o755 || sandboxMode !== 0o4755) {
+  fail("Linux tracer runtime modes could not be established exactly (electron 0755, chrome-sandbox 04755).");
+}
 console.log(output);
