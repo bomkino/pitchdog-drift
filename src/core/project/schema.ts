@@ -257,6 +257,8 @@ export interface PresenterSettings {
   startAt: number;
 }
 
+export type PresenterLayer = "below-slides" | "above-slides";
+
 /**
  * Project V4 owns the pinned frame independently from the optional presenter
  * video slot. The V3 fields remain as the exact compatibility surface while
@@ -268,6 +270,10 @@ export interface PresenterSettingsV4 extends PresenterSettings {
   trackMode: PresenterTrackMode;
   layoutMode: PresenterLayoutMode;
   aspectMode: PresenterAspectMode;
+  /** Stable compositing order; it does not alter moving-track membership. */
+  layer: PresenterLayer;
+  /** Exclusive story-time end. Null means the end of the authored master. */
+  endAt: number | null;
   focalX: number;
   focalY: number;
   safeInset: number;

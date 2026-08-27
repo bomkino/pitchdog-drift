@@ -440,14 +440,24 @@ const PRESENTER_V4_FIELDS = [
   "shadowOpacity", "shadowSoftness", "shadowOffsetX", "shadowOffsetY", "matteColor", "matteOpacity",
 ] as const;
 
+const PRESENTER_V4_RANGE_LAYER_FIELDS = ["layer", "endAt"] as const;
+
 function validatePresenterV4(value: unknown): PresenterSettingsV4 {
   assertPlainDataTree(value, "project.presenter", { nodes: 0, active: new WeakSet() });
-  const presenter = object(value, "project.presenter", PRESENTER_V4_FIELDS);
+  const presenter = objectWithOptional(
+    value,
+    "project.presenter",
+    PRESENTER_V4_FIELDS,
+    PRESENTER_V4_RANGE_LAYER_FIELDS,
+  );
   boolean(presenter.enabled, "project.presenter.enabled");
   optionalSafeString(presenter.assetId, "project.presenter.assetId", 512);
   oneOf(presenter.trackMode, ["pinned-only", "moving-and-pinned"] as const, "project.presenter.trackMode");
   oneOf(presenter.layoutMode, ["safe-overlay", "legacy-perspective"] as const, "project.presenter.layoutMode");
   oneOf(presenter.aspectMode, ["source", "custom"] as const, "project.presenter.aspectMode");
+  const layer = presenter.layer === undefined
+    ? "above-slides" as const
+    : oneOf(presenter.layer, ["below-slides", "above-slides"] as const, "project.presenter.layer");
   oneOf(presenter.fit, ["cover", "contain"] as const, "project.presenter.fit");
   boolean(presenter.muted, "project.presenter.muted");
   colour(presenter.borderColor, "project.presenter.borderColor");
@@ -459,7 +469,14 @@ function validatePresenterV4(value: unknown): PresenterSettingsV4 {
     safeInset: [0, 0.25], shadowOpacity: [0, 0.8], shadowSoftness: [0, 256],
     shadowOffsetX: [-512, 512], shadowOffsetY: [-512, 512], matteOpacity: [0, 1],
   });
-  return structuredClone(value) as PresenterSettingsV4;
+  const startAt = presenter.startAt as number;
+  const endAt = presenter.endAt === undefined || presenter.endAt === null
+    ? null
+    : finiteNumber(presenter.endAt, "project.presenter.endAt", 0, 86_400);
+  if (endAt !== null && endAt <= startAt) {
+    fail("project.presenter.endAt", "must be greater than project.presenter.startAt");
+  }
+  return structuredClone({ ...presenter, layer, endAt }) as PresenterSettingsV4;
 }
 
 function presenterV3Compatibility(value: PresenterSettingsV4): PresenterSettings {

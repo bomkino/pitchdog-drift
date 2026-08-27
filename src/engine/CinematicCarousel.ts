@@ -8,6 +8,11 @@ import {
 } from "../core/project/schema";
 import { validateDriftProjectV4 } from "../core/project/validation";
 import { resolvePresenterOverlayLayout, type PresenterOverlayLayout } from "../core/presenter/layout";
+import {
+  resolvePinnedFrameCompositePlan,
+  resolvePinnedFramePresentation,
+  type PinnedFramePresentation,
+} from "../core/presenter/presentation";
 import { resolvePinLaneComposition, resolveProtectedPinLaneComposition } from "../core/presenter/lane";
 import { deriveSlideGeometry } from "../core/spatial/spatial";
 import {
@@ -1554,6 +1559,7 @@ export class CinematicCarousel {
       normalizedVelocity,
       normalizedAcceleration,
       travelPhase: evaluation.frame.phases.material,
+      pinnedFrame: evaluation.pinnedFrame,
     });
   }
 
@@ -1569,6 +1575,7 @@ export class CinematicCarousel {
     normalizedVelocity: number;
     normalizedAcceleration: number;
     travelPhase: number;
+    pinnedFrame?: PinnedFramePresentation;
   }): void {
     const {
       time,
@@ -1582,6 +1589,7 @@ export class CinematicCarousel {
       normalizedVelocity,
       normalizedAcceleration,
       travelPhase,
+      pinnedFrame,
     } = input;
 
     if (!exportMode) {
@@ -1622,7 +1630,12 @@ export class CinematicCarousel {
       );
     }
 
-    this.updatePresenterGeometry(lifecycle?.layers.presenter, this.lifecycleTreatment(lifecycle), presenterLayout);
+    this.updatePresenterGeometry(
+      lifecycle?.layers.presenter,
+      this.lifecycleTreatment(lifecycle),
+      presenterLayout,
+      pinnedFrame,
+    );
     this.backgroundMaterial.uniforms.uOpacity!.value = lifecycle?.layers.background.visibility ?? 1;
     this.updateBackground(time, exportMode, exportFrameIndex);
     this.evictTextures(keepTextureKeys);
@@ -1660,26 +1673,17 @@ export class CinematicCarousel {
     const lens = project?.lens;
     const lensActive = Boolean(lens?.enabled && lens.presence > 0.0001);
     const safePresenterVisible = this.presenterGroup.visible && this.presenterGroup.parent === this.presenterScene;
-    const presenterThroughLens = lensActive
-      && safePresenterVisible
-      && lens?.presenterTreatment === "through-lens";
+    const compositePlan = resolvePinnedFrameCompositePlan(
+      { visible: safePresenterVisible, layer: this.drawState.presenter.layer },
+      lensActive,
+      lens?.presenterTreatment ?? "protected",
+    );
+    const presenterBelowSlides = compositePlan.visible && compositePlan.layer === "below-slides";
+    const presenterThroughLens = compositePlan.visible && compositePlan.opticalPath === "through-lens";
     const clearAlpha = resolveCanvasClearAlpha(this.project);
 
     if (lensActive && lens && project) {
       this.syncLensTargetSize();
-      this.renderer.setRenderTarget(this.lensTarget);
-      this.renderer.setClearColor(0x000000, clearAlpha);
-      this.renderer.clear(true, true, true);
-      if (!transparent) {
-        this.renderer.render(this.backgroundScene, this.backgroundCamera);
-        this.renderer.clearDepth();
-      }
-      this.renderer.render(this.scene, this.camera);
-      if (presenterThroughLens) {
-        this.renderer.clearDepth();
-        this.renderer.render(this.presenterScene, this.presenterCamera);
-      }
-
       const uniforms = this.lensMaterial.uniforms;
       uniforms.uVelocity!.value.set(
         this.drawState.motion.axis === "horizontal" ? normalizedVelocity : 0,
@@ -1704,10 +1708,43 @@ export class CinematicCarousel {
       });
       uniforms.uSeed!.value = normalizeGrainSeed(project.projectSeed);
 
+      const protectedUnderlay = compositePlan.requiresProtectedUnderlayPass;
+      this.renderer.setRenderTarget(this.lensTarget);
+      this.renderer.setClearColor(0x000000, clearAlpha);
+      this.renderer.clear(true, true, true);
+      if (!transparent) this.renderer.render(this.backgroundScene, this.backgroundCamera);
+      if (!protectedUnderlay) {
+        if (presenterBelowSlides && presenterThroughLens) {
+          this.renderer.clearDepth();
+          this.renderer.render(this.presenterScene, this.presenterCamera);
+        }
+        this.renderer.clearDepth();
+        this.renderer.render(this.scene, this.camera);
+        if (!presenterBelowSlides && presenterThroughLens) {
+          this.renderer.clearDepth();
+          this.renderer.render(this.presenterScene, this.presenterCamera);
+        }
+      }
+
       this.renderer.setRenderTarget(null);
       this.renderer.setClearColor(0x000000, clearAlpha);
       this.renderer.clear(true, true, true);
       this.renderer.render(this.lensScene, this.backgroundCamera);
+
+      if (protectedUnderlay) {
+        this.renderer.clearDepth();
+        this.renderer.render(this.presenterScene, this.presenterCamera);
+
+        // The protected underlay must remain outside optical treatment while
+        // moving slides still receive it. Render a transparent slide-only lens
+        // pass over the presenter instead of flattening their layer order.
+        this.renderer.setRenderTarget(this.lensTarget);
+        this.renderer.setClearColor(0x000000, 0);
+        this.renderer.clear(true, true, true);
+        this.renderer.render(this.scene, this.camera);
+        this.renderer.setRenderTarget(null);
+        this.renderer.render(this.lensScene, this.backgroundCamera);
+      }
     } else {
       this.renderer.setRenderTarget(null);
       this.renderer.setClearColor(0x000000, clearAlpha);
@@ -1716,10 +1753,14 @@ export class CinematicCarousel {
         this.renderer.render(this.backgroundScene, this.backgroundCamera);
         this.renderer.clearDepth();
       }
+      if (presenterBelowSlides) {
+        this.renderer.render(this.presenterScene, this.presenterCamera);
+        this.renderer.clearDepth();
+      }
       this.renderer.render(this.scene, this.camera);
     }
 
-    if (safePresenterVisible && !presenterThroughLens) {
+    if (safePresenterVisible && !presenterBelowSlides && !presenterThroughLens) {
       this.renderer.clearDepth();
       this.renderer.render(this.presenterScene, this.presenterCamera);
     }
@@ -1965,9 +2006,12 @@ export class CinematicCarousel {
     lifecycleLayer?: LifecycleLayerSample,
     treatment: TransitionTreatment | null = null,
     safeLayout: PresenterOverlayLayout | null = this.resolveSafePresenterLayout(),
+    pinnedFrame?: PinnedFramePresentation,
   ): void {
     const settings = this.drawState.presenter;
-    const shouldShow = settings.enabled && Boolean(this.presenterAsset) && Boolean(this.presenterMaterial.uniforms.uMap!.value);
+    const shouldShow = (pinnedFrame?.visible ?? settings.enabled)
+      && Boolean(this.presenterAsset)
+      && Boolean(this.presenterMaterial.uniforms.uMap!.value);
     const transition = resolveLifecycleLayerPresentation(
       lifecycleLayer ?? { visibility: 1, progress: 1, motionProgress: 1, active: false },
       treatment,
@@ -2417,6 +2461,12 @@ export class CinematicCarousel {
     const effectiveMasterTime = this.reducedMotionPreview
       ? this.presenterReducedMotionMasterTime ?? masterTime
       : masterTime;
+    const pinnedFrame = resolvePinnedFramePresentation(
+      this.drawState.presenter,
+      this.drawState.output.duration,
+      effectiveMasterTime,
+    );
+    const effectiveSourceTime = pinnedFrame.sourceTime;
     const frozen = this.paused
       || this.reducedMotionPreview
       || this.exportActive
@@ -2429,17 +2479,17 @@ export class CinematicCarousel {
     const lastDecodableTime = Number.isFinite(video.duration) && video.duration > 0
       ? Math.max(0, video.duration - 1 / fps)
       : Number.POSITIVE_INFINITY;
-    const sourceExhausted = effectiveMasterTime > lastDecodableTime + PRESENTER_EXACT_SEEK_EPSILON_SECONDS;
-    const shouldFreezeVideo = frozen || sourceExhausted;
+    const sourceExhausted = effectiveSourceTime > lastDecodableTime + PRESENTER_EXACT_SEEK_EPSILON_SECONDS;
+    const shouldFreezeVideo = frozen || sourceExhausted || !pinnedFrame.visible;
     const decision = resolvePresenterPreviewClock({
-      masterTime: effectiveMasterTime,
+      masterTime: effectiveSourceTime,
       previousMasterTime: this.presenterPreviewMasterTime,
       videoTime: video.currentTime,
       videoDuration: video.duration,
       masterFps: fps,
       exact: shouldFreezeVideo,
     });
-    this.presenterShouldPlay = !shouldFreezeVideo && !decision.shouldSeek;
+    this.presenterShouldPlay = pinnedFrame.visible && !shouldFreezeVideo && !decision.shouldSeek;
     if (shouldFreezeVideo || decision.shouldSeek) video.pause();
     if (decision.targetTime !== null && decision.shouldSeek) {
       // Seeking is an exception: initial alignment, master-loop wrap, a real
@@ -2449,7 +2499,7 @@ export class CinematicCarousel {
     } else if (this.presenterShouldPlay) {
       this.requestPresenterPreviewPlay(video);
     }
-    this.presenterPreviewMasterTime = effectiveMasterTime;
+    this.presenterPreviewMasterTime = effectiveSourceTime;
   }
 
   private onContextLost(event: Event): void {

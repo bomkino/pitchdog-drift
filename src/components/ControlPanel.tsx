@@ -1406,7 +1406,7 @@ export function ControlPanel({
           onChange={(trackMode) => patch("presenter", { trackMode })}
         />
         <Segmented
-          label="Layer"
+          label="Anchoring"
           value={settings.presenter.layoutMode}
           options={[
             { value: "safe-overlay", label: "Protected" },
@@ -1414,12 +1414,53 @@ export function ControlPanel({
           ]}
           onChange={(layoutMode) => patch("presenter", { layoutMode })}
         />
+        {settings.presenter.layoutMode === "safe-overlay" ? (
+          <Segmented
+            label="Layer"
+            value={settings.presenter.layer}
+            options={[
+              { value: "above-slides", label: "Above slides" },
+              { value: "below-slides", label: "Below slides" },
+            ]}
+            onChange={(layer) => patch("presenter", { layer })}
+          />
+        ) : <p className="performance-note">In-scene placement follows the authored world depth. Protected layer ordering is available with safe anchoring.</p>}
         <RangeNumberField label="Width" value={settings.presenter.width * 100} softMin={5} softMax={100} hardMin={5} hardMax={100} step={1} unit="%" onChange={(value) => patch("presenter", { width: value / 100 })} />
         <RangeField label="Left ↔ right placement" value={settings.presenter.x * 100} min={0} max={100} step={1} unit="%" hint="0 puts the complete frame at the left safe edge; 100 puts it at the right safe edge." onChange={(value) => patch("presenter", { x: value / 100 })} />
         <RangeField label="Top ↔ bottom placement" value={settings.presenter.y * 100} min={0} max={100} step={1} unit="%" hint="The complete frame and its shadow remain inside the safe area." onChange={(value) => patch("presenter", { y: value / 100 })} />
         {settings.presenter.layoutMode === "safe-overlay" ? (
           <RangeField label="Safe inset" value={settings.presenter.safeInset * 100} min={0} max={25} step={0.5} decimals={1} unit="%" onChange={(value) => patch("presenter", { safeInset: value / 100 })} />
         ) : null}
+        <RangeField
+          label="Story start"
+          value={settings.presenter.startAt}
+          min={0}
+          max={Math.max(0, settings.output.duration - 0.05)}
+          step={0.05}
+          decimals={2}
+          unit=" s"
+          onChange={(startAt) => patch("presenter", {
+            startAt,
+            endAt: settings.presenter.endAt !== null && settings.presenter.endAt <= startAt
+              ? null
+              : settings.presenter.endAt,
+          })}
+        />
+        <RangeField
+          label="Story end"
+          value={settings.presenter.endAt ?? settings.output.duration}
+          min={Math.min(settings.output.duration, settings.presenter.startAt + 0.05)}
+          max={settings.output.duration}
+          step={0.05}
+          decimals={2}
+          unit=" s"
+          hint={settings.presenter.endAt === null ? "Follows the end of the master." : "The pinned frame is hidden at this time."}
+          onChange={(endAt) => patch("presenter", { endAt })}
+        />
+        <div className="pin-reset-control">
+          <button type="button" disabled={settings.presenter.endAt === null} onClick={() => patch("presenter", { endAt: null })}>Show through end</button>
+          <small>Range controls appearance in preview, scrub, stills, and every export frame.</small>
+        </div>
       </InspectorGroup>
       </WorkspaceSection>
 
@@ -1482,7 +1523,6 @@ export function ControlPanel({
           <>
             <RangeField label="Presenter level" value={settings.presenter.gain * 100} min={0} max={200} step={1} unit="%" onChange={(value) => patch("presenter", { gain: value / 100 })} />
             <RangeField label="Source trim" value={settings.presenter.trimStart} min={0} max={settings.output.duration} step={0.05} decimals={2} unit=" s" onChange={(trimStart) => patch("presenter", { trimStart })} />
-            <RangeField label="Enters at" value={settings.presenter.startAt} min={0} max={settings.output.duration} step={0.05} decimals={2} unit=" s" onChange={(startAt) => patch("presenter", { startAt })} />
           </>
         ) : null}
       </InspectorGroup>

@@ -89,6 +89,7 @@ export interface PresenterSettings {
   trackMode: PresenterTrackMode;
   layoutMode: PresenterLayoutMode;
   aspectMode: PresenterAspectMode;
+  layer: "below-slides" | "above-slides";
   x: number;
   y: number;
   width: number;
@@ -113,6 +114,7 @@ export interface PresenterSettings {
   gain: number;
   trimStart: number;
   startAt: number;
+  endAt: number | null;
 }
 
 export interface OutputSettings {
@@ -307,6 +309,7 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     trackMode: "pinned-only",
     layoutMode: "safe-overlay",
     aspectMode: "source",
+    layer: "above-slides",
     x: 1,
     y: 1,
     width: 0.32,
@@ -331,6 +334,7 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     gain: 1,
     trimStart: 0,
     startAt: 0,
+    endAt: null,
   },
   performance: createDefaultPerformanceLifecycle(false),
   output: {

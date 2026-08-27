@@ -30,6 +30,8 @@ export interface AppExportPlan {
     gain: number;
     trimStart: number;
     startAt: number;
+    endAt: number | null;
+    layer: DriftProjectV4["presenter"]["layer"];
   };
 }
 
@@ -98,6 +100,8 @@ export function exportPlanFromProject(project: DriftProjectV4): AppExportPlan {
       gain: project.presenter.gain,
       trimStart: project.presenter.trimStart,
       startAt: project.presenter.startAt,
+      endAt: project.presenter.endAt,
+      layer: project.presenter.layer,
     },
   };
 }
@@ -122,6 +126,8 @@ export function exportPlanFromV1Settings(settings: StudioSettings): AppExportPla
       gain: settings.presenter.gain,
       trimStart: settings.presenter.trimStart,
       startAt: settings.presenter.startAt,
+      endAt: settings.presenter.endAt,
+      layer: settings.presenter.layer,
     },
   };
 }

@@ -251,6 +251,8 @@ export function createDefaultDriftProjectV4(
       trackMode: "pinned-only",
       layoutMode: "safe-overlay",
       aspectMode: "source",
+      layer: "above-slides",
+      endAt: null,
       focalX: 0.5,
       focalY: 0.5,
       safeInset: 0.04,
