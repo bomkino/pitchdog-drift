@@ -59,27 +59,12 @@ jobs:
           npm run build:v2-dev
           git diff --check
 
-      - name: Run browser and hostile authority journeys
-        env:
-          DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
+      - name: Require clean tracked source before native build
         run: |
           set -euo pipefail
-          npx playwright test \
-            e2e/interface-scale.e2e.ts \
-            e2e/native-menu-import.e2e.ts \
-            e2e/studio-export.e2e.ts \
-            e2e/studio-projects.e2e.ts \
-            e2e/studio-renderer.e2e.ts \
-            e2e/studio-ui.e2e.ts \
-            e2e/timeline-dock.e2e.ts \
-            e2e/v2-ui.e2e.ts
-          npm test -- --run \
-            tests/linuxSandboxContract.test.mjs \
-            tests/linuxDocumentAuthority.test.mjs \
-            tests/linuxDesktopPlatform.test.ts \
-            tests/exportJobController.test.ts \
-            tests/automationExportService.test.ts \
-            tests/exportStudio.test.ts
+          git status --short --untracked-files=all \
+            | tee build/evidence/pre-linux-builder-status.txt
+          test ! -s build/evidence/pre-linux-builder-status.txt
 
       - name: Download and verify official Electron archive
         run: |
@@ -120,6 +105,28 @@ jobs:
           DRIFT_LINUX_RUNTIME_RECEIPT="$GITHUB_WORKSPACE/build/evidence/linux-runtime-receipt.json" \
             npm run verify:linux:tracer
           test "$(id -u)" -ne 0
+
+      - name: Run browser and hostile authority journeys
+        env:
+          DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
+        run: |
+          set -euo pipefail
+          npx playwright test \
+            e2e/interface-scale.e2e.ts \
+            e2e/native-menu-import.e2e.ts \
+            e2e/studio-export.e2e.ts \
+            e2e/studio-projects.e2e.ts \
+            e2e/studio-renderer.e2e.ts \
+            e2e/studio-ui.e2e.ts \
+            e2e/timeline-dock.e2e.ts \
+            e2e/v2-ui.e2e.ts
+          npm test -- --run \
+            tests/linuxSandboxContract.test.mjs \
+            tests/linuxDocumentAuthority.test.mjs \
+            tests/linuxDesktopPlatform.test.ts \
+            tests/exportJobController.test.ts \
+            tests/automationExportService.test.ts \
+            tests/exportStudio.test.ts
 
       - name: Run installed-Chrome encoder journeys
         env:
