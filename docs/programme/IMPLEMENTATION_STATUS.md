@@ -107,11 +107,26 @@ Receipt: [`receipts/D05-guided-export-foundation.md`](receipts/D05-guided-export
 
 Receipt: [`receipts/D08-automation-writes-foundation.md`](receipts/D08-automation-writes-foundation.md)
 
+## D10 — Complete optional pinned-frame contract
+
+- Starting SHA: `646699d95f18704086ae341784c64da655ebaba7`.
+- Task branch: `codex/d10-pinned-frame-foundation`.
+- Current source commit: `84f9388cbe238eebdeb05faf24ac9d01a01f5392` (tree `69c3bfe582c513c5fa6d8cc3eedc2cca8f26256a`).
+- State: source-ready, tested, and production/`v2-dev` web-built; runtime artifact, package, accessibility, and human acceptance remain open.
+- Existing authority preserved: Project V4 remains the one optional/default-off pin contract for source selection, moving-track membership, position, size/aspect, safe anchoring, contain/cover, focal crop, matte, corners, border, shadow, lens treatment, audio intent, and portable save/reopen.
+- Added truth: above/below-slide layer and exclusive story end complete the authored composition/range contract. Existing `startAt` and `trimStart` now drive one preview/scrub/still/MP4/PNG source clock.
+- Evaluation/render truth: the canonical Project frame adapter returns pin visibility/layer/source time. Protected below-slide pins retain independent lens treatment through split optical passes. Preview and fixed-step export use the same result.
+- Video/audio truth: only in-range presenter frames are decoded; trimmed presenter audio is scheduled into the same story range with silence outside. Existing sinks/verifiers remain the only output path.
+- Causal evidence: complete portable bundle round trip; exact preview/export evaluation equality; default-off, range rejection, layer/lens independence, and export source-time mapping. Full gate: 80 files / 541 tests; both 242-module web builds passed.
+- Unrun evidence: real browser controls/focus/scale, exact preview/export pixel comparison, real presenter audio/alpha artifacts, packaged Apple-Silicon/Garuda journeys, accessibility, and human review.
+
+Receipt: [`receipts/D10-pinned-frame-foundation.md`](receipts/D10-pinned-frame-foundation.md)
+
 ## Frontier
 
 - D00 is source-ready; exact Apple-Silicon build/package/launch and D01 document-journey acceptance remain hardware-gated.
 - D05 is source-ready but blocked on unavailable runtime/human evidence. D02 is independently source-ready on `codex/d02-linux-electron-shell-tracer` but its hardened runtime proof requires a compatible non-root Linux host.
-- D03 remains source-green but blocked on real browser visual/layout evidence. D10 owns the complete pinned-frame contract; source work may proceed, but D03 browser evidence remains a D10 acceptance dependency.
+- D03 remains source-green but blocked on real browser visual/layout evidence. D10 is source-ready, but D03 browser evidence remains a D10 acceptance dependency.
 - D04, D05, and D08 are source-ready but incomplete at browser/host/artifact evidence gates. Their source seams contain no authority for an acceptance claim.
-- D10 is the next non-Mac source frontier. D03's missing real-browser scale review remains an acceptance blocker, not permission to weaken D10's complete pinned-frame contract.
+- No further pinned-frame source seam is open. D03's missing real-browser scale review remains a D10 acceptance blocker, not permission to weaken its complete contract.
 - R01 requires an exact Garuda/KDE target; R02 requires Apple-Silicon macOS. D06, D07, D09, and installed acceptance remain blocked on their target/runtime gates.
