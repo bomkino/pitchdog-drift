@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import {
   audioOnlyFixturePath,
@@ -11,6 +11,30 @@ import {
   switchWorkspace,
   waitForStudio,
 } from "./studio.helpers";
+
+async function sampleScreenshot(page: Page, bytes: Buffer): Promise<number[]> {
+  return page.evaluate(async (encoded) => {
+    const binary = atob(encoded);
+    const source = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([source], { type: "image/png" }), {
+      resizeWidth: 64,
+      resizeHeight: 64,
+      resizeQuality: "high",
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Screenshot comparison canvas is unavailable.");
+    context.drawImage(bitmap, 0, 0, 64, 64);
+    bitmap.close();
+    return Array.from(context.getImageData(0, 0, 64, 64).data);
+  }, bytes.toString("base64"));
+}
+
+function pixelDistance(left: number[], right: number[]): number {
+  return left.reduce((total, value, index) => total + Math.abs(value - right[index]!), 0);
+}
 
 test("boots WebGL2, exposes real controls, restores context, and fits phone viewports", async ({ page }) => {
   const errors: string[] = [];
@@ -245,6 +269,50 @@ test("reduced motion yields a stable rendered interval without animated grain", 
     first = candidate;
   }
   expect(baselineStable).toBe(true);
+});
+
+test("Reduced-motion master names its spatial hold and restoring motion changes real preview pixels", async ({ page }) => {
+  await waitForStudio(page);
+  await page.getByRole("button", { name: "MOTION", exact: true }).click();
+  await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
+  const motionPhysics = page.locator(".inspector-group").filter({
+    has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Motion physics$/ }),
+  });
+  await motionPhysics.locator(":scope > .inspector-group-trigger").click();
+  const reducedMotionMaster = page.getByRole("switch", { name: "Reduced-motion master" });
+  await expect(reducedMotionMaster).not.toBeChecked();
+
+  await reducedMotionMaster.click();
+  await expect(reducedMotionMaster).toBeChecked();
+  await expect(page.getByRole("region", { name: "Cinematic preview" }))
+    .toHaveAccessibleDescription(/playing a reduced-motion master; spatial travel is held/i);
+  await expect(page.locator(".timeline-hint")).toHaveText("Reduced-motion master · spatial travel held");
+
+  await page.addStyleTag({ content: ".stage-hud, .notice { visibility: hidden !important; }" });
+  const canvas = page.locator("[data-testid=webgl-stage]");
+  await page.waitForTimeout(250);
+  const heldA = await canvas.screenshot();
+  await page.waitForTimeout(350);
+  const heldB = await canvas.screenshot();
+  const heldDistance = pixelDistance(
+    await sampleScreenshot(page, heldA),
+    await sampleScreenshot(page, heldB),
+  );
+
+  await reducedMotionMaster.click();
+  await expect(reducedMotionMaster).not.toBeChecked();
+  await expect(page.getByRole("region", { name: "Cinematic preview" }))
+    .toHaveAccessibleDescription(/Preview playing\./);
+  await expect(page.locator(".timeline-hint")).toHaveText("Drag to scrub · Shift + arrows jump passes");
+  await page.waitForTimeout(250);
+  const movingA = await canvas.screenshot();
+  await page.waitForTimeout(350);
+  const movingB = await canvas.screenshot();
+  const movingDistance = pixelDistance(
+    await sampleScreenshot(page, movingA),
+    await sampleScreenshot(page, movingB),
+  );
+  expect(movingDistance).toBeGreaterThan(heldDistance * 3);
 });
 
 test("Pause freezes authored time while interaction glides to a stable rest", async ({ page }) => {

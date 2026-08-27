@@ -17,6 +17,7 @@ export interface TimelineDockProps {
   readonly outputFps: number;
   readonly paused: boolean;
   readonly reducedMotionPreview: boolean;
+  readonly reducedMotionMaster: boolean;
   readonly focusMode: boolean;
   readonly busy: boolean;
   readonly onPausedChange: (paused: boolean) => void;
@@ -115,6 +116,7 @@ export function TimelineDock({
   outputFps,
   paused,
   reducedMotionPreview,
+  reducedMotionMaster,
   focusMode,
   busy,
   onPausedChange,
@@ -274,7 +276,11 @@ export function TimelineDock({
           Space plays or pauses. Left and Right move one output frame. Hold Shift to jump to the previous or next deck-pass boundary. Home and End move to the master endpoints.
         </p>
         <span className="timeline-hint" aria-hidden="true">
-          {reducedMotionPreview ? "OS motion hold · scrub still works" : "Drag to scrub · Shift + arrows jump passes"}
+          {reducedMotionPreview
+            ? "OS motion hold · scrub still works"
+            : reducedMotionMaster
+              ? "Reduced-motion master · spatial travel held"
+              : "Drag to scrub · Shift + arrows jump passes"}
         </span>
         <output className="visually-hidden" aria-live="polite" aria-atomic="true">
           {announcement}

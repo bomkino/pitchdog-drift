@@ -2796,6 +2796,7 @@ export function App() {
           outputFps={displayedProject.master.fps}
           paused={paused}
           reducedMotionPreview={prefersReducedMotion}
+          reducedMotionMaster={displayedProject.master.reducedMotion || displayedProject.performance.reducedMotion === true}
           focusMode={focusMode}
           activeSlideIndex={activeSlideIndex}
           platformGuide={platformGuide}

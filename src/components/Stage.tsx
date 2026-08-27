@@ -39,6 +39,7 @@ interface StageProps {
   outputFps: number;
   paused: boolean;
   reducedMotionPreview: boolean;
+  reducedMotionMaster: boolean;
   focusMode: boolean;
   activeSlideIndex: number;
   platformGuide: PlatformGuideProfile;
@@ -65,6 +66,7 @@ export function Stage({
   outputFps,
   paused,
   reducedMotionPreview,
+  reducedMotionMaster,
   focusMode,
   activeSlideIndex,
   platformGuide,
@@ -85,9 +87,16 @@ export function Stage({
   const pinDescription = presentation.pinEnabled && pinnedAsset
     ? ` Protected still frame: ${pinnedAsset.name}.`
     : "";
+  const previewState = reducedMotionPreview
+    ? "held by the Mac Reduce Motion setting"
+    : reducedMotionMaster
+      ? "playing a reduced-motion master; spatial travel is held"
+      : paused
+        ? "paused"
+        : "playing";
   const previewDescription = assets.length === 0
-    ? `Cinematic preview. No slides. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${reducedMotionPreview ? "held by the Mac Reduce Motion setting" : paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Drag or add images to begin.`
-    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${reducedMotionPreview ? "held by the Mac Reduce Motion setting" : paused ? "paused" : "playing"}. Stage ${presentation.width} by ${presentation.height}. Use the timeline, drag, wheel, or Space to navigate.`;
+    ? `Cinematic preview. No slides. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${previewState}. Stage ${presentation.width} by ${presentation.height}. Drag or add images to begin.`
+    : `Cinematic preview. ${assets.length} slides. Centered slide ${Math.max(0, activeSlideIndex) + 1}: ${activeAsset?.name ?? assets[0]?.name ?? "loading"}. ${presentation.directionLabel}. ${presentation.axis} ${presentation.pathLabel} flow.${pinDescription} Preview ${previewState}. Stage ${presentation.width} by ${presentation.height}. Use the timeline, drag, wheel, or Space to navigate.`;
 
   useLayoutEffect(() => {
     const well = wellRef.current;
@@ -257,6 +266,7 @@ export function Stage({
         outputFps={outputFps}
         paused={paused}
         reducedMotionPreview={reducedMotionPreview}
+        reducedMotionMaster={reducedMotionMaster}
         focusMode={focusMode}
         busy={busy}
         onPausedChange={onPausedChange}
