@@ -20,6 +20,11 @@ export async function switchWorkspace(
   page: Page,
   name: "SLIDES" | "LOOK" | "MOTION" | "EXPORT",
 ): Promise<void> {
+  const panelNavigation = page.getByRole("navigation", { name: "Studio panels" });
+  if (await panelNavigation.isVisible()) {
+    const director = panelNavigation.getByRole("button", { name: "director", exact: true });
+    if (await director.getAttribute("aria-pressed") !== "true") await director.click();
+  }
   const button = page.getByRole("button", { name, exact: true });
   if (await button.getAttribute("aria-current") !== "page") await button.click();
 }

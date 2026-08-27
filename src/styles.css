@@ -3465,6 +3465,7 @@ a:focus-visible {
   min-height: 0;
   height: auto;
   display: block;
+  position: relative;
   overflow: hidden;
 }
 
@@ -3482,6 +3483,17 @@ a:focus-visible {
 
 .app[data-interface-layout="single-panel"][data-active-panel="director"] .inspector { display: grid; }
 .app[data-interface-layout="single-panel"][data-active-panel="stage"] .stage-column { display: grid; }
+.app[data-interface-layout="single-panel"] .inspector {
+  display: grid;
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.app[data-interface-layout="single-panel"][data-active-panel="director"] .inspector {
+  visibility: visible;
+  pointer-events: auto;
+}
 .app[data-interface-layout="single-panel"] .media-library { border-right: 0; }
 .app[data-interface-layout="single-panel"] .inspector { border-left: 0; }
 .app[data-interface-layout="single-panel"] .asset-list { overflow-y: auto; }
@@ -3690,6 +3702,7 @@ a:focus-visible {
     min-height: 0;
     height: auto;
     display: block;
+    position: relative;
     overflow: hidden;
   }
 
@@ -3709,6 +3722,19 @@ a:focus-visible {
 
   .app[data-active-panel="director"] .inspector { display: grid; }
   .app[data-active-panel="stage"] .stage-column { display: grid; }
+
+  .inspector {
+    display: grid;
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .app[data-active-panel="director"] .inspector {
+    visibility: visible;
+    pointer-events: auto;
+  }
 
   .media-library { border-right: 0; }
   .inspector { border-left: 0; }
