@@ -149,7 +149,9 @@ test("director fields expose concise names and separate supporting descriptions"
   await switchWorkspace(page, "LOOK");
   await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
   const surface = page.locator(".inspector-group").filter({ has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Card surface$/ }) });
-  await surface.locator(":scope > .inspector-group-trigger").click();
+  const surfaceTrigger = surface.locator(":scope > .inspector-group-trigger");
+  await surfaceTrigger.focus();
+  await surfaceTrigger.press("Enter");
   await expect(page.getByLabel("Border", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Border colour", { exact: true })).toBeVisible();
   await expect(page.getByRole("slider", { name: "Corner smoothing", exact: true })).toHaveAccessibleDescription("60% is the familiar iOS-style continuous corner.");
