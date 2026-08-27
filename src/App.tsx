@@ -29,6 +29,13 @@ import {
   type AutomationPreviewRenderInput,
   type ProductAutomationPreviewService,
 } from "./core/automation/productAutomationPreview";
+import {
+  createProductAutomationExportService,
+  type AutomationExportAuthority,
+  type AutomationExportChoice,
+  type AutomationExportReservationHooks,
+  type ProductAutomationExportService,
+} from "./core/automation/productAutomationExport";
 import { createInitialDriftProjectV4 } from "./core/project/initialProject";
 import {
   applyOutcomeRecipeCommand,
@@ -54,7 +61,10 @@ import {
 import {
   assertGuidedExportIntentMatchesPlan,
   captureGuidedExportSnapshot,
+  createGuidedExportDraft,
   createExportIntent,
+  deriveExportFormatCapabilities,
+  preflightGuidedExport,
   type ExportIntent,
   type GuidedExportCompletion,
   type GuidedExportRunRequest,
@@ -347,6 +357,7 @@ export function App() {
   ) => void | Promise<void>>(() => undefined);
   const automationWriteEnabledRef = useRef(false);
   const automationPreviewEnabledRef = useRef(false);
+  const automationExportEnabledRef = useRef(false);
   const automationCommitRef = useRef<(change: AutomationMutationCommit) => void>(() => {
     throw new Error("Automation mutation authority is not ready.");
   });
@@ -358,6 +369,13 @@ export function App() {
     throw new Error("Automation preview renderer is not ready.");
   });
   const automationPreviewAuthorityRef = useRef<AutomationPreviewAuthority | null>(null);
+  const automationExportPreflightRef = useRef<AutomationExportAuthority["preflight"]>(() => {
+    throw new Error("Automation export preflight is not ready.");
+  });
+  const automationExportRunRef = useRef<AutomationExportAuthority["run"]>(async () => {
+    throw new Error("Automation export runner is not ready.");
+  });
+  const automationExportAuthorityRef = useRef<AutomationExportAuthority | null>(null);
   if (automationMutationAuthorityRef.current === null) {
     automationMutationAuthorityRef.current = {
       read: () => {
@@ -386,6 +404,13 @@ export function App() {
         };
       },
       render: (input) => automationPreviewRenderRef.current(input),
+    };
+  }
+  if (automationExportAuthorityRef.current === null) {
+    automationExportAuthorityRef.current = {
+      jobs: exportJobController,
+      preflight: (choice) => automationExportPreflightRef.current(choice),
+      run: (request, hooks) => automationExportRunRef.current(request, hooks),
     };
   }
 
@@ -431,6 +456,7 @@ export function App() {
   const [automationEnabled, setAutomationEnabled] = useState(false);
   const [automationWriteEnabled, setAutomationWriteEnabled] = useState(false);
   const [automationPreviewEnabled, setAutomationPreviewEnabled] = useState(false);
+  const [automationExportEnabled, setAutomationExportEnabled] = useState(false);
   const [automationConnectionState, setAutomationConnectionState] = useState<"disconnected" | "connected">("disconnected");
   const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
     __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
@@ -444,6 +470,7 @@ export function App() {
   presenterRef.current = presenter;
   automationWriteEnabledRef.current = automationWriteEnabled;
   automationPreviewEnabledRef.current = automationPreviewEnabled;
+  automationExportEnabledRef.current = automationExportEnabled;
 
   const changeInterfaceScale = useCallback((command: InterfaceScaleCommand) => {
     try {
@@ -537,6 +564,7 @@ export function App() {
       exportCapabilities,
       mutationAccess: automationWriteEnabled,
       previewAccess: automationPreviewEnabled,
+      exportAccess: automationExportEnabled,
       jobs: exportJobStatus ? [{
         id: exportJobStatus.id,
         kind: "export",
@@ -560,6 +588,7 @@ export function App() {
     automationPlayheadSeconds,
     automationWriteEnabled,
     automationPreviewEnabled,
+    automationExportEnabled,
     selectedSlideId,
   ]);
   const automationMutationServiceRef = useRef<ProductAutomationMutationService | null>(null);
@@ -579,11 +608,19 @@ export function App() {
     );
   }
   const automationPreviewService = automationPreviewServiceRef.current;
+  const automationExportServiceRef = useRef<ProductAutomationExportService | null>(null);
+  if (automationExportServiceRef.current === null) {
+    automationExportServiceRef.current = createProductAutomationExportService(
+      automationExportAuthorityRef.current,
+    );
+  }
+  const automationExportService = automationExportServiceRef.current;
   const automationService = useMemo(() => createProductAutomationService(
     automationManifests,
     automationMutationService,
     automationPreviewService,
-  ), [automationManifests, automationMutationService, automationPreviewService]);
+    automationExportService,
+  ), [automationExportService, automationManifests, automationMutationService, automationPreviewService]);
   const automationAdapterRef = useRef<DevelopmentMcpAdapter | null>(null);
   if (automationAdapterRef.current === null) {
     automationAdapterRef.current = createDevelopmentMcpAdapter(automationService);
@@ -601,6 +638,7 @@ export function App() {
     automationAdapter.setEnabled(developmentEnabled);
     automationAdapter.setWriteScopeEnabled(developmentEnabled && automationWriteEnabled);
     automationAdapter.setPreviewScopeEnabled(developmentEnabled && automationPreviewEnabled);
+    automationAdapter.setExportScopeEnabled(developmentEnabled && automationExportEnabled);
     const host = globalThis as typeof globalThis & {
       __DRIFT_DEVELOPMENT_MCP__?: Readonly<Pick<
         DevelopmentMcpAdapter,
@@ -619,7 +657,7 @@ export function App() {
       }
       automationAdapter.setEnabled(false);
     };
-  }, [automationAdapter, automationEnabled, automationPreviewEnabled, automationWriteEnabled]);
+  }, [automationAdapter, automationEnabled, automationExportEnabled, automationPreviewEnabled, automationWriteEnabled]);
 
   useEffect(() => {
     if (selectedSlideId && assets.some((asset) => asset.id === selectedSlideId)) return;
@@ -650,6 +688,28 @@ export function App() {
     liveProject.sound.exportEnabled,
     stagePresentation.transparent,
   ]);
+  automationExportPreflightRef.current = (choice: AutomationExportChoice) => {
+    if (!automationExportEnabledRef.current) throw new Error("Automation export-jobs scope is not enabled.");
+    const intent: ExportIntent = Object.freeze({
+      ...guidedExportIntent,
+      preferredFormat: choice.format,
+      destinationClass: choice.format === "h264-mp4" ? "file" : "directory",
+      purpose: choice.format === "h264-mp4" ? "social" : "frame-sequence",
+    });
+    const draft = Object.freeze({
+      ...createGuidedExportDraft(intent),
+      pngDestination: choice.pngDestination,
+      audioConsequenceAcknowledged: choice.audioConsequenceAcknowledged,
+      destinationSelected: true,
+    });
+    const capabilities = deriveExportFormatCapabilities({
+      runtime: exportCapabilities,
+      pngDestination: choice.pngDestination,
+      exportSurfaceSupported: !webglError && contextState !== "lost",
+      intent,
+    });
+    return { request: { intent, pngDestination: choice.pngDestination, audioConsequenceAcknowledged: choice.audioConsequenceAcknowledged }, preflight: preflightGuidedExport(draft, capabilities) };
+  };
   const allAssets = useMemo(() => presenter ? [...assets, presenter] : assets, [assets, presenter]);
   const pinnedAsset = useMemo(
     () => allAssets.find((asset) => asset.id === stagePresentation.pinnedAssetId) ?? null,
@@ -1713,6 +1773,7 @@ export function App() {
 
   const exportVideo = useCallback(async (
     request?: GuidedExportRunRequest,
+    automationHooks?: AutomationExportReservationHooks,
   ): Promise<GuidedExportCompletion | null> => {
     const intent = request?.intent ?? guidedExportIntent;
     if (intent.preferredFormat !== "h264-mp4" || intent.background !== "opaque") {
@@ -1748,7 +1809,9 @@ export function App() {
     }
     let reservation: ReturnType<typeof reserveExport>;
     try {
+      automationHooks?.beforeReservation();
       reservation = reserveExport(intent);
+      automationHooks?.onReserved(reservation.snapshot.id);
     } catch (error) {
       announce(error instanceof Error ? error.message : "Could not start MP4 export.", "error");
       return null;
@@ -1849,6 +1912,7 @@ export function App() {
 
   const exportFrames = useCallback(async (
     request?: GuidedExportRunRequest,
+    automationHooks?: AutomationExportReservationHooks,
   ): Promise<GuidedExportCompletion | null> => {
     const intent = request?.intent ?? {
       ...guidedExportIntent,
@@ -1882,7 +1946,9 @@ export function App() {
     let reservation: ReturnType<typeof reserveExport> | null = null;
     let session: Awaited<ReturnType<typeof beginExport>> | null = null;
     try {
+      automationHooks?.beforeReservation();
       reservation = reserveExport(intent);
+      automationHooks?.onReserved(reservation.snapshot.id);
       session = await beginExport(reservation);
       const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { exportPngSequence } = await import("./lib/exportStudio");
@@ -1954,12 +2020,13 @@ export function App() {
     }
   }, [acceptEncoderProgress, announce, beginExport, endExport, exportJobController, guidedExportIntent, renderForExport, reserveExport]);
 
-  const runGuidedExport = useCallback((request: GuidedExportRunRequest) => {
-    if (request.intent.preferredFormat === "h264-mp4") return exportVideo(request);
-    if (request.intent.preferredFormat === "png-frames") return exportFrames(request);
+  const runGuidedExport = useCallback((request: GuidedExportRunRequest, automationHooks?: AutomationExportReservationHooks) => {
+    if (request.intent.preferredFormat === "h264-mp4") return exportVideo(request, automationHooks);
+    if (request.intent.preferredFormat === "png-frames") return exportFrames(request, automationHooks);
     announce("That format is visible for planning, but this build cannot render it.", "error");
     return Promise.resolve(null);
   }, [announce, exportFrames, exportVideo]);
+  automationExportRunRef.current = (request, hooks) => runGuidedExport(request, hooks);
 
   const savePortableProjectNow = useCallback(async (operation: "save" | "save-as" = "save") => {
     try {
@@ -2791,15 +2858,18 @@ export function App() {
             enabled={automationEnabled}
             writeEnabled={automationWriteEnabled}
             previewEnabled={automationPreviewEnabled}
+            exportEnabled={automationExportEnabled}
             connectionState={automationConnectionState}
             service={automationService}
             onEnabledChange={(enabled) => {
               setAutomationEnabled(enabled);
               if (!enabled) setAutomationWriteEnabled(false);
               if (!enabled) setAutomationPreviewEnabled(false);
+              if (!enabled) setAutomationExportEnabled(false);
             }}
             onWriteEnabledChange={setAutomationWriteEnabled}
             onPreviewEnabledChange={setAutomationPreviewEnabled}
+            onExportEnabledChange={setAutomationExportEnabled}
             onUndoReceipt={(receiptId) => {
               try {
                 automationService.mutation?.undo(receiptId);

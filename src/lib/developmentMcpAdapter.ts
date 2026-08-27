@@ -1,6 +1,7 @@
 import type { ProductAutomationService } from "../core/automation/productAutomationService";
 import { DRIFT_AUTOMATION_WRITE_SCOPE } from "../core/automation/productAutomationMutation";
 import { DRIFT_AUTOMATION_PREVIEW_SCOPE } from "../core/automation/productAutomationPreview";
+import { DRIFT_AUTOMATION_EXPORT_SCOPE } from "../core/automation/productAutomationExport";
 import {
   DRIFT_AUTOMATION_PRODUCT_ID,
   DRIFT_AUTOMATION_PROTOCOL_VERSION,
@@ -36,13 +37,14 @@ export interface DevelopmentMcpAdapterOptions {
   readonly issueSessionId?: () => string;
   readonly maximumRequestBytes?: number;
   readonly maximumRequestsPerSession?: number;
-  readonly enabledScopes?: readonly (typeof DRIFT_AUTOMATION_WRITE_SCOPE | typeof DRIFT_AUTOMATION_PREVIEW_SCOPE)[];
+  readonly enabledScopes?: readonly (typeof DRIFT_AUTOMATION_WRITE_SCOPE | typeof DRIFT_AUTOMATION_PREVIEW_SCOPE | typeof DRIFT_AUTOMATION_EXPORT_SCOPE)[];
 }
 
 type DevelopmentMcpScope =
   | "metadata-only-read"
   | typeof DRIFT_AUTOMATION_WRITE_SCOPE
-  | typeof DRIFT_AUTOMATION_PREVIEW_SCOPE;
+  | typeof DRIFT_AUTOMATION_PREVIEW_SCOPE
+  | typeof DRIFT_AUTOMATION_EXPORT_SCOPE;
 
 export interface DevelopmentMcpSession {
   readonly id: string;
@@ -84,6 +86,7 @@ export interface DevelopmentMcpAdapter {
   setEnabled(value: boolean): void;
   setWriteScopeEnabled(value: boolean): void;
   setPreviewScopeEnabled(value: boolean): void;
+  setExportScopeEnabled(value: boolean): void;
   replaceService(next: ProductAutomationService): void;
   subscribe(listener: (state: "disconnected" | "connected") => void): () => void;
 }
@@ -112,6 +115,18 @@ function plainRecord(value: unknown): Record<string, unknown> {
     throw new AutomationProtocolError("invalid_request", "Automation request params must be a plain object.");
   }
   return value as Record<string, unknown>;
+}
+
+function requireExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+  label: string,
+): void {
+  const actual = Object.keys(value).sort();
+  const allowed = [...expected].sort();
+  if (actual.length !== allowed.length || actual.some((key, index) => key !== allowed[index])) {
+    throw new AutomationProtocolError("invalid_request", `${label} contains unexpected or missing fields.`);
+  }
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -175,6 +190,7 @@ export function createDevelopmentMcpAdapter(
     if (!Array.isArray(requestedScopes)
       || requestedScopes.some((scope) => (
         scope !== DRIFT_AUTOMATION_WRITE_SCOPE && scope !== DRIFT_AUTOMATION_PREVIEW_SCOPE
+        && scope !== DRIFT_AUTOMATION_EXPORT_SCOPE
       ))) {
       throw new AutomationProtocolError("scope_required", "Automation client requested an unknown scope.");
     }
@@ -192,6 +208,9 @@ export function createDevelopmentMcpAdapter(
         : []),
       ...(requestedScopes.includes(DRIFT_AUTOMATION_PREVIEW_SCOPE)
         ? [DRIFT_AUTOMATION_PREVIEW_SCOPE] as const
+        : []),
+      ...(requestedScopes.includes(DRIFT_AUTOMATION_EXPORT_SCOPE)
+        ? [DRIFT_AUTOMATION_EXPORT_SCOPE] as const
         : []),
     ]);
     sessions.set(id, { count: 0, scopes });
@@ -313,6 +332,25 @@ export function createDevelopmentMcpAdapter(
           additionalProperties: false,
         },
       }] : [])];
+      if (session.scopes.includes(DRIFT_AUTOMATION_EXPORT_SCOPE) && service.exports) {
+        result = [...result as unknown[], {
+          name: "drift.preflight_export",
+          description: "Preflight one current Guided Export choice without starting it.",
+          inputSchema: { type: "object", properties: { format: { type: "string" }, pngDestination: { type: "string" }, audioConsequenceAcknowledged: { type: "boolean" } }, required: ["format", "pngDestination", "audioConsequenceAcknowledged"], additionalProperties: false },
+        }, {
+          name: "drift.start_export",
+          description: "Start one asynchronous Guided Export using Drift destination and D05 job truth.",
+          inputSchema: { type: "object", properties: { format: { type: "string" }, pngDestination: { type: "string" }, audioConsequenceAcknowledged: { type: "boolean" } }, required: ["format", "pngDestination", "audioConsequenceAcknowledged"], additionalProperties: false },
+        }, {
+          name: "drift.get_export",
+          description: "Reconnect to export status and verified receipt with an opaque token.",
+          inputSchema: { type: "object", properties: { requestId: { type: "string" }, reconnectToken: { type: "string" } }, required: ["requestId", "reconnectToken"], additionalProperties: false },
+        }, {
+          name: "drift.cancel_export",
+          description: "Cancel an awaiting or running Guided Export request.",
+          inputSchema: { type: "object", properties: { requestId: { type: "string" }, reconnectToken: { type: "string" } }, required: ["requestId", "reconnectToken"], additionalProperties: false },
+        }];
+      }
       break;
     case "tools/call": {
       const args = plainRecord(params.arguments);
@@ -325,7 +363,9 @@ export function createDevelopmentMcpAdapter(
       }
       if (!session.scopes.includes(DRIFT_AUTOMATION_WRITE_SCOPE) || !service.mutation) {
         if (!session.scopes.includes(DRIFT_AUTOMATION_PREVIEW_SCOPE) || !service.preview) {
-          throw new AutomationProtocolError("read_only", "Drift automation session has metadata-only access.");
+          if (!session.scopes.includes(DRIFT_AUTOMATION_EXPORT_SCOPE) || !service.exports) {
+            throw new AutomationProtocolError("read_only", "Drift automation session has metadata-only access.");
+          }
         }
       }
       if (params.name === "drift.plan_change" && service.mutation
@@ -396,6 +436,39 @@ export function createDevelopmentMcpAdapter(
         result = service.preview.cancel(args.previewId, sessionId);
         break;
       }
+      if ((params.name === "drift.preflight_export" || params.name === "drift.start_export")
+        && service.exports && session.scopes.includes(DRIFT_AUTOMATION_EXPORT_SCOPE)) {
+        requireExactKeys(
+          args,
+          ["format", "pngDestination", "audioConsequenceAcknowledged"],
+          String(params.name),
+        );
+        const choice = {
+          format: args.format,
+          pngDestination: args.pngDestination,
+          audioConsequenceAcknowledged: args.audioConsequenceAcknowledged,
+        } as Parameters<typeof service.exports.start>[0];
+        result = params.name === "drift.preflight_export"
+          ? service.exports.preflight(choice)
+          : service.exports.start(choice);
+        break;
+      }
+      if ((params.name === "drift.get_export" || params.name === "drift.cancel_export")
+        && service.exports && session.scopes.includes(DRIFT_AUTOMATION_EXPORT_SCOPE)) {
+        requireExactKeys(args, ["requestId", "reconnectToken"], String(params.name));
+        if (typeof args.requestId !== "string" || typeof args.reconnectToken !== "string") {
+          throw new AutomationProtocolError("invalid_request", `${String(params.name)} requires requestId and reconnectToken.`);
+        }
+        if (params.name === "drift.cancel_export") {
+          result = service.exports.cancel(args.requestId, args.reconnectToken);
+        } else {
+          result = {
+            status: service.exports.status(args.requestId, args.reconnectToken),
+            receipt: service.exports.receipt(args.requestId, args.reconnectToken),
+          };
+        }
+        break;
+      }
       throw new AutomationProtocolError("read_only", "Drift automation tool is not available.");
     }
     default:
@@ -452,6 +525,21 @@ export function createDevelopmentMcpAdapter(
       let removed = false;
       for (const [id, session] of sessions) {
         if (!session.scopes.includes(DRIFT_AUTOMATION_PREVIEW_SCOPE)) continue;
+        sessions.delete(id);
+        service.preview?.revokeRequester(id);
+        removed = true;
+      }
+      if (removed) notify();
+    },
+    setExportScopeEnabled: (value: boolean) => {
+      if (value) {
+        enabledScopes.add(DRIFT_AUTOMATION_EXPORT_SCOPE);
+        return;
+      }
+      enabledScopes.delete(DRIFT_AUTOMATION_EXPORT_SCOPE);
+      let removed = false;
+      for (const [id, session] of sessions) {
+        if (!session.scopes.includes(DRIFT_AUTOMATION_EXPORT_SCOPE)) continue;
         sessions.delete(id);
         service.preview?.revokeRequester(id);
         removed = true;

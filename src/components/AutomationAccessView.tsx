@@ -5,11 +5,13 @@ export interface AutomationAccessViewProps {
   readonly enabled: boolean;
   readonly writeEnabled?: boolean;
   readonly previewEnabled?: boolean;
+  readonly exportEnabled?: boolean;
   readonly connectionState: "disconnected" | "connected";
   readonly service: ProductAutomationService;
   readonly onEnabledChange: (enabled: boolean) => void;
   readonly onWriteEnabledChange?: (enabled: boolean) => void;
   readonly onPreviewEnabledChange?: (enabled: boolean) => void;
+  readonly onExportEnabledChange?: (enabled: boolean) => void;
   readonly onUndoReceipt?: (receiptId: string) => void;
   readonly onDisconnect?: () => void;
 }
@@ -19,11 +21,13 @@ export function AutomationAccessView({
   enabled,
   writeEnabled = false,
   previewEnabled = false,
+  exportEnabled = false,
   connectionState,
   service,
   onEnabledChange,
   onWriteEnabledChange,
   onPreviewEnabledChange,
+  onExportEnabledChange,
   onUndoReceipt,
   onDisconnect,
 }: AutomationAccessViewProps) {
@@ -68,6 +72,17 @@ export function AutomationAccessView({
             Allow bounded, expiring PNG previews
           </label>
         ) : null}
+        {service.exports ? (
+          <label>
+            <input
+              type="checkbox"
+              checked={exportEnabled}
+              disabled={!enabled}
+              onChange={(event) => onExportEnabledChange?.(event.currentTarget.checked)}
+            />
+            Allow Guided Export jobs with opaque reconnect tokens
+          </label>
+        ) : null}
         <p>Drift grants only this local app session. Your configured client or model provider has separate privacy terms.</p>
         <button
           type="button"
@@ -76,7 +91,7 @@ export function AutomationAccessView({
             onDisconnect?.();
             onEnabledChange(false);
           }}
-        >Disconnect and revoke</button>
+        >Disconnect local sessions</button>
         <p>Snapshot {service.snapshotIdentity}</p>
         {service.mutation && service.mutation.listApplyReceipts().length > 0 ? (
           <div className="automation-access__receipts" aria-label="Automation change receipts">

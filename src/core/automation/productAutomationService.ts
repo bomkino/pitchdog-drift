@@ -10,6 +10,7 @@ import {
   type ProductAutomationMutationService,
 } from "./productAutomationMutation";
 import type { ProductAutomationPreviewService } from "./productAutomationPreview";
+import type { ProductAutomationExportService } from "./productAutomationExport";
 
 export type DriftAutomationResourceUri = `drift://manifest/${DriftAutomationManifestId}`;
 
@@ -24,6 +25,7 @@ export interface ProductAutomationService {
   readonly snapshotIdentity: string;
   readonly mutation: ProductAutomationMutationService | null;
   readonly preview: ProductAutomationPreviewService | null;
+  readonly exports: ProductAutomationExportService | null;
   listResources(): readonly DriftAutomationResourceDescriptor[];
   readResource(uri: string): unknown;
   getManifest(id: string): unknown;
@@ -48,6 +50,7 @@ export function createProductAutomationService(
   manifests: DriftAutomationManifests,
   mutationOptions?: AutomationMutationServiceOptions | ProductAutomationMutationService,
   previewService?: ProductAutomationPreviewService,
+  exportService?: ProductAutomationExportService,
 ): ProductAutomationService {
   const snapshot = structuredClone(manifests);
   const resources = Object.freeze(DRIFT_AUTOMATION_MANIFEST_IDS.map((id) => Object.freeze({
@@ -70,6 +73,7 @@ export function createProductAutomationService(
         : createProductAutomationMutationService(snapshot, mutationOptions)
       : null,
     preview: previewService ?? null,
+    exports: exportService ?? null,
     listResources: () => resources,
     readResource: (uri: string) => {
       if (!uri.startsWith(RESOURCE_PREFIX)) throw new RangeError("Unknown Drift automation resource.");

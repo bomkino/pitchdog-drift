@@ -66,6 +66,7 @@ export interface CreateDriftSelfDescriptionInput {
   readonly jobs: readonly DriftAutomationJobSummary[];
   readonly mutationAccess?: boolean;
   readonly previewAccess?: boolean;
+  readonly exportAccess?: boolean;
 }
 
 const FACTORY_NOW = "2000-01-01T00:00:00.000Z";
@@ -198,13 +199,12 @@ export function createDriftSelfDescription(
       metadataScope: DRIFT_AUTOMATION_METADATA_SCOPE,
       transport: "local-development-in-process",
       mutationAccess: input.mutationAccess === true,
-      enabledScopes: input.mutationAccess === true
-        ? input.previewAccess === true
-          ? [DRIFT_AUTOMATION_METADATA_SCOPE, "project-write", "bounded-preview"]
-          : [DRIFT_AUTOMATION_METADATA_SCOPE, "project-write"]
-        : input.previewAccess === true
-          ? [DRIFT_AUTOMATION_METADATA_SCOPE, "bounded-preview"]
-          : [DRIFT_AUTOMATION_METADATA_SCOPE],
+      enabledScopes: [
+        DRIFT_AUTOMATION_METADATA_SCOPE,
+        ...(input.mutationAccess === true ? ["project-write"] : []),
+        ...(input.previewAccess === true ? ["bounded-preview"] : []),
+        ...(input.exportAccess === true ? ["export-jobs"] : []),
+      ],
       rawMediaAccess: false,
       build: {
         target: input.platform.target,
