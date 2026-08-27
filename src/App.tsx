@@ -43,6 +43,11 @@ import {
   type GuidedExportSnapshot,
 } from "./core/export/guidedExport";
 import {
+  createExportJobController,
+  type ExportJobController,
+  type ExportJobStatus,
+} from "./core/export/exportJobController";
+import {
   exportPlanFromProject,
   exportPlanFromV1Settings,
   stagePresentationFromProject,
@@ -280,6 +285,11 @@ export function App() {
   const presenterInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const exportJobControllerRef = useRef<ExportJobController | null>(null);
+  if (exportJobControllerRef.current === null) {
+    exportJobControllerRef.current = createExportJobController();
+  }
+  const exportJobController = exportJobControllerRef.current;
   const exportProgressClockRef = useRef<ExportProgressClock | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const projectRef = useRef<DriftProjectV4 | null>(null);
@@ -334,7 +344,7 @@ export function App() {
   const [customGuideInsets, setCustomGuideInsets] = useState<NormalizedInsets>({ top: 0.1, right: 0.08, bottom: 0.16, left: 0.08 });
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
-  const [activeExportSnapshotId, setActiveExportSnapshotId] = useState<string | null>(null);
+  const [exportJobStatus, setExportJobStatus] = useState<ExportJobStatus | null>(null);
   const [notice, setNotice] = useState<string | null>("Loading local studio…");
   const [noticeKind, setNoticeKind] = useState<"quiet" | "good" | "error">("quiet");
   const [saveState, setSaveState] = useState<"loading" | "saving" | "saved" | "failed" | "recovery">("loading");
@@ -383,11 +393,18 @@ export function App() {
     [desktopPlatform],
   );
 
+  useEffect(() => exportJobController.subscribe(() => {
+    setExportJobStatus(exportJobController.getActiveStatus());
+  }), [exportJobController]);
+
   const acceptEncoderProgress = useCallback((progress: EncoderProgress) => {
     const clock = exportProgressClockRef.current;
     if (!clock) return;
-    setExportProgress(projectExportProgress(progress, clock, performance.now()));
-  }, []);
+    const projected = projectExportProgress(progress, clock, performance.now());
+    setExportProgress(projected);
+    const active = exportJobController.getActiveStatus();
+    if (active) exportJobController.report(active.id, projected);
+  }, [exportJobController]);
 
   useEffect(() => {
     if (!exportProgress) return;
@@ -451,23 +468,23 @@ export function App() {
         packaged: nativeMac,
       },
       exportCapabilities,
-      jobs: exportProgress ? [{
-        id: activeExportSnapshotId ?? "export-preparing",
+      jobs: exportJobStatus ? [{
+        id: exportJobStatus.id,
         kind: "export",
-        state: exportProgress.phase === "complete" ? "completed" : "running",
-        progress: exportProgress.ratio,
+        state: "running",
+        progress: exportJobStatus.progress.ratio,
       }] : [],
     }),
   ), [
     activePanel,
     activeWorkspace,
-    activeExportSnapshotId,
     desktopPlatform.target,
     documentRevisionVersion,
     documentBound,
     documentConflict,
     exportCapabilities,
     exportProgress,
+    exportJobStatus,
     focusMode,
     interfaceScale.value,
     liveProject,
@@ -1422,7 +1439,7 @@ export function App() {
     }
   }, []);
 
-  const reserveExport = useCallback((intent: ExportIntent = guidedExportIntent): {
+  const reserveExport = useCallback((intent: ExportIntent = guidedExportIntent, trackGuidedJob = true): {
     controller: AbortController;
     authority: ExportAuthoritySnapshot;
     snapshot: GuidedExportSnapshot;
@@ -1449,11 +1466,7 @@ export function App() {
       intent,
       authority,
     });
-    setActiveExportSnapshotId(snapshot.id);
-    abortRef.current = controller;
-    const now = performance.now();
-    exportProgressClockRef.current = createExportProgressClock(now);
-    setExportProgress({
+    const initialProgress: ExportProgress = {
       phase: "preparing",
       ratio: 0,
       completed: 0,
@@ -1466,9 +1479,14 @@ export function App() {
       etaSeconds: null,
       ratePerSecond: null,
       stallKind: null,
-    });
+    };
+    if (trackGuidedJob) exportJobController.begin(snapshot, controller, initialProgress);
+    abortRef.current = controller;
+    const now = performance.now();
+    exportProgressClockRef.current = createExportProgressClock(now);
+    setExportProgress(initialProgress);
     return { controller, authority, snapshot };
-  }, [guidedExportIntent]);
+  }, [exportJobController, guidedExportIntent]);
 
   const beginExport = useCallback(async (reservation: {
     controller: AbortController;
@@ -1547,7 +1565,6 @@ export function App() {
       announce("Export finished, but the live preview could not be restored. Reload Drift before directing further.", "error");
     } finally {
       if (abortRef.current === reservation.controller) abortRef.current = null;
-      setActiveExportSnapshotId((current) => current === reservation.snapshot.id ? null : current);
     }
   }, [activePinnedAsset, announce, assets, displayedProject, settings]);
 
@@ -1620,8 +1637,7 @@ export function App() {
         target,
       });
       if (result.blob) await downloadBlob(result.blob, `drift-master-${timestampSlug()}.mp4`);
-      announce(`${result.width} × ${result.height} H.264 master verified: ${result.verification.frameCount} frames at ${result.fps} fps${result.audio ? ` · ${result.audio.source} AAC` : ""}.`, "good");
-      return {
+      const completion: GuidedExportCompletion = {
         snapshotId: reservation.snapshot.id,
         format: "h264-mp4",
         artifact: "H.264 MP4 master",
@@ -1634,7 +1650,14 @@ export function App() {
         publication: fileHandle ? "committed" : "download-requested",
         verified: true,
       };
+      exportJobController.complete(reservation.snapshot.id, completion);
+      announce(`${result.width} × ${result.height} H.264 master verified: ${result.verification.frameCount} frames at ${result.fps} fps${result.audio ? ` · ${result.audio.source} AAC` : ""}.`, "good");
+      return completion;
     } catch (error) {
+      const status = exportJobController.getStatus(reservation.snapshot.id);
+      if (status?.state === "running" || status?.state === "canceling") {
+        exportJobController.fail(reservation.snapshot.id, error);
+      }
       announce(
         isAbortError(error) ? "MP4 export canceled." : error instanceof Error ? error.message : "MP4 export failed.",
         isAbortError(error) ? "quiet" : "error",
@@ -1643,13 +1666,13 @@ export function App() {
     } finally {
       await endExport(reservation, session?.surface);
     }
-  }, [acceptEncoderProgress, announce, beginExport, endExport, guidedExportIntent, mp4Supported, nativeMac, renderForExport, reserveExport]);
+  }, [acceptEncoderProgress, announce, beginExport, endExport, exportJobController, guidedExportIntent, mp4Supported, nativeMac, renderForExport, reserveExport]);
 
   const exportStill = useCallback(async () => {
     let reservation: ReturnType<typeof reserveExport> | null = null;
     let session: Awaited<ReturnType<typeof beginExport>> | null = null;
     try {
-      reservation = reserveExport();
+      reservation = reserveExport(guidedExportIntent, false);
       session = await beginExport(reservation);
       const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { exportPngStill } = await import("./lib/exportStudio");
@@ -1679,7 +1702,7 @@ export function App() {
     } finally {
       if (reservation) await endExport(reservation, session?.surface);
     }
-  }, [acceptEncoderProgress, announce, beginExport, endExport, renderForExport, reserveExport]);
+  }, [acceptEncoderProgress, announce, beginExport, endExport, guidedExportIntent, renderForExport, reserveExport]);
 
   const exportFrames = useCallback(async (
     request?: GuidedExportRunRequest,
@@ -1737,8 +1760,7 @@ export function App() {
       };
       if (directory) {
         const result = await exportPngSequence({ ...common, destination: "directory", directory, framePrefix: "drift" });
-        announce(`${result.frameCount} numbered PNG frames written and verified.`, "good");
-        return {
+        const completion: GuidedExportCompletion = {
           snapshotId: reservation.snapshot.id,
           format: "png-frames",
           artifact: "Numbered PNG frame directory",
@@ -1751,12 +1773,14 @@ export function App() {
           publication: "directory-written",
           verified: true,
         };
+        exportJobController.complete(reservation.snapshot.id, completion);
+        announce(`${result.frameCount} numbered PNG frames written and verified.`, "good");
+        return completion;
       } else {
         const result = await exportPngSequence({ ...common, destination: "zip", framePrefix: "drift" });
         if (!result.blob) throw new Error("PNG ZIP completed without bytes.");
         await downloadBlob(result.blob, `drift-frames-${timestampSlug()}.zip`);
-        announce(`${result.frameCount} numbered PNG frames saved in a verified ZIP.`, "good");
-        return {
+        const completion: GuidedExportCompletion = {
           snapshotId: reservation.snapshot.id,
           format: "png-frames",
           artifact: "Verified PNG frame ZIP",
@@ -1769,14 +1793,23 @@ export function App() {
           publication: "download-requested",
           verified: true,
         };
+        exportJobController.complete(reservation.snapshot.id, completion);
+        announce(`${result.frameCount} numbered PNG frames saved in a verified ZIP.`, "good");
+        return completion;
       }
     } catch (error) {
+      if (reservation) {
+        const status = exportJobController.getStatus(reservation.snapshot.id);
+        if (status?.state === "running" || status?.state === "canceling") {
+          exportJobController.fail(reservation.snapshot.id, error);
+        }
+      }
       announce(isAbortError(error) ? "PNG sequence export canceled." : error instanceof Error ? error.message : "PNG sequence export failed.", isAbortError(error) ? "quiet" : "error");
       return null;
     } finally {
       if (reservation) await endExport(reservation, session?.surface);
     }
-  }, [acceptEncoderProgress, announce, beginExport, endExport, guidedExportIntent, renderForExport, reserveExport]);
+  }, [acceptEncoderProgress, announce, beginExport, endExport, exportJobController, guidedExportIntent, renderForExport, reserveExport]);
 
   const runGuidedExport = useCallback((request: GuidedExportRunRequest) => {
     if (request.intent.preferredFormat === "h264-mp4") return exportVideo(request);
@@ -2191,11 +2224,17 @@ export function App() {
 
   const exportInProgress = Boolean(exportProgress);
 
+  const cancelActiveExport = useCallback(() => {
+    const active = exportJobController.getActiveStatus();
+    if (active && exportJobController.cancel(active.id)) return true;
+    if (!abortRef.current) return false;
+    abortRef.current.abort(new DOMException("Export canceled.", "AbortError"));
+    return true;
+  }, [exportJobController]);
+
   nativeCommandRef.current = (command: NativeMacCommand) => {
     if (command === "cancel-export") {
-      if (!abortRef.current) return false;
-      abortRef.current.abort("Canceled from the macOS menu");
-      return true;
+      return cancelActiveExport();
     }
 
     const blocked = Boolean(abortRef.current) || exportInProgress || projectBusy || saveState === "loading";
@@ -2492,7 +2531,7 @@ export function App() {
           onSeekPreview={seekPreview}
           onToggleFocus={() => setFocusMode((value) => !value)}
           onDropImages={addImages}
-          onCancelExport={() => abortRef.current?.abort("Canceled by user")}
+          onCancelExport={cancelActiveExport}
           busy={interactionBusy}
         />
         <ControlPanel
