@@ -60,15 +60,16 @@ Receipt: [`receipts/D04-mcp-self-description.md`](receipts/D04-mcp-self-descript
 
 - Starting SHA: `4a051e0ca19ede8aaf56e5161f254566ef4fa89e`.
 - Task branch: `codex/d05-guided-export-foundation`.
-- Current source commit: `c91986f075c25be8e65cb08721dc7a8f11001397` (tree `63a597d453f8ebd9c34478bd769e4309dfd82d2e`).
-- State: edited, tested, and production-web built; D05 remains active and incomplete.
-- Public seams added: immutable platform-neutral `ExportIntent`, stable format capability/reason table, pure six-step guided-draft/preflight reducer, revision-bound `GuidedExportSnapshot`, plan/snapshot mismatch guard, and truthful phase-aware progress projection.
+- Current source commit: `980c559bf8852bd947dca966302a8bccc0e81c1b` (tree `fb4b850caaa146398fb112b509aa136c49fba427`).
+- State: source-ready, tested, and production/v2-development web built; D05 is not complete or accepted because its runtime and human evidence gates remain unavailable.
+- Public seams added: immutable platform-neutral `ExportIntent`, stable format capability/reason table, pure six-step guided-draft/preflight reducer, revision-bound `GuidedExportSnapshot`, plan/snapshot mismatch guard, truthful phase-aware progress projection, and one bounded `ExportJobController` for status/cancel/receipt reuse.
 - Application slice: three ad-hoc output buttons are replaced by a stable six-step Guided Export surface for current H.264 MP4 and PNG Frames sinks. ProRes 4444 and HEVC-with-alpha remain visibly unavailable behind the already-settled D06 gate.
 - Consequence gates: transparent H.264 fails before rendering; requested audio cannot enter PNG Frames without explicit no-embedded-audio acknowledgement; current H.264 audio/FPS/duration constraints are runtime-derived stable failures.
-- Job truth: destination authority is requested before job reservation; one immutable creative/timing snapshot binds document revision, project/settings/media fingerprints, exact `round(duration × fps)` frame count, and requested audio. Later project drift fails before rendering.
+- Job truth: destination authority is requested before job reservation; one immutable creative/timing snapshot binds document revision, project/settings/media fingerprints, exact `round(duration × fps)` frame count, and requested audio. Later project drift fails before rendering. The controller adopts the real export `AbortController`, allows one active job, freezes monotonic status, redacts terminal failure, retains at most 20 terminal jobs, and issues a receipt only when output identity and encoded timing match the locked snapshot after the existing verifier/commit path returns.
 - Progress: preparation, render, encode/audio, finalize, verify, commit, and complete are distinct; overall progress is monotonic while per-phase counts and warmed ETA remain visible.
 - Existing sink truth preserved: transactional MP4 verification/commit and PNG sequence names/alpha/readback/cleanup remain the only render/verification implementations. Buffer/ZIP delivery reports `download-requested`, not committed publication.
-- Open D05 work: a narrow public job status/cancel/receipt controller for future D08 reuse; actual interactive Back/Edit/unsupported/cancel/success capture; exact runtime opaque and PNG artifact receipts; named long-export smoke; and honest reconciliation of directory-sequence publication semantics.
+- Directory truth: directory output remains `directory-written`, not an atomic-file `committed` claim; success follows per-frame readback and complete cleanup-on-failure logic in the existing sink. Buffer/ZIP output remains `download-requested`.
+- Open D05 evidence: actual interactive Back/Edit/unsupported/cancel/success capture; exact runtime opaque and PNG artifact receipts; named long-export smoke; browser focus/layout/accessibility inspection; and packaged target journeys.
 - Unrun gates: real browser visual/focus/layout review, packaged Apple-Silicon/Garuda journeys, human visual/accessibility acceptance, release, and publication.
 
 Receipt: [`receipts/D05-guided-export-foundation.md`](receipts/D05-guided-export-foundation.md)
@@ -76,6 +77,6 @@ Receipt: [`receipts/D05-guided-export-foundation.md`](receipts/D05-guided-export
 ## Frontier
 
 - D00: Apple-Silicon-only package migration and x86_64 removal. Separate future ticket.
-- D05 is the active source frontier and must continue before another Drift ticket is selected. D02 remains independently dependency-ready.
+- D05 is source-ready but blocked on unavailable runtime/human evidence. D02 is the next independently dependency-ready source frontier and must begin on its own isolated `codex/` branch after its ticket brief is reconciled.
 - D03 remains active but blocked on real browser visual/layout evidence; D10 remains blocked by D03 and owns the complete pinned-frame contract.
 - D04 is source-ready but blocked on manual/host evidence; D08 remains blocked.
