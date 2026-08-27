@@ -316,6 +316,7 @@ export function App() {
   const presenterInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const exportDestinationPendingRef = useRef(false);
   const exportJobControllerRef = useRef<ExportJobController | null>(null);
   if (exportJobControllerRef.current === null) {
     exportJobControllerRef.current = createExportJobController();
@@ -817,7 +818,7 @@ export function App() {
     operation: () => Promise<void>,
     rejectWhenExportBlocks = false,
   ) => {
-    if (abortRef.current) {
+    if (abortRef.current || exportDestinationPendingRef.current) {
       const error = new DOMException(
         "Wait for the current export to finish or cancel it first.",
         "InvalidStateError",
@@ -1601,7 +1602,7 @@ export function App() {
   }, []);
 
   automationPreviewRenderRef.current = async (input) => {
-    if (abortRef.current || projectPendingRef.current > 0) {
+    if (abortRef.current || exportDestinationPendingRef.current || projectPendingRef.current > 0) {
       throw new Error("Renderer is busy with another bounded operation.");
     }
     const engine = engineRef.current;
@@ -1649,7 +1650,7 @@ export function App() {
     authority: ExportAuthoritySnapshot;
     snapshot: GuidedExportSnapshot;
   } => {
-    if (abortRef.current) {
+    if (abortRef.current || exportDestinationPendingRef.current) {
       throw new DOMException("An export is already preparing or running.", "InvalidStateError");
     }
     if (projectPendingRef.current > 0) {
@@ -1799,6 +1800,10 @@ export function App() {
     const savePicker = (window as PickerWindow).showSaveFilePicker;
     if (savePicker) {
       try {
+        if (exportDestinationPendingRef.current) {
+          throw new DOMException("An export destination is already being selected.", "InvalidStateError");
+        }
+        exportDestinationPendingRef.current = true;
         fileHandle = await savePicker({
           id: "pitchdog-drift-master",
           suggestedName: `drift-master-${timestampSlug()}.mp4`,
@@ -1807,6 +1812,8 @@ export function App() {
       } catch (error) {
         announce(isAbortError(error) ? "MP4 destination canceled." : error instanceof Error ? error.message : "Could not choose an MP4 destination.", isAbortError(error) ? "quiet" : "error");
         return null;
+      } finally {
+        exportDestinationPendingRef.current = false;
       }
     }
     let reservation: ReturnType<typeof reserveExport>;
@@ -1949,10 +1956,16 @@ export function App() {
         return null;
       }
       try {
+        if (exportDestinationPendingRef.current) {
+          throw new DOMException("An export destination is already being selected.", "InvalidStateError");
+        }
+        exportDestinationPendingRef.current = true;
         directory = await picker({ id: "pitchdog-drift-frames", mode: "readwrite" });
       } catch (error) {
         announce(isAbortError(error) ? "PNG sequence destination canceled." : error instanceof Error ? error.message : "Could not choose a PNG sequence destination.", isAbortError(error) ? "quiet" : "error");
         return null;
+      } finally {
+        exportDestinationPendingRef.current = false;
       }
     }
     let reservation: ReturnType<typeof reserveExport> | null = null;
@@ -2499,7 +2512,7 @@ export function App() {
       return cancelActiveExport();
     }
 
-    const blocked = Boolean(abortRef.current) || exportInProgress || projectBusy || saveState === "loading";
+    const blocked = Boolean(abortRef.current) || exportDestinationPendingRef.current || exportInProgress || projectBusy || saveState === "loading";
     if (blocked) return false;
 
     switch (command) {

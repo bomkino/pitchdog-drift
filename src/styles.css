@@ -3109,7 +3109,7 @@ a:focus-visible {
 
 .guided-background-choice legend { padding: 0 5px; color: var(--faint); font: 9px/1 ui-monospace, monospace; letter-spacing: 0.1em; text-transform: uppercase; }
 .guided-background-choice label,
-.guided-export-acknowledgement { display: flex; align-items: flex-start; gap: 7px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.guided-export-acknowledgement { display: flex; min-height: 44px; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .guided-background-choice input,
 .guided-export-acknowledgement input { margin: 1px 0 0; accent-color: var(--rust-light); }
 
@@ -3130,7 +3130,7 @@ a:focus-visible {
 
 .guided-export-actions { justify-content: flex-end; margin-top: 3px; }
 .guided-export-actions button {
-  min-height: 38px;
+  min-height: 44px;
   padding: 0 11px;
   border: 1px solid var(--line-strong);
   border-radius: 2px;

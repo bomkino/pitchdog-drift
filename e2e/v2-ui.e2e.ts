@@ -202,7 +202,7 @@ test("comparison pixels return after a still export instead of keeping live dire
 
   await page.getByRole("button", { name: "EXPORT", exact: true }).click();
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
+  await page.getByRole("button", { name: "Save one PNG still" }).click();
   const exportPath = await (await download).path();
   expect(exportPath).toBeTruthy();
   // A still export must render the live Dread direction even while the stage

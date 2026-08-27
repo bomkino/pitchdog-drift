@@ -166,7 +166,10 @@ export function GuidedExportWizard({
               </label>
             ))}
           </fieldset>
-          <div className="guided-export-actions"><button type="button" className="primary-action" onClick={goNext}>Choose format</button></div>
+          <div className="guided-export-actions">
+            <button type="button" onClick={onQuickStill} disabled={busy || !exportSurfaceSupported}>Save one PNG still</button>
+            <button type="button" className="primary-action" onClick={goNext}>Choose format</button>
+          </div>
         </div>
       ) : null}
 

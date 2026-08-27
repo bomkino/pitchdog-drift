@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { switchWorkspace } from "./studio.helpers";
+import { prepareGuidedExport, startGuidedExport, switchWorkspace } from "./studio.helpers";
 
 // A real 4 × 4 RGBA PNG. Keep the fixture decodable so this journey tests
 // Drift's native picker/import contract—not a corrupt-image rejection path.
@@ -474,10 +474,9 @@ test("Finder-style project delivery rejects when an export wins the admission ra
   await page.getByRole("group", { name: "Master duration" }).getByText("Exact length", { exact: true }).click();
   await page.getByLabel("Exact duration", { exact: true }).fill("3");
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
-  const exportButton = page.getByRole("button", { name: "Export PNG sequence" });
-  await expect(exportButton).toBeEnabled({ timeout: 30_000 });
-  await exportButton.click();
-  await expect(page.locator(".export-overlay")).toBeVisible();
+  await prepareGuidedExport(page, "PNG Frames", "Numbered directory");
+  await startGuidedExport(page);
+  await expect(page.getByRole("region", { name: "Guided Export" })).toHaveAttribute("data-step", "render-verify");
 
   const result = await page.evaluate(async () => {
     const state = (window as unknown as {
@@ -508,9 +507,8 @@ test("Finder-style project delivery rejects when an export wins the admission ra
     message: "Wait for the current export to finish or cancel it first.",
   });
   await expect(page.locator(".notice[data-kind=error]")).toContainText("Wait for the current export");
-  await page.getByRole("button", { name: "Cancel export" }).click();
   await page.evaluate(() => (window as unknown as {
     __driftHeldDirectoryPicker: { reject: null | ((error: DOMException) => void) };
   }).__driftHeldDirectoryPicker.reject?.(new DOMException("Export canceled.", "AbortError")));
-  await expect(page.locator(".export-overlay")).toBeHidden();
+  await expect(page.getByRole("region", { name: "Guided Export" })).toHaveAttribute("data-step", "destination-preflight");
 });

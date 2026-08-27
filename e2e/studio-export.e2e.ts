@@ -9,6 +9,8 @@ import {
   PORTABLE_SAVED_NOTICE,
   presenterAvFixturePath,
   presenterFixturePath,
+  prepareGuidedExport,
+  startGuidedExport,
   switchWorkspace,
   waitForStudio,
 } from "./studio.helpers";
@@ -33,7 +35,10 @@ test("WebGL2 denial yields an explicit, usable DOM fallback", async ({ page }) =
   await switchWorkspace(page, "EXPORT");
   await expect(page.getByRole("button", { name: "Save portable project" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add slides" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Export MP4 master" })).toBeDisabled();
+  const wizard = page.getByRole("region", { name: "Guided Export" });
+  await wizard.getByRole("button", { name: "Choose format" }).click();
+  await expect(wizard.getByRole("radio", { name: /H\.264 MP4/ })).toBeDisabled();
+  await expect(wizard).toContainText("The cinematic render surface is unavailable");
   expect(await page.evaluate(() => (window as Window & { __driftSavePickerCalls?: number }).__driftSavePickerCalls)).toBe(0);
 });
 
@@ -49,7 +54,7 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
 
   const stillDownload = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
+  await page.getByRole("button", { name: "Save one PNG still" }).click();
   expect(await (await stillDownload).path()).toBeTruthy();
   const pause = page.getByRole("button", { name: "Pause preview" });
   await expect(pause).toBeEnabled();
@@ -77,9 +82,10 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
       }, type, quality);
     };
   });
+  await prepareGuidedExport(page, "PNG Frames", "Bounded ZIP");
   await Promise.all([
     page.locator(".export-overlay").waitFor({ state: "visible" }),
-    page.getByRole("button", { name: "Export PNG sequence" }).click(),
+    startGuidedExport(page),
   ]);
   const progressOverlay = page.locator(".export-overlay");
   await expect(progressOverlay).toContainText(/Elapsed \d+:\d{2}/);
@@ -95,6 +101,12 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
   await expect(page.locator(".header-status")).toContainText("saved locally", { timeout: 10_000 });
 
+  const guidedExport = page.getByRole("region", { name: "Guided Export" });
+  for (const step of ["film-audio", "format", "purpose-background"] as const) {
+    await guidedExport.getByRole("button", { name: "Back" }).click();
+    await expect(guidedExport).toHaveAttribute("data-step", step);
+  }
+
   await page.locator("[data-testid=webgl-stage]").evaluate((canvas) => {
     const gl = (canvas as HTMLCanvasElement).getContext("webgl2")!;
     const original = gl.getParameter.bind(gl);
@@ -108,7 +120,7 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
     });
   });
 
-  await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
+  await page.getByRole("button", { name: "Save one PNG still" }).click();
   await expect(page.getByRole("alert")).toContainText("exceeds this GPU's safe WebGL limit of 128 × 128");
   const projectDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save portable project" }).click();
@@ -186,7 +198,8 @@ test("@physical-encoder full presenter journey closes and verifies the fixed-ste
     .toContainText("Presenter on · source checked at export");
 
   const downloadPromise = page.waitForEvent("download", { timeout: 90_000 });
-  await page.getByRole("button", { name: "Export MP4 master" }).click();
+  await prepareGuidedExport(page, "H.264 MP4");
+  await startGuidedExport(page);
   const download = await downloadPromise;
   const path = await download.path();
   expect(path).toBeTruthy();
@@ -227,7 +240,8 @@ test("@physical-encoder installed Chrome verifies and downloads a delivery-size 
         message: await page.getByRole("alert").textContent(),
       })),
   ]);
-  await page.getByRole("button", { name: "Export MP4 master" }).click();
+  await prepareGuidedExport(page, "H.264 MP4");
+  await startGuidedExport(page);
   const result = await completion;
   expect(result.kind, result.kind === "rejected" ? result.message ?? undefined : undefined).toBe("download");
   if (result.kind !== "download") return;

@@ -200,7 +200,11 @@ test("desktop action targets stay at least 44px and disclosures cannot move the 
       if (element.closest("[inert], [aria-hidden='true']")) return [];
       const style = getComputedStyle(element);
       if (style.display === "none" || style.visibility === "hidden") return [];
-      const rect = element.getBoundingClientRect();
+      const labelledControl = element instanceof HTMLInputElement
+        && (element.type === "radio" || element.type === "checkbox")
+        ? element.closest("label")
+        : null;
+      const rect = (labelledControl ?? element).getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return [];
       if (rect.width >= 43.5 && rect.height >= 43.5) return [];
       return [{
