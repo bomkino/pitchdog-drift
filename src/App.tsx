@@ -450,6 +450,7 @@ export function App() {
   const [changeReceipt, setChangeReceipt] = useState("No V2 direction changed yet.");
   const nativeMac = isNativeMacRuntime();
   const desktopPlatform = useMemo(() => createDesktopPlatform(), []);
+  const packagedDesktop = nativeMac || desktopPlatform.target === "linux-electron";
   const [interfaceScale, setInterfaceScale] = useState(
     () => desktopPlatform.presentation.interfaceScale.getSnapshot(),
   );
@@ -559,7 +560,7 @@ export function App() {
       platform: {
         target: desktopPlatform.target,
         buildChannel: driftBuildIdentity.channel,
-        packaged: nativeMac,
+        packaged: packagedDesktop,
       },
       exportCapabilities,
       mutationAccess: automationWriteEnabled,
@@ -585,6 +586,7 @@ export function App() {
     interfaceScale.value,
     liveProject,
     nativeMac,
+    packagedDesktop,
     automationPlayheadSeconds,
     automationWriteEnabled,
     automationPreviewEnabled,

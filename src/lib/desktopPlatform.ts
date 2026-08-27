@@ -9,6 +9,10 @@ import {
   type InterfaceScalePreferenceStore,
 } from "./interfaceScale";
 import {
+  createLinuxElectronDesktopPlatform,
+  isLinuxElectronRuntime,
+} from "./linuxElectron";
+import {
   abandonNativeMacDocumentOpen,
   completeNativeMacDocumentSave,
   confirmNativeMacDocumentOpen,
@@ -21,9 +25,10 @@ import {
   type NativeMacDocumentReceipt,
 } from "./nativeMac";
 
-export type DesktopPlatformTarget = "browser-development" | "macos";
+export type DesktopPlatformTarget = "browser-development" | "macos" | "linux-electron";
 export type DesktopDocumentOperation = "choose" | "open" | "save" | "save-as" | "revert";
 export type DesktopDocumentFailureCode =
+  | "grant_expired"
   | "permission_denied"
   | "invalid_request"
   | "unsupported_capability"
@@ -416,7 +421,10 @@ export function createDesktopPlatform(
   browserHost: BrowserDesktopDocumentHost = DEFAULT_BROWSER_DOCUMENT_HOST,
 ): DesktopPlatform {
   const interfaceScale = createInterfaceScalePreferenceStore();
-  return isNativeMacRuntime()
-    ? createNativeMacDesktopPlatform(interfaceScale)
-    : createBrowserDesktopPlatform(browserHost, interfaceScale);
+  if (isNativeMacRuntime()) return createNativeMacDesktopPlatform(interfaceScale);
+  const linuxBridge = typeof window === "undefined" ? undefined : window.__DRIFT_LINUX_DESKTOP__;
+  if (isLinuxElectronRuntime(linuxBridge)) {
+    return createLinuxElectronDesktopPlatform(linuxBridge, interfaceScale);
+  }
+  return createBrowserDesktopPlatform(browserHost, interfaceScale);
 }

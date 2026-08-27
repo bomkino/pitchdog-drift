@@ -31,6 +31,9 @@
     "dev:v1": "vite --host 127.0.0.1 --port 4173",
     "build": "tsc -b && vite build",
     "build:v2-dev": "tsc -b && vite build --mode v2-dev",
+    "build:linux:tracer": "node scripts/build-linux-tracer.mjs",
+    "verify:linux:tracer": "node scripts/verify-linux-tracer.mjs",
+    "check:linux-source": "node scripts/check-linux-tracer-source.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "preview:v2-dev": "npm run build:v2-dev && vite preview --host 127.0.0.1 --port 4174",
     "typecheck": "tsc -b --pretty false",
@@ -54,7 +57,7 @@
     "verify:mac:dmg": "bash scripts/verify-macos-dmg.sh",
     "verify:mac-release": "bash scripts/verify-macos-release.sh",
     "release:mac": "bash scripts/release-macos-app.sh",
-    "check": "npm run typecheck && npm run test && npm run check:mac-source && npm run build"
+    "check": "npm run typecheck && npm run test && npm run check:mac-source && npm run check:linux-source && npm run build"
   },
   "dependencies": {
     "@mediabunny/aac-encoder": "1.55.1",

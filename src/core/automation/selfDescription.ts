@@ -41,7 +41,7 @@ export interface DriftPresentationManifestInput {
 }
 
 export interface DriftAutomationPlatformInput {
-  readonly target: "browser-development" | "macos";
+  readonly target: "browser-development" | "macos" | "linux-electron";
   readonly buildChannel: "release" | "v2-dev";
   readonly packaged: boolean;
 }
