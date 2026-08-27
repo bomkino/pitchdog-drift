@@ -13,6 +13,10 @@ import {
   importProjectBundle,
 } from "../src/lib/projectStore";
 import type { StudioAsset } from "../src/model";
+import {
+  presenterSourceTimeAt,
+  resolvePresenterExportTiming,
+} from "../src/lib/exportStudio";
 
 const NOW = "2026-08-27T02:00:00.000Z";
 
@@ -90,6 +94,15 @@ describe("D10 pinned-frame presentation truth", () => {
     });
     expect(resolvePinnedFrameCompositePlan({ visible: true, layer: "above-slides" }, true, "protected"))
       .toMatchObject({ layer: "above-slides", requiresProtectedUnderlayPass: false });
+  });
+
+  it("maps only visible story frames onto the trimmed presenter source for every export sink", () => {
+    const timing = resolvePresenterExportTiming({ trimStart: 2.25, startAt: 1.5, endAt: 3.25 }, 8);
+    expect(timing).toEqual({ trimStart: 2.25, storyStart: 1.5, storyEnd: 3.25, storyDuration: 1.75 });
+    expect(presenterSourceTimeAt(timing, 0.1, 1.49)).toBeNull();
+    expect(presenterSourceTimeAt(timing, 0.1, 1.5)).toBeCloseTo(2.35, 12);
+    expect(presenterSourceTimeAt(timing, 0.1, 2)).toBeCloseTo(2.85, 12);
+    expect(presenterSourceTimeAt(timing, 0.1, 3.25)).toBeNull();
   });
 
   it("is optional and defaults to the full master without inventing media", () => {
