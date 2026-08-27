@@ -3322,6 +3322,28 @@ a:focus-visible {
   font-family: var(--mono);
 }
 
+.automation-access__receipts {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--ui-radius) * 0.75);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.automation-access__receipts > div {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  color: var(--muted);
+  font: 10px/1.4 var(--mono);
+}
+
+.automation-access__receipts button { min-height: 32px; }
+
 .automation-access__resources {
   display: grid;
   gap: 6px;

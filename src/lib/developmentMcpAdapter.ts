@@ -1,4 +1,5 @@
 import type { ProductAutomationService } from "../core/automation/productAutomationService";
+import { DRIFT_AUTOMATION_WRITE_SCOPE } from "../core/automation/productAutomationMutation";
 import {
   DRIFT_AUTOMATION_PRODUCT_ID,
   DRIFT_AUTOMATION_PROTOCOL_VERSION,
@@ -16,6 +17,7 @@ export type AutomationProtocolErrorCode =
   | "request_size"
   | "request_limit"
   | "invalid_request"
+  | "scope_required"
   | "read_only";
 
 export class AutomationProtocolError extends Error {
@@ -33,6 +35,7 @@ export interface DevelopmentMcpAdapterOptions {
   readonly issueSessionId?: () => string;
   readonly maximumRequestBytes?: number;
   readonly maximumRequestsPerSession?: number;
+  readonly enabledScopes?: readonly [typeof DRIFT_AUTOMATION_WRITE_SCOPE] | readonly [];
 }
 
 export interface DevelopmentMcpSession {
@@ -40,6 +43,7 @@ export interface DevelopmentMcpSession {
   readonly productId: typeof DRIFT_AUTOMATION_PRODUCT_ID;
   readonly protocolVersion: typeof DRIFT_AUTOMATION_PROTOCOL_VERSION;
   readonly scope: "metadata-only-read";
+  readonly scopes: readonly ("metadata-only-read" | typeof DRIFT_AUTOMATION_WRITE_SCOPE)[];
 }
 
 export interface DevelopmentMcpRequest {
@@ -55,6 +59,7 @@ export interface DevelopmentMcpResponse {
 
 interface SessionState {
   count: number;
+  readonly scopes: readonly ("metadata-only-read" | typeof DRIFT_AUTOMATION_WRITE_SCOPE)[];
 }
 
 export interface DevelopmentMcpAdapter {
@@ -64,12 +69,14 @@ export interface DevelopmentMcpAdapter {
     readonly productId: string;
     readonly protocolVersion: number;
     readonly clientId: string;
+    readonly requestedScopes?: readonly string[];
   }): DevelopmentMcpSession;
   request(sessionId: string, message: DevelopmentMcpRequest): DevelopmentMcpResponse;
   disconnect(sessionId: string): boolean;
   revokeAll(): void;
   activeSessionCount(): number;
   setEnabled(value: boolean): void;
+  setWriteScopeEnabled(value: boolean): void;
   replaceService(next: ProductAutomationService): void;
   subscribe(listener: (state: "disconnected" | "connected") => void): () => void;
 }
@@ -116,6 +123,7 @@ export function createDevelopmentMcpAdapter(
     options.maximumRequestsPerSession,
     DEFAULT_MAXIMUM_REQUESTS_PER_SESSION,
   );
+  const enabledScopes = new Set(options.enabledScopes ?? []);
   const sessions = new Map<string, SessionState>();
   const listeners = new Set<(state: "disconnected" | "connected") => void>();
 
@@ -129,6 +137,7 @@ export function createDevelopmentMcpAdapter(
     readonly productId: string;
     readonly protocolVersion: number;
     readonly clientId: string;
+    readonly requestedScopes?: readonly string[];
   }): DevelopmentMcpSession {
     if (!enabled) throw new AutomationProtocolError("disabled", "Drift development automation is disabled.");
     if (input.productId !== DRIFT_AUTOMATION_PRODUCT_ID) {
@@ -140,17 +149,32 @@ export function createDevelopmentMcpAdapter(
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(input.clientId)) {
       throw new AutomationProtocolError("invalid_client", "Automation client id is invalid.");
     }
+    const requestedScopes = input.requestedScopes ?? [];
+    if (!Array.isArray(requestedScopes)
+      || requestedScopes.some((scope) => scope !== DRIFT_AUTOMATION_WRITE_SCOPE)) {
+      throw new AutomationProtocolError("scope_required", "Automation client requested an unknown scope.");
+    }
+    if (requestedScopes.some((scope) => !enabledScopes.has(scope))) {
+      throw new AutomationProtocolError("scope_required", "Automation project-write scope is not enabled.");
+    }
     const id = issueSessionId();
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(id) || sessions.has(id)) {
       throw new AutomationProtocolError("invalid_session", "Automation session id is invalid or already active.");
     }
-    sessions.set(id, { count: 0 });
+    const scopes = Object.freeze([
+      "metadata-only-read" as const,
+      ...(requestedScopes.includes(DRIFT_AUTOMATION_WRITE_SCOPE)
+        ? [DRIFT_AUTOMATION_WRITE_SCOPE] as const
+        : []),
+    ]);
+    sessions.set(id, { count: 0, scopes });
     notify();
     return Object.freeze({
       id,
       productId: DRIFT_AUTOMATION_PRODUCT_ID,
       protocolVersion: DRIFT_AUTOMATION_PROTOCOL_VERSION,
       scope: "metadata-only-read" as const,
+      scopes,
     });
   }
 
@@ -197,18 +221,81 @@ export function createDevelopmentMcpAdapter(
           required: ["id"],
           additionalProperties: false,
         },
-      }];
+      }, ...(session.scopes.includes(DRIFT_AUTOMATION_WRITE_SCOPE) && service.mutation ? [{
+        name: "drift.plan_change",
+        description: "Plan one typed Drift Project change without mutating it.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            intent: { type: "object" },
+            idempotencyKey: { type: "string" },
+            expiresInMs: { type: "integer" },
+          },
+          required: ["intent", "idempotencyKey"],
+          additionalProperties: false,
+        },
+      }, {
+        name: "drift.apply_change",
+        description: "Apply one current, reviewed Drift change plan exactly once.",
+        inputSchema: {
+          type: "object",
+          properties: { planId: { type: "string" } },
+          required: ["planId"],
+          additionalProperties: false,
+        },
+      }, {
+        name: "drift.undo_change",
+        description: "Undo one still-eligible Drift automation receipt.",
+        inputSchema: {
+          type: "object",
+          properties: { receiptId: { type: "string" } },
+          required: ["receiptId"],
+          additionalProperties: false,
+        },
+      }] : [])];
       break;
     case "tools/call": {
-      if (params.name !== "drift.get_manifest") {
-        throw new AutomationProtocolError("read_only", "Drift automation exposes read-only manifest tools only.");
-      }
       const args = plainRecord(params.arguments);
-      if (typeof args.id !== "string") {
-        throw new AutomationProtocolError("invalid_request", "drift.get_manifest requires a manifest id.");
+      if (params.name === "drift.get_manifest") {
+        if (typeof args.id !== "string") {
+          throw new AutomationProtocolError("invalid_request", "drift.get_manifest requires a manifest id.");
+        }
+        result = service.getManifest(args.id);
+        break;
       }
-      result = service.getManifest(args.id);
-      break;
+      if (!session.scopes.includes(DRIFT_AUTOMATION_WRITE_SCOPE) || !service.mutation) {
+        throw new AutomationProtocolError("read_only", "Drift automation session has metadata-only access.");
+      }
+      if (params.name === "drift.plan_change") {
+        if (typeof args.idempotencyKey !== "string" || !args.intent || typeof args.intent !== "object") {
+          throw new AutomationProtocolError("invalid_request", "drift.plan_change requires intent and idempotencyKey.");
+        }
+        if (args.expiresInMs !== undefined && typeof args.expiresInMs !== "number") {
+          throw new AutomationProtocolError("invalid_request", "drift.plan_change expiresInMs must be a number.");
+        }
+        result = service.mutation.plan({
+          intent: args.intent as Parameters<typeof service.mutation.plan>[0]["intent"],
+          idempotencyKey: args.idempotencyKey,
+          ...(args.expiresInMs === undefined ? {} : { expiresInMs: args.expiresInMs }),
+          requesterIdentity: sessionId,
+        });
+        break;
+      }
+      if (params.name === "drift.apply_change") {
+        if (typeof args.planId !== "string") {
+          throw new AutomationProtocolError("invalid_request", "drift.apply_change requires planId.");
+        }
+        result = service.mutation.apply(args.planId, sessionId);
+        break;
+      }
+      if (params.name === "drift.undo_change") {
+        if (typeof args.receiptId !== "string") {
+          throw new AutomationProtocolError("invalid_request", "drift.undo_change requires receiptId.");
+        }
+        result = service.mutation.undo(args.receiptId, sessionId);
+        break;
+      }
+      throw new AutomationProtocolError("read_only", "Drift automation tool is not available.");
     }
     default:
       throw new AutomationProtocolError("read_only", "Drift development automation is read-only.");
@@ -235,6 +322,20 @@ export function createDevelopmentMcpAdapter(
     setEnabled: (value: boolean) => {
       enabled = value;
       if (!enabled) adapter.revokeAll();
+    },
+    setWriteScopeEnabled: (value: boolean) => {
+      if (value) {
+        enabledScopes.add(DRIFT_AUTOMATION_WRITE_SCOPE);
+        return;
+      }
+      enabledScopes.delete(DRIFT_AUTOMATION_WRITE_SCOPE);
+      let removed = false;
+      for (const [id, session] of sessions) {
+        if (!session.scopes.includes(DRIFT_AUTOMATION_WRITE_SCOPE)) continue;
+        sessions.delete(id);
+        removed = true;
+      }
+      if (removed) notify();
     },
     replaceService: (next: ProductAutomationService) => {
       service = next;

@@ -56,6 +56,7 @@ import {
   getOutcomeRecipe,
   resetMotion,
   resetSequence,
+  type OutcomeRecipeId,
 } from "../core/recipes/outcomeRecipes";
 import { PATH_RECIPES, applyPathRecipe } from "../core/spatial/spatial";
 import {
@@ -252,6 +253,7 @@ interface ControlPanelProps {
   v2Active: boolean;
   onSettings: (settings: StudioSettings) => void;
   onV2Project: (project: DriftProjectV4, message: string) => void;
+  onOutcomeRecipe: (id: OutcomeRecipeId, message: string) => void;
   onUndoV2: () => void;
   onRedoV2: () => void;
   canUndoV2: boolean;
@@ -293,6 +295,7 @@ export function ControlPanel({
   v2Active,
   onSettings,
   onV2Project,
+  onOutcomeRecipe,
   onUndoV2,
   onRedoV2,
   canUndoV2,
@@ -841,8 +844,8 @@ export function ControlPanel({
             safeDefaultReady={sourceFaithfulLook && detectOutcomeRecipe(project) === "smooth-carousel"}
             onApply={(id) => {
               const recipe = getOutcomeRecipe(id);
-              onV2Project(
-                applyOutcomeRecipe(project, id),
+              onOutcomeRecipe(
+                id,
                 `${recipe.label.replace(/\s+—\s+Safe Default$/u, "")} applied. Slides and Look untouched.`,
               );
             }}

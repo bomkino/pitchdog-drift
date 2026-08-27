@@ -15,8 +15,19 @@ import { InterfaceScaleMenu } from "./components/InterfaceScaleMenu";
 import { AutomationAccessView } from "./components/AutomationAccessView";
 import { createDriftSelfDescription } from "./core/automation/selfDescription";
 import { createProductAutomationService } from "./core/automation/productAutomationService";
+import {
+  DRIFT_AUTOMATION_WRITE_SCOPE,
+  createProductAutomationMutationService,
+  type AutomationMutationAuthority,
+  type AutomationMutationCommit,
+  type ProductAutomationMutationService,
+} from "./core/automation/productAutomationMutation";
 import { createInitialDriftProjectV4 } from "./core/project/initialProject";
-import { reconcileOutcomeRecipeTiming } from "./core/recipes/outcomeRecipes";
+import {
+  applyOutcomeRecipeCommand,
+  reconcileOutcomeRecipeTiming,
+  type OutcomeRecipeId,
+} from "./core/recipes/outcomeRecipes";
 import { evaluateDeckSlideHealth } from "./core/media/slideHealth";
 import { resolveMovingMedia } from "./core/project/movingMedia";
 import type { StudioCommandDefinition } from "./core/commands/studioCommandRegistry";
@@ -62,7 +73,10 @@ import {
   type AssetDescriptor,
   type DriftProjectV4,
 } from "./core/project/schema";
-import { projectV4ChangePaths } from "./core/commands/projectCommand";
+import {
+  applyProjectV4Command,
+  projectV4ChangePaths,
+} from "./core/commands/projectCommand";
 import { installPreviewAuthority } from "./core/render/previewAuthority";
 import {
   createProjectRevisionState,
@@ -324,6 +338,26 @@ export function App() {
     kind: NativeMacImportKind,
     files: readonly File[],
   ) => void | Promise<void>>(() => undefined);
+  const automationWriteEnabledRef = useRef(false);
+  const automationCommitRef = useRef<(change: AutomationMutationCommit) => void>(() => {
+    throw new Error("Automation mutation authority is not ready.");
+  });
+  const automationMutationAuthorityRef = useRef<AutomationMutationAuthority | null>(null);
+  if (automationMutationAuthorityRef.current === null) {
+    automationMutationAuthorityRef.current = {
+      read: () => {
+        const project = projectRef.current;
+        if (!project) throw new Error("Project V4 creative authority is unavailable.");
+        return {
+          project: structuredClone(project),
+          revisions: structuredClone(documentRevisionRef.current),
+          documentId: project.projectId,
+          scopes: automationWriteEnabledRef.current ? [DRIFT_AUTOMATION_WRITE_SCOPE] : [],
+        };
+      },
+      commit: (change) => automationCommitRef.current(change),
+    };
+  }
 
   const [settings, setSettings] = useState<StudioSettings>(() => cloneSettings(initialSettings));
   const [liveProject, setLiveProject] = useState<DriftProjectV4>(() => structuredClone(projectRef.current!));
@@ -365,6 +399,7 @@ export function App() {
     () => desktopPlatform.presentation.interfaceScale.getSnapshot(),
   );
   const [automationEnabled, setAutomationEnabled] = useState(false);
+  const [automationWriteEnabled, setAutomationWriteEnabled] = useState(false);
   const [automationConnectionState, setAutomationConnectionState] = useState<"disconnected" | "connected">("disconnected");
   const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
     __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
@@ -376,6 +411,7 @@ export function App() {
   settingsRef.current = settings;
   assetsRef.current = assets;
   presenterRef.current = presenter;
+  automationWriteEnabledRef.current = automationWriteEnabled;
 
   const changeInterfaceScale = useCallback((command: InterfaceScaleCommand) => {
     try {
@@ -447,8 +483,7 @@ export function App() {
     [displayedProject, settings, v2Active],
   );
   const automationPlayheadSeconds = Math.round(previewTime * 4) / 4;
-  const automationService = useMemo(() => createProductAutomationService(
-    createDriftSelfDescription({
+  const automationManifests = useMemo(() => createDriftSelfDescription({
       project: liveProject,
       documentRevision: documentRevisionRef.current.currentRevision,
       savedDocumentRevision: documentRevisionRef.current.savedRevision,
@@ -468,14 +503,14 @@ export function App() {
         packaged: nativeMac,
       },
       exportCapabilities,
+      mutationAccess: automationWriteEnabled,
       jobs: exportJobStatus ? [{
         id: exportJobStatus.id,
         kind: "export",
         state: "running",
         progress: exportJobStatus.progress.ratio,
       }] : [],
-    }),
-  ), [
+    }), [
     activePanel,
     activeWorkspace,
     desktopPlatform.target,
@@ -490,8 +525,23 @@ export function App() {
     liveProject,
     nativeMac,
     automationPlayheadSeconds,
+    automationWriteEnabled,
     selectedSlideId,
   ]);
+  const automationMutationServiceRef = useRef<ProductAutomationMutationService | null>(null);
+  if (automationMutationServiceRef.current === null) {
+    automationMutationServiceRef.current = createProductAutomationMutationService(
+      automationManifests,
+      { authority: automationMutationAuthorityRef.current },
+    );
+  } else {
+    automationMutationServiceRef.current.replaceManifests(automationManifests);
+  }
+  const automationMutationService = automationMutationServiceRef.current;
+  const automationService = useMemo(() => createProductAutomationService(
+    automationManifests,
+    automationMutationService,
+  ), [automationManifests, automationMutationService]);
   const automationAdapterRef = useRef<DevelopmentMcpAdapter | null>(null);
   if (automationAdapterRef.current === null) {
     automationAdapterRef.current = createDevelopmentMcpAdapter(automationService);
@@ -507,6 +557,7 @@ export function App() {
   useEffect(() => {
     const developmentEnabled = driftBuildIdentity.isDevelopment && automationEnabled;
     automationAdapter.setEnabled(developmentEnabled);
+    automationAdapter.setWriteScopeEnabled(developmentEnabled && automationWriteEnabled);
     const host = globalThis as typeof globalThis & {
       __DRIFT_DEVELOPMENT_MCP__?: Readonly<Pick<
         DevelopmentMcpAdapter,
@@ -525,7 +576,7 @@ export function App() {
       }
       automationAdapter.setEnabled(false);
     };
-  }, [automationAdapter, automationEnabled]);
+  }, [automationAdapter, automationEnabled, automationWriteEnabled]);
 
   useEffect(() => {
     if (selectedSlideId && assets.some((asset) => asset.id === selectedSlideId)) return;
@@ -896,12 +947,17 @@ export function App() {
     setDocumentRevisionVersion((version) => version + 1);
   }, []);
 
-  const markProjectDirty = useCallback(() => {
+  const scheduleProjectPersistence = useCallback(() => {
     if (!hydratedRef.current) return;
     advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
-    recordDocumentMutation();
     setSaveState("saving");
-  }, [recordDocumentMutation]);
+  }, []);
+
+  const markProjectDirty = useCallback(() => {
+    if (!hydratedRef.current) return;
+    recordDocumentMutation();
+    scheduleProjectPersistence();
+  }, [recordDocumentMutation, scheduleProjectPersistence]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2174,6 +2230,41 @@ export function App() {
     announce(message);
   }, [announce, markProjectDirty, publishLiveProject]);
 
+  const commitProjectCommandResult = useCallback((
+    project: DriftProjectV4,
+    revisions: ProjectRevisionState,
+    message: string,
+  ) => {
+    const current = projectRef.current;
+    if (!current) throw new Error("Project V4 creative authority is unavailable.");
+    recordV2History(current, project, message);
+    const projected = studioSettingsFromDriftProject(project);
+    publishLiveProject(project);
+    settingsRef.current = projected;
+    setSettings(projected);
+    documentRevisionRef.current = structuredClone(revisions);
+    setDocumentRevisionVersion((version) => version + 1);
+    scheduleProjectPersistence();
+    setChangeReceipt(message);
+    announce(message, "good");
+  }, [announce, publishLiveProject, recordV2History, scheduleProjectPersistence]);
+
+  automationCommitRef.current = (change) => {
+    commitProjectCommandResult(change.project, change.revisions, change.message);
+  };
+
+  const applyOutcomeRecipeFromUi = useCallback((id: OutcomeRecipeId, message: string) => {
+    const current = projectRef.current;
+    if (!current) throw new Error("Project V4 creative authority is unavailable.");
+    const applied = applyProjectV4Command(
+      current,
+      documentRevisionRef.current,
+      applyOutcomeRecipeCommand(id),
+      new Date().toISOString(),
+    );
+    commitProjectCommandResult(applied.project, applied.revision, message);
+  }, [commitProjectCommandResult]);
+
   const undoV2Project = useCallback(() => {
     const current = projectRef.current;
     const history = v2HistoryRef.current;
@@ -2554,6 +2645,7 @@ export function App() {
           v2Active={v2Active}
           onSettings={updateSettings}
           onV2Project={updateV2Project}
+          onOutcomeRecipe={applyOutcomeRecipeFromUi}
           onUndoV2={undoV2Project}
           onRedoV2={redoV2Project}
           canUndoV2={v2HistoryRef.current.past.length > 0}
@@ -2610,9 +2702,21 @@ export function App() {
         {driftBuildIdentity.isDevelopment ? (
           <AutomationAccessView
             enabled={automationEnabled}
+            writeEnabled={automationWriteEnabled}
             connectionState={automationConnectionState}
             service={automationService}
-            onEnabledChange={setAutomationEnabled}
+            onEnabledChange={(enabled) => {
+              setAutomationEnabled(enabled);
+              if (!enabled) setAutomationWriteEnabled(false);
+            }}
+            onWriteEnabledChange={setAutomationWriteEnabled}
+            onUndoReceipt={(receiptId) => {
+              try {
+                automationService.mutation?.undo(receiptId);
+              } catch (error) {
+                announce(error instanceof Error ? error.message : "Automation change could not be undone.", "error");
+              }
+            }}
             onDisconnect={() => automationAdapter.revokeAll()}
           />
         ) : null}
