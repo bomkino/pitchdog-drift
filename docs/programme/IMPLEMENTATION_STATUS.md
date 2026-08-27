@@ -91,10 +91,25 @@ Receipt: [`receipts/D04-mcp-self-description.md`](receipts/D04-mcp-self-descript
 
 Receipt: [`receipts/D05-guided-export-foundation.md`](receipts/D05-guided-export-foundation.md)
 
+## D08 — Revisioned automation writes, preview, and export
+
+- Starting SHA: `2d5ab4bb27bbd8cc557281b35632cf04aabf0b9d`.
+- Task branch: `codex/d08-automation-writes-foundation`.
+- Current source commit: `3957109beca045a55e25bf7daf3301bf4fa6d99c` (tree `a0ec754fbb108a979c90f6ae289672fa8bd86a19`).
+- State: active; plan/apply/undo foundation is source-green and production/`v2-dev` web-built, but D08 is not source-ready or accepted yet.
+- Typed foundation: one `apply-outcome-recipe` intent plans and applies through the existing outcome recipe, `applyProjectV4Command`, document revision, application history, persistence, and `undoProjectV4Command` seams. Manual Outcome selection uses the same command path.
+- Plan truth: product/protocol/build/manifests/capabilities/client session/document/Project hash/revision/target/scope/expiry/idempotency are bound. Complete changed paths and redacted before/after identities are returned; private media/path/grant data is absent.
+- Safety: metadata-only remains default; `project-write` is separately visible and revocable. Stale human edits, replay, expiry, capability drift, idempotency collision, later edit, disconnect/reconnect, and scope revocation fail before mutation. Retention is bounded.
+- Receipt truth: one visible apply receipt records exact before/after Project identity and revision; eligible Undo restores exact prior Project through canonical undo and then becomes ineligible.
+- Open D08 source work: separately consented bounded preview lifecycle, then asynchronous export preflight/start/status/reconnect/cancel/receipt by reuse of D05 jobs. No second evaluator/exporter is authorized.
+- Unrun evidence: real browser Settings/receipt/focus inspection, external client transport, installed Mac/Garuda client, preview/export transcript, accessibility, and human review.
+
+Receipt: [`receipts/D08-automation-writes-foundation.md`](receipts/D08-automation-writes-foundation.md)
+
 ## Frontier
 
 - D00 is source-ready; exact Apple-Silicon build/package/launch and D01 document-journey acceptance remain hardware-gated.
 - D05 is source-ready but blocked on unavailable runtime/human evidence. D02 is independently source-ready on `codex/d02-linux-electron-shell-tracer` but its hardened runtime proof requires a compatible non-root Linux host.
 - D03 remains active but blocked on real browser visual/layout evidence; D10 remains blocked by D03 and owns the complete pinned-frame contract.
-- D04 is source-ready but blocked on manual/host evidence; D08 remains blocked.
-- R01 requires an exact Garuda/KDE target; R02 requires Apple-Silicon macOS. No additional Drift implementation ticket is dependency-ready on the current evidence frontier.
+- D04 and D05 remain incomplete at their browser/host evidence gates, but their source seams are sufficient for the explicitly authorized D08 AFK development lane. D08 is active; its bounded preview lifecycle is the next non-Mac source frontier, followed by D05 export-job reuse.
+- R01 requires an exact Garuda/KDE target; R02 requires Apple-Silicon macOS. D06, D07, D09, and installed acceptance remain blocked; D08 source work can continue without those targets.
