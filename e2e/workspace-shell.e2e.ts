@@ -238,7 +238,7 @@ test("content-paced Smooth and Casino preserve readable timing when the moving c
   await expect(timing.locator("strong")).toHaveText("10.46 s master");
   await expect(casino).toHaveAttribute("aria-pressed", "true");
 
-  await page.locator(".segmented-control label").filter({ hasText: /^Exact length$/ }).click();
+  await page.getByTestId("workspace-scroll").locator(".segmented-control label").filter({ hasText: /^Exact length$/ }).click();
   const fixedDuration = await timing.locator("strong").textContent();
   await page.getByRole("button", { name: "Return Drift study 01.png to the carousel" }).click();
   await expect(timing).toContainText("8 MOVING");
