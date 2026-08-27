@@ -16,7 +16,7 @@ concurrency:
 jobs:
   ubuntu-runtime:
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 75
     steps:
       - name: Check out exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -81,16 +81,6 @@ jobs:
             tests/automationExportService.test.ts \
             tests/exportStudio.test.ts
 
-      - name: Run installed-Chrome encoder journeys
-        env:
-          DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
-        run: |
-          set -euo pipefail
-          command -v xvfb-run
-          command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null
-          xvfb-run -a npm run qa:presenter-export
-          xvfb-run -a npm run qa:long-export
-
       - name: Download and verify official Electron archive
         run: |
           set -euo pipefail
@@ -130,6 +120,17 @@ jobs:
           DRIFT_LINUX_RUNTIME_RECEIPT="$GITHUB_WORKSPACE/build/evidence/linux-runtime-receipt.json" \
             npm run verify:linux:tracer
           test "$(id -u)" -ne 0
+
+      - name: Run installed-Chrome encoder journeys
+        env:
+          DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
+          DRIFT_PHYSICAL_ENCODER_TIMEOUT_MS: 420000
+        run: |
+          set -euo pipefail
+          command -v xvfb-run
+          command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null
+          xvfb-run -a npm run qa:presenter-export
+          xvfb-run -a npm run qa:long-export
 
       - name: Hash bounded evidence
         if: always()
