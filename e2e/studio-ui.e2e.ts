@@ -36,6 +36,28 @@ function pixelDistance(left: number[], right: number[]): number {
   return left.reduce((total, value, index) => total + Math.abs(value - right[index]!), 0);
 }
 
+test("desktop header preserves breathing room before showing its optional tagline", async ({ page }) => {
+  await waitForStudio(page);
+  const tagline = page.getByText("Decks should move like they mean it.", { exact: true });
+  await expect(tagline).toBeHidden();
+
+  const compactBoxes = await Promise.all([
+    page.locator(".wordmark").boundingBox(),
+    page.locator(".header-actions").boundingBox(),
+  ]);
+  expect(compactBoxes.every(Boolean)).toBe(true);
+  expect(compactBoxes[0]!.x + compactBoxes[0]!.width + 32).toBeLessThanOrEqual(compactBoxes[1]!.x);
+
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await expect(tagline).toBeVisible();
+  const wideBoxes = await Promise.all([
+    tagline.boundingBox(),
+    page.locator(".header-actions").boundingBox(),
+  ]);
+  expect(wideBoxes.every(Boolean)).toBe(true);
+  expect(wideBoxes[0]!.x + wideBoxes[0]!.width + 24).toBeLessThanOrEqual(wideBoxes[1]!.x);
+});
+
 test("boots WebGL2, exposes real controls, restores context, and fits phone viewports", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

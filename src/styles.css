@@ -3731,6 +3731,11 @@ a:focus-visible {
   .capability-dot { border: 1px solid CanvasText; box-shadow: none; }
 }
 
+@media (max-width: 1680px) {
+  .app-header { grid-template-columns: minmax(190px, 1fr) auto; }
+  .app-header > p { display: none; }
+}
+
 @media (max-width: 1120px) {
   body { overflow: hidden; }
 
