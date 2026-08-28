@@ -428,6 +428,9 @@ export function App() {
   const [focusMode, setFocusMode] = useState(false);
   const [activeSlideIndex, setActiveSlideIndex] = useState(-1);
   const [activePanel, setActivePanel] = useState<"media" | "stage" | "director">("stage");
+  const [constrainedViewport, setConstrainedViewport] = useState(
+    () => window.matchMedia("(max-width: 1120px)").matches,
+  );
   const [activeWorkspace, setActiveWorkspace] = useState<StudioWorkspace>("slides");
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [platformGuideId, setPlatformGuideId] = useState<PlatformGuideProfileId>("none");
@@ -489,6 +492,14 @@ export function App() {
     () => desktopPlatform.presentation.interfaceScale.subscribe(setInterfaceScale),
     [desktopPlatform],
   );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1120px)");
+    const update = () => setConstrainedViewport(query.matches);
+    query.addEventListener("change", update);
+    update();
+    return () => query.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => exportJobController.subscribe(() => {
     setExportJobStatus(exportJobController.getActiveStatus());
@@ -2848,6 +2859,10 @@ export function App() {
           onExportProject={savePortableProject}
           onImportProject={requestPortableProject}
           projectFilesEnabled={portableProjectFilesEnabled}
+          panelActive={
+            (interfaceScale.layout !== "single-panel" && !constrainedViewport)
+            || activePanel === "director"
+          }
           exportCapabilities={exportCapabilities}
           guidedExportIntent={guidedExportIntent}
           exportProgress={exportProgress}

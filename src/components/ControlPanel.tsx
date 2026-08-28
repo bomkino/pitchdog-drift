@@ -272,6 +272,7 @@ interface ControlPanelProps {
   onImportProject: () => void;
   projectFilesEnabled: boolean;
   exporting: boolean;
+  panelActive: boolean;
   workspace: StudioWorkspace;
   onWorkspace: (workspace: StudioWorkspace) => void;
   selectedSlideId: string | null;
@@ -314,6 +315,7 @@ export function ControlPanel({
   onImportProject,
   projectFilesEnabled,
   exporting,
+  panelActive,
   workspace,
   onWorkspace,
   selectedSlideId,
@@ -533,7 +535,14 @@ export function ControlPanel({
 
   return (
     <SupplementaryTooltip.Provider>
-    <aside className="inspector" data-workspace={workspace} aria-label={`${workspaceCopy.title} controls`} aria-busy={exporting} inert={exporting}>
+    <aside
+      className="inspector"
+      data-workspace={workspace}
+      aria-label={`${workspaceCopy.title} controls`}
+      aria-busy={exporting}
+      aria-hidden={!panelActive}
+      inert={exporting || !panelActive}
+    >
       <div className="panel-heading">
         <div>
           <span className="panel-kicker">{workspaceCopy.kicker}</span>

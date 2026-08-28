@@ -135,6 +135,12 @@ test("Interface Scale reflows chrome without mutating Project V4, authored time,
   await constrainedTabs.getByRole("button", { name: "director", exact: true }).click();
   expect(await page.getByTestId("workspace-scroll").evaluate((element) => element.scrollTop)).toBe(scrollTop);
   await constrainedTabs.getByRole("button", { name: "stage", exact: true }).click();
+  const hiddenDirector = page.locator("aside.inspector");
+  await expect(hiddenDirector).toHaveCSS("opacity", "0");
+  await expect(hiddenDirector).toHaveCSS("visibility", "hidden");
+  await expect(hiddenDirector).toHaveAttribute("aria-hidden", "true");
+  await expect(hiddenDirector).toHaveAttribute("inert", "");
+  await expect(page.getByRole("region", { name: "Cinematic preview" })).toBeVisible();
   await expect(playhead).toHaveAttribute("aria-valuenow", authoredTime!);
 
   const projectAfter = await portableProjectPayloadSha256(page);
