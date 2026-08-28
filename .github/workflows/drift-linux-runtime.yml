@@ -201,7 +201,7 @@ jobs:
             echo "chrome=$(google-chrome --version 2>/dev/null || google-chrome-stable --version 2>/dev/null || true)"
           } | tee -a build/evidence/linux-encoder-identity.txt
 
-      - name: Run supported installed-Chrome encoder journey on a fresh runner
+      - name: Require software H.264 probe to fail closed outside Rec.709
         env:
           DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
         run: |
@@ -214,9 +214,24 @@ jobs:
           # The presenter H.264/AAC lane is intentionally Mac-only here:
           # installed Chrome under Ubuntu/Xvfb accepts the presenter file but
           # never delivers its first video frame. Four exact-SHA attempts,
-          # including this fresh runner, bound that platform limitation. The
-          # real H.264 long-export and cancellation seams remain exercised.
-          xvfb-run -a npm run qa:long-export
+          # including a fresh runner, bound that platform limitation.
+          #
+          # Ubuntu/Xvfb's software H.264 path does complete an encode, but
+          # labels it SMPTE 170M. Drift must reject that file instead of
+          # weakening the Rec.709 delivery contract. Require the exact
+          # fail-closed result and retain the trace as platform evidence.
+          set +e
+          xvfb-run -a npm run qa:long-export 2>&1 \
+            | tee build/evidence/linux-software-h264-probe.log
+          probe_status=${PIPESTATUS[0]}
+          set -e
+          test "$probe_status" -ne 0
+          grep -F '"code":"OUTPUT_VERIFICATION_FAILED"' \
+            build/evidence/linux-software-h264-probe.log
+          grep -F '"primaries":"smpte170m"' \
+            build/evidence/linux-software-h264-probe.log
+          echo "software_h264=fail-closed-smpte170m-not-rec709" \
+            | tee -a build/evidence/linux-encoder-identity.txt
 
       - name: Hash bounded encoder evidence
         if: always()
