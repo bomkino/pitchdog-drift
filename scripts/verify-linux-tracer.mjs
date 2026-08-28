@@ -62,6 +62,7 @@ if ((electronMode & 0o111) === 0) fail("Electron runtime is not executable in th
 
 const mainSource = await readFile(join(appRoot, "linux", "main.cjs"), "utf8");
 const preloadSource = await readFile(join(appRoot, "linux", "preload.cjs"), "utf8");
+const packagedPreloadSource = await readFile(join(artifact, "resources", "app", "linux", "preload.cjs"), "utf8");
 for (const required of [
   "sandbox: true",
   "contextIsolation: true",
@@ -75,6 +76,12 @@ for (const required of [
 if (!preloadSource.includes('contextBridge.exposeInMainWorld("__DRIFT_LINUX_DESKTOP__"')
   || /readFile|writeFile|exec|spawn|shell|process\.env/u.test(preloadSource)) {
   fail("Linux preload does not retain its narrow authority shape.");
+}
+const packagedPreloadRequires = [...packagedPreloadSource.matchAll(/\brequire\((['"])([^'"]+)\1\)/gu)]
+  .map((match) => match[2]);
+if (!packagedPreloadSource.includes("__DRIFT_LINUX_DESKTOP__")
+  || packagedPreloadRequires.some((specifier) => specifier !== "electron")) {
+  fail(`Sandboxed Linux preload is not self-contained: ${JSON.stringify(packagedPreloadRequires)}`);
 }
 
 const work = await mkdtemp(join(tmpdir(), "drift-linux-runtime-"));

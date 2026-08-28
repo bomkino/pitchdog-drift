@@ -25,6 +25,7 @@ for (const [fragment, label] of [
   ["drift://app", "packaged application origin"],
   ["connect-src 'none'", "network CSP"],
   ["waitForRendererReady", "bounded renderer-ready seam"],
+  ["bridgeProbe", "page-world preload and hostile IPC runtime probe"],
 ]) requireText(main, fragment, label);
 
 requireText(preload, 'contextBridge.exposeInMainWorld("__DRIFT_LINUX_DESKTOP__"', "narrow preload API");
@@ -69,6 +70,7 @@ for (const fragment of [
 requireText(builder, 'ELECTRON_VERSION = "44.0.0"', "Electron version pin");
 requireText(builder, 'ELECTRON_ARCHIVE_SHA256 = "d65286d812719f2b4c1a1b806a80f288a1058c89c7b058dae1e03ab25e499446"', "Electron archive pin");
 requireText(builder, "assertLinuxSandboxMetadata", "build-time sandbox metadata validation");
+requireText(builder, "viteBuild", "sandbox-compatible preload bundling");
 requireText(verifier, "assertLinuxSandboxMetadata", "independent sandbox metadata validation");
 requireText(verifier, '["DISPLAY", "XAUTHORITY"]', "bounded desktop-display environment pass-through");
 requireText(sandboxContract, "metadata.uid !== 0", "root sandbox owner validation");

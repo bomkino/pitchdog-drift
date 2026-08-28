@@ -266,13 +266,11 @@ async function runSelfTest(window) {
     });
   });
   const authority = authorities.get(window);
+  const bridgeProbe = await window.webContents.executeJavaScript(`globalThis.__DRIFT_LINUX_DESKTOP__
+    ?.finalizePortableProjectOpen('drift-grant-00000000-0000-4000-8000-000000000000')`, true);
   const selected = await authority.admitOpenPath(selfTestFixture);
-  let guessedGrantRejected = false;
-  try {
-    await authority.finalizeOpen("drift-grant-00000000-0000-4000-8000-000000000000");
-  } catch (error) {
-    guessedGrantRejected = error instanceof LinuxDocumentAuthorityError && error.code === "grant_expired";
-  }
+  const guessedGrantRejected = bridgeProbe?.status === "failed"
+    && bridgeProbe.failure?.code === "grant_expired";
   const opened = await authority.finalizeOpen(selected.grantId);
   const saved = await authority.saveToPath(selfTestDestination, {
     operation: "save-as",
@@ -305,6 +303,12 @@ async function runSelfTest(window) {
     sourceTree: buildReceipt.sourceTree,
     artifactManifestSha256: await sha256File(join(__dirname, "../BuildReceipt.json")),
     renderer,
+    bridgeProbe: {
+      guessedGrantRejected,
+      status: bridgeProbe?.status ?? null,
+      failureCode: bridgeProbe?.failure?.code ?? null,
+      rawPathExposed: false,
+    },
     document: {
       selectedBytes: selected.bytes.byteLength,
       sha256: opened.sha256,
@@ -327,6 +331,7 @@ async function runSelfTest(window) {
     guessedGrantRejected,
     hashesMatch: opened.sha256 === saved.sha256 && saved.sha256 === reopened.sha256,
     renderer,
+    bridgeProbe,
   })}`);
 }
 

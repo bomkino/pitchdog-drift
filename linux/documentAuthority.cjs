@@ -3,18 +3,13 @@
 const { createHash, randomUUID } = require("node:crypto");
 const { basename, dirname, extname, join, resolve } = require("node:path");
 const fs = require("node:fs/promises");
+const {
+  LinuxDocumentAuthorityError,
+  MAX_PROJECT_BYTES,
+  PROJECT_MIME,
+} = require("./documentContract.cjs");
 
-const MAX_PROJECT_BYTES = 512 * 1024 * 1024;
 const MAX_ACTIVE_GRANTS = 8;
-const PROJECT_MIME = "application/vnd.pitchdog.pitched+zip";
-
-class LinuxDocumentAuthorityError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.name = "LinuxDocumentAuthorityError";
-    this.code = code;
-  }
-}
 
 function fail(code, message) {
   throw new LinuxDocumentAuthorityError(code, message);

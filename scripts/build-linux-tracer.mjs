@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { build as viteBuild } from "vite";
 import {
   assertLinuxSandboxMetadata,
   linuxSandboxSetupInstructions,
@@ -96,9 +97,29 @@ await chmod(join(output, "chrome-sandbox"), 0o4755);
 const appRoot = join(output, "resources", "app");
 await mkdir(join(appRoot, "linux"), { recursive: true, mode: 0o755 });
 await cp(web, join(appRoot, "web"), { recursive: true, errorOnExist: true });
-for (const name of ["main.cjs", "preload.cjs", "documentAuthority.cjs", "ipcContract.cjs"]) {
+for (const name of ["main.cjs", "documentAuthority.cjs", "documentContract.cjs", "ipcContract.cjs"]) {
   await cp(join(root, "linux", name), join(appRoot, "linux", name), { errorOnExist: true });
 }
+// Electron sandboxed preloads cannot require arbitrary local modules. Bundle
+// the narrow bridge and its pure validation contract into one auditable file;
+// Electron remains the only runtime require.
+await viteBuild({
+  configFile: false,
+  logLevel: "warn",
+  build: {
+    emptyOutDir: false,
+    minify: false,
+    outDir: join(appRoot, "linux"),
+    lib: {
+      entry: join(root, "linux", "preload.cjs"),
+      formats: ["cjs"],
+      fileName: () => "preload.cjs",
+    },
+    rollupOptions: {
+      external: ["electron"],
+    },
+  },
+});
 const fixtureEntry = (await filesUnder(fixtureTool)).find((pathname) => pathname.endsWith(".js"));
 if (!fixtureEntry) fail("Linux canonical fixture generator build produced no entry module.");
 await cp(fixtureEntry, join(appRoot, "linux", "fixtureGenerator.mjs"), { errorOnExist: true });

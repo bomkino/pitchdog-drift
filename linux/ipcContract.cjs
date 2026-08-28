@@ -1,6 +1,6 @@
 "use strict";
 
-const { LinuxDocumentAuthorityError, MAX_PROJECT_BYTES } = require("./documentAuthority.cjs");
+const { LinuxDocumentAuthorityError, MAX_PROJECT_BYTES } = require("./documentContract.cjs");
 
 const IPC_CHANNEL = "drift:desktop-platform:v1";
 const IPC_PROTOCOL = "dog.pitch.drift/desktop-platform/1";
