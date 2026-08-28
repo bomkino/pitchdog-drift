@@ -94,7 +94,7 @@ def render(size: int, variant: str = "release") -> bytes:
             shell_alpha = 1.0 - smoothstep(-antialias, antialias, shell_distance)
 
             # A single slide in motion: editorial object first, application
-            # glyph second. The coral thread remains legible at 16 px and the
+            # glyph second. The violet thread remains legible at 16 px and the
             # broad, off-axis frame avoids the usual glossy software cube.
             rgb = (0.050, 0.054, 0.066)
             trail_distance = min(
