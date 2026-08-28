@@ -188,7 +188,6 @@ test("presenter export preflight decodes a real frame before rendering", async (
 });
 
 test("@physical-encoder full presenter journey closes and verifies the fixed-step MP4 instead of hanging after its last frame", async ({ page }) => {
-  test.setTimeout(120_000);
   await page.addInitScript(() => {
     Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined });
   });
@@ -222,7 +221,6 @@ test("@physical-encoder full presenter journey closes and verifies the fixed-ste
 });
 
 test("@physical-encoder installed Chrome verifies and downloads a delivery-size vertical presenter master", async ({ page }) => {
-  test.setTimeout(120_000);
   await page.addInitScript(() => {
     Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined });
   });

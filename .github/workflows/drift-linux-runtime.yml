@@ -116,6 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           npx playwright test \
+            --workers=2 \
             e2e/interface-scale.e2e.ts \
             e2e/native-menu-import.e2e.ts \
             e2e/studio-export.e2e.ts \
@@ -140,7 +141,9 @@ jobs:
           set -euo pipefail
           command -v xvfb-run
           command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null
-          xvfb-run -a npm run qa:presenter-export
+          # Ubuntu/Xvfb proves the bounded installed-Chrome software encoder
+          # seam. The delivery-size physical-GPU lane remains a Mac/owner gate.
+          xvfb-run -a npm run qa:presenter-export:smoke
           xvfb-run -a npm run qa:long-export
 
       - name: Hash bounded evidence
