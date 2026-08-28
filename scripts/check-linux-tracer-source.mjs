@@ -69,6 +69,7 @@ requireText(builder, 'ELECTRON_VERSION = "44.0.0"', "Electron version pin");
 requireText(builder, 'ELECTRON_ARCHIVE_SHA256 = "d65286d812719f2b4c1a1b806a80f288a1058c89c7b058dae1e03ab25e499446"', "Electron archive pin");
 requireText(builder, "assertLinuxSandboxMetadata", "build-time sandbox metadata validation");
 requireText(verifier, "assertLinuxSandboxMetadata", "independent sandbox metadata validation");
+requireText(verifier, '["DISPLAY", "XAUTHORITY"]', "bounded desktop-display environment pass-through");
 requireText(sandboxContract, "metadata.uid !== 0", "root sandbox owner validation");
 requireText(sandboxContract, "metadata.gid !== 0", "root sandbox group validation");
 if (/electron-on-mac|darwin-electron/iu.test(main + preload + authority + ipc + builder)) {

@@ -103,6 +103,14 @@ const electronArguments = [
   `--drift-linux-self-test-destination=${destination}`,
   `--drift-linux-self-test-receipt=${runtimeReceipt}`,
 ];
+const displayEnvironment = Object.fromEntries(
+  ["DISPLAY", "XAUTHORITY"].flatMap((key) => {
+    const value = process.env[key];
+    return typeof value === "string" && value.length > 0 && value.length <= 4096
+      ? [[key, value]]
+      : [];
+  }),
+);
 const runningAsRoot = typeof process.getuid === "function" && process.getuid() === 0;
 const runtimeProgram = runningAsRoot ? "setpriv" : electronArguments.shift();
 if (runningAsRoot) {
@@ -113,6 +121,7 @@ const result = spawnSync(runtimeProgram, electronArguments, {
   encoding: "utf8",
   timeout: 60_000,
   env: {
+    ...displayEnvironment,
     PATH: process.env.PATH,
     HOME: work,
     ELECTRON_DISABLE_SECURITY_WARNINGS: "false",

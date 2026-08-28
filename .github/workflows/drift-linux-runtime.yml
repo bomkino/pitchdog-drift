@@ -101,6 +101,10 @@ jobs:
       - name: Verify real sandboxed Electron runtime as runner
         run: |
           set -euo pipefail
+          command -v xvfb-run
+          echo "electron_display=xvfb-1280x720x24" \
+            | tee -a build/evidence/linux-runtime-identity.txt
+          xvfb-run -a -s "-screen 0 1280x720x24" env \
           DRIFT_LINUX_TRACER_DIR="$drift_linux_tracer_dir" \
           DRIFT_LINUX_RUNTIME_RECEIPT="$GITHUB_WORKSPACE/build/evidence/linux-runtime-receipt.json" \
             npm run verify:linux:tracer
