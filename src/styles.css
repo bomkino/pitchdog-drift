@@ -1152,7 +1152,7 @@ a:focus-visible {
   justify-self: stretch;
   display: grid;
   grid-template-columns: repeat(4, minmax(var(--ui-touch-target), 1fr));
-  gap: 8px;
+  gap: 4px;
   padding-top: 2px;
 }
 
