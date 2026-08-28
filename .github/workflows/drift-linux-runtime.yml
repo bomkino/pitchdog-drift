@@ -116,7 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           npx playwright test \
-            --workers=2 \
+            --workers=1 \
             e2e/interface-scale.e2e.ts \
             e2e/native-menu-import.e2e.ts \
             e2e/studio-export.e2e.ts \
