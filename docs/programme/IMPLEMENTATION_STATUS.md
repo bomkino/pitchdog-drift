@@ -1,6 +1,50 @@
 # Drift implementation status
 
-Updated: 27 August 2026
+Updated: 28 August 2026
+
+## Current integrated runtime candidate
+
+- Branch: `codex/drift-runtime-candidate`.
+- Runtime source commit: `8837aa99ea153f8baa975c1b797b575ff9fe55c9`
+  (tree `0d94fe5a9e45a54b516b1ea9dae594ccce2d6bb3`).
+- Integration: the required D02 Linux host/hardening commits are integrated on
+  the D10 evidence line. D00, D01, D03, D05, D08, and D10 still use their
+  existing public authorities; no parallel schema, evaluator, renderer,
+  exporter, audio engine, job controller, document platform, or automation
+  service was introduced.
+- Source gate: 83 test files / 553 tests, both web profiles, macOS/Linux source
+  contracts, and `git diff --check` pass.
+- Browser gate: installed-Chrome D03/D05/D08/D10 journeys pass. Physical
+  presenter H.264/AAC output passes at 256 x 256 and 1080 x 1920; bounded full
+  long-export/cancellation evidence passes.
+- Mac gate: production and V2 development AppKit/WKWebView apps build, verify,
+  and launch as arm64-only with the macOS 13.3 floor. The local ad-hoc signed
+  production app and mounted DMG pass the packaged WKWebView document,
+  persistence, recovery, and outbound-network matrix. No production app was
+  installed or replaced.
+- Linux gate: exact-SHA Ubuntu 24.04 x86_64 CI, sandboxed Electron, hostile IPC,
+  browser, and supported software-encoder evidence is recorded in the current
+  D02 receipt. `chrome-sandbox` is verified as root:root `04755`; the app runs
+  as the ordinary runner without `--no-sandbox`.
+- Garuda gate: the exact official x86_64 ISO booted through systemd to
+  SDDM/Plasma Login Manager in a light external-SSD UTM machine. UTM exposed a
+  black graphical handoff under three emulated display adapters, so Drift was
+  not launched inside Garuda and exact KDE/portal/GPU/audio evidence remains
+  open.
+- Product design: default dark UI now uses a violet editorial identity, wider
+  panel gutters, clearer hierarchy, larger icons, and 52-56 px primary editing
+  targets. Screenshots and automation are machine evidence, not human taste or
+  accessibility acceptance.
+
+Current receipt:
+[`receipts/RUNTIME-CANDIDATE-2026-08-28.md`](receipts/RUNTIME-CANDIDATE-2026-08-28.md)
+
+Linux receipt:
+[`receipts/D02-linux-runtime-candidate.md`](receipts/D02-linux-runtime-candidate.md)
+
+The ticket sections below retain their dated source-line facts. Where an old
+section says a runtime was unavailable, the integrated receipt above is the
+current state; history has not been rewritten.
 
 ## D01 — Platform-port tracer
 
@@ -124,9 +168,28 @@ Receipt: [`receipts/D10-pinned-frame-foundation.md`](receipts/D10-pinned-frame-f
 
 ## Frontier
 
-- D00 is source-ready; exact Apple-Silicon build/package/launch and D01 document-journey acceptance remain hardware-gated.
-- D05 is source-ready but blocked on unavailable runtime/human evidence. D02 is independently source-ready on `codex/d02-linux-electron-shell-tracer` but its hardened runtime proof requires a compatible non-root Linux host.
-- D03 remains source-green but blocked on real browser visual/layout evidence. D10 is source-ready, but D03 browser evidence remains a D10 acceptance dependency.
-- D04, D05, and D08 are source-ready but incomplete at browser/host/artifact evidence gates. Their source seams contain no authority for an acceptance claim.
-- No further pinned-frame source seam is open. D03's missing real-browser scale review remains a D10 acceptance blocker, not permission to weaken its complete contract.
-- R01 requires an exact Garuda/KDE target; R02 requires Apple-Silicon macOS. D06, D07, D09, and installed acceptance remain blocked on their target/runtime gates.
+- D00/D01: exact arm64 package identity, launch, native import persistence,
+  saved Project state, recovery, and mounted-DMG evidence now pass. Developer ID
+  signing, notarization, installation/replacement, and release remain owner
+  gates.
+- D02: exact Ubuntu x86_64 sandboxed Electron and supported browser/encoder
+  evidence now pass at the admitted CI commit. Exact Garuda/KDE remains blocked
+  only at the emulated graphical handoff and physical-host gates described in
+  the current receipt.
+- D03/D05/D08/D10: current installed-Chrome public-seam journeys and retained
+  media/long-export evidence pass. No new source authority is open. Human
+  visual/audio/accessibility acceptance and an external standard automation
+  client remain separate gates.
+- D04: generated self-description and the development adapter are exercised by
+  the current runtime suite. A standard external transport/client has not been
+  installed or claimed.
+- D06/D07/D09: no dependency-ready implementation seam is named by current
+  repository truth. Their remaining work is target, signing, installation, or
+  acceptance evidence; no parallel codec, renderer, host, or release path is
+  authorized.
+- R01: exact Garuda/KDE physical or remote x86_64 evidence remains open.
+  R02's local Apple-Silicon runtime/package evidence passes, while
+  distribution and owner acceptance remain open.
+- No authorized dependency-ready source ticket remains. The frontier consists
+  only of external hardware, identity, installation/publication, external
+  client, and human-judgment gates.
