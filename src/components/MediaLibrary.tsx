@@ -10,6 +10,7 @@ import {
 import { pickNativeMacFiles } from "../lib/nativeMac";
 import type { StudioAsset } from "../model";
 import type { SlideHealth } from "../core/media/slideHealth";
+import { ArrowDownIcon, ArrowUpIcon, GripIcon, PinIcon, TrashIcon } from "./icons";
 
 interface MediaLibraryProps {
   assets: StudioAsset[];
@@ -163,7 +164,7 @@ export function MediaLibrary({
             data-pinned={pinnedAssetId === asset.id}
             data-selected={selectedAssetId === asset.id}
           >
-            <span className="drag-handle" aria-hidden="true">⠿</span>
+            <span className="drag-handle" aria-hidden="true"><GripIcon /></span>
             <button
               type="button"
               className="asset-select"
@@ -193,7 +194,7 @@ export function MediaLibrary({
                 title="Move slide up"
                 disabled={busy || index === 0}
               >
-                ↑
+                <ArrowUpIcon />
               </button>
               <button
                 type="button"
@@ -202,7 +203,7 @@ export function MediaLibrary({
                 title="Move slide down"
                 disabled={busy || index === assets.length - 1}
               >
-                ↓
+                <ArrowDownIcon />
               </button>
               <button
                 type="button"
@@ -212,7 +213,7 @@ export function MediaLibrary({
                 aria-pressed={pinnedAssetId === asset.id}
                 title={pinnedAssetId === asset.id ? "Return to carousel" : "Keep still"}
               >
-                {pinnedAssetId === asset.id ? "UNPIN" : "PIN"}
+                <PinIcon />
               </button>
               <button
                 type="button"
@@ -228,7 +229,7 @@ export function MediaLibrary({
                 aria-label={removeCandidate === `slide:${asset.id}` ? `Confirm removal of ${asset.name}` : `Remove ${asset.name}`}
                 title={removeCandidate === `slide:${asset.id}` ? "Click YES to remove · Escape to keep" : "Remove from project"}
               >
-                {removeCandidate === `slide:${asset.id}` ? "YES" : "×"}
+                {removeCandidate === `slide:${asset.id}` ? "YES" : <TrashIcon />}
               </button>
             </span>
           </li>

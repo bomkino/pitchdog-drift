@@ -10,6 +10,7 @@ import {
   type VisualTimelineModel,
   type VisualTimelineSegment,
 } from "../core/timeline/visualTimelineModel";
+import { NextFrameIcon, PauseIcon, PlayIcon, PreviousFrameIcon } from "./icons";
 
 export interface TimelineDockProps {
   readonly model: VisualTimelineModel;
@@ -193,7 +194,7 @@ export function TimelineDock({
           onClick={() => navigate("ArrowLeft")}
           aria-label="Previous output frame"
         >
-          <span aria-hidden="true">|‹</span>
+          <PreviousFrameIcon />
         </button>
         <button
           type="button"
@@ -203,7 +204,7 @@ export function TimelineDock({
           aria-label={paused ? "Play preview" : "Pause preview"}
           aria-pressed={!paused}
         >
-          <span aria-hidden="true">{paused ? "▶" : "Ⅱ"}</span>
+          {paused ? <PlayIcon /> : <PauseIcon />}
         </button>
         <button
           type="button"
@@ -211,7 +212,7 @@ export function TimelineDock({
           onClick={() => navigate("ArrowRight")}
           aria-label="Next output frame"
         >
-          <span aria-hidden="true">›|</span>
+          <NextFrameIcon />
         </button>
         <output className="timeline-time" aria-label="Playhead time">
           <strong>{formatTimelineTime(time)}</strong>
