@@ -133,20 +133,6 @@ jobs:
             tests/automationExportService.test.ts \
             tests/exportStudio.test.ts
 
-      - name: Run installed-Chrome encoder journeys
-        env:
-          DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
-          DRIFT_PHYSICAL_ENCODER_TIMEOUT_MS: 420000
-          DRIFT_PRESENTER_SMOKE_PROFILE: software-ci
-        run: |
-          set -euo pipefail
-          command -v xvfb-run
-          command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null
-          # Ubuntu/Xvfb proves the bounded installed-Chrome software encoder
-          # seam. The delivery-size physical-GPU lane remains a Mac/owner gate.
-          xvfb-run -a npm run qa:presenter-export:smoke
-          xvfb-run -a npm run qa:long-export
-
       - name: Hash bounded evidence
         if: always()
         run: |
@@ -173,6 +159,82 @@ jobs:
           path: |
             build/evidence/
             build/linux-tracer/*/resources/app/BuildReceipt.json
+            output/qa/v2-long-export/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  ubuntu-encoder:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require Linux x86_64 and record encoder identity
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          mkdir -p build/evidence
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "runner_image=${ImageOS:-unknown}"
+            echo "runner_image_version=${ImageVersion:-unknown}"
+            echo "kernel=$(uname -srvm)"
+          } | tee build/evidence/linux-encoder-identity.txt
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Install locked dependencies and browser runtime
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+          {
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "chrome=$(google-chrome --version 2>/dev/null || google-chrome-stable --version 2>/dev/null || true)"
+          } | tee -a build/evidence/linux-encoder-identity.txt
+
+      - name: Run installed-Chrome encoder journeys on a fresh runner
+        env:
+          DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
+          DRIFT_PHYSICAL_ENCODER_TIMEOUT_MS: 420000
+          DRIFT_PRESENTER_SMOKE_PROFILE: software-ci
+        run: |
+          set -euo pipefail
+          command -v xvfb-run
+          command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null
+          # Keep SwiftShader encoding off the runner that just completed the
+          # broad browser suite. This is the same exporter seam on a fresh,
+          # bounded Ubuntu worker; it is not a second implementation.
+          xvfb-run -a npm run qa:presenter-export:smoke
+          xvfb-run -a npm run qa:long-export
+
+      - name: Hash bounded encoder evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p build/evidence
+          for evidence_root in build/evidence output/qa/v2-long-export test-results; do
+            [[ ! -d "$evidence_root" ]] || find "$evidence_root" -type f -print0
+          done \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > build/evidence/SHA256SUMS.txt
+
+      - name: Upload bounded encoder evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-linux-encoder-${{ github.run_id }}
+          path: |
+            build/evidence/
             output/qa/v2-long-export/
             test-results/
           if-no-files-found: warn
