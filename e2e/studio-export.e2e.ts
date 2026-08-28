@@ -22,6 +22,10 @@ function physicalEncoderDownloadTimeout(): number {
   return configured - 30_000;
 }
 
+function physicalEncoderMediaReadyTimeout(): number {
+  return Math.min(physicalEncoderDownloadTimeout(), 120_000);
+}
+
 async function retainRuntimeEvidence(download: Download, fileName: string): Promise<string | null> {
   const path = await download.path();
   const evidenceDirectory = process.env.DRIFT_RUNTIME_EVIDENCE_DIR?.trim();
@@ -212,7 +216,8 @@ test("@physical-encoder full presenter journey closes and verifies the fixed-ste
   await page.getByLabel("Stage height").fill(String(stageSize));
 
   await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterAvFixturePath);
-  await expect(page.locator(".presenter-card")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove presenter video" }))
+    .toBeVisible({ timeout: physicalEncoderMediaReadyTimeout() });
 
   await switchWorkspace(page, "MOTION");
   await page.getByRole("group", { name: "Timing authority" }).getByText("Exact length", { exact: true }).click();
@@ -243,7 +248,8 @@ test("@physical-encoder installed Chrome verifies and downloads a delivery-size 
   });
   await waitForStudio(page);
   await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterAvFixturePath);
-  await expect(page.locator(".presenter-card")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove presenter video" }))
+    .toBeVisible({ timeout: physicalEncoderMediaReadyTimeout() });
 
   await switchWorkspace(page, "MOTION");
   await page.getByRole("group", { name: "Timing authority" }).getByText("Exact length", { exact: true }).click();
