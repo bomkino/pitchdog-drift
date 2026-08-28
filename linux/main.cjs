@@ -228,6 +228,28 @@ async function sha256File(pathname) {
   return createHash("sha256").update(await readFile(pathname)).digest("hex");
 }
 
+async function waitForRendererReady(window) {
+  const deadline = Date.now() + 30_000;
+  let renderer = null;
+  while (Date.now() < deadline) {
+    renderer = await window.webContents.executeJavaScript(`(() => ({
+      url: location.href,
+      title: document.title,
+      rootChildren: document.querySelector('#root')?.childElementCount ?? 0,
+      canvasCount: document.querySelectorAll('canvas').length,
+      linuxMarker: globalThis.__DRIFT_LINUX_DESKTOP__?.marker ?? null,
+      nodeReachable: typeof globalThis.require === 'function' || typeof globalThis.process === 'object'
+    }))()`, true);
+    if (renderer.url === `${APP_ORIGIN}/index.html`
+      && renderer.rootChildren > 0
+      && renderer.canvasCount > 0
+      && renderer.linuxMarker?.sandboxed === true
+      && renderer.nodeReachable === false) return renderer;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  }
+  throw new Error(`Packaged renderer did not reach its public ready seam: ${JSON.stringify(renderer)}`);
+}
+
 async function runSelfTest(window) {
   if (!selfTestFixture || !selfTestDestination || !selfTestReceiptPath) {
     throw new Error("Linux self-test requires fixture, destination, and receipt paths.");
@@ -262,14 +284,7 @@ async function runSelfTest(window) {
   const reopenedAuthority = createLinuxDocumentAuthority();
   const reopenedSelection = await reopenedAuthority.admitOpenPath(selfTestDestination);
   const reopened = await reopenedAuthority.finalizeOpen(reopenedSelection.grantId);
-  const renderer = await window.webContents.executeJavaScript(`(() => ({
-    url: location.href,
-    title: document.title,
-    rootChildren: document.querySelector('#root')?.childElementCount ?? 0,
-    canvasCount: document.querySelectorAll('canvas').length,
-    linuxMarker: globalThis.__DRIFT_LINUX_DESKTOP__?.marker ?? null,
-    nodeReachable: typeof globalThis.require === 'function' || typeof globalThis.process === 'object'
-  }))()`, true);
+  const renderer = await waitForRendererReady(window);
   const buildReceipt = JSON.parse(await readFile(join(__dirname, "../BuildReceipt.json"), "utf8"));
   const receipt = {
     schema: "dog.pitch.drift/linux-tracer-runtime-receipt/1",
@@ -308,7 +323,11 @@ async function runSelfTest(window) {
     },
   };
   await writeFile(selfTestReceiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
-  if (!receipt.ok) throw new Error("Linux packaged tracer self-test failed its receipt invariants.");
+  if (!receipt.ok) throw new Error(`Linux packaged tracer self-test failed its receipt invariants: ${JSON.stringify({
+    guessedGrantRejected,
+    hashesMatch: opened.sha256 === saved.sha256 && saved.sha256 === reopened.sha256,
+    renderer,
+  })}`);
 }
 
 app.on("web-contents-created", (_event, contents) => {

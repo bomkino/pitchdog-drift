@@ -24,6 +24,7 @@ for (const [fragment, label] of [
   ["will-navigate", "navigation denial"],
   ["drift://app", "packaged application origin"],
   ["connect-src 'none'", "network CSP"],
+  ["waitForRendererReady", "bounded renderer-ready seam"],
 ]) requireText(main, fragment, label);
 
 requireText(preload, 'contextBridge.exposeInMainWorld("__DRIFT_LINUX_DESKTOP__"', "narrow preload API");

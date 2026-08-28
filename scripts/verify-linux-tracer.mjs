@@ -103,6 +103,7 @@ const electronArguments = [
   `--drift-linux-self-test-destination=${destination}`,
   `--drift-linux-self-test-receipt=${runtimeReceipt}`,
 ];
+const retained = process.env.DRIFT_LINUX_RUNTIME_RECEIPT;
 const displayEnvironment = Object.fromEntries(
   ["DISPLAY", "XAUTHORITY"].flatMap((key) => {
     const value = process.env[key];
@@ -128,11 +129,15 @@ const result = spawnSync(runtimeProgram, electronArguments, {
   },
 });
 if (result.status !== 0) {
+  const failedReceipt = await readFile(runtimeReceipt, "utf8").catch(() => null);
+  if (failedReceipt && retained) {
+    await writeFile(resolve(retained), failedReceipt, { mode: 0o600 });
+  }
   await rm(work, { recursive: true, force: true });
   if (runningAsRoot && /setresuid failed: Invalid argument/u.test(result.stderr ?? "")) {
     fail("Linux packaged runtime cannot execute on this host: its user namespace maps only UID 0, so the verifier cannot leave root and will not add Chromium --no-sandbox.");
   }
-  fail(`Linux packaged runtime self-test failed (${String(result.status)}):\n${result.stdout ?? ""}${result.stderr ?? ""}`);
+  fail(`Linux packaged runtime self-test failed (${String(result.status)}):\n${result.stdout ?? ""}${result.stderr ?? ""}${failedReceipt ? `Retained failed runtime receipt:\n${failedReceipt}` : ""}`);
 }
 const runtime = JSON.parse(await readFile(runtimeReceipt, "utf8"));
 if (runtime.ok !== true
@@ -147,7 +152,6 @@ if (runtime.ok !== true
   await rm(work, { recursive: true, force: true });
   fail("Linux runtime receipt failed verification.");
 }
-const retained = process.env.DRIFT_LINUX_RUNTIME_RECEIPT;
 if (retained) await writeFile(resolve(retained), `${JSON.stringify(runtime, null, 2)}\n`, { mode: 0o600 });
 await rm(work, { recursive: true, force: true });
 console.log("Drift Linux packaged-directory tracer verified.");
