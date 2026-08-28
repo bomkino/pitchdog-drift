@@ -116,6 +116,7 @@ const IMAGE_FITS = ["cover", "contain"] as const;
 const PRESENTER_TRACK_MODES = ["pinned-only", "moving-and-pinned"] as const;
 const PRESENTER_LAYOUT_MODES = ["safe-overlay", "legacy-perspective"] as const;
 const PRESENTER_ASPECT_MODES = ["source", "custom"] as const;
+const PRESENTER_LAYERS = ["below-slides", "above-slides"] as const;
 const BACKGROUNDS = [
   "transparent",
   "solid",
@@ -231,6 +232,17 @@ function validateStudioSettingsWithVersions(
       );
     }
   }
+  const presenterStartAt = number(
+    presenter.startAt,
+    "settings.presenter.startAt",
+    { min: 0, max: 86_400 },
+  );
+  const presenterEndAt = presenter.endAt === undefined || presenter.endAt === null
+    ? null
+    : number(presenter.endAt, "settings.presenter.endAt", { min: 0, max: 86_400 });
+  if (presenterEndAt !== null && presenterEndAt <= presenterStartAt) {
+    invalid("settings.presenter.endAt", "must be greater than settings.presenter.startAt");
+  }
 
   return {
     schemaVersion: versions.schemaVersion,
@@ -306,6 +318,9 @@ function validateStudioSettingsWithVersions(
       aspectMode: legacyPresenterDirection
         ? "custom"
         : oneOf(presenter.aspectMode, "settings.presenter.aspectMode", PRESENTER_ASPECT_MODES),
+      layer: legacyPresenterDirection || presenter.layer === undefined
+        ? "above-slides"
+        : oneOf(presenter.layer, "settings.presenter.layer", PRESENTER_LAYERS),
       x: number(presenter.x, "settings.presenter.x", { min: 0, max: 1 }),
       y: number(presenter.y, "settings.presenter.y", { min: 0, max: 1 }),
       width: number(presenter.width, "settings.presenter.width", { min: 0.05, max: 1 }),
@@ -345,7 +360,8 @@ function validateStudioSettingsWithVersions(
       muted: boolean(presenter.muted, "settings.presenter.muted"),
       gain: number(presenter.gain, "settings.presenter.gain", { min: 0, max: 2 }),
       trimStart: number(presenter.trimStart, "settings.presenter.trimStart", { min: 0, max: 86_400 }),
-      startAt: number(presenter.startAt, "settings.presenter.startAt", { min: 0, max: 86_400 }),
+      startAt: presenterStartAt,
+      endAt: legacyPresenterDirection ? null : presenterEndAt,
     },
     performance,
     output: {

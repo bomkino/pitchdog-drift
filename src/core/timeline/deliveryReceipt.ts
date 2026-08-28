@@ -126,6 +126,9 @@ export interface DeliveryReceipt {
     readonly assetId: string | null;
     readonly assetKind: "image" | "video" | null;
     readonly trackMode: DriftProjectV4["presenter"]["trackMode"];
+    readonly layer: DriftProjectV4["presenter"]["layer"];
+    readonly storyStart: number;
+    readonly storyEnd: number;
     readonly participatesInMovingTrack: boolean;
     readonly participatesInEntry: boolean;
     readonly participatesInExit: boolean;
@@ -440,6 +443,9 @@ export function buildDeliveryReceipt(input: BuildDeliveryReceiptInput): Delivery
       assetId: project.presenter.assetId,
       assetKind: presenterAsset?.kind ?? null,
       trackMode: project.presenter.trackMode,
+      layer: project.presenter.layer,
+      storyStart: Math.min(project.master.duration, project.presenter.startAt),
+      storyEnd: Math.min(project.master.duration, project.presenter.endAt ?? project.master.duration),
       participatesInMovingTrack: presenterInMovingTrack,
       participatesInEntry: project.presenter.enabled
         && lifecycle.authoring.entry.enabled

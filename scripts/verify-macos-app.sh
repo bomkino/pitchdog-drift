@@ -181,7 +181,9 @@ for key in (
 PY
 
 actual_archs="$(lipo -archs "${EXECUTABLE}" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ' | sed 's/ $//')"
-expected_archs="$(printf '%s\n' ${DRIFT_EXPECT_ARCHS:-arm64 x86_64} | sort | tr '\n' ' ' | sed 's/ $//')"
+expected_archs="${DRIFT_EXPECT_ARCHS:-arm64}"
+[[ "${expected_archs}" == "arm64" ]] \
+  || fail "DRIFT_EXPECT_ARCHS must be exactly arm64 for the maintained Apple-Silicon package."
 [[ "${actual_archs}" == "${expected_archs}" ]] \
   || fail "architectures are ${actual_archs}; expected ${expected_archs}."
 
@@ -240,9 +242,8 @@ if web_receipt.get("buildChannel") != expected["build_channel"]:
     raise SystemExit("Drift.app verification failed: signed Web runtime and native build channel disagree.")
 PY
 
-# Universal binaries produce one unindented header per architecture. Only
-# indented rows are dependencies; parsing every first field mistakes the second
-# architecture header for a dylib path.
+# Only indented rows are dependencies; the unindented line is the arm64
+# executable header and must not be parsed as a dylib path.
 LINKED_LIBRARIES="${TEMP_DIR}/linked-libraries.txt"
 otool -L "${EXECUTABLE}" | awk '/^[[:space:]]/ {print $1}' | sort -u >"${LINKED_LIBRARIES}"
 while IFS= read -r library; do

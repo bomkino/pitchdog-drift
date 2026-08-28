@@ -31,7 +31,7 @@ async function scrubOutside(page: Page, track: Locator, target: "start" | "end")
 async function exportStillSha256(page: Page): Promise<string> {
   await switchWorkspace(page, "EXPORT");
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
+  await page.getByRole("button", { name: "Save one PNG still" }).click();
   const path = await (await download).path();
   if (!path) throw new Error("Still export did not produce a readable download path.");
   return createHash("sha256").update(await readFile(path)).digest("hex");
@@ -48,7 +48,7 @@ test("canonical timeline stays legible and causal across Casino, Smooth, scrubbi
   const shellBefore = await box(shell, "Studio shell");
   const inspectorBefore = await box(inspector, "Inspector");
   const dockBefore = await box(dock, "Timeline dock");
-  expect(Math.abs(dockBefore.height - 132)).toBeLessThanOrEqual(1);
+  expect(Math.abs(dockBefore.height - 152)).toBeLessThanOrEqual(1);
   await expect(dock).toHaveAttribute("data-authority", "pass-sequence");
   const groups = dock.locator('.timeline-segment[data-kind="sequence-group"]');
   await expect(groups).toHaveCount(1);
@@ -61,8 +61,8 @@ test("canonical timeline stays legible and causal across Casino, Smooth, scrubbi
     page.getByRole("button", { name: "Next output frame" }),
   ]) {
     const target = await box(button, "Timeline target");
-    expect(target.width).toBeGreaterThanOrEqual(44);
-    expect(target.height).toBeGreaterThanOrEqual(44);
+    expect(target.width).toBeGreaterThanOrEqual(52);
+    expect(target.height).toBeGreaterThanOrEqual(52);
   }
 
   await switchWorkspace(page, "MOTION");
@@ -167,6 +167,33 @@ test("canonical timeline stays legible and causal across Casino, Smooth, scrubbi
   expectInvariant(await box(stage, "Stage"), stageBefore, "Stage");
   expectInvariant(await box(shell, "Studio shell"), shellBefore, "Studio shell");
   expectInvariant(await box(inspector, "Inspector"), inspectorBefore, "Inspector");
+});
+
+test("primary editing controls expose legible icons and generous public touch targets", async ({ page }) => {
+  await waitForStudio(page);
+
+  for (const button of [
+    page.getByRole("button", { name: "Move Drift study 01.png down" }),
+    page.getByRole("button", { name: "Keep Drift study 01.png still" }),
+    page.getByRole("button", { name: "Remove Drift study 01.png" }),
+  ]) {
+    const target = await box(button, "Slide action");
+    expect(target.width).toBeGreaterThanOrEqual(48);
+    expect(target.height).toBeGreaterThanOrEqual(48);
+    await expect(button.locator("svg")).toBeVisible();
+  }
+
+  await switchWorkspace(page, "SLIDES");
+  const ratio = page.getByRole("combobox", { name: "Slide ratio" });
+  const ratioTarget = await box(ratio, "Slide ratio select");
+  expect(ratioTarget.height).toBeGreaterThanOrEqual(52);
+  await expect(ratio).toHaveCSS("appearance", "none");
+
+  const exactValue = page.getByRole("spinbutton", { name: "Slide size exact value" });
+  const exactValueControl = exactValue.locator("..");
+  const exactTarget = await box(exactValueControl, "Slide size exact value control");
+  expect(exactTarget.height).toBeGreaterThanOrEqual(44);
+  await expect(exactValueControl).toHaveCSS("border-top-style", "solid");
 });
 
 test("fixed-time PNG pixels stay byte-identical before and after timeline scrubbing", async ({ page }) => {

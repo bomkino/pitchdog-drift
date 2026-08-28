@@ -12,7 +12,7 @@ npm run build:mac
 open build/macos/Drift.app
 ```
 
-The default build contains Apple Silicon and Intel slices. It is ad-hoc signed for local use. A public build requires Developer ID signing and Apple notarization; the local command does not pretend otherwise.
+The default build is Apple-Silicon-only and contains exactly the `arm64` slice. It is ad-hoc signed for local use. A public build requires Developer ID signing and Apple notarization; the local command does not pretend otherwise.
 
 Create a local disk image after the app verifies:
 

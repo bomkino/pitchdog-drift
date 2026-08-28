@@ -56,10 +56,12 @@ import {
   getOutcomeRecipe,
   resetMotion,
   resetSequence,
+  type OutcomeRecipeId,
 } from "../core/recipes/outcomeRecipes";
 import { PATH_RECIPES, applyPathRecipe } from "../core/spatial/spatial";
 import {
   fitPerformanceLifecycleToDuration,
+  type ExportProgress,
   type StudioSettings,
   type ThemeId,
 } from "../model";
@@ -91,6 +93,7 @@ import type { TactileRuntimeState } from "../sonic/tactileSound";
 import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, RangeNumberField, Segmented, SelectField, SwitchField } from "./controls";
 import { BackgroundBrowser, BackgroundStudyPreview } from "./BackgroundBrowser";
+import { GuidedExportWizard } from "./GuidedExportWizard";
 import { OutcomeRecipePicker } from "./OutcomeRecipePicker";
 import { SupplementaryTooltip } from "./tooltip/SupplementaryTooltip";
 import type { SlideHealth } from "../core/media/slideHealth";
@@ -120,6 +123,11 @@ import {
   type PreflightIssue,
 } from "../core/preflight";
 import type { ExportCapabilityReport } from "../lib/exportStudio";
+import type {
+  ExportIntent,
+  GuidedExportCompletion,
+  GuidedExportRunRequest,
+} from "../core/export/guidedExport";
 import {
   applySourceFaithfulLook,
   isSourceFaithfulLook,
@@ -245,6 +253,7 @@ interface ControlPanelProps {
   v2Active: boolean;
   onSettings: (settings: StudioSettings) => void;
   onV2Project: (project: DriftProjectV4, message: string) => void;
+  onOutcomeRecipe: (id: OutcomeRecipeId, message: string) => void;
   onUndoV2: () => void;
   onRedoV2: () => void;
   canUndoV2: boolean;
@@ -258,12 +267,12 @@ interface ControlPanelProps {
   onTheme: (id: ThemeId) => void;
   onResetPinnedFrame: () => void;
   onExportStill: () => void;
-  onExportVideo: () => void;
-  onExportFrames: () => void;
+  onRunGuidedExport: (request: GuidedExportRunRequest) => Promise<GuidedExportCompletion | null>;
   onExportProject: () => void;
   onImportProject: () => void;
   projectFilesEnabled: boolean;
   exporting: boolean;
+  panelActive: boolean;
   workspace: StudioWorkspace;
   onWorkspace: (workspace: StudioWorkspace) => void;
   selectedSlideId: string | null;
@@ -276,6 +285,8 @@ interface ControlPanelProps {
   onPlatformGuide: (id: PlatformGuideProfileId) => void;
   onCustomGuideInsets: (insets: NormalizedInsets) => void;
   exportCapabilities: ExportCapabilityReport | null;
+  guidedExportIntent: ExportIntent;
+  exportProgress: ExportProgress | null;
   exportSurfaceSupported: boolean;
 }
 
@@ -285,6 +296,7 @@ export function ControlPanel({
   v2Active,
   onSettings,
   onV2Project,
+  onOutcomeRecipe,
   onUndoV2,
   onRedoV2,
   canUndoV2,
@@ -298,12 +310,12 @@ export function ControlPanel({
   onTheme,
   onResetPinnedFrame,
   onExportStill,
-  onExportVideo,
-  onExportFrames,
+  onRunGuidedExport,
   onExportProject,
   onImportProject,
   projectFilesEnabled,
   exporting,
+  panelActive,
   workspace,
   onWorkspace,
   selectedSlideId,
@@ -316,6 +328,8 @@ export function ControlPanel({
   onPlatformGuide,
   onCustomGuideInsets,
   exportCapabilities,
+  guidedExportIntent,
+  exportProgress,
   exportSurfaceSupported,
 }: ControlPanelProps) {
   const [backgroundQuery, setBackgroundQuery] = useState("");
@@ -521,7 +535,14 @@ export function ControlPanel({
 
   return (
     <SupplementaryTooltip.Provider>
-    <aside className="inspector" data-workspace={workspace} aria-label={`${workspaceCopy.title} controls`} aria-busy={exporting} inert={exporting}>
+    <aside
+      className="inspector"
+      data-workspace={workspace}
+      aria-label={`${workspaceCopy.title} controls`}
+      aria-busy={exporting}
+      aria-hidden={!panelActive}
+      inert={exporting || !panelActive}
+    >
       <div className="panel-heading">
         <div>
           <span className="panel-kicker">{workspaceCopy.kicker}</span>
@@ -832,8 +853,8 @@ export function ControlPanel({
             safeDefaultReady={sourceFaithfulLook && detectOutcomeRecipe(project) === "smooth-carousel"}
             onApply={(id) => {
               const recipe = getOutcomeRecipe(id);
-              onV2Project(
-                applyOutcomeRecipe(project, id),
+              onOutcomeRecipe(
+                id,
                 `${recipe.label.replace(/\s+—\s+Safe Default$/u, "")} applied. Slides and Look untouched.`,
               );
             }}
@@ -1394,7 +1415,7 @@ export function ControlPanel({
           onChange={(trackMode) => patch("presenter", { trackMode })}
         />
         <Segmented
-          label="Layer"
+          label="Anchoring"
           value={settings.presenter.layoutMode}
           options={[
             { value: "safe-overlay", label: "Protected" },
@@ -1402,12 +1423,53 @@ export function ControlPanel({
           ]}
           onChange={(layoutMode) => patch("presenter", { layoutMode })}
         />
+        {settings.presenter.layoutMode === "safe-overlay" ? (
+          <Segmented
+            label="Layer"
+            value={settings.presenter.layer}
+            options={[
+              { value: "above-slides", label: "Above slides" },
+              { value: "below-slides", label: "Below slides" },
+            ]}
+            onChange={(layer) => patch("presenter", { layer })}
+          />
+        ) : <p className="performance-note">In-scene placement follows the authored world depth. Protected layer ordering is available with safe anchoring.</p>}
         <RangeNumberField label="Width" value={settings.presenter.width * 100} softMin={5} softMax={100} hardMin={5} hardMax={100} step={1} unit="%" onChange={(value) => patch("presenter", { width: value / 100 })} />
         <RangeField label="Left ↔ right placement" value={settings.presenter.x * 100} min={0} max={100} step={1} unit="%" hint="0 puts the complete frame at the left safe edge; 100 puts it at the right safe edge." onChange={(value) => patch("presenter", { x: value / 100 })} />
         <RangeField label="Top ↔ bottom placement" value={settings.presenter.y * 100} min={0} max={100} step={1} unit="%" hint="The complete frame and its shadow remain inside the safe area." onChange={(value) => patch("presenter", { y: value / 100 })} />
         {settings.presenter.layoutMode === "safe-overlay" ? (
           <RangeField label="Safe inset" value={settings.presenter.safeInset * 100} min={0} max={25} step={0.5} decimals={1} unit="%" onChange={(value) => patch("presenter", { safeInset: value / 100 })} />
         ) : null}
+        <RangeField
+          label="Story start"
+          value={settings.presenter.startAt}
+          min={0}
+          max={Math.max(0, settings.output.duration - 0.05)}
+          step={0.05}
+          decimals={2}
+          unit=" s"
+          onChange={(startAt) => patch("presenter", {
+            startAt,
+            endAt: settings.presenter.endAt !== null && settings.presenter.endAt <= startAt
+              ? null
+              : settings.presenter.endAt,
+          })}
+        />
+        <RangeField
+          label="Story end"
+          value={settings.presenter.endAt ?? settings.output.duration}
+          min={Math.min(settings.output.duration, settings.presenter.startAt + 0.05)}
+          max={settings.output.duration}
+          step={0.05}
+          decimals={2}
+          unit=" s"
+          hint={settings.presenter.endAt === null ? "Follows the end of the master." : "The pinned frame is hidden at this time."}
+          onChange={(endAt) => patch("presenter", { endAt })}
+        />
+        <div className="pin-reset-control">
+          <button type="button" disabled={settings.presenter.endAt === null} onClick={() => patch("presenter", { endAt: null })}>Show through end</button>
+          <small>Range controls appearance in preview, scrub, stills, and every export frame.</small>
+        </div>
       </InspectorGroup>
       </WorkspaceSection>
 
@@ -1470,7 +1532,6 @@ export function ControlPanel({
           <>
             <RangeField label="Presenter level" value={settings.presenter.gain * 100} min={0} max={200} step={1} unit="%" onChange={(value) => patch("presenter", { gain: value / 100 })} />
             <RangeField label="Source trim" value={settings.presenter.trimStart} min={0} max={settings.output.duration} step={0.05} decimals={2} unit=" s" onChange={(trimStart) => patch("presenter", { trimStart })} />
-            <RangeField label="Enters at" value={settings.presenter.startAt} min={0} max={settings.output.duration} step={0.05} decimals={2} unit=" s" onChange={(startAt) => patch("presenter", { startAt })} />
           </>
         ) : null}
       </InspectorGroup>
@@ -1806,11 +1867,21 @@ export function ControlPanel({
             ))}
           </div>
         ) : null}
-        <div className="action-stack">
-          <button type="button" className="primary-action" onClick={onExportVideo} disabled={exporting || !preflight.canExport}>Export MP4 master</button>
-          <button type="button" onClick={onExportStill} disabled={exporting}>Save transparent-safe PNG</button>
-          <button type="button" onClick={onExportFrames} disabled={exporting}>Export PNG sequence</button>
-        </div>
+        <GuidedExportWizard
+          sourceIntent={guidedExportIntent}
+          runtimeCapabilities={exportCapabilities}
+          exportSurfaceSupported={exportSurfaceSupported}
+          applicationBlockers={preflight.blockers
+            .filter(({ id }) => ![
+              "output-container-unsupported",
+              "native-aac-duration-limit",
+            ].includes(id))
+            .map(({ message }) => message)}
+          progress={exportProgress}
+          busy={exporting}
+          onRun={onRunGuidedExport}
+          onQuickStill={onExportStill}
+        />
         <div className="project-actions">
           <button type="button" onClick={onExportProject} disabled={exporting || !projectFilesEnabled}>Save portable project</button>
           <button type="button" onClick={onImportProject} disabled={exporting || !projectFilesEnabled}>Open project</button>

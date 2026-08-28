@@ -647,6 +647,7 @@ describe("export safety checks", () => {
       decodedAlpha: decodedFrames.shift(),
       close: () => undefined,
     })));
+    const phases: string[] = [];
 
     try {
       const result = await exportPngSequence({
@@ -655,11 +656,17 @@ describe("export safety checks", () => {
         settings: { width: 1, height: 1, fps: 1, duration: 3 },
         destination: "zip",
         requireTransparentPixels: true,
+        onProgress: ({ phase }) => phases.push(phase),
       });
 
       expect(result.frameCount).toBe(3);
       expect(result.blob?.size).toBeGreaterThan(0);
       expect(decodedFrames).toHaveLength(0);
+      expect(phases).toContain("rendering");
+      expect(phases).toContain("finalizing");
+      expect(phases).toContain("verifying");
+      expect(phases).not.toContain("committing");
+      expect(phases.at(-1)).toBe("complete");
     } finally {
       vi.unstubAllGlobals();
     }

@@ -290,6 +290,8 @@ export function migrateLegacyStudioProjectToV4(input: LegacyProjectMigrationInpu
       trackMode: "moving-and-pinned",
       layoutMode: "legacy-perspective",
       aspectMode: "custom",
+      layer: "above-slides",
+      endAt: null,
       focalX: 0.5,
       focalY: 0.5,
       safeInset: 0,

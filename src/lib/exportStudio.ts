@@ -114,6 +114,8 @@ export type ExportProgressPhase =
   | "rendering"
   | "writing"
   | "finalizing"
+  | "verifying"
+  | "committing"
   | "complete";
 
 export type ExportProgress = Readonly<{
@@ -162,11 +164,77 @@ export interface Mp4TargetAdapter {
   abort(reason?: unknown): MaybePromise<void>;
 }
 
+export interface PresenterExportTiming {
+  readonly trimStart: number;
+  readonly startAt: number;
+  readonly endAt: number | null;
+}
+
+export interface ResolvedPresenterExportTiming {
+  readonly trimStart: number;
+  readonly storyStart: number;
+  readonly storyEnd: number;
+  readonly storyDuration: number;
+}
+
+export function resolvePresenterExportTiming(
+  timing: PresenterExportTiming | undefined,
+  masterDuration: number,
+): ResolvedPresenterExportTiming {
+  if (!Number.isFinite(masterDuration) || masterDuration <= 0) {
+    throw new TypeError("Presenter export master duration must be positive and finite.");
+  }
+  const trimStart = timing?.trimStart ?? 0;
+  const startAt = timing?.startAt ?? 0;
+  const endAt = timing?.endAt ?? masterDuration;
+  if (!Number.isFinite(trimStart) || trimStart < 0) throw new TypeError("Presenter source trim must be finite and non-negative.");
+  if (!Number.isFinite(startAt) || startAt < 0 || startAt >= masterDuration) {
+    throw new TypeError("Presenter story start must fall inside the export master.");
+  }
+  if (!Number.isFinite(endAt) || endAt <= startAt || endAt > masterDuration) {
+    throw new TypeError("Presenter story end must follow its start and remain inside the export master.");
+  }
+  return Object.freeze({
+    trimStart,
+    storyStart: startAt,
+    storyEnd: endAt,
+    storyDuration: endAt - startAt,
+  });
+}
+
+export function presenterSourceTimeAt(
+  timing: ResolvedPresenterExportTiming,
+  sourceTimelineStart: number,
+  storyTime: number,
+): number | null {
+  if (!Number.isFinite(sourceTimelineStart) || !Number.isFinite(storyTime)) {
+    throw new TypeError("Presenter source and story times must be finite.");
+  }
+  if (storyTime < timing.storyStart || storyTime >= timing.storyEnd) return null;
+  return sourceTimelineStart + timing.trimStart + storyTime - timing.storyStart;
+}
+
+function fitPresenterTimingToEncodedDuration(
+  timing: ResolvedPresenterExportTiming,
+  encodedDuration: number,
+): ResolvedPresenterExportTiming {
+  const storyEnd = Math.min(timing.storyEnd, encodedDuration);
+  if (storyEnd <= timing.storyStart) {
+    throw new TypeError("Presenter story range does not contain an encoded output frame.");
+  }
+  return Object.freeze({
+    ...timing,
+    storyEnd,
+    storyDuration: storyEnd - timing.storyStart,
+  });
+}
+
 export type Mp4ExportOptions = Readonly<{
   canvas: ExportCanvas;
   renderAt: RenderAt;
   settings: ExportSettings;
   presenter?: Blob;
+  presenterTiming?: PresenterExportTiming;
   /** Defaults true. Set false when the pinned presenter is muted. */
   includePresenterAudio?: boolean;
   /** Exact-length 48 kHz stereo effects bed rendered from saved Project V4 state. */
@@ -227,6 +295,7 @@ type CommonPngOptions = Readonly<{
   renderAt: RenderAt;
   settings: ExportSettings;
   presenter?: Blob;
+  presenterTiming?: PresenterExportTiming;
   signal?: AbortSignal;
   onProgress?: ExportProgressHandler;
   /** Defaults true. Fails if encoded PNG does not advertise an alpha channel. */
@@ -284,6 +353,7 @@ type PreparedPresenter = {
   audioTrack: InputAudioTrack | null;
   videoSink: VideoSampleSink;
   timelineStart: number;
+  timing: ResolvedPresenterExportTiming;
   presenterCanvas: ExportCanvas | null;
   presenterContext: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
   dispose: () => void;
@@ -1251,6 +1321,10 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
   const framePlan = buildExportFramePlan(settings);
   const frameCount = framePlan.length;
   const encodedDuration = frameCount / settings.fps;
+  const presenterTiming = fitPresenterTimingToEncodedDuration(
+    resolvePresenterExportTiming(options.presenterTiming, settings.duration),
+    encodedDuration,
+  );
   const soundtrack = options.soundtrack ?? null;
   const soundtrackGainWhenMixed = options.soundtrackGainWhenMixed ?? 0.5;
   if (soundtrack) validateSoundtrackBuffer(soundtrack, encodedDuration, soundtrackGainWhenMixed);
@@ -1273,7 +1347,8 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
         settings.fps,
         includePresenterAudio,
         options.signal,
-        encodedDuration,
+        presenterTiming.trimStart + presenterTiming.storyDuration,
+        presenterTiming,
       );
     }
     hasPresenterAudio = presenter?.audioTrack != null;
@@ -1443,7 +1518,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       options.signal,
     );
     throwIfAborted(options.signal);
-    report(options.onProgress, "finalizing", 2, 4, 0.98, undefined, "Preparing private verification");
+    report(options.onProgress, "verifying", 0, 2, 0.98, undefined, "Preparing private verification");
     const verificationBlob = blob ?? await finalizeInterruptibly(
       () => Promise.resolve(target.verificationBlob?.()),
       abortTarget,
@@ -1457,7 +1532,7 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
         { destination: target.kind },
       );
     }
-    report(options.onProgress, "finalizing", 3, 4, 0.99, undefined, "Checking frames and sound");
+    report(options.onProgress, "verifying", 1, 2, 0.99, undefined, "Checking frames and sound");
     const verification = await verifyMp4Artifact(
       verificationBlob,
       settings,
@@ -1465,12 +1540,16 @@ export async function exportMp4(options: Mp4ExportOptions): Promise<Mp4ExportRes
       options.signal,
     );
     throwIfAborted(options.signal);
-    report(options.onProgress, "finalizing", 4, 4, 0.995, undefined, "Private verification passed");
+    report(options.onProgress, "verifying", 2, 2, 0.995, undefined, "Private verification passed");
     // Cancellation is honored while the artifact is still private. The commit
     // itself is the linearization point: once entered, it either atomically
     // publishes the verified file or rejects and rolls its stage back.
-    if (target.commit) await target.commit();
-    report(options.onProgress, "complete", 1, 1, 1, undefined, "Master complete");
+    if (target.commit) {
+      report(options.onProgress, "committing", 0, 1, 0.997, undefined, "Publishing verified artifact");
+      await target.commit();
+      report(options.onProgress, "committing", 1, 1, 0.999, undefined, "Verified artifact published");
+    }
+    report(options.onProgress, "complete", 1, 1, 1, undefined, target.commit ? "Master complete" : "Master verified and ready");
 
     return {
       blob,
@@ -1768,6 +1847,7 @@ export async function exportPngStill(options: PngStillOptions): Promise<PngStill
   validateCommonOptions(options);
   const settings = validateExportSettings(options.settings);
   const time = resolvePngStillTime(settings.duration, options.time);
+  const presenterTiming = resolvePresenterExportTiming(options.presenterTiming, settings.duration);
   if (!supportsCanvasPngEncoding()) {
     throw new ExportStudioError(
       "CANVAS_EXPORT_UNSUPPORTED",
@@ -1780,14 +1860,18 @@ export async function exportPngStill(options: PngStillOptions): Promise<PngStill
   let presenter: PreparedPresenter | null = null;
 
   try {
-    if (options.presenter) {
+    if (options.presenter && presenterSourceTimeAt(presenterTiming, 0, time) !== null) {
       report(options.onProgress, "preparing", 0, 1, 0, undefined, "Reading presenter video");
       presenter = await preparePresenter(
         options.presenter,
         settings.fps,
         false,
         options.signal,
-        Math.min(time + 1 / settings.fps, settings.duration),
+        presenterTiming.trimStart + Math.min(
+          time - presenterTiming.storyStart + 1 / settings.fps,
+          presenterTiming.storyDuration,
+        ),
+        presenterTiming,
       );
     }
     const frameCount = getExportFrameCount(settings);
@@ -1795,12 +1879,14 @@ export async function exportPngStill(options: PngStillOptions): Promise<PngStill
     const sample = presenter
       ? await getPresenterSampleWithWatchdog(
           presenter,
-          presenter.timelineStart + time,
+          presenterSourceTimeAt(presenter.timing, presenter.timelineStart, time)!,
           options.signal,
           frameIndex,
         )
       : null;
-    const requestedPresenterTime = presenter ? presenter.timelineStart + time : 0;
+    const requestedPresenterTime = presenter
+      ? presenterSourceTimeAt(presenter.timing, presenter.timelineStart, time)!
+      : 0;
     if (
       presenter
       && (
@@ -1900,6 +1986,10 @@ async function exportPngSequenceZip(
   };
   const requireTransparency = options.requireTransparentPixels ?? false;
   const requireAlpha = (options.requireAlpha ?? true) || requireTransparency;
+  const presenterTiming = fitPresenterTimingToEncodedDuration(
+    resolvePresenterExportTiming(options.presenterTiming, options.settings.duration),
+    encodedDuration,
+  );
 
   try {
     if (options.presenter) {
@@ -1909,7 +1999,8 @@ async function exportPngSequenceZip(
         options.settings.fps,
         false,
         options.signal,
-        encodedDuration,
+        presenterTiming.trimStart + presenterTiming.storyDuration,
+        presenterTiming,
       );
     }
     await renderFrames({
@@ -1945,7 +2036,7 @@ async function exportPngSequenceZip(
     if (requireTransparency) assertPngTransparencyCoverage(alphaCoverage, "sequence");
 
     throwIfAborted(options.signal);
-    report(options.onProgress, "finalizing", 0, 1, 0.95, undefined, "Verifying frame archive");
+    report(options.onProgress, "finalizing", 0, 1, 0.92, undefined, "Finalizing frame archive");
     const zipped = zipSync(files, { level: 0, mtime: FIXED_ZIP_MTIME });
     const verificationPeak =
       options.settings.width * options.settings.height * 8
@@ -1959,11 +2050,13 @@ async function exportPngSequenceZip(
       );
     }
 
+    report(options.onProgress, "verifying", 0, 1, 0.96, undefined, "Reopening frame archive");
     const roundTripFiles = unzipSync(zipped);
     verifyPngZipEntries(files, roundTripFiles, filenames);
     throwIfAborted(options.signal);
     const blob = new Blob([zipped], { type: "application/zip" });
-    report(options.onProgress, "complete", 1, 1, 1, undefined, "Frame archive complete");
+    report(options.onProgress, "verifying", 1, 1, 0.99, undefined, "Frame archive readback passed");
+    report(options.onProgress, "complete", 1, 1, 1, undefined, "Frame archive verified and ready");
 
     return {
       destination: "zip",
@@ -1999,6 +2092,10 @@ async function exportPngSequenceDirectory(
   };
   const requireTransparency = options.requireTransparentPixels ?? false;
   const requireAlpha = (options.requireAlpha ?? true) || requireTransparency;
+  const presenterTiming = fitPresenterTimingToEncodedDuration(
+    resolvePresenterExportTiming(options.presenterTiming, options.settings.duration),
+    encodedDuration,
+  );
 
   try {
     await assertDirectoryFilesAbsent(options.directory, filenames, options.signal);
@@ -2009,7 +2106,8 @@ async function exportPngSequenceDirectory(
         options.settings.fps,
         false,
         options.signal,
-        encodedDuration,
+        presenterTiming.trimStart + presenterTiming.storyDuration,
+        presenterTiming,
       );
     }
 
@@ -2063,6 +2161,8 @@ async function exportPngSequenceDirectory(
     });
     if (requireTransparency) assertPngTransparencyCoverage(alphaCoverage, "sequence");
 
+    report(options.onProgress, "verifying", 1, 1, 0.99, undefined, "Every written frame reopened and verified");
+    report(options.onProgress, "committing", 1, 1, 0.999, undefined, "Verified frame directory published");
     report(options.onProgress, "complete", 1, 1, 1, undefined, "Frame sequence complete");
     return {
       destination: "directory",
@@ -2110,9 +2210,11 @@ async function renderFrames(options: RenderFramesOptions & {
 
   const renderOne = async (frame: ExportFrame, sample: VideoSample | null) => {
     throwIfAborted(options.signal);
-    const requestedSourceTime = presenter ? presenter.timelineStart + frame.time : 0;
+    const requestedSourceTime = presenter
+      ? presenterSourceTimeAt(presenter.timing, presenter.timelineStart, frame.time)
+      : null;
     if (
-      presenter
+      presenter && requestedSourceTime !== null
       && (
         !sample
         || sample.timestamp + sample.duration - requestedSourceTime <= SAMPLE_COVERAGE_EPSILON_SECONDS
@@ -2157,42 +2259,50 @@ async function renderFrames(options: RenderFramesOptions & {
     return;
   }
 
-  const timestamps = framePlan.map((frame) => presenter.timelineStart + frame.time);
-  let yielded = 0;
+  const activeFrames = framePlan.filter((frame) => (
+    presenterSourceTimeAt(presenter.timing, presenter.timelineStart, frame.time) !== null
+  ));
+  const timestamps = activeFrames.map((frame) => (
+    presenterSourceTimeAt(presenter.timing, presenter.timelineStart, frame.time)!
+  ));
+  let decoded = 0;
   const iterator = presenter.videoSink.samplesAtTimestamps(timestamps)[Symbol.asyncIterator]();
   const closeIterator = makeIteratorCloser(iterator);
   try {
-    while (yielded < frameCount) {
+    for (const frame of framePlan) {
+      const sourceTime = presenterSourceTimeAt(presenter.timing, presenter.timelineStart, frame.time);
+      if (sourceTime === null) {
+        await renderOne(frame, null);
+        continue;
+      }
       const result = await nextPresenterDecodeWithWatchdog({
         iterator,
         signal: options.signal,
         timeoutMs: PRESENTER_FRAME_INACTIVITY_TIMEOUT_MS,
-        frameIndex: yielded,
+        frameIndex: frame.index,
         closeIterator,
         disposeInput: presenter.dispose,
       });
-      if (result.done) break;
-      const sample = result.value;
-      const frame = framePlan[yielded];
-      if (!frame) {
-        sample?.close();
+      if (result.done) {
         throw new ExportStudioError(
           "PRESENTER_DECODE_FAILED",
-          "Presenter decoder returned more frames than requested.",
+          "Presenter decoder ended before every visible pinned frame was rendered.",
+          { expectedFrames: activeFrames.length, decodedFrames: decoded },
         );
       }
+      const sample = result.value;
       await renderOne(frame, sample);
-      yielded += 1;
+      decoded += 1;
     }
   } finally {
     closeIterator();
   }
 
-  if (yielded !== frameCount) {
+  if (decoded !== activeFrames.length) {
     throw new ExportStudioError(
       "PRESENTER_DECODE_FAILED",
-      "Presenter decoder ended before every export frame was rendered.",
-      { expectedFrames: frameCount, decodedFrames: yielded },
+      "Presenter decoder ended before every visible pinned frame was rendered.",
+      { expectedFrames: activeFrames.length, decodedFrames: decoded },
     );
   }
 }
@@ -2246,6 +2356,7 @@ async function preparePresenter(
   includeAudio: boolean,
   signal?: AbortSignal,
   requiredDuration?: number,
+  timing: ResolvedPresenterExportTiming = resolvePresenterExportTiming(undefined, requiredDuration ?? 1),
 ): Promise<PreparedPresenter> {
   const input = new Input({
     formats: ALL_FORMATS,
@@ -2350,8 +2461,9 @@ async function preparePresenter(
       );
     }
 
+    const firstRequestedSourceTime = timelineStart + timing.trimStart;
     const probeSink = new VideoSampleSink(videoTrack);
-    const probeIterator = probeSink.samplesAtTimestamps([timelineStart])[Symbol.asyncIterator]();
+    const probeIterator = probeSink.samplesAtTimestamps([firstRequestedSourceTime])[Symbol.asyncIterator]();
     const closeProbeIterator = makeIteratorCloser(probeIterator);
     let probeSample: VideoSample | null = null;
     try {
@@ -2366,19 +2478,19 @@ async function preparePresenter(
         throw new ExportStudioError(
           "PRESENTER_DECODE_FAILED",
           "Presenter video did not decode a frame at the export start.",
-          { sourceTime: timelineStart },
+          { sourceTime: firstRequestedSourceTime },
         );
       }
       probeSample = probeResult.value;
       if (
-        probeSample.timestamp + probeSample.duration - timelineStart
+        probeSample.timestamp + probeSample.duration - firstRequestedSourceTime
         <= SAMPLE_COVERAGE_EPSILON_SECONDS
       ) {
         throw new ExportStudioError(
           "PRESENTER_DECODE_FAILED",
           "Presenter video does not cover the export start.",
           {
-            sourceTime: timelineStart,
+            sourceTime: firstRequestedSourceTime,
             decodedFrameStart: probeSample.timestamp,
             decodedFrameEnd: probeSample.timestamp + probeSample.duration,
           },
@@ -2395,6 +2507,7 @@ async function preparePresenter(
       audioTrack,
       videoSink: new VideoSampleSink(videoTrack),
       timelineStart,
+      timing,
       presenterCanvas: null,
       presenterContext: null,
       dispose() {
@@ -2467,14 +2580,19 @@ async function encodePresenterAudio(
   const track = presenter.audioTrack;
   if (!track) return 0;
 
-  if (soundtrack) {
+  const timedPresenter = presenter.timing.trimStart > 0
+    || presenter.timing.storyStart > 0
+    || presenter.timing.storyEnd < duration - 1e-9;
+  if (soundtrack || timedPresenter) {
     try {
       const master = await renderMixedPresenterMaster({
         track,
-        timelineStart: presenter.timelineStart,
+        timelineStart: presenter.timelineStart + presenter.timing.trimStart,
         duration,
         soundtrack,
         soundtrackGain,
+        presenterOutputStart: presenter.timing.storyStart,
+        presenterDuration: presenter.timing.storyDuration,
         signal,
         onPresenterCoverage(coveredSeconds) {
           report(onProgress, "audio", coveredSeconds, duration, 0.78 + 0.08 * Math.min(coveredSeconds / duration, 1), undefined, "Reading presenter audio");
@@ -2492,7 +2610,7 @@ async function encodePresenterAudio(
     }
   }
   const sink = new AudioSampleSink(track);
-  const rangeStart = presenter.timelineStart;
+  const rangeStart = presenter.timelineStart + presenter.timing.trimStart;
   const rangeEnd = rangeStart + duration;
   let encodedSamples = 0;
   let lastEnd = 0;

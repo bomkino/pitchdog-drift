@@ -1,0 +1,258 @@
+name: Drift Linux runtime candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "codex/drift-runtime-candidate*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: drift-linux-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require Linux x86_64 and record source identity
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          mkdir -p build/evidence
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "runner_image=${ImageOS:-unknown}"
+            echo "runner_image_version=${ImageVersion:-unknown}"
+            echo "kernel=$(uname -srvm)"
+          } | tee build/evidence/linux-runtime-identity.txt
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Install locked dependencies and browser runtime
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+          {
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "chromium=$(npx playwright chromium --version 2>/dev/null || true)"
+            echo "chrome=$(google-chrome --version 2>/dev/null || google-chrome-stable --version 2>/dev/null || true)"
+          } | tee -a build/evidence/linux-runtime-identity.txt
+
+      - name: Run source and web-build gates
+        run: |
+          set -euo pipefail
+          npm run check
+          npm run build:v2-dev
+          git diff --check
+
+      - name: Require clean tracked source before native build
+        run: |
+          set -euo pipefail
+          git status --short --untracked-files=all \
+            | tee build/evidence/pre-linux-builder-status.txt
+          test ! -s build/evidence/pre-linux-builder-status.txt
+
+      - name: Download and verify official Electron archive
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/electron-v44.0.0-linux-x64.zip"
+          curl --fail --location --retry 3 --output "$archive" \
+            https://github.com/electron/electron/releases/download/v44.0.0/electron-v44.0.0-linux-x64.zip
+          echo "d65286d812719f2b4c1a1b806a80f288a1058c89c7b058dae1e03ab25e499446  $archive" | sha256sum --check
+          echo "electron_archive=$archive" >> "$GITHUB_ENV"
+          echo "electron_archive_sha256=d65286d812719f2b4c1a1b806a80f288a1058c89c7b058dae1e03ab25e499446" \
+            | tee -a build/evidence/linux-runtime-identity.txt
+
+      - name: Build tracer as runner and establish sandbox helper
+        run: |
+          set -euo pipefail
+          source_commit="$(git rev-parse HEAD)"
+          artifact="$GITHUB_WORKSPACE/build/linux-tracer/drift-linux-tracer-${source_commit:0:12}-electron-44.0.0"
+          set +e
+          DRIFT_ELECTRON_ARCHIVE="$electron_archive" npm run build:linux:tracer \
+            >build/evidence/linux-builder.log 2>&1
+          build_status=$?
+          set -e
+          test "$build_status" -ne 0
+          grep -F "Electron chrome-sandbox must be owned by UID 0 and GID 0 with exact mode 04755" \
+            build/evidence/linux-builder.log
+          test -x "$artifact/electron"
+          sudo chown root:root -- "$artifact/chrome-sandbox"
+          sudo chmod 4755 -- "$artifact/chrome-sandbox"
+          stat -c '%u %g %a %n' "$artifact/chrome-sandbox" "$artifact/electron" \
+            | tee build/evidence/linux-sandbox-stat.txt
+          test "$(stat -c '%u:%g:%a' "$artifact/chrome-sandbox")" = "0:0:4755"
+          echo "drift_linux_tracer_dir=$artifact" >> "$GITHUB_ENV"
+
+      - name: Verify real sandboxed Electron runtime as runner
+        run: |
+          set -euo pipefail
+          command -v xvfb-run
+          echo "electron_display=xvfb-1280x720x24" \
+            | tee -a build/evidence/linux-runtime-identity.txt
+          xvfb-run -a -s "-screen 0 1280x720x24" env \
+          DRIFT_LINUX_TRACER_DIR="$drift_linux_tracer_dir" \
+          DRIFT_LINUX_RUNTIME_RECEIPT="$GITHUB_WORKSPACE/build/evidence/linux-runtime-receipt.json" \
+            npm run verify:linux:tracer
+          test "$(id -u)" -ne 0
+
+      - name: Run browser and hostile authority journeys
+        env:
+          DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
+        run: |
+          set -euo pipefail
+          npx playwright test \
+            --workers=1 \
+            e2e/interface-scale.e2e.ts \
+            e2e/native-menu-import.e2e.ts \
+            e2e/studio-export.e2e.ts \
+            e2e/studio-projects.e2e.ts \
+            e2e/studio-renderer.e2e.ts \
+            e2e/studio-ui.e2e.ts \
+            e2e/timeline-dock.e2e.ts \
+            e2e/v2-ui.e2e.ts
+          npm test -- --run \
+            tests/linuxSandboxContract.test.mjs \
+            tests/linuxDocumentAuthority.test.mjs \
+            tests/linuxDesktopPlatform.test.ts \
+            tests/exportJobController.test.ts \
+            tests/automationExportService.test.ts \
+            tests/exportStudio.test.ts
+
+      - name: Hash bounded evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p build/evidence
+          for evidence_root in build/evidence output/qa/v2-long-export test-results; do
+            [[ ! -d "$evidence_root" ]] || find "$evidence_root" -type f -print0
+          done \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > build/evidence/SHA256SUMS.txt
+          if [[ -n "${drift_linux_tracer_dir:-}" && -d "$drift_linux_tracer_dir" ]]; then
+            find "$drift_linux_tracer_dir" -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              >> build/evidence/SHA256SUMS.txt
+          fi
+
+      - name: Upload bounded runtime evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-linux-runtime-${{ github.run_id }}
+          path: |
+            build/evidence/
+            build/linux-tracer/*/resources/app/BuildReceipt.json
+            output/qa/v2-long-export/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  ubuntu-encoder:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require Linux x86_64 and record encoder identity
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          mkdir -p build/evidence
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "runner_image=${ImageOS:-unknown}"
+            echo "runner_image_version=${ImageVersion:-unknown}"
+            echo "kernel=$(uname -srvm)"
+          } | tee build/evidence/linux-encoder-identity.txt
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Install locked dependencies and browser runtime
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+          {
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "chrome=$(google-chrome --version 2>/dev/null || google-chrome-stable --version 2>/dev/null || true)"
+          } | tee -a build/evidence/linux-encoder-identity.txt
+
+      - name: Require software H.264 probe to fail closed outside Rec.709
+        env:
+          DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
+        run: |
+          set -euo pipefail
+          command -v xvfb-run
+          command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null
+          # Keep SwiftShader encoding off the runner that just completed the
+          # broad browser suite. This is the same exporter seam on a fresh,
+          # bounded Ubuntu worker; it is not a second implementation.
+          # The presenter H.264/AAC lane is intentionally Mac-only here:
+          # installed Chrome under Ubuntu/Xvfb accepts the presenter file but
+          # never delivers its first video frame. Four exact-SHA attempts,
+          # including a fresh runner, bound that platform limitation.
+          #
+          # Ubuntu/Xvfb's software H.264 path does complete an encode, but
+          # labels it SMPTE 170M. Drift must reject that file instead of
+          # weakening the Rec.709 delivery contract. Require the exact
+          # fail-closed result and retain the trace as platform evidence.
+          set +e
+          xvfb-run -a npm run qa:long-export 2>&1 \
+            | tee build/evidence/linux-software-h264-probe.log
+          probe_status=${PIPESTATUS[0]}
+          set -e
+          test "$probe_status" -ne 0
+          grep -F '"code":"OUTPUT_VERIFICATION_FAILED"' \
+            build/evidence/linux-software-h264-probe.log
+          grep -F '"primaries":"smpte170m"' \
+            build/evidence/linux-software-h264-probe.log
+          echo "software_h264=fail-closed-smpte170m-not-rec709" \
+            | tee -a build/evidence/linux-encoder-identity.txt
+
+      - name: Hash bounded encoder evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p build/evidence
+          for evidence_root in build/evidence output/qa/v2-long-export test-results; do
+            [[ ! -d "$evidence_root" ]] || find "$evidence_root" -type f -print0
+          done \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > build/evidence/SHA256SUMS.txt
+
+      - name: Upload bounded encoder evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-linux-encoder-${{ github.run_id }}
+          path: |
+            build/evidence/
+            output/qa/v2-long-export/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14

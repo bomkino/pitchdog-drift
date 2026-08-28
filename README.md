@@ -90,7 +90,7 @@ npm run build:mac
 open build/macos/Drift.app
 ```
 
-The local build is a universal `arm64` + `x86_64` application with App Sandbox, hardened runtime, user-selected file access, and an ad-hoc signature. It does not need Node.js, Vite, Terminal, or a local server after it has been built.
+The local build is an Apple-Silicon-only `arm64` application with App Sandbox, hardened runtime, user-selected file access, and an ad-hoc signature. Intel Macs and Windows are unsupported. It does not need Node.js, Vite, Terminal, or a local server after it has been built.
 
 Useful native commands:
 

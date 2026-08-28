@@ -27,6 +27,8 @@ function asV3(project: DriftProjectV4): DriftProjectV3 {
     trackMode: _trackMode,
     layoutMode: _layoutMode,
     aspectMode: _aspectMode,
+    layer: _layer,
+    endAt: _endAt,
     focalX: _focalX,
     focalY: _focalY,
     safeInset: _safeInset,

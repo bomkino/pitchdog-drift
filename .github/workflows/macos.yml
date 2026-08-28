@@ -9,6 +9,7 @@ on:
       - "scripts/build-macos-v2-dev.sh"
       - "scripts/build-macos-web.mjs"
       - "scripts/check-macos-hardening.mjs"
+      - "scripts/check-macos-arm64-contract.mjs"
       - "scripts/check-macos-matrix-budget.mjs"
       - "scripts/check-macos-source.mjs"
       - "scripts/check-native-import-contract.mjs"
@@ -39,6 +40,7 @@ on:
       - "scripts/build-macos-v2-dev.sh"
       - "scripts/build-macos-web.mjs"
       - "scripts/check-macos-hardening.mjs"
+      - "scripts/check-macos-arm64-contract.mjs"
       - "scripts/check-macos-matrix-budget.mjs"
       - "scripts/check-macos-source.mjs"
       - "scripts/check-native-import-contract.mjs"
@@ -79,6 +81,14 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require Apple Silicon runner
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == "arm64" ]] || {
+            echo "The maintained macOS lane requires an Apple Silicon runner." >&2
+            exit 1
+          }
 
       - name: Record native-test checkout identity
         env:
@@ -132,7 +142,7 @@ jobs:
           "$RUNNER_TEMP/DriftNativeGauntlet"
 
   mac-build:
-    name: Build and falsify universal signed app
+    name: Build and falsify arm64 signed app
     runs-on: macos-15
     timeout-minutes: 35
     # Build, signature, entitlement, manifest, broker and packaging verification
@@ -143,6 +153,14 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require Apple Silicon runner
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == "arm64" ]] || {
+            echo "The maintained macOS lane requires an Apple Silicon runner." >&2
+            exit 1
+          }
 
       - name: Record checkout identity
         env:
@@ -174,12 +192,12 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Build universal signed app
+      - name: Build arm64 signed app
         id: app_build
         continue-on-error: true
         env:
-          DRIFT_MACOS_ARCHS: "arm64 x86_64"
-          DRIFT_EXPECT_ARCHS: "arm64 x86_64"
+          DRIFT_MACOS_ARCHS: "arm64"
+          DRIFT_EXPECT_ARCHS: "arm64"
           DRIFT_BUILD_NUMBER: ${{ github.run_number }}
           DRIFT_SOURCE_REVISION: ${{ github.sha }}
         run: npm run build:mac
@@ -235,12 +253,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$BUILD_OUTCOME" != "success" ]]; then
-            echo "The universal app failed before packaged-WebKit falsification; build outcome: $BUILD_OUTCOME" >&2
+            echo "The arm64 app failed before packaged-WebKit falsification; build outcome: $BUILD_OUTCOME" >&2
             cat build/macos/packaged-webview/matrix-summary.json >&2 || true
             exit 1
           fi
           test -d build/macos/Drift.app || {
-            echo "The universal app build reported success but produced no final bundle." >&2
+            echo "The arm64 app build reported success but produced no final bundle." >&2
             exit 1
           }
           if [[ "$MATRIX_OUTCOME" != "success" ]]; then
@@ -252,7 +270,7 @@ jobs:
 
       - name: Re-run the complete signed-bundle structural gauntlet
         env:
-          DRIFT_EXPECT_ARCHS: "arm64 x86_64"
+          DRIFT_EXPECT_ARCHS: "arm64"
         run: npm run verify:mac
 
       - name: Create and mount-check local DMG
@@ -284,6 +302,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Require Apple Silicon runner
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == "arm64" ]] || {
+            echo "The maintained macOS lane requires an Apple Silicon runner." >&2
+            exit 1
+          }
 
       - name: Establish V2 tested-source identity
         env:
@@ -348,18 +374,18 @@ jobs:
       - name: Build the V2 browser application
         run: npm run build:v2-dev
 
-      - name: Build the isolated universal V2 development app
+      - name: Build the isolated arm64 V2 development app
         env:
           DRIFT_BUILD_NUMBER: ${{ github.run_number }}
-          DRIFT_EXPECT_ARCHS: "arm64 x86_64"
-          DRIFT_MACOS_ARCHS: "arm64 x86_64"
+          DRIFT_EXPECT_ARCHS: "arm64"
+          DRIFT_MACOS_ARCHS: "arm64"
           DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST: "1"
           DRIFT_SOURCE_REVISION: ${{ github.sha }}
         run: npm run build:mac:v2-dev
 
       - name: Verify the exact V2 bundle and packaged WKWebView
         env:
-          DRIFT_EXPECT_ARCHS: "arm64 x86_64"
+          DRIFT_EXPECT_ARCHS: "arm64"
           DRIFT_WEBVIEW_COMMAND_TIMEOUT: "20"
           DRIFT_WEBVIEW_LOG_TIMEOUT: "18"
           DRIFT_WEBVIEW_MATRIX_TIMEOUT: "75"

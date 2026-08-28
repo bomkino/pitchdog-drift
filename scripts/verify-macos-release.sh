@@ -36,7 +36,7 @@ BUILD_RECEIPT="$APP_PATH/Contents/Resources/BuildReceipt.txt"
 [[ -d "$LEGAL_ROOT" ]] || fail "packaged legal evidence is missing"
 [[ -f "$BUILD_RECEIPT" ]] || fail "build receipt is missing"
 
-DRIFT_EXPECT_ARCHS="arm64 x86_64" \
+DRIFT_EXPECT_ARCHS="arm64" \
 DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST=0 \
   "$ROOT/scripts/verify-macos-app.sh" "$APP_PATH"
 
@@ -47,9 +47,7 @@ SIGNING_TEAM="$(awk -F= '/^TeamIdentifier=/{print $2; exit}' <<<"$SIGNATURE_DETA
 [[ -n "$SIGNING_TEAM" && "$SIGNING_TEAM" != "not set" ]] || fail "Developer ID signature has no TeamIdentifier"
 
 ARCHS="$(lipo -archs "$EXECUTABLE")"
-for arch in arm64 x86_64; do
-  grep -qw "$arch" <<<"$ARCHS" || fail "universal executable is missing $arch"
-done
+[[ "$ARCHS" == "arm64" ]] || fail "release executable architecture is $ARCHS; expected arm64 only"
 
 for legal in LICENSE NOTICE ASSET-LICENSE.md THIRD_PARTY_NOTICES.md TRADEMARKS.md SBOM.cdx.json; do
   [[ -s "$LEGAL_ROOT/$legal" ]] || fail "legal evidence is missing or empty: $legal"
@@ -130,8 +128,8 @@ if (manifest.version !== plist('CFBundleShortVersionString')) fail('release mani
 if (manifest.build !== plist('CFBundleVersion')) fail('release manifest build differs from Info.plist');
 if (manifest.commit !== plist('DriftSourceRevision')) fail('release manifest commit differs from Info.plist');
 if (manifest.minimumSystemVersion !== plist('LSMinimumSystemVersion')) fail('minimum macOS differs from Info.plist');
-if (!Array.isArray(manifest.architectures) || !manifest.architectures.includes('arm64') || !manifest.architectures.includes('x86_64')) {
-  fail('release manifest does not describe a universal binary');
+if (!Array.isArray(manifest.architectures) || manifest.architectures.length !== 1 || manifest.architectures[0] !== 'arm64') {
+  fail('release manifest does not describe an arm64-only binary');
 }
 if (manifest.codecs?.video !== 'WKWebView-H264-capability-gated') fail('release manifest misstates the video codec path');
 if (manifest.codecs?.presenterAudio !== 'AudioToolbox-Apple-software-AAC-LC') fail('release manifest misstates the audio codec path');
@@ -191,7 +189,7 @@ grep -q 'AudioToolbox' "$MOUNT_ROOT/Read Me.txt" || fail "DMG read-me omits the 
 grep -q 'WKWebView' "$MOUNT_ROOT/Read Me.txt" || fail "DMG read-me omits the H.264 capability boundary"
 grep -q 'not automatically' "$MOUNT_ROOT/Read Me.txt" || fail "DMG read-me omits the publication boundary"
 
-DRIFT_EXPECT_ARCHS="arm64 x86_64" "$ROOT/scripts/verify-macos-app.sh" "$MOUNT_ROOT/Drift.app"
+DRIFT_EXPECT_ARCHS="arm64" "$ROOT/scripts/verify-macos-app.sh" "$MOUNT_ROOT/Drift.app"
 
 # Compare every regular file, not merely the executable. The DMG must contain
 # the exact frozen app that passed signature, manifest, and runtime checks.

@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => ({
         },
       }
     : undefined,
+  ssr: mode === "linux-fixture" ? { noExternal: true } : undefined,
   build: {
     target: "es2022",
     // Source maps include dependency source text. Keep them for browser

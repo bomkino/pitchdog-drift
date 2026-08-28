@@ -9,10 +9,6 @@ export interface ExportAuthorityState {
 }
 
 export interface ExportAuthoritySnapshot {
-  readonly projectSource: DriftProjectV4;
-  readonly settingsSource: StudioSettings;
-  readonly assetsSource: readonly StudioAsset[];
-  readonly presenterSource: StudioAsset | null;
   readonly project: DriftProjectV4;
   readonly settings: StudioSettings;
   readonly assets: StudioAsset[];
@@ -20,6 +16,14 @@ export interface ExportAuthoritySnapshot {
   readonly projectFingerprint: string;
   readonly settingsFingerprint: string;
   readonly assetFingerprint: string;
+}
+
+function projectFingerprint(project: DriftProjectV4): string {
+  const authored = structuredClone(project);
+  // Persistence advances this wall-clock field without changing creative
+  // authority. Export admission must follow authored state, not autosave time.
+  delete (authored as Partial<DriftProjectV4>).updatedAt;
+  return JSON.stringify(authored);
 }
 
 function assetFingerprint(assets: readonly StudioAsset[], presenter: StudioAsset | null): string {
@@ -40,15 +44,11 @@ function assetFingerprint(assets: readonly StudioAsset[], presenter: StudioAsset
 
 export function captureExportAuthority(state: ExportAuthorityState): ExportAuthoritySnapshot {
   return Object.freeze({
-    projectSource: state.project,
-    settingsSource: state.settings,
-    assetsSource: state.assets,
-    presenterSource: state.presenter,
     project: structuredClone(state.project),
     settings: structuredClone(state.settings),
     assets: [...state.assets],
     presenter: state.presenter,
-    projectFingerprint: JSON.stringify(state.project),
+    projectFingerprint: projectFingerprint(state.project),
     settingsFingerprint: JSON.stringify(state.settings),
     assetFingerprint: assetFingerprint(state.assets, state.presenter),
   });
@@ -58,11 +58,7 @@ export function assertExportAuthorityUnchanged(
   snapshot: ExportAuthoritySnapshot,
   current: ExportAuthorityState,
 ): void {
-  const changed = current.project !== snapshot.projectSource
-    || current.settings !== snapshot.settingsSource
-    || current.assets !== snapshot.assetsSource
-    || current.presenter !== snapshot.presenterSource
-    || JSON.stringify(current.project) !== snapshot.projectFingerprint
+  const changed = projectFingerprint(current.project) !== snapshot.projectFingerprint
     || JSON.stringify(current.settings) !== snapshot.settingsFingerprint
     || assetFingerprint(current.assets, current.presenter) !== snapshot.assetFingerprint;
 

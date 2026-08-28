@@ -182,6 +182,7 @@ export function studioSettingsFromDriftProject(projectInput: CompatibleDriftProj
       trackMode: project.formatVersion === 4 ? project.presenter.trackMode : "moving-and-pinned",
       layoutMode: project.formatVersion === 4 ? project.presenter.layoutMode : "legacy-perspective",
       aspectMode: project.formatVersion === 4 ? project.presenter.aspectMode : "custom",
+      layer: project.formatVersion === 4 ? project.presenter.layer : "above-slides",
       x: project.presenter.x,
       y: project.presenter.y,
       width: project.presenter.width,
@@ -208,6 +209,7 @@ export function studioSettingsFromDriftProject(projectInput: CompatibleDriftProj
       gain: project.presenter.gain,
       trimStart: project.presenter.trimStart,
       startAt: project.presenter.startAt,
+      endAt: project.formatVersion === 4 ? project.presenter.endAt : null,
     },
     performance: project.formatVersion === 4
       ? structuredClone(project.performance)
@@ -602,6 +604,8 @@ export function reconcileStudioProject(input: ReconcileStudioProjectInput): Comp
       trackMode: settings.presenter.trackMode,
       layoutMode: settings.presenter.layoutMode,
       aspectMode: settings.presenter.aspectMode,
+      layer: settings.presenter.layer,
+      endAt: settings.presenter.endAt,
       focalX: settings.presenter.focalX,
       focalY: settings.presenter.focalY,
       safeInset: settings.presenter.safeInset,

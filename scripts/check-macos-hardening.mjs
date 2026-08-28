@@ -330,10 +330,19 @@ requireMarkers("src/lib/nativeMac.ts", [
 ]);
 requireMarkers("src/App.tsx", [
   "openPortableProjectFile = useCallback(async (",
-  "confirmNativeMacDocumentOpen(file)",
-  "abandonNativeMacDocumentOpen()",
+  "desktopPlatform.documents.finalizePortableProjectOpen(file)",
+  "desktopPlatform.documents.abandonPortableProjectOpen()",
   "if (propagateFailure) throw error",
   "openPortableProjectFile(file, true)",
+]);
+requireMarkers("src/lib/desktopPlatform.ts", [
+  "confirmNativeMacDocumentOpen(file)",
+  "abandonNativeMacDocumentOpen",
+  "completeNativeMacDocumentSave(revisions, ticket, nativeReceipt)",
+]);
+forbidMarkers("src/App.tsx", [
+  "confirmNativeMacDocumentOpen(",
+  "abandonNativeMacDocumentOpen(",
 ]);
 requireMarkers("src/components/NativeFileInputBridge.tsx", [
   "nativeImportKindForInput",

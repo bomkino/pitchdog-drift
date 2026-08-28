@@ -1,5 +1,6 @@
-import { expect, test } from "@playwright/test";
-import { readFile } from "node:fs/promises";
+import { expect, test, type Download } from "@playwright/test";
+import { mkdir, readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import {
   audioOnlyFixturePath,
   fixturePath,
@@ -9,9 +10,31 @@ import {
   PORTABLE_SAVED_NOTICE,
   presenterAvFixturePath,
   presenterFixturePath,
+  prepareGuidedExport,
+  startGuidedExport,
   switchWorkspace,
   waitForStudio,
 } from "./studio.helpers";
+
+function physicalEncoderDownloadTimeout(): number {
+  const configured = Number(process.env.DRIFT_PHYSICAL_ENCODER_TIMEOUT_MS ?? 120_000);
+  if (!Number.isSafeInteger(configured) || configured < 120_000) return 90_000;
+  return configured - 30_000;
+}
+
+function physicalEncoderMediaReadyTimeout(): number {
+  return Math.min(physicalEncoderDownloadTimeout(), 120_000);
+}
+
+async function retainRuntimeEvidence(download: Download, fileName: string): Promise<string | null> {
+  const path = await download.path();
+  const evidenceDirectory = process.env.DRIFT_RUNTIME_EVIDENCE_DIR?.trim();
+  if (path && evidenceDirectory) {
+    await mkdir(evidenceDirectory, { recursive: true });
+    await download.saveAs(resolve(evidenceDirectory, fileName));
+  }
+  return path;
+}
 
 test("WebGL2 denial yields an explicit, usable DOM fallback", async ({ page }) => {
   await page.addInitScript(() => {
@@ -33,7 +56,10 @@ test("WebGL2 denial yields an explicit, usable DOM fallback", async ({ page }) =
   await switchWorkspace(page, "EXPORT");
   await expect(page.getByRole("button", { name: "Save portable project" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add slides" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Export MP4 master" })).toBeDisabled();
+  const wizard = page.getByRole("region", { name: "Guided Export" });
+  await wizard.getByRole("button", { name: "Choose format" }).click();
+  await expect(wizard.getByRole("radio", { name: /H\.264 MP4/ })).toBeDisabled();
+  await expect(wizard).toContainText("The cinematic render surface is unavailable");
   expect(await page.evaluate(() => (window as Window & { __driftSavePickerCalls?: number }).__driftSavePickerCalls)).toBe(0);
 });
 
@@ -49,8 +75,8 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
 
   const stillDownload = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
-  expect(await (await stillDownload).path()).toBeTruthy();
+  await page.getByRole("button", { name: "Save one PNG still" }).click();
+  expect(await retainRuntimeEvidence(await stillDownload, "preview-still.png")).toBeTruthy();
   const pause = page.getByRole("button", { name: "Pause preview" });
   await expect(pause).toBeEnabled();
   await pause.click();
@@ -77,9 +103,10 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
       }, type, quality);
     };
   });
+  await prepareGuidedExport(page, "PNG Frames", "Bounded ZIP");
   await Promise.all([
     page.locator(".export-overlay").waitFor({ state: "visible" }),
-    page.getByRole("button", { name: "Export PNG sequence" }).click(),
+    startGuidedExport(page),
   ]);
   const progressOverlay = page.locator(".export-overlay");
   await expect(progressOverlay).toContainText(/Elapsed \d+:\d{2}/);
@@ -95,6 +122,12 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
   await expect(page.locator(".header-status")).toContainText("saved locally", { timeout: 10_000 });
 
+  const guidedExport = page.getByRole("region", { name: "Guided Export" });
+  for (const step of ["film-audio", "format", "purpose-background"] as const) {
+    await guidedExport.getByRole("button", { name: "Back" }).click();
+    await expect(guidedExport).toHaveAttribute("data-step", step);
+  }
+
   await page.locator("[data-testid=webgl-stage]").evaluate((canvas) => {
     const gl = (canvas as HTMLCanvasElement).getContext("webgl2")!;
     const original = gl.getParameter.bind(gl);
@@ -108,7 +141,7 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
     });
   });
 
-  await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
+  await page.getByRole("button", { name: "Save one PNG still" }).click();
   await expect(page.getByRole("alert")).toContainText("exceeds this GPU's safe WebGL limit of 128 × 128");
   const projectDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save portable project" }).click();
@@ -165,46 +198,58 @@ test("presenter export preflight decodes a real frame before rendering", async (
 });
 
 test("@physical-encoder full presenter journey closes and verifies the fixed-step MP4 instead of hanging after its last frame", async ({ page }) => {
-  test.setTimeout(120_000);
+  const softwareSmoke = process.env.DRIFT_PRESENTER_SMOKE_PROFILE === "software-ci";
+  const stageSize = 256;
+  const duration = softwareSmoke ? 0.5 : 1.5;
+  const frameCount = Math.round(duration * 24);
   await page.addInitScript(() => {
     Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined });
   });
   await waitForStudio(page);
+
+  // Bound the software-rendered CI workload before presenter decode. Loading
+  // the presenter against the default 1080 x 1920 animated stage spent most
+  // of the runner's budget on preview work rather than the exporter seam.
+  await page.getByRole("button", { name: "Pause preview" }).click();
+  await switchWorkspace(page, "EXPORT");
+  await page.getByLabel("Stage width").fill(String(stageSize));
+  await page.getByLabel("Stage height").fill(String(stageSize));
+
   await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterAvFixturePath);
-  await expect(page.locator(".presenter-card")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove presenter video" }))
+    .toBeVisible({ timeout: physicalEncoderMediaReadyTimeout() });
 
   await switchWorkspace(page, "MOTION");
   await page.getByRole("group", { name: "Timing authority" }).getByText("Exact length", { exact: true }).click();
-  await page.getByLabel("Body duration").fill("1.5");
+  await page.getByLabel("Body duration").fill(String(duration));
 
   await switchWorkspace(page, "EXPORT");
-  await page.getByLabel("Stage width").fill("256");
-  await page.getByLabel("Stage height").fill("256");
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
-  await expect(page.getByRole("status", { name: "Delivery receipt" })).toContainText("36 frames");
+  await expect(page.getByRole("status", { name: "Delivery receipt" })).toContainText(`${frameCount} frames`);
   await expect(page.getByRole("status", { name: "Delivery receipt" }))
     .toContainText("Presenter on · source checked at export");
 
-  const downloadPromise = page.waitForEvent("download", { timeout: 90_000 });
-  await page.getByRole("button", { name: "Export MP4 master" }).click();
+  const downloadPromise = page.waitForEvent("download", { timeout: physicalEncoderDownloadTimeout() });
+  await prepareGuidedExport(page, "H.264 MP4");
+  await startGuidedExport(page);
   const download = await downloadPromise;
-  const path = await download.path();
+  const path = await retainRuntimeEvidence(download, `presenter-${stageSize}x${stageSize}.mp4`);
   expect(path).toBeTruthy();
   expect((await readFile(path!)).byteLength).toBeGreaterThan(1_000);
   await expect(page.locator(".export-overlay")).toBeHidden();
   await expect(page.locator(".notice")).toContainText(
-    "256 × 256 H.264 master verified: 36 frames at 24 fps · presenter AAC.",
+    `${stageSize} × ${stageSize} H.264 master verified: ${frameCount} frames at 24 fps · presenter AAC.`,
   );
 });
 
 test("@physical-encoder installed Chrome verifies and downloads a delivery-size vertical presenter master", async ({ page }) => {
-  test.setTimeout(120_000);
   await page.addInitScript(() => {
     Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined });
   });
   await waitForStudio(page);
   await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterAvFixturePath);
-  await expect(page.locator(".presenter-card")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove presenter video" }))
+    .toBeVisible({ timeout: physicalEncoderMediaReadyTimeout() });
 
   await switchWorkspace(page, "MOTION");
   await page.getByRole("group", { name: "Timing authority" }).getByText("Exact length", { exact: true }).click();
@@ -219,19 +264,20 @@ test("@physical-encoder installed Chrome verifies and downloads a delivery-size 
     .toContainText("Presenter on · source checked at export");
 
   const completion = Promise.any([
-    page.waitForEvent("download", { timeout: 90_000 })
+    page.waitForEvent("download", { timeout: physicalEncoderDownloadTimeout() })
       .then((download) => ({ kind: "download" as const, download })),
-    page.getByRole("alert").waitFor({ state: "visible", timeout: 90_000 })
+    page.getByRole("alert").waitFor({ state: "visible", timeout: physicalEncoderDownloadTimeout() })
       .then(async () => ({
         kind: "rejected" as const,
         message: await page.getByRole("alert").textContent(),
       })),
   ]);
-  await page.getByRole("button", { name: "Export MP4 master" }).click();
+  await prepareGuidedExport(page, "H.264 MP4");
+  await startGuidedExport(page);
   const result = await completion;
   expect(result.kind, result.kind === "rejected" ? result.message ?? undefined : undefined).toBe("download");
   if (result.kind !== "download") return;
-  const path = await result.download.path();
+  const path = await retainRuntimeEvidence(result.download, "presenter-1080x1920.mp4");
   expect(path).toBeTruthy();
   expect((await readFile(path!)).byteLength).toBeGreaterThan(100_000);
   await expect(page.locator(".export-overlay")).toBeHidden();

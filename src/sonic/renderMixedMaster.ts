@@ -8,8 +8,10 @@ export interface MixedPresenterMasterOptions {
   track: InputAudioTrack;
   timelineStart: number;
   duration: number;
-  soundtrack: AudioBuffer;
+  soundtrack: AudioBuffer | null;
   soundtrackGain: number;
+  presenterOutputStart?: number;
+  presenterDuration?: number;
   signal?: AbortSignal;
   onPresenterCoverage?: (coveredSeconds: number) => void;
 }
@@ -79,12 +81,19 @@ export async function renderMixedPresenterMaster(
   }
 
   const frameCount = Math.max(1, Math.round(options.duration * MIX_SAMPLE_RATE));
-  if (
+  if (options.soundtrack && (
     options.soundtrack.sampleRate !== MIX_SAMPLE_RATE
     || options.soundtrack.numberOfChannels !== MIX_CHANNELS
     || options.soundtrack.length !== frameCount
-  ) {
+  )) {
     throw new TypeError("Tactile soundtrack must exactly match the stereo 48 kHz master timeline.");
+  }
+  const presenterOutputStart = options.presenterOutputStart ?? 0;
+  const presenterDuration = options.presenterDuration ?? options.duration;
+  if (!Number.isFinite(presenterOutputStart) || presenterOutputStart < 0
+    || !Number.isFinite(presenterDuration) || presenterDuration <= 0
+    || presenterOutputStart + presenterDuration > options.duration + 1e-9) {
+    throw new TypeError("Presenter range must be positive and contained by the mixed master.");
   }
 
   const context = new OfflineAudioContext(
@@ -102,16 +111,18 @@ export async function renderMixedPresenterMaster(
   mixBus.connect(limiter);
   limiter.connect(context.destination);
 
-  const tactileSource = context.createBufferSource();
-  const tactileGain = context.createGain();
-  tactileSource.buffer = options.soundtrack;
-  tactileGain.gain.value = options.soundtrackGain;
-  tactileSource.connect(tactileGain);
-  tactileGain.connect(mixBus);
-  tactileSource.start(0, 0, options.duration);
+  if (options.soundtrack) {
+    const tactileSource = context.createBufferSource();
+    const tactileGain = context.createGain();
+    tactileSource.buffer = options.soundtrack;
+    tactileGain.gain.value = options.soundtrackGain;
+    tactileSource.connect(tactileGain);
+    tactileGain.connect(mixBus);
+    tactileSource.start(0, 0, options.duration);
+  }
 
   const rangeStart = options.timelineStart;
-  const rangeEnd = rangeStart + options.duration;
+  const rangeEnd = rangeStart + presenterDuration;
   const sink = new AudioBufferSink(options.track);
   let scheduledBuffers = 0;
   let coveredUntil = 0;
@@ -137,7 +148,7 @@ export async function renderMixedPresenterMaster(
     const presenterSource = context.createBufferSource();
     presenterSource.buffer = wrapped.buffer;
     presenterSource.connect(mixBus);
-    const outputStart = sourceStart - rangeStart;
+    const outputStart = presenterOutputStart + sourceStart - rangeStart;
     presenterSource.start(outputStart, sourceOffset, segmentDuration);
     scheduledBuffers += 1;
     coveredUntil = Math.max(coveredUntil, outputStart + segmentDuration);

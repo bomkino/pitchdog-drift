@@ -11,6 +11,10 @@ import { evaluateFrame } from "../timeline/evaluateFrame";
 import { evaluateV2Frame } from "../timeline/evaluateV2Frame";
 import type { EvaluatedFrameSlide, FrameEvaluation } from "../timeline/FrameEvaluation";
 import type { PerformanceLifecycleSample } from "../timeline/performanceLifecycle";
+import {
+  resolvePinnedFramePresentation,
+  type PinnedFramePresentation,
+} from "../presenter/presentation";
 
 export class ProjectFrameAdapterError extends Error {
   constructor(message: string) {
@@ -36,6 +40,7 @@ export interface ProjectFrameEvaluation {
   renderables: ProjectFrameRenderableItem[];
   sourceOrder: string[];
   projectAxis: DriftProjectV4["motion"]["transport"]["axis"];
+  pinnedFrame: PinnedFramePresentation;
 }
 
 export interface EvaluateProjectFrameInput {
@@ -160,6 +165,11 @@ export function evaluateProjectFrame(input: EvaluateProjectFrameInput): ProjectF
   assertV2FrameAuthority(input.project, input.time, input.frameIndex);
 
   const sourceOrder = movingSourceOrder(input.project);
+  const pinnedFrame = resolvePinnedFramePresentation(
+    input.project.presenter,
+    input.project.master.duration,
+    input.time,
+  );
   const canonicalGeometry = deriveSlideGeometry(input.project, sourceOrder.length);
   const interactionSlides = sourceOrder.length > 0
     ? (input.interactionDistancePx ?? 0) / Math.max(1, canonicalGeometry.stride)
@@ -203,5 +213,6 @@ export function evaluateProjectFrame(input: EvaluateProjectFrameInput): ProjectF
     renderables,
     sourceOrder: [...renderOrder],
     projectAxis: input.project.motion.transport.axis,
+    pinnedFrame,
   };
 }

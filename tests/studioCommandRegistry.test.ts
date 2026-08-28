@@ -10,7 +10,7 @@ import {
 
 describe("studio command registry", () => {
   it("maps every required command family to stable action tokens", () => {
-    expect(STUDIO_COMMAND_REGISTRY).toHaveLength(20);
+    expect(STUDIO_COMMAND_REGISTRY).toHaveLength(23);
     expect(STUDIO_COMMAND_REGISTRY.map(({ id }) => id)).toEqual([
       "workspace.slides",
       "workspace.look",
@@ -20,6 +20,9 @@ describe("studio command registry", () => {
       "preview.focus.toggle",
       "guide.toggle",
       "comparison.toggle",
+      "presentation.interface-scale.smaller",
+      "presentation.interface-scale.larger",
+      "presentation.interface-scale.reset",
       "timing.mode.fixed-master",
       "timing.mode.content-paced",
       "timing.close-at-cut",
@@ -63,6 +66,11 @@ describe("studio command registry", () => {
     expect(first).toEqual(second);
     expect(first.map(({ id }) => id)).toEqual(["export.sequence", "export.still"]);
     expect(searchStudioCommands("fixed master")[0]?.id).toBe("timing.mode.fixed-master");
+    expect(searchStudioCommands("interface scale").map(({ id }) => id)).toEqual([
+      "presentation.interface-scale.reset",
+      "presentation.interface-scale.smaller",
+      "presentation.interface-scale.larger",
+    ]);
     expect(searchStudioCommands("command z").map(({ id }) => id)).toEqual([
       "history.undo",
       "history.redo",

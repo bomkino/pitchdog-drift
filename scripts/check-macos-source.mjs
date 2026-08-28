@@ -220,11 +220,14 @@ requireMarkers("src/App.tsx", [
   "installNativeMacAppBridge",
   "reportNativeMacClientState",
   "saveNativeMacBlob",
-  "saveNativeMacDocument",
-  "saveNativeMacDocumentAs",
-  "revertNativeMacDocument",
-  "confirmNativeMacDocumentOpen(file)",
-  "abandonNativeMacDocumentOpen()",
+  "createDesktopPlatform",
+  "desktopPlatform.documents.choosePortableProject()",
+  "desktopPlatform.documents.finalizePortableProjectOpen(file)",
+  "desktopPlatform.documents.preparePortableProjectSave(",
+  "desktopPlatform.documents.savePortableProject({",
+  "desktopPlatform.documents.completePortableProjectSave(",
+  "desktopPlatform.documents.revertPortableProject({",
+  "desktopPlatform.documents.abandonPortableProjectOpen()",
   "selectProjectMediaWithinBudget(",
   "projectMediaViolation(file.size, existingSlideBytes)",
   "projectAssetBytes(",
@@ -236,6 +239,33 @@ requireMarkers("src/App.tsx", [
   "advanceLocalSaveRevision(saveRevisionAuthorityRef.current)",
   "ownsLocalSaveRevision(saveRevisionAuthorityRef.current, revision)",
   "matchesDirectPersistenceSnapshot(directSnapshot, settings, assets, presenter)",
+]);
+forbidMarkers("src/App.tsx", [
+  "saveNativeMacDocument(",
+  "saveNativeMacDocumentAs(",
+  "revertNativeMacDocument(",
+  "confirmNativeMacDocumentOpen(",
+  "abandonNativeMacDocumentOpen(",
+]);
+requireMarkers("src/lib/desktopPlatform.ts", [
+  "export interface DesktopPlatform",
+  "createBrowserDesktopPlatform",
+  "createNativeMacDesktopPlatform",
+  "pickNativeMacFiles(\"project\", false)",
+  "confirmNativeMacDocumentOpen(file)",
+  "saveNativeMacDocumentAs(nativeRequest)",
+  "saveNativeMacDocument(nativeRequest)",
+  "completeNativeMacDocumentSave(revisions, ticket, nativeReceipt)",
+  "revertNativeMacDocument(request)",
+  "abandonNativeMacDocumentOpen",
+  "readbackVerified",
+]);
+requireMarkers("tests/desktopPlatform.test.ts", [
+  "chooses, saves, and reopens exact Project V4 and pinned-frame intent through browser adapter",
+  "returns typed cancellation and failure without advancing document revisions",
+  "stagePresentationFromProject(reopenedProject)",
+  "exportPlanFromProject(reopenedProject)",
+  "expect({ ...exported.frame, frameIndex: null }).toEqual(preview.frame)",
 ]);
 requireMarkers("src/lib/localSaveAuthority.ts", [
   "advanceLocalSaveRevision",

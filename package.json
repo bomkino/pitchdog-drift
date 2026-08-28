@@ -31,6 +31,9 @@
     "dev:v1": "vite --host 127.0.0.1 --port 4173",
     "build": "tsc -b && vite build",
     "build:v2-dev": "tsc -b && vite build --mode v2-dev",
+    "build:linux:tracer": "node scripts/build-linux-tracer.mjs",
+    "verify:linux:tracer": "node scripts/verify-linux-tracer.mjs",
+    "check:linux-source": "node scripts/check-linux-tracer-source.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "preview:v2-dev": "npm run build:v2-dev && vite preview --host 127.0.0.1 --port 4174",
     "typecheck": "tsc -b --pretty false",
@@ -42,7 +45,9 @@
     "qa:long-export": "node scripts/qa-long-export.mjs",
     "qa:long-export:full": "node scripts/qa-long-export.mjs --full",
     "qa:presenter-export": "playwright test --config=playwright.presenter-export.config.ts",
-    "check:mac-source": "node scripts/check-macos-source.mjs && node --check scripts/build-macos-web.mjs && node --check scripts/stage-macos-runtime-licenses.mjs && node scripts/verify-macos-user-guide.mjs release docs/MACOS_USER_GUIDE.md && node scripts/verify-macos-user-guide.mjs v2-dev docs/v2/MACOS_V2_DEV_USER_GUIDE.md && node scripts/check-native-import-contract.mjs && node scripts/check-macos-matrix-budget.mjs && node scripts/check-macos-hardening.mjs && bash -n scripts/build-macos-app.sh && bash -n scripts/build-macos-v2-dev.sh && bash -n scripts/verify-macos-app.sh && bash -n scripts/verify-macos-v2-dev.sh && bash -n scripts/package-macos-dmg.sh && bash -n scripts/verify-macos-dmg.sh && bash -n scripts/release-macos-app.sh && bash -n scripts/verify-macos-release.sh && python3 -c \"import ast,pathlib; ast.parse(pathlib.Path('scripts/generate-macos-icon.py').read_text(encoding='utf-8'))\"",
+    "qa:presenter-export:smoke": "playwright test --config=playwright.presenter-export.config.ts --grep 'full presenter journey closes'",
+    "check:mac-arm64": "node scripts/check-macos-arm64-contract.mjs",
+    "check:mac-source": "node scripts/check-macos-source.mjs && npm run check:mac-arm64 && node --check scripts/build-macos-web.mjs && node --check scripts/stage-macos-runtime-licenses.mjs && node scripts/verify-macos-user-guide.mjs release docs/MACOS_USER_GUIDE.md && node scripts/verify-macos-user-guide.mjs v2-dev docs/v2/MACOS_V2_DEV_USER_GUIDE.md && node scripts/check-native-import-contract.mjs && node scripts/check-macos-matrix-budget.mjs && node scripts/check-macos-hardening.mjs && bash -n scripts/build-macos-app.sh && bash -n scripts/build-macos-v2-dev.sh && bash -n scripts/verify-macos-app.sh && bash -n scripts/verify-macos-v2-dev.sh && bash -n scripts/package-macos-dmg.sh && bash -n scripts/verify-macos-dmg.sh && bash -n scripts/release-macos-app.sh && bash -n scripts/verify-macos-release.sh && python3 -c \"import ast,pathlib; ast.parse(pathlib.Path('scripts/generate-macos-icon.py').read_text(encoding='utf-8'))\"",
     "build:mac:web": "node scripts/build-macos-web.mjs",
     "build:mac": "bash scripts/build-macos-app.sh",
     "build:mac:v2-dev": "bash scripts/build-macos-v2-dev.sh",
@@ -53,7 +58,7 @@
     "verify:mac:dmg": "bash scripts/verify-macos-dmg.sh",
     "verify:mac-release": "bash scripts/verify-macos-release.sh",
     "release:mac": "bash scripts/release-macos-app.sh",
-    "check": "npm run typecheck && npm run test && npm run check:mac-source && npm run build"
+    "check": "npm run typecheck && npm run test && npm run check:mac-source && npm run check:linux-source && npm run build"
   },
   "dependencies": {
     "@mediabunny/aac-encoder": "1.55.1",

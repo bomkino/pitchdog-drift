@@ -61,9 +61,29 @@ def deterministic_noise(x: int, y: int, size: int) -> float:
     return (value / 0xFFFFFFFF) * 2.0 - 1.0
 
 
+def line_segment_distance(
+    x: float,
+    y: float,
+    start_x: float,
+    start_y: float,
+    end_x: float,
+    end_y: float,
+) -> float:
+    dx = end_x - start_x
+    dy = end_y - start_y
+    length_sq = dx * dx + dy * dy
+    if length_sq == 0:
+        return math.hypot(x - start_x, y - start_y)
+    amount = clamp(((x - start_x) * dx + (y - start_y) * dy) / length_sq)
+    return math.hypot(x - (start_x + amount * dx), y - (start_y + amount * dy))
+
+
 def render(size: int, variant: str = "release") -> bytes:
     pixels = bytearray(size * size * 4)
     antialias = 1.35 / size
+    angle = -0.065
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
 
     for pixel_y in range(size):
         y = (pixel_y + 0.5) / size - 0.5
@@ -73,64 +93,55 @@ def render(size: int, variant: str = "release") -> bytes:
             shell_distance = rounded_box_sdf(x, y, 0.475, 0.475, 0.205)
             shell_alpha = 1.0 - smoothstep(-antialias, antialias, shell_distance)
 
-            radial = math.hypot(x * 0.94, y * 1.03)
-            vignette = clamp((radial - 0.17) / 0.58)
-            rgb = (
-                0.052 - 0.018 * vignette,
-                0.052 - 0.020 * vignette,
-                0.066 - 0.016 * vignette,
+            # A single slide in motion: editorial object first, application
+            # glyph second. The violet thread remains legible at 16 px and the
+            # broad, off-axis frame avoids the usual glossy software cube.
+            rgb = (0.050, 0.054, 0.066)
+            trail_distance = min(
+                line_segment_distance(x, y, -0.39, 0.20, -0.22, 0.30),
+                line_segment_distance(x, y, -0.22, 0.30, 0.02, 0.27),
+                line_segment_distance(x, y, 0.02, 0.27, 0.38, 0.15),
             )
+            trail = 1.0 - smoothstep(0.030 - antialias, 0.030 + antialias, trail_distance)
+            rgb = blend(rgb, (0.66, 0.60, 1.00), trail)
 
-            glows = (
-                ((-0.26, 0.27), 0.22, (0.22, 0.76, 0.74), 0.66),
-                ((0.28, -0.25), 0.25, (0.92, 0.24, 0.47), 0.58),
-                ((0.18, 0.29), 0.20, (0.96, 0.63, 0.22), 0.34),
+            shadow_distance = rotated_box_sdf(x, y, 0.018, 0.018, 0.335, 0.220, 0.034, angle)
+            shadow = 1.0 - smoothstep(-antialias, antialias, shadow_distance)
+            rgb = blend(rgb, (0.012, 0.014, 0.018), shadow * 0.92)
+
+            slide_distance = rotated_box_sdf(x, y, 0.0, -0.012, 0.335, 0.220, 0.034, angle)
+            slide = 1.0 - smoothstep(-antialias, antialias, slide_distance)
+            rgb = blend(rgb, (0.89, 0.86, 0.91), slide)
+
+            local_x = cosine * x + sine * (y + 0.012)
+            local_y = -sine * x + cosine * (y + 0.012)
+            accent_panel = (
+                1.0 - smoothstep(-antialias, antialias, rounded_box_sdf(local_x - 0.205, local_y, 0.130, 0.220, 0.028))
+            ) * slide
+            rgb = blend(rgb, (0.47, 0.40, 0.91), accent_panel)
+
+            title_bar = max(
+                1.0 - smoothstep(-antialias, antialias, rounded_box_sdf(local_x + 0.150, local_y + 0.060, 0.115, 0.025, 0.008)),
+                1.0 - smoothstep(-antialias, antialias, rounded_box_sdf(local_x + 0.185, local_y - 0.012, 0.080, 0.020, 0.007)),
+            ) * slide
+            rgb = blend(rgb, (0.050, 0.054, 0.066), title_bar * 0.98)
+
+            caption = (
+                1.0 - smoothstep(-antialias, antialias, rounded_box_sdf(local_x + 0.198, local_y - 0.112, 0.068, 0.007, 0.003))
+            ) * slide
+            rgb = blend(rgb, (0.38, 0.36, 0.40), caption * 0.82)
+
+            outline_width = 0.010 if size >= 64 else 0.017
+            outline = 1.0 - smoothstep(
+                outline_width - antialias,
+                outline_width + antialias,
+                abs(slide_distance),
             )
-            for (center_x, center_y), radius, color, strength in glows:
-                distance_sq = (x - center_x) ** 2 + (y - center_y) ** 2
-                glow = math.exp(-distance_sq / (2.0 * radius * radius)) * strength
-                rgb = blend(rgb, color, glow)
+            rgb = blend(rgb, (0.035, 0.038, 0.046), outline * 0.92)
 
-            # Three offset cards: a restrained chromatic echo around the primary frame.
-            card_specs = (
-                (0.017, -0.002, -0.115, (0.18, 0.82, 0.85), 0.42),
-                (-0.014, 0.010, -0.115, (0.94, 0.22, 0.49), 0.38),
-                (0.000, 0.000, -0.115, (0.97, 0.96, 0.90), 0.94),
-            )
-            for offset_x, offset_y, angle, color, opacity in card_specs:
-                card_distance = rotated_box_sdf(
-                    x,
-                    y,
-                    offset_x,
-                    offset_y,
-                    0.258,
-                    0.338,
-                    0.052,
-                    angle,
-                )
-                stroke_width = 0.018 if size >= 64 else 0.025
-                stroke = 1.0 - smoothstep(stroke_width - antialias, stroke_width + antialias, abs(card_distance))
-                rgb = blend(rgb, color, stroke * opacity)
-
-            # A soft inner exposure window prevents the mark from reading as a generic rectangle.
-            inner_distance = rotated_box_sdf(x, y, 0.0, -0.012, 0.192, 0.262, 0.032, -0.115)
-            inner_fill = 1.0 - smoothstep(-antialias, antialias, inner_distance)
-            rgb = blend(rgb, (0.025, 0.027, 0.037), inner_fill * 0.72)
-
-            # Film-perforation lights. Deliberately sparse at small icon sizes.
-            if size >= 32:
-                cosine = math.cos(-0.115)
-                sine = math.sin(-0.115)
-                local_x = cosine * x - sine * (y + 0.012)
-                local_y = sine * x + cosine * (y + 0.012)
-                for hole_y in (-0.205, -0.067, 0.071, 0.209):
-                    for hole_x in (-0.218, 0.218):
-                        hole = rounded_box_sdf(local_x - hole_x, local_y - hole_y, 0.018, 0.030, 0.009)
-                        coverage = 1.0 - smoothstep(-antialias, antialias, hole)
-                        rgb = blend(rgb, (0.98, 0.95, 0.84), coverage * 0.80)
-
-            grain = deterministic_noise(pixel_x, pixel_y, size) * (0.018 if size >= 64 else 0.009)
-            rgb = tuple(clamp(channel + grain) for channel in rgb)
+            if size >= 64:
+                grain = deterministic_noise(pixel_x, pixel_y, size) * 0.010
+                rgb = tuple(clamp(channel + grain * shell_alpha) for channel in rgb)
 
             if variant == "v2-dev":
                 # A precise registration mark makes the side-by-side developer

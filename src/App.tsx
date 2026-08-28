@@ -5,13 +5,43 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type CSSProperties,
 } from "react";
 import { ControlPanel, type StudioWorkspace } from "./components/ControlPanel";
 import { MediaLibrary } from "./components/MediaLibrary";
 import { Stage } from "./components/Stage";
 import { CommandPalette } from "./components/CommandPalette";
+import { InterfaceScaleMenu } from "./components/InterfaceScaleMenu";
+import { AutomationAccessView } from "./components/AutomationAccessView";
+import { createDriftSelfDescription } from "./core/automation/selfDescription";
+import { createProductAutomationService } from "./core/automation/productAutomationService";
+import {
+  DRIFT_AUTOMATION_WRITE_SCOPE,
+  createProductAutomationMutationService,
+  type AutomationMutationAuthority,
+  type AutomationMutationCommit,
+  type ProductAutomationMutationService,
+} from "./core/automation/productAutomationMutation";
+import {
+  DRIFT_AUTOMATION_PREVIEW_SCOPE,
+  createProductAutomationPreviewService,
+  type AutomationPreviewAuthority,
+  type AutomationPreviewRenderInput,
+  type ProductAutomationPreviewService,
+} from "./core/automation/productAutomationPreview";
+import {
+  createProductAutomationExportService,
+  type AutomationExportAuthority,
+  type AutomationExportChoice,
+  type AutomationExportReservationHooks,
+  type ProductAutomationExportService,
+} from "./core/automation/productAutomationExport";
 import { createInitialDriftProjectV4 } from "./core/project/initialProject";
-import { reconcileOutcomeRecipeTiming } from "./core/recipes/outcomeRecipes";
+import {
+  applyOutcomeRecipeCommand,
+  reconcileOutcomeRecipeTiming,
+  type OutcomeRecipeId,
+} from "./core/recipes/outcomeRecipes";
 import { evaluateDeckSlideHealth } from "./core/media/slideHealth";
 import { resolveMovingMedia } from "./core/project/movingMedia";
 import type { StudioCommandDefinition } from "./core/commands/studioCommandRegistry";
@@ -29,6 +59,23 @@ import {
   type ExportAuthoritySnapshot,
 } from "./core/export/exportAuthority";
 import {
+  assertGuidedExportIntentMatchesPlan,
+  captureGuidedExportSnapshot,
+  createGuidedExportDraft,
+  createExportIntent,
+  deriveExportFormatCapabilities,
+  preflightGuidedExport,
+  type ExportIntent,
+  type GuidedExportCompletion,
+  type GuidedExportRunRequest,
+  type GuidedExportSnapshot,
+} from "./core/export/guidedExport";
+import {
+  createExportJobController,
+  type ExportJobController,
+  type ExportJobStatus,
+} from "./core/export/exportJobController";
+import {
   exportPlanFromProject,
   exportPlanFromV1Settings,
   stagePresentationFromProject,
@@ -43,10 +90,12 @@ import {
   type AssetDescriptor,
   type DriftProjectV4,
 } from "./core/project/schema";
-import { projectV4ChangePaths } from "./core/commands/projectCommand";
+import {
+  applyProjectV4Command,
+  projectV4ChangePaths,
+} from "./core/commands/projectCommand";
 import { installPreviewAuthority } from "./core/render/previewAuthority";
 import {
-  beginProjectSave,
   createProjectRevisionState,
   recordProjectMutation,
   type ProjectRevisionState,
@@ -93,22 +142,24 @@ import {
   type ExportProgressClock,
 } from "./lib/exportProgress";
 import {
-  abandonNativeMacDocumentOpen,
-  completeNativeMacDocumentSave,
-  confirmNativeMacDocumentOpen,
   installNativeMacAppBridge,
   isNativeMacRuntime,
   nativeMacDocumentClientState,
-  pickNativeMacFiles,
   reportNativeMacClientState,
-  revertNativeMacDocument,
-  saveNativeMacDocument,
-  saveNativeMacDocumentAs,
   saveNativeMacBlob,
-  NativeMacDocumentConflictError,
   type NativeMacCommand,
   type NativeMacImportKind,
 } from "./lib/nativeMac";
+import {
+  createDesktopPlatform,
+  DesktopPlatformDocumentError,
+  requireDesktopPlatformCompletion,
+} from "./lib/desktopPlatform";
+import type { InterfaceScaleCommand } from "./lib/interfaceScale";
+import {
+  createDevelopmentMcpAdapter,
+  type DevelopmentMcpAdapter,
+} from "./lib/developmentMcpAdapter";
 import {
   PROJECT_MEDIA_LIMITS,
   formatProjectMiB,
@@ -265,6 +316,12 @@ export function App() {
   const presenterInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const exportDestinationPendingRef = useRef(false);
+  const exportJobControllerRef = useRef<ExportJobController | null>(null);
+  if (exportJobControllerRef.current === null) {
+    exportJobControllerRef.current = createExportJobController();
+  }
+  const exportJobController = exportJobControllerRef.current;
   const exportProgressClockRef = useRef<ExportProgressClock | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const projectRef = useRef<DriftProjectV4 | null>(null);
@@ -299,6 +356,64 @@ export function App() {
     kind: NativeMacImportKind,
     files: readonly File[],
   ) => void | Promise<void>>(() => undefined);
+  const automationWriteEnabledRef = useRef(false);
+  const automationPreviewEnabledRef = useRef(false);
+  const automationExportEnabledRef = useRef(false);
+  const automationCommitRef = useRef<(change: AutomationMutationCommit) => void>(() => {
+    throw new Error("Automation mutation authority is not ready.");
+  });
+  const automationMutationAuthorityRef = useRef<AutomationMutationAuthority | null>(null);
+  const automationPreviewRenderRef = useRef<(input: AutomationPreviewRenderInput) => Promise<{
+    mimeType: "image/png";
+    bytes: Uint8Array;
+  }>>(async () => {
+    throw new Error("Automation preview renderer is not ready.");
+  });
+  const automationPreviewAuthorityRef = useRef<AutomationPreviewAuthority | null>(null);
+  const automationExportPreflightRef = useRef<AutomationExportAuthority["preflight"]>(() => {
+    throw new Error("Automation export preflight is not ready.");
+  });
+  const automationExportRunRef = useRef<AutomationExportAuthority["run"]>(async () => {
+    throw new Error("Automation export runner is not ready.");
+  });
+  const automationExportAuthorityRef = useRef<AutomationExportAuthority | null>(null);
+  if (automationMutationAuthorityRef.current === null) {
+    automationMutationAuthorityRef.current = {
+      read: () => {
+        const project = projectRef.current;
+        if (!project) throw new Error("Project V4 creative authority is unavailable.");
+        return {
+          project: structuredClone(project),
+          revisions: structuredClone(documentRevisionRef.current),
+          documentId: project.projectId,
+          scopes: automationWriteEnabledRef.current ? [DRIFT_AUTOMATION_WRITE_SCOPE] : [],
+        };
+      },
+      commit: (change) => automationCommitRef.current(change),
+    };
+  }
+  if (automationPreviewAuthorityRef.current === null) {
+    automationPreviewAuthorityRef.current = {
+      read: () => {
+        const project = projectRef.current;
+        if (!project) throw new Error("Project V4 creative authority is unavailable.");
+        return {
+          project: structuredClone(project),
+          revisions: structuredClone(documentRevisionRef.current),
+          documentId: project.projectId,
+          scopes: automationPreviewEnabledRef.current ? [DRIFT_AUTOMATION_PREVIEW_SCOPE] : [],
+        };
+      },
+      render: (input) => automationPreviewRenderRef.current(input),
+    };
+  }
+  if (automationExportAuthorityRef.current === null) {
+    automationExportAuthorityRef.current = {
+      jobs: exportJobController,
+      preflight: (choice) => automationExportPreflightRef.current(choice),
+      run: (request, hooks) => automationExportRunRef.current(request, hooks),
+    };
+  }
 
   const [settings, setSettings] = useState<StudioSettings>(() => cloneSettings(initialSettings));
   const [liveProject, setLiveProject] = useState<DriftProjectV4>(() => structuredClone(projectRef.current!));
@@ -313,12 +428,16 @@ export function App() {
   const [focusMode, setFocusMode] = useState(false);
   const [activeSlideIndex, setActiveSlideIndex] = useState(-1);
   const [activePanel, setActivePanel] = useState<"media" | "stage" | "director">("stage");
+  const [constrainedViewport, setConstrainedViewport] = useState(
+    () => window.matchMedia("(max-width: 1120px)").matches,
+  );
   const [activeWorkspace, setActiveWorkspace] = useState<StudioWorkspace>("slides");
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [platformGuideId, setPlatformGuideId] = useState<PlatformGuideProfileId>("none");
   const [customGuideInsets, setCustomGuideInsets] = useState<NormalizedInsets>({ top: 0.1, right: 0.08, bottom: 0.16, left: 0.08 });
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const [exportJobStatus, setExportJobStatus] = useState<ExportJobStatus | null>(null);
   const [notice, setNotice] = useState<string | null>("Loading local studio…");
   const [noticeKind, setNoticeKind] = useState<"quiet" | "good" | "error">("quiet");
   const [saveState, setSaveState] = useState<"loading" | "saving" | "saved" | "failed" | "recovery">("loading");
@@ -334,6 +453,16 @@ export function App() {
   const [comparisonActive, setComparisonActive] = useState(false);
   const [changeReceipt, setChangeReceipt] = useState("No V2 direction changed yet.");
   const nativeMac = isNativeMacRuntime();
+  const desktopPlatform = useMemo(() => createDesktopPlatform(), []);
+  const packagedDesktop = nativeMac || desktopPlatform.target === "linux-electron";
+  const [interfaceScale, setInterfaceScale] = useState(
+    () => desktopPlatform.presentation.interfaceScale.getSnapshot(),
+  );
+  const [automationEnabled, setAutomationEnabled] = useState(false);
+  const [automationWriteEnabled, setAutomationWriteEnabled] = useState(false);
+  const [automationPreviewEnabled, setAutomationPreviewEnabled] = useState(false);
+  const [automationExportEnabled, setAutomationExportEnabled] = useState(false);
+  const [automationConnectionState, setAutomationConnectionState] = useState<"disconnected" | "connected">("disconnected");
   const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
     __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
   }).__DRIFT_NATIVE_SELF_TEST_DB__;
@@ -344,12 +473,46 @@ export function App() {
   settingsRef.current = settings;
   assetsRef.current = assets;
   presenterRef.current = presenter;
+  automationWriteEnabledRef.current = automationWriteEnabled;
+  automationPreviewEnabledRef.current = automationPreviewEnabled;
+  automationExportEnabledRef.current = automationExportEnabled;
+
+  const changeInterfaceScale = useCallback((command: InterfaceScaleCommand) => {
+    try {
+      setInterfaceScale(desktopPlatform.presentation.interfaceScale.dispatch(command));
+    } catch (error) {
+      setNoticeKind("error");
+      setNotice(error instanceof Error
+        ? `Interface Scale could not be saved: ${error.message}`
+        : "Interface Scale could not be saved.");
+    }
+  }, [desktopPlatform]);
+
+  useEffect(
+    () => desktopPlatform.presentation.interfaceScale.subscribe(setInterfaceScale),
+    [desktopPlatform],
+  );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1120px)");
+    const update = () => setConstrainedViewport(query.matches);
+    query.addEventListener("change", update);
+    update();
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => exportJobController.subscribe(() => {
+    setExportJobStatus(exportJobController.getActiveStatus());
+  }), [exportJobController]);
 
   const acceptEncoderProgress = useCallback((progress: EncoderProgress) => {
     const clock = exportProgressClockRef.current;
     if (!clock) return;
-    setExportProgress(projectExportProgress(progress, clock, performance.now()));
-  }, []);
+    const projected = projectExportProgress(progress, clock, performance.now());
+    setExportProgress(projected);
+    const active = exportJobController.getActiveStatus();
+    if (active) exportJobController.report(active.id, projected);
+  }, [exportJobController]);
 
   useEffect(() => {
     if (!exportProgress) return;
@@ -391,6 +554,124 @@ export function App() {
       : stagePresentationFromV1Settings(settings),
     [displayedProject, settings, v2Active],
   );
+  const automationPlayheadSeconds = Math.round(previewTime * 4) / 4;
+  const automationManifests = useMemo(() => createDriftSelfDescription({
+      project: liveProject,
+      documentRevision: documentRevisionRef.current.currentRevision,
+      savedDocumentRevision: documentRevisionRef.current.savedRevision,
+      documentBound,
+      documentConflict,
+      selectedAssetId: selectedSlideId,
+      presentation: {
+        interfaceScale: interfaceScale.value,
+        workspace: activeWorkspace,
+        panel: activePanel,
+        focusMode,
+        playheadSeconds: automationPlayheadSeconds,
+      },
+      platform: {
+        target: desktopPlatform.target,
+        buildChannel: driftBuildIdentity.channel,
+        packaged: packagedDesktop,
+      },
+      exportCapabilities,
+      mutationAccess: automationWriteEnabled,
+      previewAccess: automationPreviewEnabled,
+      exportAccess: automationExportEnabled,
+      jobs: exportJobStatus ? [{
+        id: exportJobStatus.id,
+        kind: "export",
+        state: "running",
+        progress: exportJobStatus.progress.ratio,
+      }] : [],
+    }), [
+    activePanel,
+    activeWorkspace,
+    desktopPlatform.target,
+    documentRevisionVersion,
+    documentBound,
+    documentConflict,
+    exportCapabilities,
+    exportProgress,
+    exportJobStatus,
+    focusMode,
+    interfaceScale.value,
+    liveProject,
+    nativeMac,
+    packagedDesktop,
+    automationPlayheadSeconds,
+    automationWriteEnabled,
+    automationPreviewEnabled,
+    automationExportEnabled,
+    selectedSlideId,
+  ]);
+  const automationMutationServiceRef = useRef<ProductAutomationMutationService | null>(null);
+  if (automationMutationServiceRef.current === null) {
+    automationMutationServiceRef.current = createProductAutomationMutationService(
+      automationManifests,
+      { authority: automationMutationAuthorityRef.current },
+    );
+  } else {
+    automationMutationServiceRef.current.replaceManifests(automationManifests);
+  }
+  const automationMutationService = automationMutationServiceRef.current;
+  const automationPreviewServiceRef = useRef<ProductAutomationPreviewService | null>(null);
+  if (automationPreviewServiceRef.current === null) {
+    automationPreviewServiceRef.current = createProductAutomationPreviewService(
+      automationPreviewAuthorityRef.current,
+    );
+  }
+  const automationPreviewService = automationPreviewServiceRef.current;
+  const automationExportServiceRef = useRef<ProductAutomationExportService | null>(null);
+  if (automationExportServiceRef.current === null) {
+    automationExportServiceRef.current = createProductAutomationExportService(
+      automationExportAuthorityRef.current,
+    );
+  }
+  const automationExportService = automationExportServiceRef.current;
+  const automationService = useMemo(() => createProductAutomationService(
+    automationManifests,
+    automationMutationService,
+    automationPreviewService,
+    automationExportService,
+  ), [automationExportService, automationManifests, automationMutationService, automationPreviewService]);
+  const automationAdapterRef = useRef<DevelopmentMcpAdapter | null>(null);
+  if (automationAdapterRef.current === null) {
+    automationAdapterRef.current = createDevelopmentMcpAdapter(automationService);
+  }
+  const automationAdapter = automationAdapterRef.current;
+
+  useEffect(() => {
+    automationAdapter.replaceService(automationService);
+  }, [automationAdapter, automationService]);
+
+  useEffect(() => automationAdapter.subscribe(setAutomationConnectionState), [automationAdapter]);
+
+  useEffect(() => {
+    const developmentEnabled = driftBuildIdentity.isDevelopment && automationEnabled;
+    automationAdapter.setEnabled(developmentEnabled);
+    automationAdapter.setWriteScopeEnabled(developmentEnabled && automationWriteEnabled);
+    automationAdapter.setPreviewScopeEnabled(developmentEnabled && automationPreviewEnabled);
+    automationAdapter.setExportScopeEnabled(developmentEnabled && automationExportEnabled);
+    const host = globalThis as typeof globalThis & {
+      __DRIFT_DEVELOPMENT_MCP__?: Readonly<Pick<
+        DevelopmentMcpAdapter,
+        "connect" | "request" | "disconnect"
+      >>;
+    };
+    const clientSurface = Object.freeze({
+      connect: automationAdapter.connect,
+      request: automationAdapter.request,
+      disconnect: automationAdapter.disconnect,
+    });
+    if (developmentEnabled) host.__DRIFT_DEVELOPMENT_MCP__ = clientSurface;
+    return () => {
+      if (host.__DRIFT_DEVELOPMENT_MCP__ === clientSurface) {
+        delete host.__DRIFT_DEVELOPMENT_MCP__;
+      }
+      automationAdapter.setEnabled(false);
+    };
+  }, [automationAdapter, automationEnabled, automationExportEnabled, automationPreviewEnabled, automationWriteEnabled]);
 
   useEffect(() => {
     if (selectedSlideId && assets.some((asset) => asset.id === selectedSlideId)) return;
@@ -402,6 +683,47 @@ export function App() {
       : exportPlanFromV1Settings(settings),
     [liveProject, settings, v2Active],
   );
+  const guidedExportIntent = useMemo(() => createExportIntent({
+    background: stagePresentation.transparent ? "transparent" : "opaque",
+    settings: {
+      width: liveExportPlan.width,
+      height: liveExportPlan.height,
+      fps: liveExportPlan.fps,
+      duration: liveExportPlan.duration,
+    },
+    presenterAudio: liveExportPlan.presenter.includeAudio,
+    soundDesignAudio: liveProject.sound.exportEnabled,
+  }), [
+    liveExportPlan.duration,
+    liveExportPlan.fps,
+    liveExportPlan.height,
+    liveExportPlan.presenter.includeAudio,
+    liveExportPlan.width,
+    liveProject.sound.exportEnabled,
+    stagePresentation.transparent,
+  ]);
+  automationExportPreflightRef.current = (choice: AutomationExportChoice) => {
+    if (!automationExportEnabledRef.current) throw new Error("Automation export-jobs scope is not enabled.");
+    const intent: ExportIntent = Object.freeze({
+      ...guidedExportIntent,
+      preferredFormat: choice.format,
+      destinationClass: choice.format === "h264-mp4" ? "file" : "directory",
+      purpose: choice.format === "h264-mp4" ? "social" : "frame-sequence",
+    });
+    const draft = Object.freeze({
+      ...createGuidedExportDraft(intent),
+      pngDestination: choice.pngDestination,
+      audioConsequenceAcknowledged: choice.audioConsequenceAcknowledged,
+      destinationSelected: true,
+    });
+    const capabilities = deriveExportFormatCapabilities({
+      runtime: exportCapabilities,
+      pngDestination: choice.pngDestination,
+      exportSurfaceSupported: !webglError && contextState !== "lost",
+      intent,
+    });
+    return { request: { intent, pngDestination: choice.pngDestination, audioConsequenceAcknowledged: choice.audioConsequenceAcknowledged }, preflight: preflightGuidedExport(draft, capabilities) };
+  };
   const allAssets = useMemo(() => presenter ? [...assets, presenter] : assets, [assets, presenter]);
   const pinnedAsset = useMemo(
     () => allAssets.find((asset) => asset.id === stagePresentation.pinnedAssetId) ?? null,
@@ -507,7 +829,7 @@ export function App() {
     operation: () => Promise<void>,
     rejectWhenExportBlocks = false,
   ) => {
-    if (abortRef.current) {
+    if (abortRef.current || exportDestinationPendingRef.current) {
       const error = new DOMException(
         "Wait for the current export to finish or cancel it first.",
         "InvalidStateError",
@@ -742,12 +1064,17 @@ export function App() {
     setDocumentRevisionVersion((version) => version + 1);
   }, []);
 
-  const markProjectDirty = useCallback(() => {
+  const scheduleProjectPersistence = useCallback(() => {
     if (!hydratedRef.current) return;
     advanceLocalSaveRevision(saveRevisionAuthorityRef.current);
-    recordDocumentMutation();
     setSaveState("saving");
-  }, [recordDocumentMutation]);
+  }, []);
+
+  const markProjectDirty = useCallback(() => {
+    if (!hydratedRef.current) return;
+    recordDocumentMutation();
+    scheduleProjectPersistence();
+  }, [recordDocumentMutation, scheduleProjectPersistence]);
 
   useEffect(() => {
     let cancelled = false;
@@ -923,6 +1250,25 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const editing = Boolean(target?.closest("input, select, textarea, [contenteditable=true]"));
+      if ((event.metaKey || event.ctrlKey) && !editing) {
+        if (event.key === "-" || event.code === "NumpadSubtract") {
+          event.preventDefault();
+          changeInterfaceScale({ type: "smaller" });
+          return;
+        }
+        if (event.key === "+" || event.key === "=" || event.code === "NumpadAdd") {
+          event.preventDefault();
+          changeInterfaceScale({ type: "larger" });
+          return;
+        }
+        if (event.key === "0" || event.code === "Numpad0") {
+          event.preventDefault();
+          changeInterfaceScale({ type: "reset" });
+          return;
+        }
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         if (!exportProgress && !projectBusy && !abortRef.current && saveState !== "loading") {
@@ -936,7 +1282,6 @@ export function App() {
         return;
       }
       if (exportProgress || projectBusy || abortRef.current || projectPendingRef.current > 0 || saveState === "loading") return;
-      const target = event.target as HTMLElement | null;
       if (target?.closest("[data-timeline-dock]")) return;
       if (target?.closest("input, select, textarea, button, [contenteditable=true]")) return;
       if (event.code === "Space") {
@@ -955,7 +1300,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [exportProgress, focusMode, paused, projectBusy, saveState]);
+  }, [changeInterfaceScale, exportProgress, focusMode, paused, projectBusy, saveState]);
 
   useEffect(() => () => {
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
@@ -1267,11 +1612,56 @@ export function App() {
     }
   }, []);
 
-  const reserveExport = useCallback((): {
+  automationPreviewRenderRef.current = async (input) => {
+    if (abortRef.current || exportDestinationPendingRef.current || projectPendingRef.current > 0) {
+      throw new Error("Renderer is busy with another bounded operation.");
+    }
+    const engine = engineRef.current;
+    if (!engine) throw new Error("Cinematic renderer is unavailable.");
+    const previewAssets = [...assetsRef.current, ...(presenterRef.current ? [presenterRef.current] : [])];
+    const previewPresentation = stagePresentationFromProject(input.project);
+    const previewPinned = previewPresentation.pinnedAssetId === null
+      ? null
+      : previewAssets.find((asset) => asset.id === previewPresentation.pinnedAssetId) ?? null;
+    const abort = () => {
+      if (input.signal.aborted) throw new DOMException("Automation preview cancelled.", "AbortError");
+    };
+    abort();
+    await installPreviewAuthority(engine, {
+      project: input.project,
+      settings: studioSettingsFromDriftProject(input.project),
+      assets: assetsRef.current.filter((asset) => input.project.media.order.includes(asset.id)),
+      pinnedAsset: previewPinned,
+    });
+    try {
+      abort();
+      const blob = await engine.captureStill(input.width, input.height, input.timeSeconds);
+      abort();
+      return { mimeType: "image/png", bytes: new Uint8Array(await blob.arrayBuffer()) };
+    } finally {
+      const current = projectRef.current;
+      if (current) {
+        const currentAssets = [...assetsRef.current, ...(presenterRef.current ? [presenterRef.current] : [])];
+        const currentPresentation = stagePresentationFromProject(current);
+        const currentPinned = currentPresentation.pinnedAssetId === null
+          ? null
+          : currentAssets.find((asset) => asset.id === currentPresentation.pinnedAssetId) ?? null;
+        await installPreviewAuthority(engine, {
+          project: current,
+          settings: studioSettingsFromDriftProject(current),
+          assets: assetsRef.current.filter((asset) => current.media.order.includes(asset.id)),
+          pinnedAsset: currentPinned,
+        });
+      }
+    }
+  };
+
+  const reserveExport = useCallback((intent: ExportIntent = guidedExportIntent, trackGuidedJob = true): {
     controller: AbortController;
     authority: ExportAuthoritySnapshot;
+    snapshot: GuidedExportSnapshot;
   } => {
-    if (abortRef.current) {
+    if (abortRef.current || exportDestinationPendingRef.current) {
       throw new DOMException("An export is already preparing or running.", "InvalidStateError");
     }
     if (projectPendingRef.current > 0) {
@@ -1286,11 +1676,16 @@ export function App() {
       assets: assetsRef.current,
       presenter: presenterRef.current,
     });
-    abortRef.current = controller;
-    const now = performance.now();
-    exportProgressClockRef.current = createExportProgressClock(now);
-    setExportProgress({
+    const snapshot = captureGuidedExportSnapshot({
+      id: `export-${globalThis.crypto.randomUUID()}`,
+      createdAt: new Date().toISOString(),
+      documentRevision: documentRevisionRef.current.currentRevision,
+      intent,
+      authority,
+    });
+    const initialProgress: ExportProgress = {
       phase: "preparing",
+      ratio: 0,
       completed: 0,
       total: 1,
       frameIndex: null,
@@ -1301,13 +1696,19 @@ export function App() {
       etaSeconds: null,
       ratePerSecond: null,
       stallKind: null,
-    });
-    return { controller, authority };
-  }, []);
+    };
+    if (trackGuidedJob) exportJobController.begin(snapshot, controller, initialProgress);
+    abortRef.current = controller;
+    const now = performance.now();
+    exportProgressClockRef.current = createExportProgressClock(now);
+    setExportProgress(initialProgress);
+    return { controller, authority, snapshot };
+  }, [exportJobController, guidedExportIntent]);
 
   const beginExport = useCallback(async (reservation: {
     controller: AbortController;
     authority: ExportAuthoritySnapshot;
+    snapshot: GuidedExportSnapshot;
   }) => {
     if (abortRef.current !== reservation.controller) {
       throw new DOMException("Export reservation is no longer active.", "InvalidStateError");
@@ -1333,6 +1734,14 @@ export function App() {
     const plan = project.renderContract === DRIFT_V2_RENDER_CONTRACT
       ? exportPlanFromProject(project)
       : exportPlanFromV1Settings(settings);
+    assertGuidedExportIntentMatchesPlan(reservation.snapshot.intent, {
+      width: plan.width,
+      height: plan.height,
+      fps: plan.fps,
+      duration: plan.duration,
+      presenterAudio: plan.presenter.includeAudio,
+      soundDesignAudio: project.sound.exportEnabled,
+    });
     if (project.renderContract === DRIFT_V2_RENDER_CONTRACT) {
       await engine.setV2ProjectState(project, assets);
     } else {
@@ -1353,7 +1762,7 @@ export function App() {
   }, []);
 
   const endExport = useCallback(async (
-    reservation: { controller: AbortController },
+    reservation: { controller: AbortController; snapshot: GuidedExportSnapshot },
     surface?: { restore: () => void },
   ) => {
     exportProgressClockRef.current = null;
@@ -1376,10 +1785,18 @@ export function App() {
     }
   }, [activePinnedAsset, announce, assets, displayedProject, settings]);
 
-  const exportVideo = useCallback(async () => {
+  const exportVideo = useCallback(async (
+    request?: GuidedExportRunRequest,
+    automationHooks?: AutomationExportReservationHooks,
+  ): Promise<GuidedExportCompletion | null> => {
+    const intent = request?.intent ?? guidedExportIntent;
+    if (intent.preferredFormat !== "h264-mp4" || intent.background !== "opaque") {
+      announce("H.264 is opaque. Choose an opaque background or PNG Frames before rendering.", "error");
+      return null;
+    }
     if (!engineRef.current) {
       announce("Cinematic renderer is unavailable; export is blocked.", "error");
-      return;
+      return null;
     }
     if (mp4Supported === false) {
       announce(
@@ -1388,26 +1805,39 @@ export function App() {
           : "This browser cannot encode the requested H.264 master. Use current desktop Chromium or Brave, or export PNG frames.",
         "error",
       );
-      return;
-    }
-    let reservation: ReturnType<typeof reserveExport>;
-    try {
-      reservation = reserveExport();
-    } catch (error) {
-      announce(error instanceof Error ? error.message : "Could not start MP4 export.", "error");
-      return;
+      return null;
     }
     let fileHandle: FileSystemFileHandle | null = null;
-    let session: Awaited<ReturnType<typeof beginExport>> | null = null;
-    try {
-      const savePicker = (window as PickerWindow).showSaveFilePicker;
-      if (savePicker) {
+    const savePicker = (window as PickerWindow).showSaveFilePicker;
+    if (savePicker) {
+      try {
+        if (exportDestinationPendingRef.current) {
+          throw new DOMException("An export destination is already being selected.", "InvalidStateError");
+        }
+        exportDestinationPendingRef.current = true;
         fileHandle = await savePicker({
           id: "pitchdog-drift-master",
           suggestedName: `drift-master-${timestampSlug()}.mp4`,
           types: [{ description: "H.264 MP4 master", accept: { "video/mp4": [".mp4"] } }],
         });
+      } catch (error) {
+        announce(isAbortError(error) ? "MP4 destination canceled." : error instanceof Error ? error.message : "Could not choose an MP4 destination.", isAbortError(error) ? "quiet" : "error");
+        return null;
+      } finally {
+        exportDestinationPendingRef.current = false;
       }
+    }
+    let reservation: ReturnType<typeof reserveExport>;
+    try {
+      automationHooks?.beforeReservation();
+      reservation = reserveExport(intent);
+      automationHooks?.onReserved(reservation.snapshot.id);
+    } catch (error) {
+      announce(error instanceof Error ? error.message : "Could not start MP4 export.", "error");
+      return null;
+    }
+    let session: Awaited<ReturnType<typeof beginExport>> | null = null;
+    try {
       session = await beginExport(reservation);
       const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { createFileSystemMp4Target, exportMp4 } = await import("./lib/exportStudio");
@@ -1425,6 +1855,11 @@ export function App() {
           duration: session.plan.duration,
         },
         presenter: pinnedVideo?.blob,
+        presenterTiming: pinnedVideo ? {
+          trimStart: session.plan.presenter.trimStart,
+          startAt: session.plan.presenter.startAt,
+          endAt: session.plan.presenter.endAt,
+        } : undefined,
         includePresenterAudio: session.plan.presenter.includeAudio,
         soundtrack: soundtrack ?? undefined,
         soundtrackGainWhenMixed: reservation.authority.project.sound.underVoice,
@@ -1433,22 +1868,42 @@ export function App() {
         target,
       });
       if (result.blob) await downloadBlob(result.blob, `drift-master-${timestampSlug()}.mp4`);
+      const completion: GuidedExportCompletion = {
+        snapshotId: reservation.snapshot.id,
+        format: "h264-mp4",
+        artifact: "H.264 MP4 master",
+        width: result.width,
+        height: result.height,
+        fps: result.fps,
+        frameCount: result.frameCount,
+        duration: result.duration,
+        bytes: result.blob?.size ?? null,
+        publication: fileHandle ? "committed" : "download-requested",
+        verified: true,
+      };
+      exportJobController.complete(reservation.snapshot.id, completion);
       announce(`${result.width} × ${result.height} H.264 master verified: ${result.verification.frameCount} frames at ${result.fps} fps${result.audio ? ` · ${result.audio.source} AAC` : ""}.`, "good");
+      return completion;
     } catch (error) {
+      const status = exportJobController.getStatus(reservation.snapshot.id);
+      if (status?.state === "running" || status?.state === "canceling") {
+        exportJobController.fail(reservation.snapshot.id, error);
+      }
       announce(
         isAbortError(error) ? "MP4 export canceled." : error instanceof Error ? error.message : "MP4 export failed.",
         isAbortError(error) ? "quiet" : "error",
       );
+      return null;
     } finally {
       await endExport(reservation, session?.surface);
     }
-  }, [acceptEncoderProgress, announce, beginExport, endExport, mp4Supported, nativeMac, renderForExport, reserveExport]);
+  }, [acceptEncoderProgress, announce, beginExport, endExport, exportJobController, guidedExportIntent, mp4Supported, nativeMac, renderForExport, reserveExport]);
 
   const exportStill = useCallback(async () => {
     let reservation: ReturnType<typeof reserveExport> | null = null;
     let session: Awaited<ReturnType<typeof beginExport>> | null = null;
     try {
-      reservation = reserveExport();
+      reservation = reserveExport(guidedExportIntent, false);
       session = await beginExport(reservation);
       const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { exportPngStill } = await import("./lib/exportStudio");
@@ -1465,6 +1920,11 @@ export function App() {
           duration: session.plan.duration,
         },
         presenter: pinnedVideo?.blob,
+        presenterTiming: pinnedVideo ? {
+          trimStart: session.plan.presenter.trimStart,
+          startAt: session.plan.presenter.startAt,
+          endAt: session.plan.presenter.endAt,
+        } : undefined,
         time: stillTime,
         signal: session.controller.signal,
         requireAlpha: true,
@@ -1478,13 +1938,53 @@ export function App() {
     } finally {
       if (reservation) await endExport(reservation, session?.surface);
     }
-  }, [acceptEncoderProgress, announce, beginExport, endExport, renderForExport, reserveExport]);
+  }, [acceptEncoderProgress, announce, beginExport, endExport, guidedExportIntent, renderForExport, reserveExport]);
 
-  const exportFrames = useCallback(async () => {
+  const exportFrames = useCallback(async (
+    request?: GuidedExportRunRequest,
+    automationHooks?: AutomationExportReservationHooks,
+  ): Promise<GuidedExportCompletion | null> => {
+    const intent = request?.intent ?? {
+      ...guidedExportIntent,
+      purpose: "frame-sequence",
+      preferredFormat: "png-frames",
+      destinationClass: "directory",
+    };
+    if (intent.preferredFormat !== "png-frames") {
+      announce("Choose PNG Frames before starting a frame-sequence export.", "error");
+      return null;
+    }
+    if (intent.audio.enabled && !request?.audioConsequenceAcknowledged) {
+      announce("PNG Frames contain no embedded audio. Review and confirm that consequence in Guided Export.", "error");
+      return null;
+    }
+    const picker = (window as PickerWindow).showDirectoryPicker;
+    const requestedDestination = request?.pngDestination ?? (picker ? "directory" : "zip");
+    let directory: FileSystemDirectoryHandle | null = null;
+    if (requestedDestination === "directory") {
+      if (!picker) {
+        announce("This runtime cannot grant a frame directory. Choose a bounded ZIP instead.", "error");
+        return null;
+      }
+      try {
+        if (exportDestinationPendingRef.current) {
+          throw new DOMException("An export destination is already being selected.", "InvalidStateError");
+        }
+        exportDestinationPendingRef.current = true;
+        directory = await picker({ id: "pitchdog-drift-frames", mode: "readwrite" });
+      } catch (error) {
+        announce(isAbortError(error) ? "PNG sequence destination canceled." : error instanceof Error ? error.message : "Could not choose a PNG sequence destination.", isAbortError(error) ? "quiet" : "error");
+        return null;
+      } finally {
+        exportDestinationPendingRef.current = false;
+      }
+    }
     let reservation: ReturnType<typeof reserveExport> | null = null;
     let session: Awaited<ReturnType<typeof beginExport>> | null = null;
     try {
-      reservation = reserveExport();
+      automationHooks?.beforeReservation();
+      reservation = reserveExport(intent);
+      automationHooks?.onReserved(reservation.snapshot.id);
       session = await beginExport(reservation);
       const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { exportPngSequence } = await import("./lib/exportStudio");
@@ -1498,28 +1998,76 @@ export function App() {
           duration: session.plan.duration,
         },
         presenter: pinnedVideo?.blob,
+        presenterTiming: pinnedVideo ? {
+          trimStart: session.plan.presenter.trimStart,
+          startAt: session.plan.presenter.startAt,
+          endAt: session.plan.presenter.endAt,
+        } : undefined,
         signal: session.controller.signal,
         requireAlpha: true,
         requireTransparentPixels: session.plan.requireTransparentPixels,
         onProgress: acceptEncoderProgress,
       };
-      const picker = (window as PickerWindow).showDirectoryPicker;
-      if (picker) {
-        const directory = await picker({ id: "pitchdog-drift-frames", mode: "readwrite" });
+      if (directory) {
         const result = await exportPngSequence({ ...common, destination: "directory", directory, framePrefix: "drift" });
+        const completion: GuidedExportCompletion = {
+          snapshotId: reservation.snapshot.id,
+          format: "png-frames",
+          artifact: "Numbered PNG frame directory",
+          width: result.width,
+          height: result.height,
+          fps: result.fps,
+          frameCount: result.frameCount,
+          duration: result.duration,
+          bytes: result.bytesWritten,
+          publication: "directory-written",
+          verified: true,
+        };
+        exportJobController.complete(reservation.snapshot.id, completion);
         announce(`${result.frameCount} numbered PNG frames written and verified.`, "good");
+        return completion;
       } else {
         const result = await exportPngSequence({ ...common, destination: "zip", framePrefix: "drift" });
         if (!result.blob) throw new Error("PNG ZIP completed without bytes.");
         await downloadBlob(result.blob, `drift-frames-${timestampSlug()}.zip`);
+        const completion: GuidedExportCompletion = {
+          snapshotId: reservation.snapshot.id,
+          format: "png-frames",
+          artifact: "Verified PNG frame ZIP",
+          width: result.width,
+          height: result.height,
+          fps: result.fps,
+          frameCount: result.frameCount,
+          duration: result.duration,
+          bytes: result.bytesWritten,
+          publication: "download-requested",
+          verified: true,
+        };
+        exportJobController.complete(reservation.snapshot.id, completion);
         announce(`${result.frameCount} numbered PNG frames saved in a verified ZIP.`, "good");
+        return completion;
       }
     } catch (error) {
+      if (reservation) {
+        const status = exportJobController.getStatus(reservation.snapshot.id);
+        if (status?.state === "running" || status?.state === "canceling") {
+          exportJobController.fail(reservation.snapshot.id, error);
+        }
+      }
       announce(isAbortError(error) ? "PNG sequence export canceled." : error instanceof Error ? error.message : "PNG sequence export failed.", isAbortError(error) ? "quiet" : "error");
+      return null;
     } finally {
       if (reservation) await endExport(reservation, session?.surface);
     }
-  }, [acceptEncoderProgress, announce, beginExport, endExport, renderForExport, reserveExport]);
+  }, [acceptEncoderProgress, announce, beginExport, endExport, exportJobController, guidedExportIntent, renderForExport, reserveExport]);
+
+  const runGuidedExport = useCallback((request: GuidedExportRunRequest, automationHooks?: AutomationExportReservationHooks) => {
+    if (request.intent.preferredFormat === "h264-mp4") return exportVideo(request, automationHooks);
+    if (request.intent.preferredFormat === "png-frames") return exportFrames(request, automationHooks);
+    announce("That format is visible for planning, but this build cannot render it.", "error");
+    return Promise.resolve(null);
+  }, [announce, exportFrames, exportVideo]);
+  automationExportRunRef.current = (request, hooks) => runGuidedExport(request, hooks);
 
   const savePortableProjectNow = useCallback(async (operation: "save" | "save-as" = "save") => {
     try {
@@ -1535,44 +2083,50 @@ export function App() {
         blob = await exportProject(snapshot);
       }
 
-      if (nativeMac) {
-        const started = beginProjectSave(documentRevisionRef.current);
-        documentRevisionRef.current = started.state;
+      const prepared = desktopPlatform.documents.preparePortableProjectSave(
+        documentRevisionRef.current,
+      );
+      documentRevisionRef.current = prepared.revisions;
+      if (prepared.ticket) {
         setDocumentRevisionVersion((version) => version + 1);
-        const request = {
+      }
+      const receipt = requireDesktopPlatformCompletion(
+        await desktopPlatform.documents.savePortableProject({
+          operation,
           transactionId: `project-${globalThis.crypto.randomUUID()}`,
-          ticket: started.ticket,
+          ticket: prepared.ticket,
           blob,
-        };
-        const receipt = operation === "save-as"
-          ? await saveNativeMacDocumentAs(request)
-          : await saveNativeMacDocument(request);
-        if (!receipt) throw new DOMException("The native project document bridge is unavailable.", "NotSupportedError");
-        documentRevisionRef.current = completeNativeMacDocumentSave(
-          documentRevisionRef.current,
-          started.ticket,
-          receipt,
-        );
+          suggestedName: `drift-project-${timestampSlug()}.pitched`,
+        }),
+      );
+      documentRevisionRef.current = desktopPlatform.documents.completePortableProjectSave(
+        documentRevisionRef.current,
+        prepared.ticket,
+        receipt,
+      );
+      if (receipt.bound) {
         documentSha256Ref.current = receipt.sha256;
         setDocumentBound(true);
         setDocumentConflict(false);
         setDocumentRevisionVersion((version) => version + 1);
-        announce(
-          hydratedRef.current
-            ? `Portable Project V4 ${operation === "save-as" ? "saved as a new document" : "saved"} with exact native readback.`
-            : "Locked saved project re-verified and saved without replacing fallback media.",
-          "good",
-        );
-        return;
       }
-
-      await downloadBlob(blob, `drift-project-${timestampSlug()}.pitched`);
-      announce("Portable Project V4 saved with original media and SHA-256 manifest.", "good");
+      announce(
+        receipt.bound && receipt.readbackVerified
+          ? hydratedRef.current
+            ? `Portable Project V4 ${operation === "save-as" ? "saved as a new document" : "saved"} with exact native readback.`
+            : "Locked saved project re-verified and saved without replacing fallback media."
+          : hydratedRef.current
+            ? "Portable Project V4 download started with original media and SHA-256 manifest."
+            : "Locked saved project was packaged for download without replacing fallback media.",
+        "good",
+      );
     } catch (error) {
-      if (error instanceof NativeMacDocumentConflictError) setDocumentConflict(true);
+      if (error instanceof DesktopPlatformDocumentError && error.code === "conflict") {
+        setDocumentConflict(true);
+      }
       announce(isAbortError(error) ? "Portable project save canceled." : error instanceof Error ? error.message : "Portable project could not be saved.", isAbortError(error) ? "quiet" : "error");
     }
-  }, [announce, nativeMac, persist]);
+  }, [announce, desktopPlatform, persist]);
 
   const savePortableProject = useCallback(() => {
     void enqueueProjectOperation(savePortableProjectNow);
@@ -1585,7 +2139,7 @@ export function App() {
   const openPortableProjectFile = useCallback(async (
     file: File,
     propagateFailure = false,
-    bindNativeDocument = true,
+    finalizeDesktopDocument = true,
   ) => {
     try {
       const verified = await importProject<StudioProjectPayload>(file);
@@ -1631,11 +2185,13 @@ export function App() {
             prepared.presenter,
           );
           identityRef.current = { projectId: saved.manifest.projectId, createdAt: saved.manifest.createdAt };
-          if (bindNativeDocument) {
-            const nativeReceipt = await confirmNativeMacDocumentOpen(file);
-            if (nativeReceipt) {
+          if (finalizeDesktopDocument) {
+            const documentReceipt = requireDesktopPlatformCompletion(
+              await desktopPlatform.documents.finalizePortableProjectOpen(file),
+            );
+            if (documentReceipt.bound) {
               documentRevisionRef.current = createProjectRevisionState();
-              documentSha256Ref.current = nativeReceipt.sha256;
+              documentSha256Ref.current = documentReceipt.sha256;
               setDocumentBound(true);
               setDocumentConflict(false);
               setDocumentRevisionVersion((version) => version + 1);
@@ -1662,26 +2218,23 @@ export function App() {
       }
       announce("Portable project verified, migrated when necessary, and copied into local Project V4 storage.", "good");
     } catch (error) {
-      if (bindNativeDocument) await abandonNativeMacDocumentOpen();
+      if (finalizeDesktopDocument) await desktopPlatform.documents.abandonPortableProjectOpen();
       announce(error instanceof Error ? `Project rejected: ${error.message}` : "Project was rejected.", "error");
       if (propagateFailure) throw error;
     }
-  }, [announce, installPreparedProjectState, persist, persistExactProject, prepareProjectState, publishLiveProject, replaceProjectState, settingsForCurrentAuthority]);
+  }, [announce, desktopPlatform, installPreparedProjectState, persist, persistExactProject, prepareProjectState, publishLiveProject, replaceProjectState, settingsForCurrentAuthority]);
 
   const requestPortableProject = useCallback(() => {
-    void pickNativeMacFiles("project", false)
-      .then((files) => {
-        if (files === null) {
-          importInputRef.current?.click();
-          return;
-        }
-        const file = files[0];
-        if (file) void enqueueProjectOperation(() => openPortableProjectFile(file, true), true).catch(() => undefined);
+    void desktopPlatform.documents.choosePortableProject()
+      .then((result) => {
+        if (result.status === "cancelled") return;
+        const { file } = requireDesktopPlatformCompletion(result);
+        void enqueueProjectOperation(() => openPortableProjectFile(file, true), true).catch(() => undefined);
       })
       .catch((error: unknown) => {
         if (!isAbortError(error)) announce(error instanceof Error ? error.message : "Project could not be opened.", "error");
       });
-  }, [announce, enqueueProjectOperation, openPortableProjectFile]);
+  }, [announce, desktopPlatform, enqueueProjectOperation, openPortableProjectFile]);
 
   const revertPortableProject = useCallback(() => {
     void enqueueProjectOperation(async () => {
@@ -1690,11 +2243,12 @@ export function App() {
         throw new DOMException("This project has no conflict-free saved document to revert to.", "InvalidStateError");
       }
       try {
-        const result = await revertNativeMacDocument({
-          transactionId: `revert-${globalThis.crypto.randomUUID()}`,
-          expectedSha256,
-        });
-        if (!result) throw new DOMException("The native project document bridge is unavailable.", "NotSupportedError");
+        const result = requireDesktopPlatformCompletion(
+          await desktopPlatform.documents.revertPortableProject({
+            transactionId: `revert-${globalThis.crypto.randomUUID()}`,
+            expectedSha256,
+          }),
+        );
         const file = new File([result.blob], "Reverted Project.pitched", {
           type: "application/vnd.pitchdog.pitched+zip",
         });
@@ -1705,13 +2259,15 @@ export function App() {
         setDocumentRevisionVersion((version) => version + 1);
         announce("Reverted to the last native-verified .pitched bytes.", "good");
       } catch (error) {
-        if (error instanceof NativeMacDocumentConflictError) setDocumentConflict(true);
+        if (error instanceof DesktopPlatformDocumentError && error.code === "conflict") {
+          setDocumentConflict(true);
+        }
         throw error;
       }
     }, true).catch((error: unknown) => {
       announce(error instanceof Error ? error.message : "Project could not be reverted.", "error");
     });
-  }, [announce, documentBound, enqueueProjectOperation, nativeDocumentState.revertible, openPortableProjectFile]);
+  }, [announce, desktopPlatform, documentBound, enqueueProjectOperation, nativeDocumentState.revertible, openPortableProjectFile]);
 
   const openPortableProject = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
@@ -1869,6 +2425,41 @@ export function App() {
     announce(message);
   }, [announce, markProjectDirty, publishLiveProject]);
 
+  const commitProjectCommandResult = useCallback((
+    project: DriftProjectV4,
+    revisions: ProjectRevisionState,
+    message: string,
+  ) => {
+    const current = projectRef.current;
+    if (!current) throw new Error("Project V4 creative authority is unavailable.");
+    recordV2History(current, project, message);
+    const projected = studioSettingsFromDriftProject(project);
+    publishLiveProject(project);
+    settingsRef.current = projected;
+    setSettings(projected);
+    documentRevisionRef.current = structuredClone(revisions);
+    setDocumentRevisionVersion((version) => version + 1);
+    scheduleProjectPersistence();
+    setChangeReceipt(message);
+    announce(message, "good");
+  }, [announce, publishLiveProject, recordV2History, scheduleProjectPersistence]);
+
+  automationCommitRef.current = (change) => {
+    commitProjectCommandResult(change.project, change.revisions, change.message);
+  };
+
+  const applyOutcomeRecipeFromUi = useCallback((id: OutcomeRecipeId, message: string) => {
+    const current = projectRef.current;
+    if (!current) throw new Error("Project V4 creative authority is unavailable.");
+    const applied = applyProjectV4Command(
+      current,
+      documentRevisionRef.current,
+      applyOutcomeRecipeCommand(id),
+      new Date().toISOString(),
+    );
+    commitProjectCommandResult(applied.project, applied.revision, message);
+  }, [commitProjectCommandResult]);
+
   const undoV2Project = useCallback(() => {
     const current = projectRef.current;
     const history = v2HistoryRef.current;
@@ -1919,14 +2510,20 @@ export function App() {
 
   const exportInProgress = Boolean(exportProgress);
 
+  const cancelActiveExport = useCallback(() => {
+    const active = exportJobController.getActiveStatus();
+    if (active && exportJobController.cancel(active.id)) return true;
+    if (!abortRef.current) return false;
+    abortRef.current.abort(new DOMException("Export canceled.", "AbortError"));
+    return true;
+  }, [exportJobController]);
+
   nativeCommandRef.current = (command: NativeMacCommand) => {
     if (command === "cancel-export") {
-      if (!abortRef.current) return false;
-      abortRef.current.abort("Canceled from the macOS menu");
-      return true;
+      return cancelActiveExport();
     }
 
-    const blocked = Boolean(abortRef.current) || exportInProgress || projectBusy || saveState === "loading";
+    const blocked = Boolean(abortRef.current) || exportDestinationPendingRef.current || exportInProgress || projectBusy || saveState === "loading";
     if (blocked) return false;
 
     switch (command) {
@@ -2118,6 +2715,15 @@ export function App() {
       case "export.mp4":
         void exportVideo();
         return;
+      case "presentation.interface-scale.smaller":
+        changeInterfaceScale({ type: "smaller" });
+        return;
+      case "presentation.interface-scale.larger":
+        changeInterfaceScale({ type: "larger" });
+        return;
+      case "presentation.interface-scale.reset":
+        changeInterfaceScale({ type: "reset" });
+        return;
       case "history.undo":
         undoV2Project();
         return;
@@ -2128,7 +2734,16 @@ export function App() {
   };
 
   return (
-    <main className="app" data-focus={focusMode} data-active-panel={activePanel} data-build-channel={driftBuildIdentity.channel} aria-busy={interactionBusy}>
+    <main
+      className="app"
+      data-focus={focusMode}
+      data-active-panel={activePanel}
+      data-build-channel={driftBuildIdentity.channel}
+      data-interface-scale={interfaceScale.value}
+      data-interface-layout={interfaceScale.layout}
+      style={{ "--interface-scale": interfaceScale.value / 100 } as CSSProperties}
+      aria-busy={interactionBusy}
+    >
       <header className="app-header">
         <a className="wordmark" href="#studio" aria-label="Drift studio home">
           <span>pitch.dog</span>
@@ -2143,6 +2758,11 @@ export function App() {
             <span className="header-divider" />
             <span>{localSaveStatusLabel}</span>
           </div>
+          <InterfaceScaleMenu
+            snapshot={interfaceScale}
+            disabled={interactionBusy}
+            onCommand={changeInterfaceScale}
+          />
           <button type="button" className="command-trigger" aria-label="Open command palette" onClick={() => setCommandPaletteOpen(true)} disabled={interactionBusy}>⌘K</button>
         </div>
       </header>
@@ -2187,6 +2807,7 @@ export function App() {
           outputFps={displayedProject.master.fps}
           paused={paused}
           reducedMotionPreview={prefersReducedMotion}
+          reducedMotionMaster={displayedProject.master.reducedMotion || displayedProject.performance.reducedMotion === true}
           focusMode={focusMode}
           activeSlideIndex={activeSlideIndex}
           platformGuide={platformGuide}
@@ -2197,7 +2818,7 @@ export function App() {
           onSeekPreview={seekPreview}
           onToggleFocus={() => setFocusMode((value) => !value)}
           onDropImages={addImages}
-          onCancelExport={() => abortRef.current?.abort("Canceled by user")}
+          onCancelExport={cancelActiveExport}
           busy={interactionBusy}
         />
         <ControlPanel
@@ -2220,6 +2841,7 @@ export function App() {
           v2Active={v2Active}
           onSettings={updateSettings}
           onV2Project={updateV2Project}
+          onOutcomeRecipe={applyOutcomeRecipeFromUi}
           onUndoV2={undoV2Project}
           onRedoV2={redoV2Project}
           canUndoV2={v2HistoryRef.current.past.length > 0}
@@ -2233,12 +2855,17 @@ export function App() {
           onTheme={onTheme}
           onResetPinnedFrame={resetPinnedFrame}
           onExportStill={exportStill}
-          onExportVideo={exportVideo}
-          onExportFrames={exportFrames}
+          onRunGuidedExport={runGuidedExport}
           onExportProject={savePortableProject}
           onImportProject={requestPortableProject}
           projectFilesEnabled={portableProjectFilesEnabled}
+          panelActive={
+            (interfaceScale.layout !== "single-panel" && !constrainedViewport)
+            || activePanel === "director"
+          }
           exportCapabilities={exportCapabilities}
+          guidedExportIntent={guidedExportIntent}
+          exportProgress={exportProgress}
           exportSurfaceSupported={!webglError && contextState !== "lost"}
           exporting={interactionBusy}
         />
@@ -2272,6 +2899,33 @@ export function App() {
 
       <footer className="app-footer">
         <span>LOCAL FIRST · NO CLOUD · NO TRACKING</span>
+        {driftBuildIdentity.isDevelopment ? (
+          <AutomationAccessView
+            enabled={automationEnabled}
+            writeEnabled={automationWriteEnabled}
+            previewEnabled={automationPreviewEnabled}
+            exportEnabled={automationExportEnabled}
+            connectionState={automationConnectionState}
+            service={automationService}
+            onEnabledChange={(enabled) => {
+              setAutomationEnabled(enabled);
+              if (!enabled) setAutomationWriteEnabled(false);
+              if (!enabled) setAutomationPreviewEnabled(false);
+              if (!enabled) setAutomationExportEnabled(false);
+            }}
+            onWriteEnabledChange={setAutomationWriteEnabled}
+            onPreviewEnabledChange={setAutomationPreviewEnabled}
+            onExportEnabledChange={setAutomationExportEnabled}
+            onUndoReceipt={(receiptId) => {
+              try {
+                automationService.mutation?.undo(receiptId);
+              } catch (error) {
+                announce(error instanceof Error ? error.message : "Automation change could not be undone.", "error");
+              }
+            }}
+            onDisconnect={() => automationAdapter.revokeAll()}
+          />
+        ) : null}
         <details className="legal-notice">
           <summary>SOURCE · AGPL</summary>
           <div role="note" aria-label="Free software notice">

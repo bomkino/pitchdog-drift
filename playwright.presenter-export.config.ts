@@ -1,5 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const physicalEncoderTimeout = Number(process.env.DRIFT_PHYSICAL_ENCODER_TIMEOUT_MS ?? 120_000);
+
+if (!Number.isSafeInteger(physicalEncoderTimeout) || physicalEncoderTimeout < 120_000) {
+  throw new TypeError("DRIFT_PHYSICAL_ENCODER_TIMEOUT_MS must be an integer of at least 120000.");
+}
+
 /**
  * Physical acceptance lane for WebCodecs presenter exports. The ordinary UI
  * suite forces SwiftShader for reproducible WebGL screenshots; SwiftShader's
@@ -16,7 +22,7 @@ export default defineConfig({
   forbidOnly: true,
   retries: 0,
   workers: 1,
-  timeout: 120_000,
+  timeout: physicalEncoderTimeout,
   reporter: "list",
   use: {
     ...devices["Desktop Chrome"],

@@ -98,7 +98,7 @@ test("shipping and development identities restore the authored V2 room and repai
 
   const pinnedSwitch = page.getByRole("switch", { name: "Keep one frame still" });
   const carouselPresence = page.getByRole("group", { name: "Carousel presence", exact: true });
-  const pinnedLayer = page.getByRole("group", { name: "Layer", exact: true });
+  const pinnedAnchoring = page.getByRole("group", { name: "Anchoring", exact: true });
   await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
   const pinnedCrop = page.locator(".inspector-group").filter({
     has: page.locator(":scope > .inspector-group-trigger > span", { hasText: /^Pinned crop and shape$/ }),
@@ -107,15 +107,15 @@ test("shipping and development identities restore the authored V2 room and repai
   const pinnedRatio = page.getByRole("group", { name: "Ratio", exact: true });
   await expect(pinnedSwitch).toBeChecked();
   await expect(carouselPresence.getByRole("radio", { name: "Still only" })).toBeChecked();
-  await expect(pinnedLayer.getByRole("radio", { name: "Protected" })).toBeChecked();
+  await expect(pinnedAnchoring.getByRole("radio", { name: "Protected" })).toBeChecked();
   await expect(pinnedRatio.getByRole("radio", { name: "Use source" })).toBeChecked();
 
   // Click the full-size associated labels so this remains a real pointer journey.
   await carouselPresence.getByText("Still + moving", { exact: true }).click();
-  await pinnedLayer.getByText("In scene", { exact: true }).click();
+  await pinnedAnchoring.getByText("In scene", { exact: true }).click();
   await pinnedRatio.getByText("Custom", { exact: true }).click();
   await expect(carouselPresence.getByRole("radio", { name: "Still + moving" })).toBeChecked();
-  await expect(pinnedLayer.getByRole("radio", { name: "In scene" })).toBeChecked();
+  await expect(pinnedAnchoring.getByRole("radio", { name: "In scene" })).toBeChecked();
   await expect(pinnedRatio.getByRole("radio", { name: "Custom" })).toBeChecked();
 
   const resetNotice = page.locator(".notice[role=status]").filter({
@@ -126,7 +126,7 @@ test("shipping and development identities restore the authored V2 room and repai
     page.getByRole("button", { name: "Reset pinned frame" }).click(),
   ]);
   await expect(carouselPresence.getByRole("radio", { name: "Still only" })).toBeChecked();
-  await expect(pinnedLayer.getByRole("radio", { name: "Protected" })).toBeChecked();
+  await expect(pinnedAnchoring.getByRole("radio", { name: "Protected" })).toBeChecked();
   await expect(pinnedRatio.getByRole("radio", { name: "Use source" })).toBeChecked();
   await expect(pinnedSwitch).toBeChecked();
 });
@@ -202,7 +202,7 @@ test("comparison pixels return after a still export instead of keeping live dire
 
   await page.getByRole("button", { name: "EXPORT", exact: true }).click();
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save transparent-safe PNG" }).click();
+  await page.getByRole("button", { name: "Save one PNG still" }).click();
   const exportPath = await (await download).path();
   expect(exportPath).toBeTruthy();
   // A still export must render the live Dread direction even while the stage

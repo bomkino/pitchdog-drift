@@ -9,6 +9,7 @@ export interface ExportProgressClock {
   previousSampleAt: number;
   ratePerSecond: number | null;
   observations: number;
+  overallRatio: number;
 }
 
 export function createExportProgressClock(now: number): ExportProgressClock {
@@ -20,6 +21,7 @@ export function createExportProgressClock(now: number): ExportProgressClock {
     previousSampleAt: now,
     ratePerSecond: null,
     observations: 0,
+    overallRatio: 0,
   };
 }
 
@@ -29,7 +31,7 @@ export function projectExportProgress(
   now: number,
 ): ExportProgressView {
   const phase: ExportProgressView["phase"] = progress.phase === "rendering" || progress.phase === "writing"
-    ? "frames"
+    ? "render"
     : progress.phase === "preparing"
       ? "preparing"
       : progress.phase === "audio"
@@ -37,8 +39,12 @@ export function projectExportProgress(
         : progress.phase === "complete"
           ? "complete"
           : progress.phase === "finalizing"
-            ? "finalizing"
-            : "video";
+            ? "finalize"
+            : progress.phase === "verifying"
+              ? "verify"
+              : progress.phase === "committing"
+                ? "commit"
+                : "encode";
   const message = progress.message ?? {
     preparing: "Preparing deterministic timeline",
     video: "Encoding fixed-step video",
@@ -46,8 +52,11 @@ export function projectExportProgress(
     rendering: "Rendering exact frames",
     writing: "Writing frames to disk",
     finalizing: "Closing and verifying output",
+    verifying: "Reopening and verifying output",
+    committing: "Publishing verified output",
     complete: "Master complete",
   }[progress.phase];
+  clock.overallRatio = Math.max(clock.overallRatio, Math.max(0, Math.min(1, progress.ratio)));
 
   const phaseReset = clock.phase !== progress.phase || progress.completed < clock.previousCompleted;
   if (phaseReset) {
@@ -87,6 +96,7 @@ export function projectExportProgress(
 
   return {
     phase,
+    ratio: clock.overallRatio,
     completed: progress.completed,
     total: progress.total,
     frameIndex: progress.frameIndex ?? null,

@@ -33,7 +33,7 @@ Sections 1–12 are pre-merge candidate gates and must pass on one exact reviewe
 - [ ] Build on a supported macOS host from the frozen commit.
 - [ ] Use a clean dependency installation.
 - [ ] `npm run build:mac` succeeds.
-- [ ] The executable contains both `arm64` and `x86_64` slices.
+- [ ] `lipo -archs` reports exactly `arm64`; no Intel slice is present.
 - [ ] The deployment target is macOS 13.3 or a deliberately reviewed replacement.
 - [ ] The app opens from Applications without Vite, Node.js, Terminal, or a local server.
 - [ ] The packaged WebView loads `Resources/Web/index.html`, its child assets, React’s `main.app`, and bridge version 2.
@@ -184,8 +184,7 @@ Sections 1–12 are pre-merge candidate gates and must pass on one exact reviewe
 
 - [ ] Current Apple Silicon Mac.
 - [ ] Oldest supported macOS on Apple Silicon.
-- [ ] Current Intel Mac.
-- [ ] Oldest supported macOS on Intel.
+- [ ] Intel Mac and Windows are stated as unsupported in current support documentation.
 - [ ] Low-memory stress run.
 - [ ] External/removable destination volume.
 - [ ] Sleep/wake and full-screen transition.

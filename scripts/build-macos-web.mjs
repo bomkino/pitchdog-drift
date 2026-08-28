@@ -117,6 +117,7 @@ const styleLinks = stylesheetRelatives
 // second diagnostic bridge or an unsafe console-log scrape.
 const bootstrapDiagnostics = String.raw`    <script>
       (() => {
+        const bootstrapTitle = document.title;
         const state = {
           phase: "bootstrap-installed",
           errorName: null,
@@ -148,7 +149,9 @@ const bootstrapDiagnostics = String.raw`    <script>
         window.__driftMacApplicationLoaded = () => {
           if (state.phase === "failed") return;
           state.phase = "application-loaded";
-          document.title = "Drift boot loaded · awaiting React";
+          if (document.title === bootstrapTitle) {
+            document.title = "Drift boot loaded · awaiting React";
+          }
         };
         window.__driftMacApplicationLoadFailed = () => {
           fail("ResourceError", "drift-app.js did not load");

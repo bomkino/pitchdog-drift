@@ -195,7 +195,7 @@ Native callback failures write only a stable error class such as `SecurityError`
 - H.264 behavior varies by macOS release, WebKit, hardware, dimensions, and memory. Capability probing and output readback are required; model names and OS versions are not proof.
 - AudioToolbox is a system framework with implementation-specific priming and packet behavior. Drift records and validates observed metadata but cannot make the framework bug-free.
 - Ad-hoc signing proves local bundle integrity, not publisher identity. Public release requires Developer ID, notarization, stapling, Gatekeeper, and independent verification.
-- Universal compilation proves both slices build. It does not exercise Intel WebKit, GPU, or codecs.
+- Arm64 compilation and source checks do not prove the packaged app ran on Apple Silicon; exact-package runtime evidence remains separate.
 - Automated runtime probes prove small representative output. They do not prove 30-second 1080 × 1920 behavior, visual quality, VoiceOver, removable-volume cleanup, sleep/wake, or every presenter codec.
 
 ## Evidence required for a release claim
@@ -203,14 +203,14 @@ Native callback failures write only a stable error class such as `SecurityError`
 - Extracted signed entitlements showing App Sandbox, user-selected file access, network-client access, and absence of network-server/broad-directory exceptions.
 - Exact packaged TCP and UDP loopback probes with unpredictable tokens and zero accepted hits, tied to the tested app/WebContent processes and production rule identifier.
 - Source and behavioural evidence that remote responses/downloads cannot acquire destination authority and no native `URLSession`, Network.framework, or socket client is shipped.
-- Universal architecture readback and a separate Intel runtime receipt.
+- Exact arm64-only architecture readback tied to the tested package.
 - Build-manifest checksum verification.
 - Native broker self-test output.
 - Packaged WebView/React/typed-command/recovery self-test output.
 - Clean bundle scan showing no source maps, `.wasm`, browser AAC extension, FFmpeg, or libavcodec marker.
 - Native AudioToolbox AAC packet/frame receipt.
 - Deterministic WKWebView MP4/PNG receipt with decoded output evidence.
-- Real import/save/export/cancel tests on physical Apple Silicon and Intel Macs.
+- Real import/save/export/cancel tests on physical Apple Silicon Macs.
 - Accessibility and diagnostics privacy review.
 - Notarization, stapling, Gatekeeper, and checksum evidence for any binary offered to other people.
 - A completed QA receipt that distinguishes automation, hosted hardware, physical hardware, human review, and untested boundaries.
