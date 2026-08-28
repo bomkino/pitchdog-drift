@@ -194,22 +194,33 @@ test("presenter export preflight decodes a real frame before rendering", async (
 });
 
 test("@physical-encoder full presenter journey closes and verifies the fixed-step MP4 instead of hanging after its last frame", async ({ page }) => {
+  const softwareSmoke = process.env.DRIFT_PRESENTER_SMOKE_PROFILE === "software-ci";
+  const stageSize = 256;
+  const duration = softwareSmoke ? 0.5 : 1.5;
+  const frameCount = Math.round(duration * 24);
   await page.addInitScript(() => {
     Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined });
   });
   await waitForStudio(page);
+
+  // Bound the software-rendered CI workload before presenter decode. Loading
+  // the presenter against the default 1080 x 1920 animated stage spent most
+  // of the runner's budget on preview work rather than the exporter seam.
+  await page.getByRole("button", { name: "Pause preview" }).click();
+  await switchWorkspace(page, "EXPORT");
+  await page.getByLabel("Stage width").fill(String(stageSize));
+  await page.getByLabel("Stage height").fill(String(stageSize));
+
   await page.locator('input[type="file"][accept^="video"]').setInputFiles(presenterAvFixturePath);
   await expect(page.locator(".presenter-card")).toBeVisible();
 
   await switchWorkspace(page, "MOTION");
   await page.getByRole("group", { name: "Timing authority" }).getByText("Exact length", { exact: true }).click();
-  await page.getByLabel("Body duration").fill("1.5");
+  await page.getByLabel("Body duration").fill(String(duration));
 
   await switchWorkspace(page, "EXPORT");
-  await page.getByLabel("Stage width").fill("256");
-  await page.getByLabel("Stage height").fill("256");
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
-  await expect(page.getByRole("status", { name: "Delivery receipt" })).toContainText("36 frames");
+  await expect(page.getByRole("status", { name: "Delivery receipt" })).toContainText(`${frameCount} frames`);
   await expect(page.getByRole("status", { name: "Delivery receipt" }))
     .toContainText("Presenter on · source checked at export");
 
@@ -217,12 +228,12 @@ test("@physical-encoder full presenter journey closes and verifies the fixed-ste
   await prepareGuidedExport(page, "H.264 MP4");
   await startGuidedExport(page);
   const download = await downloadPromise;
-  const path = await retainRuntimeEvidence(download, "presenter-256x256.mp4");
+  const path = await retainRuntimeEvidence(download, `presenter-${stageSize}x${stageSize}.mp4`);
   expect(path).toBeTruthy();
   expect((await readFile(path!)).byteLength).toBeGreaterThan(1_000);
   await expect(page.locator(".export-overlay")).toBeHidden();
   await expect(page.locator(".notice")).toContainText(
-    "256 × 256 H.264 master verified: 36 frames at 24 fps · presenter AAC.",
+    `${stageSize} × ${stageSize} H.264 master verified: ${frameCount} frames at 24 fps · presenter AAC.`,
   );
 });
 

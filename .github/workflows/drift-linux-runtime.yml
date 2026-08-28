@@ -137,6 +137,7 @@ jobs:
         env:
           DRIFT_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/build/evidence/browser-artifacts
           DRIFT_PHYSICAL_ENCODER_TIMEOUT_MS: 420000
+          DRIFT_PRESENTER_SMOKE_PROFILE: software-ci
         run: |
           set -euo pipefail
           command -v xvfb-run
