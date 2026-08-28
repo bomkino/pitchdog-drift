@@ -16,6 +16,12 @@ import {
   waitForStudio,
 } from "./studio.helpers";
 
+function physicalEncoderDownloadTimeout(): number {
+  const configured = Number(process.env.DRIFT_PHYSICAL_ENCODER_TIMEOUT_MS ?? 120_000);
+  if (!Number.isSafeInteger(configured) || configured < 120_000) return 90_000;
+  return configured - 30_000;
+}
+
 async function retainRuntimeEvidence(download: Download, fileName: string): Promise<string | null> {
   const path = await download.path();
   const evidenceDirectory = process.env.DRIFT_RUNTIME_EVIDENCE_DIR?.trim();
@@ -207,7 +213,7 @@ test("@physical-encoder full presenter journey closes and verifies the fixed-ste
   await expect(page.getByRole("status", { name: "Delivery receipt" }))
     .toContainText("Presenter on · source checked at export");
 
-  const downloadPromise = page.waitForEvent("download", { timeout: 90_000 });
+  const downloadPromise = page.waitForEvent("download", { timeout: physicalEncoderDownloadTimeout() });
   await prepareGuidedExport(page, "H.264 MP4");
   await startGuidedExport(page);
   const download = await downloadPromise;
@@ -241,9 +247,9 @@ test("@physical-encoder installed Chrome verifies and downloads a delivery-size 
     .toContainText("Presenter on · source checked at export");
 
   const completion = Promise.any([
-    page.waitForEvent("download", { timeout: 90_000 })
+    page.waitForEvent("download", { timeout: physicalEncoderDownloadTimeout() })
       .then((download) => ({ kind: "download" as const, download })),
-    page.getByRole("alert").waitFor({ state: "visible", timeout: 90_000 })
+    page.getByRole("alert").waitFor({ state: "visible", timeout: physicalEncoderDownloadTimeout() })
       .then(async () => ({
         kind: "rejected" as const,
         message: await page.getByRole("alert").textContent(),
