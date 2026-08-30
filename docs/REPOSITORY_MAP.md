@@ -49,7 +49,7 @@ These words are not synonyms:
 5. **pushed** — a commit exists on a remote branch;
 6. **merged**, **released**, **published**, and **approved** — separate maintainer actions.
 
-The construction and binary-candidate workflows do not merge, tag, create a GitHub Release, publish a binary, or mark a draft ready. `.github/workflows/source-release.yml` is the narrow exception: after a version transition reaches protected `main` (or an explicit manual dispatch), it verifies the matching changelog section, tags that exact commit, and publishes a source-only GitHub Release. It never uploads an app or DMG. The historical `v0.1.0` Release and its ad-hoc, unnotarized arm64 DMG do not satisfy the binary gates. Release documentation describes the additional Developer ID, notarisation, Gatekeeper, checksum, hardware, and human-acceptance gates.
+The construction workflows do not merge, tag, create a GitHub Release, publish a binary, or mark a draft ready. Binary-candidate workflows share the same boundary. `.github/workflows/source-release.yml` is the narrow exception: after a version transition reaches protected `main` (or an explicit manual dispatch), it verifies the matching changelog section, tags that exact commit, and publishes a source-only GitHub Release. It never uploads an app or DMG. The historical `v0.1.0` Release and its ad-hoc, unnotarized arm64 DMG do not satisfy the binary gates. Release documentation describes the additional Developer ID, notarisation, Gatekeeper, checksum, hardware, and human-acceptance gates.
 
 ## First checks
 
