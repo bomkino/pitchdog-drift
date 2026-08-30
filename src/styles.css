@@ -4096,7 +4096,8 @@ a:focus-visible {
   .transport-divider { display: none; }
   .transport .focus-button { padding: 0 3px; }
   .timeline-dock { grid-template-columns: auto minmax(100px, 1fr) auto; }
-  .timeline-transport { grid-template-columns: 44px; grid-template-rows: repeat(3, 44px); padding: 0 5px; }
+  .timeline-transport { grid-template-columns: 44px; grid-template-rows: repeat(3, 44px); gap: var(--space-2); padding: 0 5px; }
+  .timeline-transport button { min-width: 44px; height: 44px; }
   .timeline-time { display: none; }
   .timeline-editor { padding-inline: 8px; }
   .select-field { align-items: stretch; flex-direction: column; }
