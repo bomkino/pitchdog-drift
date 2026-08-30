@@ -143,7 +143,7 @@ export function MediaLibrary({
 
       <div className="media-add-row">
         <button type="button" className="media-add" disabled={busy} onClick={requestImages}>
-          <PlusIcon /> Add slides
+          <PlusIcon /> <span>Add slides</span>
         </button>
         <button type="button" className="media-add subtle" disabled={busy} onClick={requestPresenter}>
           Presenter

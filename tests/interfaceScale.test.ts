@@ -10,6 +10,8 @@ import {
   applyInterfaceScaleCommand,
   createInterfaceScalePreferenceStore,
   interfaceScaleLayout,
+  interfaceScaleSinglePanelMaximum,
+  interfaceScaleUsesSinglePanel,
   normalizeInterfaceScale,
 } from "../src/lib/interfaceScale";
 import { createBrowserDesktopPlatform } from "../src/lib/desktopPlatform";
@@ -49,6 +51,13 @@ describe("Interface Scale preference", () => {
     expect(applyInterfaceScaleCommand(125, { type: "reset" })).toBe(100);
     expect(interfaceScaleLayout(125)).toBe("three-panel");
     expect(interfaceScaleLayout(150)).toBe("single-panel");
+    expect(interfaceScaleSinglePanelMaximum(75)).toBe(1120);
+    expect(interfaceScaleSinglePanelMaximum(100)).toBe(1192);
+    expect(interfaceScaleUsesSinglePanel(75, 1120)).toBe(true);
+    expect(interfaceScaleUsesSinglePanel(75, 1121)).toBe(false);
+    expect(interfaceScaleUsesSinglePanel(125, 1380)).toBe(true);
+    expect(interfaceScaleUsesSinglePanel(125, 1440)).toBe(false);
+    expect(interfaceScaleUsesSinglePanel(150, 1920)).toBe(true);
     expect(applyInterfaceScaleCommand(200, { type: "larger" })).toBe(200);
   });
 

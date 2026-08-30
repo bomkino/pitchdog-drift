@@ -31,7 +31,7 @@ These are response targets, not guarantees or automatic disclosure deadlines. If
 
 ## Supported surfaces
 
-Security fixes target the current `main` branch and explicitly active construction or release branches. The source tree prepares `v0.2.0`; treat it as public only when the matching GitHub tag and release exist. Public source can move faster than a notarized binary, so always identify the exact commit or app build.
+Security fixes target the current `main` branch and explicitly active construction or release branches. This source tree identifies as `v0.2.1`; treat that version as public only when the matching GitHub tag and release exist. Public source can move faster than a notarized binary, so always identify the exact commit or app build.
 
 No public compiled Mac release is promised merely because CI can build `Drift.app`. The DMG attached to the historical `v0.1.0` release is ad-hoc signed and unnotarized and is not a supported security-maintained binary. A binary is supported only when the repository explicitly publishes it with a version, source revision, checksum, signing/notarization receipt, and release notes.
 

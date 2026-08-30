@@ -2,9 +2,9 @@
 
 Updated: 30 August 2026
 
-Release line: `v0.2.0` source tree. The matching tag and GitHub Release become public only when they appear on GitHub; this document does not infer publication from the version in source. No `v0.2.0` Mac binary is part of the source release.
+Release line: `v0.2.1` source tree. The matching tag and GitHub Release become public only when they appear on GitHub; this document does not infer publication from the version in source. No `v0.2.1` Mac binary is part of the source release.
 
-The exact-source lines below are retained as dated evidence anchors from the V2 promotion work, not as claims about the eventual `v0.2.0` tag commit.
+The exact-source lines below are retained as dated evidence anchors from the V2 promotion work, not as claims about the `v0.2.0` or `v0.2.1` tag commits.
 
 Atelier implementation commit: `9e51740a6367dd5caf29f0cab89787d7d53341ca`. Its follow-up compositor-proof repair changes test evidence only.
 
@@ -18,7 +18,7 @@ Historical V1 source: `5fd145207235884790ba071c5d84bc3876ff4989`. Historical V1 
 
 The production source contains the integrated V2 Director's Cut described by the curated donor plan. Project V4 is live creative authority for new documents; preview, still, sequence, and MP4 export enter the same explicit-time evaluator and Three.js/WebGL2 draw graph. Explicit saved or imported V1 projects retain their frozen compatibility contract until the user applies a V2 World.
 
-The pre-promotion local installation had one production app identity: `/Applications/Drift.app`. The isolated V2 Dev identity remains available to maintainers as a build lane, not as a second installed product. GitHub branch, pull request, CI, merge, build, installation, release, notarization, publication, and owner approval remain separate states; this page does not infer one from another. The historical `v0.1.0` Release included an ad-hoc, unnotarized arm64 DMG; it is not a supported binary and is not carried forward into `v0.2.0`.
+The pre-promotion local installation had one production app identity: `/Applications/Drift.app`. The isolated V2 Dev identity remains available to maintainers as a build lane, not as a second installed product. GitHub branch, pull request, CI, merge, build, installation, release, notarization, publication, and owner approval remain separate states; this page does not infer one from another. The historical `v0.1.0` Release included an ad-hoc, unnotarized arm64 DMG; it is not a supported binary and is not carried forward into the `v0.2.x` source releases.
 
 ## `v0.2.0` interface integration
 
@@ -26,6 +26,13 @@ The pre-promotion local installation had one production app identity: `/Applicat
 - Phosphor Icons for React `2.1.10` is the single utility-icon vocabulary. Keyboard shortcuts, dimensions, and semantic status copy remain text rather than decorative icon substitutions.
 - Media, Stage, Timeline, Director, menus, notices, disclosures, form controls, and high-scale panel reflow share audited spacing, padding, gap, and target-size rules.
 - Both browser and packaged-WebKit builds use the same local font and icon resources. They do not fetch typography or icon assets at runtime.
+
+## `v0.2.1` interface fit and motion
+
+- Labels, Phosphor icons, carets, and button contents use shared scale-aware sizing, optical centring, and container spacing.
+- Nested panels, menus, footer disclosures, background controls, and compact/high-scale layouts have bounded overflow and stable interior padding.
+- Measured disclosures use 180–250 ms opening and 140–180 ms closing windows, retarget while interrupted, return focus before hiding active content, and settle immediately for keyboard activation or reduced-motion preferences.
+- The single-panel threshold retains a 1120 px viewport floor at every interface scale, preventing low-scale three-panel clipping without changing saved Project state.
 
 ## Integrated product surface
 
@@ -109,7 +116,7 @@ Protected pin avoidance is local to the collision neighbourhood. Far-away cards 
 
 ## Evidence boundary
 
-The `v0.2.0` release gate must be rerun against the eventual exact source commit. `npm run check` includes checksum verification for the bundled fonts, the full TypeScript/Vitest source gate, macOS/Linux source contracts, and the production Web build. The following bullets preserve the exact evidence already recorded for earlier V2 integration commits:
+The `v0.2.1` release gate must run against its eventual exact source commit. Source publication waits for successful exact-main CI, standalone macOS, and packaged-WKWebView workflows. `npm run check` includes checksum verification for the bundled fonts, the full TypeScript/Vitest source gate, macOS/Linux source contracts, and the production Web build. The following bullets preserve the exact evidence already recorded for earlier V2 integration commits:
 
 - The editor rebuild's consolidated repository check is green: 69 test files, 495 unit/integration tests, TypeScript, Swift/native source contracts, both Mac user guides, native import and hardening contracts, and the production Web build.
 - The production-browser UI lane passed 19 journeys with one screenshot-only case intentionally skipped. The isolated V2 UI matrix passed 10/10 journeys across production and V2-development identities. Dedicated checks cover Clean Carousel fidelity, Casino pacing, stable geometry and focus, exact room scroll restoration, visual background cards, edge-aware tooltips, disclosure interruption, source-proof rendering, and world-only animated grain.
@@ -127,7 +134,7 @@ The older repair list, package matrix, installation, visual evidence, backup pat
 ## Known limits
 
 - The installed app is ad-hoc signed, not Developer ID signed or notarised.
-- No signed, notarized, or supported Mac binary is attached to the `v0.2.0` source-release line.
+- No signed, notarized, or supported Mac binary is part of the `v0.2.1` source-release line.
 - The browser exporter produced and decoded a tactile H.264/AAC artifact. An ordinary installed-interface sound MP4 has not yet been saved through the native Save panel and decoded.
 - The rear slide shell proves deformed back-face depth. It is not described as a volumetric physics simulation or a fully modelled solid at every grazing angle.
 - Automated visual checks catch corruption, alpha errors, console failures, and regressions. They are not a substitute for the owner's final taste decision.

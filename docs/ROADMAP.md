@@ -2,13 +2,13 @@
 
 Drift is pre-1.0 and source-first. This roadmap names outcomes the project can defend; it is not a promise of dates, a feature landfill, or evidence that a public binary exists.
 
-## Now: keep the `v0.2.0` source line boringly trustworthy
+## Now: keep the `v0.2.x` source line boringly trustworthy
 
 - Keep Project V4 migration, media replacement, autosave, comparison, pinning, timing, and export authority transactional.
 - Falsify 1-, 2-, 12-, and 200-slide decks, mixed aspect ratios, transparent output, cancellation, storage failure, context loss, and long masters.
 - Keep the four-workspace creator journey legible without flattening the directing range.
 - Keep the bundled FontBlind v13 files pinned to their recorded `pitchdog-type-system` checksums and Phosphor Icons pinned to `2.1.10` until a reviewed upgrade.
-- Preserve the spacing and padding rhythm across compact panels, coarse pointers, and 75%–200% interface reflow.
+- Preserve optical alignment, spacing, padding, and disclosure rhythm across compact panels, coarse pointers, and 75%–200% interface reflow.
 - Maintain the public threat model, documentation map, synthetic fixtures, and exact-SHA CI receipts.
 
 ## Next: a public Mac release, when its missing authority exists

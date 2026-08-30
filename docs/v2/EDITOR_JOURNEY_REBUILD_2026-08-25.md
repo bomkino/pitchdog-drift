@@ -85,7 +85,7 @@ Pinning is optional and off by default. The first controls are safe placement: m
 
 - Touch targets use a 44 px minimum where repeated actions previously became tiny marks.
 - Media filenames keep readable width; reorder, pin, and remove actions sit in a consistent row.
-- Measured disclosures animate their real height over 240–420 ms, retarget correctly when interrupted, and do not snap to an arbitrary maximum height.
+- At implementation commit `8efe4b9`, measured disclosures animated their real height over 240–420 ms. The later `v0.2.1` fit-and-motion pass preserves interruption-safe real-height motion while tightening it to 180–250 ms when opening and 140–180 ms when closing.
 - Tooltips cap at 260 px, detect available edges, dismiss on pointer exit or click, and remain available from keyboard focus.
 - The active room tab is disabled without being replaced, preserving focus and eliminating a real tab-click focus regression.
 - Notices no longer displace the timeline.

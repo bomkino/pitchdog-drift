@@ -1,6 +1,6 @@
 # Drift for macOS — product contract
 
-Maintained for the current `main` source line and the `v0.2.0` source-release tree.
+Maintained for the current `main` source line and the `v0.2.x` source-release series.
 
 ## Outcome
 

@@ -6,7 +6,7 @@ import {
   type OpaqueBackgroundStyle,
 } from "../backgrounds";
 import type { BackgroundSettings } from "../model";
-import { ArrowLeftIcon, ArrowRightIcon, CheckCircleIcon } from "./icons";
+import { ArrowLeftIcon, ArrowRightIcon, CaretDownIcon, CheckCircleIcon } from "./icons";
 
 type PreviewVariables = CSSProperties & {
   "--background-a": string;
@@ -173,7 +173,7 @@ export function BackgroundBrowser({
           <span>{previewing ? "PREVIEW · NOT APPLIED" : "ON CANVAS"}</span>
           <strong>{displayedName}</strong>
           <p>{displayedDescription}</p>
-          {previewing ? <small>Click the card to put it on canvas.</small> : null}
+          <small aria-hidden={!previewing} data-visible={previewing}>Click the card to put it on canvas.</small>
         </div>
       </div>
 
@@ -208,12 +208,15 @@ export function BackgroundBrowser({
             </label>
             <label>
               <span>Visual family</span>
-              <select value={family} onChange={(event) => onFamily(event.currentTarget.value as "all" | OpaqueBackgroundStyle)}>
-                <option value="all">All {Object.keys(BACKGROUND_FAMILY_LABELS).length} families</option>
-                {Object.entries(BACKGROUND_FAMILY_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
+              <span className="background-select-control">
+                <select value={family} onChange={(event) => onFamily(event.currentTarget.value as "all" | OpaqueBackgroundStyle)}>
+                  <option value="all">All {Object.keys(BACKGROUND_FAMILY_LABELS).length} families</option>
+                  {Object.entries(BACKGROUND_FAMILY_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                <CaretDownIcon />
+              </span>
             </label>
           </div>
 

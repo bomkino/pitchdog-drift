@@ -94,9 +94,10 @@ import { THEMES } from "../themes";
 import { ColorField, InspectorGroup, NumberField, RangeField, RangeNumberField, Segmented, SelectField, SwitchField } from "./controls";
 import { BackgroundBrowser, BackgroundStudyPreview } from "./BackgroundBrowser";
 import { GuidedExportWizard } from "./GuidedExportWizard";
+import { MeasuredDisclosure } from "./MeasuredDisclosure";
 import { OutcomeRecipePicker } from "./OutcomeRecipePicker";
 import { SupplementaryTooltip } from "./tooltip/SupplementaryTooltip";
-import { CaretRightIcon, WarningCircleIcon, XCircleIcon } from "./icons";
+import { WarningCircleIcon, XCircleIcon } from "./icons";
 import type { SlideHealth } from "../core/media/slideHealth";
 import { resolveMovingMedia } from "../core/project/movingMedia";
 import {
@@ -575,17 +576,23 @@ export function ControlPanel({
 
       <WorkspaceSection workspace="look" level="advanced">
       <section className="theme-section" aria-labelledby="themes-title">
-        <details className="world-browser" open={worldLibraryOpen} onToggle={(event) => setWorldLibraryOpen(event.currentTarget.open)}>
-          <summary id="themes-title">
-            <span>
-              <strong>{v2Active ? "Scene starters" : "V1 looks · compatibility"}</strong>
-              <small>{v2Active ? "Look + motion, applied deliberately" : "Original Drift looks"}</small>
-            </span>
-            <em>{authoredWorld?.name ?? (v2Active ? "Browse 8" : "Browse 6")}</em>
-            <CaretRightIcon className="world-browser-caret" />
-          </summary>
-          <div className="world-browser-body">
-            <div className="theme-grid">
+        <MeasuredDisclosure
+          className="world-browser"
+          triggerClassName="world-browser-trigger"
+          contentClassName="world-browser-body"
+          expanded={worldLibraryOpen}
+          onExpandedChange={setWorldLibraryOpen}
+          trigger={(
+            <>
+              <span>
+                <strong id="themes-title">{v2Active ? "Scene starters" : "V1 looks · compatibility"}</strong>
+                <small>{v2Active ? "Look + motion, applied deliberately" : "Original Drift looks"}</small>
+              </span>
+              <em>{authoredWorld?.name ?? (v2Active ? "Browse 8" : "Browse 6")}</em>
+            </>
+          )}
+        >
+          <div className="theme-grid">
           {v2Active ? AUTHORED_WORLDS.map((world) => {
             const study = BACKGROUND_STUDIES.find((entry) => entry.id === world.backgroundStudyId);
             return (
@@ -633,8 +640,8 @@ export function ControlPanel({
               </span>
             </button>
           ))}
-            </div>
-            {v2Active ? (
+          </div>
+          {v2Active ? (
           <div className="direction-history" aria-label="Direction history and comparison">
             <button type="button" onClick={onUndoV2} disabled={!canUndoV2} aria-label="Undo direction">Undo</button>
             <button type="button" onClick={onRedoV2} disabled={!canRedoV2} aria-label="Redo direction">Redo</button>
@@ -647,8 +654,8 @@ export function ControlPanel({
             >{comparingV2 ? "Before" : "A/B"}</button>
             <small>{comparingV2 ? "Previewing the prior direction; saved state is untouched." : changeReceipt}</small>
           </div>
-            ) : null}
-            {v2Active && authoredWorld ? (
+          ) : null}
+          {v2Active && authoredWorld ? (
           <div className="world-director-strip">
             <Segmented
               label="Pressure"
@@ -696,9 +703,8 @@ export function ControlPanel({
               <small>Take {worldRecut + 1} · deterministic atmosphere and material imperfection.</small>
             </div>
           </div>
-            ) : null}
-          </div>
-        </details>
+          ) : null}
+        </MeasuredDisclosure>
       </section>
       </WorkspaceSection>
 
