@@ -72,7 +72,7 @@ The tactile browser session first exposed a real validation bug: sound-only MP4 
 | Normal installed launch | Exact `/Applications/Drift V2 Dev.app/Contents/MacOS/DriftV2Dev` process launched as PID `7980`; its `1440 × 920` window was discovered | Pass |
 | Installed desktop inspection | Retina screenshot `2880 × 1840`; SHA-256 `0e1e145fb39cd1b0fe629add34586c74ab2cdeb436cb56f6e12f8001c8fbf207` | Pass for boot/layout integrity |
 
-The installed screenshot is preserved locally at [`output/installed-v2-dev-39e6cd7.png`](../../output/installed-v2-dev-39e6cd7.png). The installed app reused the existing isolated V2 Dev sandbox state; it was not reset or overwritten merely to manufacture a prettier default screenshot.
+The installed screenshot was preserved in the ignored local evidence path `output/installed-v2-dev-39e6cd7.png`; it was not committed, so this dated receipt deliberately does not link to a missing repository file. The installed app reused the existing isolated V2 Dev sandbox state; it was not reset or overwritten merely to manufacture a prettier default screenshot. For a committed representative studio image, see [`docs/media/drift-studio.png`](../media/drift-studio.png); that image is illustrative and is not the hash-bound installed capture above.
 
 ## Recovery and V1 preservation
 

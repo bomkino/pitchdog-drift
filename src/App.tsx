@@ -13,6 +13,7 @@ import { Stage } from "./components/Stage";
 import { CommandPalette } from "./components/CommandPalette";
 import { InterfaceScaleMenu } from "./components/InterfaceScaleMenu";
 import { AutomationAccessView } from "./components/AutomationAccessView";
+import { CheckCircleIcon, InfoIcon, WarningCircleIcon, XIcon } from "./components/icons";
 import { createDriftSelfDescription } from "./core/automation/selfDescription";
 import { createProductAutomationService } from "./core/automation/productAutomationService";
 import {
@@ -458,6 +459,9 @@ export function App() {
   const [interfaceScale, setInterfaceScale] = useState(
     () => desktopPlatform.presentation.interfaceScale.getSnapshot(),
   );
+  const effectiveInterfaceLayout = interfaceScale.layout === "single-panel" || constrainedViewport
+    ? "single-panel"
+    : "three-panel";
   const [automationEnabled, setAutomationEnabled] = useState(false);
   const [automationWriteEnabled, setAutomationWriteEnabled] = useState(false);
   const [automationPreviewEnabled, setAutomationPreviewEnabled] = useState(false);
@@ -494,12 +498,13 @@ export function App() {
   );
 
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 1120px)");
+    const threePanelMinimum = Math.ceil(440 + 752 * (interfaceScale.value / 100));
+    const query = window.matchMedia(`(max-width: ${threePanelMinimum}px)`);
     const update = () => setConstrainedViewport(query.matches);
     query.addEventListener("change", update);
     update();
     return () => query.removeEventListener("change", update);
-  }, []);
+  }, [interfaceScale.value]);
 
   useEffect(() => exportJobController.subscribe(() => {
     setExportJobStatus(exportJobController.getActiveStatus());
@@ -2740,7 +2745,7 @@ export function App() {
       data-active-panel={activePanel}
       data-build-channel={driftBuildIdentity.channel}
       data-interface-scale={interfaceScale.value}
-      data-interface-layout={interfaceScale.layout}
+      data-interface-layout={effectiveInterfaceLayout}
       style={{ "--interface-scale": interfaceScale.value / 100 } as CSSProperties}
       aria-busy={interactionBusy}
     >
@@ -2891,9 +2896,13 @@ export function App() {
 
       {notice ? (
         <div className="notice" data-kind={noticeKind} role={noticeKind === "error" ? "alert" : "status"} aria-live="polite">
-          <span aria-hidden="true">{noticeKind === "error" ? "!" : noticeKind === "good" ? "✓" : "·"}</span>
+          {noticeKind === "error"
+            ? <WarningCircleIcon className="notice-icon" />
+            : noticeKind === "good"
+              ? <CheckCircleIcon className="notice-icon" />
+              : <InfoIcon className="notice-icon" />}
           <p>{notice}</p>
-          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss message">×</button>
+          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss message"><XIcon /></button>
         </div>
       ) : null}
 

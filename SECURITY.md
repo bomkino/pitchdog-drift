@@ -31,9 +31,9 @@ These are response targets, not guarantees or automatic disclosure deadlines. If
 
 ## Supported surfaces
 
-Security fixes target the current `main` branch and explicitly active construction or release branches. Public source can move faster than a notarized binary; always identify the exact commit or app build.
+Security fixes target the current `main` branch and explicitly active construction or release branches. The source tree prepares `v0.2.0`; treat it as public only when the matching GitHub tag and release exist. Public source can move faster than a notarized binary, so always identify the exact commit or app build.
 
-No public compiled Mac release is promised merely because CI can build `Drift.app`. A binary is supported only when the repository explicitly publishes it with a version, source revision, checksum, signing/notarization receipt, and release notes.
+No public compiled Mac release is promised merely because CI can build `Drift.app`. The DMG attached to the historical `v0.1.0` release is ad-hoc signed and unnotarized and is not a supported security-maintained binary. A binary is supported only when the repository explicitly publishes it with a version, source revision, checksum, signing/notarization receipt, and release notes.
 
 ## High-priority classes
 
@@ -77,7 +77,7 @@ See `docs/MACOS_THREAT_MODEL.md` for trust boundaries and residual risks.
 
 ## Privacy expectations
 
-Production runtime source contains no analytics, remote font, cloud upload, hidden API, or automatic update service. Imported media and projects remain in browser storage, the Mac app container, or user-selected files unless the user deliberately moves or shares them.
+Production runtime source contains no analytics, runtime font download, cloud upload, hidden API, or automatic update service. The FontBlind binaries used by the interface are bundled locally. Imported media and projects remain in browser storage, the Mac app container, or user-selected files unless the user deliberately moves or shares them.
 
 External links in the Mac app should open in the default browser only after user activation. The network-client entitlement is app-wide, not WebKit-only: adding any native networking is a security-boundary change, and arbitrary WebKit/macOS compromise remains a residual risk.
 

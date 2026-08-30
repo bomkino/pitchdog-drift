@@ -96,6 +96,7 @@ import { BackgroundBrowser, BackgroundStudyPreview } from "./BackgroundBrowser";
 import { GuidedExportWizard } from "./GuidedExportWizard";
 import { OutcomeRecipePicker } from "./OutcomeRecipePicker";
 import { SupplementaryTooltip } from "./tooltip/SupplementaryTooltip";
+import { CaretRightIcon, WarningCircleIcon, XCircleIcon } from "./icons";
 import type { SlideHealth } from "../core/media/slideHealth";
 import { resolveMovingMedia } from "../core/project/movingMedia";
 import {
@@ -581,6 +582,7 @@ export function ControlPanel({
               <small>{v2Active ? "Look + motion, applied deliberately" : "Original Drift looks"}</small>
             </span>
             <em>{authoredWorld?.name ?? (v2Active ? "Browse 8" : "Browse 6")}</em>
+            <CaretRightIcon className="world-browser-caret" />
           </summary>
           <div className="world-browser-body">
             <div className="theme-grid">
@@ -1855,7 +1857,10 @@ export function ControlPanel({
             {preflightProblems.length ? (
               <ul>
                 {preflightProblems.slice(0, 5).map((entry) => (
-                  <li key={entry.key} data-severity={entry.severity}>{entry.message}</li>
+                  <li key={entry.key} data-severity={entry.severity}>
+                    {entry.severity === "blocker" ? <XCircleIcon /> : <WarningCircleIcon />}
+                    <span>{entry.message}</span>
+                  </li>
                 ))}
               </ul>
             ) : <p>Media, timing, cadence, renderer, and H.264 capability hold.</p>}

@@ -10,7 +10,7 @@ import {
 import { pickNativeMacFiles } from "../lib/nativeMac";
 import type { StudioAsset } from "../model";
 import type { SlideHealth } from "../core/media/slideHealth";
-import { ArrowDownIcon, ArrowUpIcon, GripIcon, PinIcon, TrashIcon } from "./icons";
+import { ArrowDownIcon, ArrowUpIcon, GripIcon, PinIcon, PlusIcon, TrashIcon, XIcon } from "./icons";
 
 interface MediaLibraryProps {
   assets: StudioAsset[];
@@ -143,7 +143,7 @@ export function MediaLibrary({
 
       <div className="media-add-row">
         <button type="button" className="media-add" disabled={busy} onClick={requestImages}>
-          <span aria-hidden="true">＋</span> Add slides
+          <PlusIcon /> Add slides
         </button>
         <button type="button" className="media-add subtle" disabled={busy} onClick={requestPresenter}>
           Presenter
@@ -271,7 +271,7 @@ export function MediaLibrary({
               aria-label={removeCandidate === `presenter:${presenter.id}` ? `Confirm removal of ${presenter.name}` : "Remove presenter video"}
               title={removeCandidate === `presenter:${presenter.id}` ? "Click YES to remove · Escape to keep" : "Remove presenter video"}
             >
-              {removeCandidate === `presenter:${presenter.id}` ? "YES" : "×"}
+              {removeCandidate === `presenter:${presenter.id}` ? "YES" : <XIcon />}
             </button>
           </div>
         ) : (

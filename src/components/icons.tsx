@@ -1,57 +1,52 @@
-import type { ReactNode, SVGProps } from "react";
+import { ArrowDownIcon as PhosphorArrowDown } from "@phosphor-icons/react/dist/csr/ArrowDown";
+import { ArrowLeftIcon as PhosphorArrowLeft } from "@phosphor-icons/react/dist/csr/ArrowLeft";
+import { ArrowRightIcon as PhosphorArrowRight } from "@phosphor-icons/react/dist/csr/ArrowRight";
+import { ArrowUpIcon as PhosphorArrowUp } from "@phosphor-icons/react/dist/csr/ArrowUp";
+import { CaretDownIcon as PhosphorCaretDown } from "@phosphor-icons/react/dist/csr/CaretDown";
+import { CaretRightIcon as PhosphorCaretRight } from "@phosphor-icons/react/dist/csr/CaretRight";
+import { CheckCircleIcon as PhosphorCheckCircle } from "@phosphor-icons/react/dist/csr/CheckCircle";
+import { DotsSixVerticalIcon as PhosphorDotsSixVertical } from "@phosphor-icons/react/dist/csr/DotsSixVertical";
+import { InfoIcon as PhosphorInfo } from "@phosphor-icons/react/dist/csr/Info";
+import { MagnifyingGlassIcon as PhosphorMagnifyingGlass } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
+import { MinusIcon as PhosphorMinus } from "@phosphor-icons/react/dist/csr/Minus";
+import { PauseIcon as PhosphorPause } from "@phosphor-icons/react/dist/csr/Pause";
+import { PlayIcon as PhosphorPlay } from "@phosphor-icons/react/dist/csr/Play";
+import { PlusIcon as PhosphorPlus } from "@phosphor-icons/react/dist/csr/Plus";
+import { PushPinIcon as PhosphorPushPin } from "@phosphor-icons/react/dist/csr/PushPin";
+import { SkipBackIcon as PhosphorSkipBack } from "@phosphor-icons/react/dist/csr/SkipBack";
+import { SkipForwardIcon as PhosphorSkipForward } from "@phosphor-icons/react/dist/csr/SkipForward";
+import { TrashIcon as PhosphorTrash } from "@phosphor-icons/react/dist/csr/Trash";
+import { WarningCircleIcon as PhosphorWarningCircle } from "@phosphor-icons/react/dist/csr/WarningCircle";
+import { WarningIcon as PhosphorWarning } from "@phosphor-icons/react/dist/csr/Warning";
+import { XCircleIcon as PhosphorXCircle } from "@phosphor-icons/react/dist/csr/XCircle";
+import { XIcon as PhosphorX } from "@phosphor-icons/react/dist/csr/X";
+import type { Icon, IconProps, IconWeight } from "@phosphor-icons/react/dist/lib/types";
 
-type IconProps = SVGProps<SVGSVGElement>;
-
-function StrokeIcon({ children, ...props }: IconProps & { children: ReactNode }) {
-  return (
-    <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24" {...props}>
-      <g stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8">
-        {children}
-      </g>
-    </svg>
-  );
+function decorative(IconComponent: Icon, defaultWeight: IconWeight = "regular") {
+  return function DriftIcon({ weight = defaultWeight, ...props }: IconProps) {
+    return <IconComponent {...props} aria-hidden="true" focusable="false" weight={weight} />;
+  };
 }
 
-export function GripIcon(props: IconProps) {
-  return (
-    <svg aria-hidden="true" fill="currentColor" focusable="false" viewBox="0 0 24 24" {...props}>
-      {[8, 16].flatMap((x) => [6, 12, 18].map((y) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.35" />))}
-    </svg>
-  );
-}
-
-export function ArrowUpIcon(props: IconProps) {
-  return <StrokeIcon {...props}><path d="M12 19V5m-5 5 5-5 5 5" /></StrokeIcon>;
-}
-
-export function ArrowDownIcon(props: IconProps) {
-  return <StrokeIcon {...props}><path d="M12 5v14m-5-5 5 5 5-5" /></StrokeIcon>;
-}
-
-export function PinIcon(props: IconProps) {
-  return <StrokeIcon {...props}><path d="M9 3h6l-1 5 3 3v2H7v-2l3-3-1-5Zm3 10v8" /></StrokeIcon>;
-}
-
-export function TrashIcon(props: IconProps) {
-  return <StrokeIcon {...props}><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" /></StrokeIcon>;
-}
-
-export function PreviousFrameIcon(props: IconProps) {
-  return <StrokeIcon {...props}><path d="M6 5v14m11-13-7 6 7 6V6Z" /></StrokeIcon>;
-}
-
-export function NextFrameIcon(props: IconProps) {
-  return <StrokeIcon {...props}><path d="M18 5v14M7 6l7 6-7 6V6Z" /></StrokeIcon>;
-}
-
-export function PlayIcon(props: IconProps) {
-  return (
-    <svg aria-hidden="true" fill="currentColor" focusable="false" viewBox="0 0 24 24" {...props}>
-      <path d="M8.25 5.55a1 1 0 0 1 1.53-.84l9 6.45a1 1 0 0 1 0 1.68l-9 6.45a1 1 0 0 1-1.53-.84V5.55Z" />
-    </svg>
-  );
-}
-
-export function PauseIcon(props: IconProps) {
-  return <StrokeIcon {...props}><path d="M9 6v12m6-12v12" strokeWidth="2.4" /></StrokeIcon>;
-}
+export const ArrowDownIcon = decorative(PhosphorArrowDown);
+export const ArrowLeftIcon = decorative(PhosphorArrowLeft);
+export const ArrowRightIcon = decorative(PhosphorArrowRight);
+export const ArrowUpIcon = decorative(PhosphorArrowUp);
+export const CaretDownIcon = decorative(PhosphorCaretDown, "bold");
+export const CaretRightIcon = decorative(PhosphorCaretRight, "bold");
+export const CheckCircleIcon = decorative(PhosphorCheckCircle, "fill");
+export const GripIcon = decorative(PhosphorDotsSixVertical, "bold");
+export const InfoIcon = decorative(PhosphorInfo, "fill");
+export const MagnifyingGlassIcon = decorative(PhosphorMagnifyingGlass);
+export const MinusIcon = decorative(PhosphorMinus, "bold");
+export const NextFrameIcon = decorative(PhosphorSkipForward, "fill");
+export const PauseIcon = decorative(PhosphorPause, "fill");
+export const PinIcon = decorative(PhosphorPushPin);
+export const PlayIcon = decorative(PhosphorPlay, "fill");
+export const PlusIcon = decorative(PhosphorPlus, "bold");
+export const PreviousFrameIcon = decorative(PhosphorSkipBack, "fill");
+export const TrashIcon = decorative(PhosphorTrash);
+export const WarningCircleIcon = decorative(PhosphorWarningCircle, "fill");
+export const WarningIcon = decorative(PhosphorWarning, "fill");
+export const XCircleIcon = decorative(PhosphorXCircle, "fill");
+export const XIcon = decorative(PhosphorX, "bold");

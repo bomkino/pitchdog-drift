@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { MeasuredDisclosure } from "./MeasuredDisclosure";
+import { CaretDownIcon } from "./icons";
 
 interface RangeFieldProps {
   label: string;
@@ -261,12 +262,15 @@ export function SelectField<T extends string | number>({ label, value, options, 
   return (
     <div className="control-field select-field">
       <label className="control-field-label" htmlFor={id}>{label}</label>
-      <select id={id} value={String(value)} onChange={(event) => {
-        const option = options.find((entry) => String(entry.value) === event.currentTarget.value);
-        if (option) onChange(option.value);
-      }}>
-        {options.map((option) => <option key={String(option.value)} value={String(option.value)}>{option.label}</option>)}
-      </select>
+      <span className="select-field-control">
+        <select id={id} value={String(value)} onChange={(event) => {
+          const option = options.find((entry) => String(entry.value) === event.currentTarget.value);
+          if (option) onChange(option.value);
+        }}>
+          {options.map((option) => <option key={String(option.value)} value={String(option.value)}>{option.label}</option>)}
+        </select>
+        <CaretDownIcon />
+      </span>
     </div>
   );
 }

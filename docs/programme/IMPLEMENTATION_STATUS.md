@@ -1,8 +1,18 @@
 # Drift implementation status
 
-Updated: 28 August 2026
+Updated: 30 August 2026
 
-## Current integrated runtime candidate
+## `v0.2.0` source-release integration
+
+- Release scope: source-only `v0.2.0`; its tag and GitHub Release become public only after explicit publication. No new Mac binary is included.
+- Typography: seven locally bundled CC0 FontBlind v13 WOFF2 binaries from `pitchdog-type-system` release `v13.0.0`, exact commit `786b4a2b671182319320f922b8de8f927ea3a002`, with a checksum source gate.
+- Iconography: Phosphor Icons for React is pinned at `2.1.10` and replaces the editor's hand-authored utility paths and glyphs.
+- Layout: Media, Stage, Timeline, Director, notices, menus, disclosures, controls, and 75%–200% interface reflow share audited spacing, padding, gap, and target-size rules.
+- Runtime boundary: browser and packaged-WebKit builds use the same local fonts and icons with no runtime asset download. The maintained Mac package remains Apple-Silicon-only `arm64` on macOS 13.3 or newer.
+- Publication boundary: the historical `v0.1.0` arm64 DMG is ad-hoc signed and unnotarized. It is test material, not a supported binary and not a substitute for the Developer ID/notarization lane.
+- Evidence gate: the eventual release commit must pass `npm run check`, including `check:fonts`, and any claimed browser screenshots or release state must be bound to that exact commit.
+
+## 28 August integrated runtime candidate (historical receipt)
 
 - Branch: `codex/drift-runtime-candidate`.
 - Runtime source commit: `8837aa99ea153f8baa975c1b797b575ff9fe55c9`
@@ -43,8 +53,9 @@ Linux receipt:
 [`receipts/D02-linux-runtime-candidate.md`](receipts/D02-linux-runtime-candidate.md)
 
 The ticket sections below retain their dated source-line facts. Where an old
-section says a runtime was unavailable, the integrated receipt above is the
-current state; history has not been rewritten.
+section says a runtime was unavailable, the 28 August integrated receipt above
+records the later evidence for that candidate. The `v0.2.0` section records the
+new source-release scope without rewriting history.
 
 ## D01 — Platform-port tracer
 
@@ -80,7 +91,7 @@ Receipt: [`receipts/D01-platform-port-tracer.md`](receipts/D01-platform-port-tra
 - App runtime identity returns `arm64` on the supported compiler target and `unsupported` otherwise.
 - The DMG default is `Drift-<version>-macOS-arm64.dmg`; release receipts require the exact one-element architecture array `["arm64"]`.
 - The macOS 13.3 deployment floor remains unchanged and is still enforced by packaged verification.
-- Current README, build, product-contract, QA, threat-model, release, and release-checklist documentation state Apple-Silicon-only support. Dated universal-build receipts and changelog facts remain preserved as history.
+- Current README, build, product-contract, QA, threat-model, release, and release-checklist documentation state Apple-Silicon-only support. Dated universal-build receipts remain preserved as history.
 - New `check:mac-arm64` source contract is part of `check:mac-source`; it is explicitly not Mach-O, package, launch, or hardware acceptance.
 - Unrun gate: build the exact source commit on Apple Silicon, inspect every shipped Mach-O as arm64-only, then run D01 Open → Save → quit/reopen plus cancellation/recovery against the exact package.
 
@@ -190,6 +201,7 @@ Receipt: [`receipts/D10-pinned-frame-foundation.md`](receipts/D10-pinned-frame-f
 - R01: exact Garuda/KDE physical or remote x86_64 evidence remains open.
   R02's local Apple-Silicon runtime/package evidence passes, while
   distribution and owner acceptance remain open.
-- No authorized dependency-ready source ticket remains. The frontier consists
-  only of external hardware, identity, installation/publication, external
-  client, and human-judgment gates.
+- The `v0.2.0` typography, iconography, and layout source slice is integrated
+  only when its exact release commit passes the named gate. Beyond that, the
+  frontier consists of external hardware, identity, installation/publication,
+  external client, and human-judgment gates.

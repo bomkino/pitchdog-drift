@@ -80,6 +80,7 @@ const workflows = [
 const webSources = [
   "macos/NativeBridge.js",
   "src/App.tsx",
+  "src/fonts.css",
   "src/components/MediaLibrary.tsx",
   "src/lib/localSaveAuthority.ts",
   "src/lib/macosAacEncoder.ts",
@@ -768,8 +769,15 @@ requireMarkers("scripts/stage-macos-runtime-licenses.mjs", [
   'boundary: "standalone-macos-runtime"',
   'license: "MPL-2.0"',
   'license: "MIT"',
+  "Phosphor Icons for React",
   "licenseSha256",
   "runtime licence directory has an unexpected target set",
+]);
+requireMarkers("src/fonts.css", [
+  'font-family: "PD Head"',
+  'font-family: "PD Body"',
+  'font-family: "PD Eyebrow"',
+  "786b4a2b671182319320f922b8de8f927ea3a002",
 ]);
 requireMarkers("scripts/package-macos-dmg.sh", [
   "umask 022",

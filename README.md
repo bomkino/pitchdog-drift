@@ -8,7 +8,7 @@ Drift turns still slides and one optional talking-head video into authored, Inst
 
 This is not a CSS carousel wearing a shader as jewellery. Preview and export share the same scene evaluator. Portable projects contain their source media. MP4 output is reopened, decoded, and checked before Drift calls it finished.
 
-Drift is pre-1.0 and currently source-first. Read the [project status](docs/STATUS.md) for the exact boundary between public source, local candidates, verification, and release.
+Drift is pre-1.0 and source-first. This tree prepares the `v0.2.0` source release dated 30 August 2026; a tag or GitHub Release is public only after it appears on GitHub. Read the [project status](docs/STATUS.md) for the exact boundary between public source, historical downloads, local candidates, verification, and release.
 
 The editor is organised around one visible journey: **Slides → Look → Motion → Export**. The stage and timeline stay put while the task inspector changes. **Apply clean carousel** gives a proof-safe, smooth, continuous starting point without replacing the chosen background, framing, media, or pinned-frame placement. Read the [Mac user guide](docs/MACOS_USER_GUIDE.md#the-shortest-good-path) or the [editor-journey rebuild note](docs/v2/EDITOR_JOURNEY_REBUILD_2026-08-25.md) before opening every advanced control.
 
@@ -51,7 +51,9 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - Presenter audio at AAC-LC, 48 kHz stereo, with explicit priming, padding, and A/V-sync checks.
 - IndexedDB autosave and portable `.pitched` project bundles with SHA-256 asset verification.
 - Visible DOM fallback when WebGL2 is unavailable. It keeps media and project management usable while refusing to fake cinematic export.
-- No analytics, cloud upload, remote font, runtime API, or hidden network request.
+- FontBlind v13 is the default type family across the studio: seven CC0 WOFF2 binaries are vendored from [`bomkino/pitchdog-type-system`](https://github.com/bomkino/pitchdog-type-system) release `v13.0.0`, exact commit `786b4a2b671182319320f922b8de8f927ea3a002`.
+- Interface icons use Phosphor Icons for React `2.1.10`; spacing tokens, control padding, and responsive gaps keep the dense editor legible from compact panels through high interface scales.
+- No analytics, cloud upload, runtime font download, runtime API, or hidden network request.
 
 Moving-track media is deliberately image-only in v1. One pinned video keeps decoder load, export timing, and failure states legible.
 
@@ -147,7 +149,7 @@ The macOS runtime workflow separately falsifies four claims on an Apple Silicon 
 3. The actual deterministic exporter can render 90 fixed-step frames, mux an MP4, reopen it, and decode first/middle/final probe frames.
 4. The same exporter can produce an alpha-capable PNG containing both visible and transparent pixels.
 
-Those checks are evidence for the tested runtime, not a substitute for physical Intel testing, accessibility review, or long-form export QA.
+Those checks are evidence for the tested runtime, not a substitute for physical Apple Silicon testing, accessibility review, or long-form export QA.
 
 ## Runtime boundaries
 
@@ -159,7 +161,7 @@ Those checks are evidence for the tested runtime, not a substitute for physical 
 | Other WebGL2 browsers | Tested case by case | Capability-gated | Capability-gated | If canvas PNG is available | Yes |
 | No WebGL2 | DOM media strip | Blocked visibly | Blocked | Blocked | Yes |
 
-Drift ships no uploader, analytics client, or native network client. V2 tactile-sound recordings are committed locally and require no runtime fetch. The packaged app separately tests its page-level outbound lockdown; the signed network-client entitlement remains app-wide and is documented as a residual risk. The current portable archive cap is 96 MiB, with 80 MiB total source assets and 64 MiB per asset. Those limits prevent a friendly local tool from becoming a memory bomb.
+Drift ships no uploader, analytics client, or native network client. FontBlind binaries and V2 tactile-sound recordings are committed locally and require no runtime fetch. The packaged app separately tests its page-level outbound lockdown; the signed network-client entitlement remains app-wide and is documented as a residual risk. The current portable archive cap is 96 MiB, with 80 MiB total source assets and 64 MiB per asset. Those limits prevent a friendly local tool from becoming a memory bomb.
 
 ## Why the Mac app is not an Electron bundle
 
@@ -167,7 +169,9 @@ The native shell is compiled directly from Swift using AppKit, WebKit, Foundatio
 
 JavaScript receives opaque grants rather than absolute file paths. Native save and directory panels produce scoped capabilities. Writes are chunked, bounded, staged, synchronized, and either committed or rolled back. A document-start page boundary removes WebRTC constructors; HTTP, HTTPS, WebSocket, and FTP loads are blocked; remote downloads never receive destination authority. Deliberate help/source links open in the default browser. These are tested application controls, not a claim that arbitrary WebKit or macOS compromise is impossible.
 
-## Binary release boundary
+## Release boundary
+
+`v0.2.0` is a source-release line. It does not add a downloadable Mac binary. The earlier `v0.1.0` GitHub Release included an Apple-Silicon DMG signed ad hoc and not notarized; keep it as historical test material, not as a supported or Gatekeeper-ready binary.
 
 A local `.app` or CI-built DMG is not automatically a public release.
 
@@ -178,7 +182,7 @@ A distributable candidate still requires:
 - Apple notarization and stapling;
 - Gatekeeper assessment;
 - detached manifest and checksum verification;
-- physical Apple Silicon and Intel user-journey testing;
+- physical Apple Silicon user-journey testing across the supported macOS boundary;
 - explicit authorization to publish.
 
 The release workflow is manual and uploads text-only Actions evidence suitable for a public repository. It does not create a GitHub Release, push a tag, deploy a website, or publish binaries by itself.

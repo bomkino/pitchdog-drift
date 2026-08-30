@@ -2,6 +2,8 @@
 
 This checklist governs a downloadable Mac binary. Building an `.app` locally or compiling it in CI is not the same as authorizing a public release.
 
+The `v0.2.0` source-release tree does not include a downloadable Mac binary. The historical `v0.1.0` DMG is ad-hoc signed and unnotarized and therefore does not pass this checklist.
+
 Sections 1–12 are pre-merge candidate gates and must pass on one exact reviewed commit. Merge only that green commit and preserve it as reachable from `main`. Section 13 is the post-merge Developer ID/notarization evidence lane. Section 14 is a separate, explicitly authorized publication decision.
 
 ## 1. Pre-merge source freeze
@@ -25,6 +27,8 @@ Sections 1–12 are pre-merge candidate gates and must pass on one exact reviewe
 - [ ] `npm run build` passes.
 - [ ] `npm run test:e2e` passes in the verified Chromium runtime.
 - [ ] Existing deterministic export, project integrity, recovery, shader, accessibility, and fallback tests remain green.
+- [ ] `npm run check:fonts` verifies every bundled FontBlind v13 binary against the recorded `pitchdog-type-system` checksum.
+- [ ] The packaged interface uses Phosphor Icons for React `2.1.10` and includes its MIT notice.
 - [ ] The native branch has not changed scene evaluation or browser project format accidentally.
 - [ ] The macOS AAC alias is active only in the macOS build mode.
 
@@ -190,7 +194,7 @@ Sections 1–12 are pre-merge candidate gates and must pass on one exact reviewe
 - [ ] Sleep/wake and full-screen transition.
 - [ ] Long presenter video and 30-second export.
 
-Cross-compiling the Intel slice is not an Intel runtime test.
+Dated universal-build receipts do not broaden the current arm64-only support boundary.
 
 ## 13. Post-merge signing and notarization
 

@@ -41,6 +41,15 @@ async function stillSha256(page: Page): Promise<string> {
 test("Interface Scale reflows chrome without mutating Project V4, authored time, selection, or exact pixels", async ({ page }) => {
   test.setTimeout(360_000);
   await waitForStudio(page);
+  const loadedFontFaces = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return Promise.all([
+      '400 16px "PD Body"',
+      '500 16px "PD Head"',
+      '500 16px "PD Eyebrow"',
+    ].map(async (descriptor) => (await document.fonts.load(descriptor)).length));
+  });
+  expect(loadedFontFaces).toEqual([1, 1, 1]);
   await page.getByRole("button", { name: "Pause preview" }).click();
   const playhead = page.getByRole("slider", { name: "Master timeline playhead" });
   await playhead.focus();
@@ -127,7 +136,7 @@ test("Interface Scale reflows chrome without mutating Project V4, authored time,
   await summary.click();
   await scaleMenu.getByRole("button", { name: "Reset Interface Scale" }).click();
   await expect(app).toHaveAttribute("data-interface-scale", "100");
-  await expect(app).toHaveAttribute("data-interface-layout", "three-panel");
+  await expect(app).toHaveAttribute("data-interface-layout", "single-panel");
   if (await scaleMenu.getAttribute("open") !== null) await summary.click();
   const constrainedTabs = page.getByRole("navigation", { name: "Studio panels" });
   await constrainedTabs.getByRole("button", { name: "media", exact: true }).click();

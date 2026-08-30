@@ -7,3 +7,9 @@ Attribution: **Drift demo artwork and test fixtures by pitch.dog, 2026 — CC BY
 User-imported decks, images, presenter videos, project bundles, and rendered outputs are not repository assets and are not relicensed. They remain the property of their owners.
 
 The pitch.dog name and marks are addressed separately in [TRADEMARKS.md](TRADEMARKS.md).
+
+## Bundled pitch.dog fonts
+
+The seven FontBlind v13 WOFF2 binaries under `src/assets/fonts/pitchdog/v13/` are dedicated to the public domain under CC0 1.0 Universal. They come from [`bomkino/pitchdog-type-system`](https://github.com/bomkino/pitchdog-type-system) release `v13.0.0`, exact commit `786b4a2b671182319320f922b8de8f927ea3a002`.
+
+This grant covers the font binaries only. Drift does not redistribute the type-system repository's separately licensed CSS, tokens, code, documentation, examples, artwork, or marks. Exact checksums and the preserved licence notice are beside the binaries.

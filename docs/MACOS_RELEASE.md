@@ -2,6 +2,8 @@
 
 This document covers the distance between “a local `.app` builds” and “a stranger can safely install it.” Those are different claims.
 
+The `v0.2.0` tree is prepared as a source-only release: it does not publish a Mac binary. The Apple-Silicon DMG attached to the historical `v0.1.0` GitHub Release is ad-hoc signed and unnotarized and therefore does not satisfy this document.
+
 Drift’s normal development build is ad-hoc signed and suitable for local testing. A public binary requires all of the following:
 
 1. an Apple-Silicon-only `arm64` application;
@@ -205,7 +207,7 @@ It checks:
 - app-wide network-client entitlement present in the sandboxed signature and network-server/broad-directory entitlements absent;
 - production WebKit policy plus exact packaged TCP/UDP zero-hit evidence;
 - no shipped native networking surface;
-- both CPU architectures;
+- exactly one `arm64` CPU architecture and no Intel slice;
 - complete legal bundle and SBOM;
 - no source maps, WebAssembly, browser AAC extension, FFmpeg, or libavcodec implementation;
 - app and DMG signatures;
@@ -306,10 +308,10 @@ Run the complete journey on:
 
 - current Apple Silicon macOS;
 - the minimum supported Apple Silicon macOS;
-- current Intel macOS;
-- the minimum supported Intel macOS;
 - one low-memory machine;
 - one removable or external destination volume.
+
+Intel Macs and Windows are unsupported. Dated universal-build receipts remain historical evidence and are not part of the current hardware matrix.
 
 Record model, OS build, Drift commit, app checksum, DMG checksum, and every failed, skipped, or waived case. “Works on the CI runner” is not a substitute.
 

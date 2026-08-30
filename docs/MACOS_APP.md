@@ -2,6 +2,8 @@
 
 Drift can be built as a standalone, sandboxed macOS application without replacing its deterministic WebGL renderer or project model.
 
+The `v0.2.0` source line gives both browser and packaged-WebKit builds the same local interface system: FontBlind v13 binaries from `pitchdog-type-system` commit `786b4a2b671182319320f922b8de8f927ea3a002`, Phosphor Icons for React `2.1.10`, and shared spacing/reflow rules. No font or icon is fetched at runtime.
+
 The native shell is intentionally narrow. AppKit owns the things macOS should own: the application lifecycle, menus, windows, Finder documents, save/open panels, scoped file permissions, staged writes, crash recovery, code signing, packaging, and native AAC encoding. The React/Three.js studio still owns the composition, settings, project archive, scene evaluation, and frame-by-frame export.
 
 ## Build
@@ -243,7 +245,7 @@ npm run verify:mac
 
 Checks:
 
-- both architecture slices;
+- an exact `arm64` executable with no Intel slice;
 - `Info.plist` and resources;
 - hardened runtime and extracted entitlements;
 - no non-system dynamic library;
@@ -274,6 +276,8 @@ The shipped packaged app and deterministic exporter probe each use a receipt-ver
 
 Local and CI builds may be ad-hoc signed. They are not public release candidates.
 
+The `v0.2.0` source release does not add a downloadable Mac binary. The DMG attached to the historical `v0.1.0` GitHub Release is arm64, ad-hoc signed, and unnotarized; it is not the output of the public-binary lane described here.
+
 A public binary additionally requires:
 
 - Developer ID Application identity;
@@ -281,7 +285,7 @@ A public binary additionally requires:
 - Gatekeeper assessment;
 - detached release-manifest verification;
 - legal bundle and SBOM;
-- physical Apple Silicon and Intel journey testing;
+- physical Apple Silicon journey testing across the supported macOS boundary;
 - explicit publication authority.
 
 The manual release workflow creates text-only Actions evidence suitable for a public repository. It never merges, tags, deploys, or publishes automatically.
@@ -289,7 +293,7 @@ The manual release workflow creates text-only Actions evidence suitable for a pu
 ## Known limits
 
 - Minimum supported macOS: 13.3.
-- Universal compilation is not the same as an Intel runtime test.
+- The maintained Mac target is Apple-Silicon-only `arm64`; dated universal-build receipts do not broaden current support.
 - Presenter-audio masters are limited to 24, 25, or 30 fps; mute audio for 50/60 fps.
 - Moving-track video remains outside v1; one pinned presenter video is supported.
 - App-container autosave is local state, not a substitute for `.pitched` backups.

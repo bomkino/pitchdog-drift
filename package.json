@@ -1,7 +1,7 @@
 {
   "name": "pitchdog-drift",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local-first WebGL motion studio for turning pitch-deck slides into deterministic cinematic exports.",
   "keywords": [
     "creative-tools",
@@ -34,6 +34,7 @@
     "build:linux:tracer": "node scripts/build-linux-tracer.mjs",
     "verify:linux:tracer": "node scripts/verify-linux-tracer.mjs",
     "check:linux-source": "node scripts/check-linux-tracer-source.mjs",
+    "check:fonts": "node scripts/verify-font-assets.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "preview:v2-dev": "npm run build:v2-dev && vite preview --host 127.0.0.1 --port 4174",
     "typecheck": "tsc -b --pretty false",
@@ -58,10 +59,11 @@
     "verify:mac:dmg": "bash scripts/verify-macos-dmg.sh",
     "verify:mac-release": "bash scripts/verify-macos-release.sh",
     "release:mac": "bash scripts/release-macos-app.sh",
-    "check": "npm run typecheck && npm run test && npm run check:mac-source && npm run check:linux-source && npm run build"
+    "check": "npm run check:fonts && npm run typecheck && npm run test && npm run check:mac-source && npm run check:linux-source && npm run build"
   },
   "dependencies": {
     "@mediabunny/aac-encoder": "1.55.1",
+    "@phosphor-icons/react": "2.1.10",
     "fflate": "0.8.3",
     "mediabunny": "1.55.1",
     "react": "19.2.8",

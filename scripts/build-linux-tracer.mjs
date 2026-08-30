@@ -20,6 +20,7 @@ const ELECTRON_VERSION = "44.0.0";
 const ELECTRON_ARCHIVE_SHA256 = "d65286d812719f2b4c1a1b806a80f288a1058c89c7b058dae1e03ab25e499446";
 const root = resolve(new URL("..", import.meta.url).pathname);
 const archive = process.env.DRIFT_ELECTRON_ARCHIVE;
+const applicationPackage = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 
 function fail(message) {
   console.error(message);
@@ -125,7 +126,7 @@ if (!fixtureEntry) fail("Linux canonical fixture generator build produced no ent
 await cp(fixtureEntry, join(appRoot, "linux", "fixtureGenerator.mjs"), { errorOnExist: true });
 await writeFile(join(appRoot, "package.json"), `${JSON.stringify({
   name: "pitchdog-drift-linux-tracer",
-  version: "0.1.0",
+  version: applicationPackage.version,
   private: true,
   main: "linux/main.cjs",
   productName: "Drift Linux Tracer",

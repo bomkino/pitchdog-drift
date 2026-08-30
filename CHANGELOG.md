@@ -1,10 +1,30 @@
 # Changelog
 
-Notable user-visible and maintainer-facing changes will be recorded here. Drift is pre-1.0, and a changelog entry is not evidence of a tag, release, publication, or approval.
+Notable user-visible and maintainer-facing changes will be recorded here. Drift is pre-1.0, and a changelog entry is not by itself evidence of a tag, GitHub Release, binary publication, or approval.
 
 ## Unreleased
 
-Changes intended for a future public release belong here. Nothing in this section has been promoted to a tagged release.
+Changes intended for the release after `v0.2.0` belong here.
+
+## [0.2.0] - 2026-08-30
+
+This entry describes the `v0.2.0` source-release tree. Public availability begins only when the matching tag and GitHub Release exist. No signed or notarized Mac binary is part of this release.
+
+### Added
+
+- Seven self-hosted FontBlind v13 WOFF2 binaries from [`bomkino/pitchdog-type-system`](https://github.com/bomkino/pitchdog-type-system) release `v13.0.0`, pinned to exact commit `786b4a2b671182319320f922b8de8f927ea3a002` and verified by checksum.
+- Phosphor Icons for React `2.1.10` as the canonical interface-icon library.
+
+### Changed
+
+- The complete interface now defaults to the pitch.dog type system's Head, Body, and Eyebrow families, with local-only font loading and explicit fallback stacks.
+- Hand-authored utility glyphs and SVG paths were replaced with a consistent Phosphor icon vocabulary while keyboard shortcuts and semantic status text remain text.
+- Panel gutters, nested padding, control spacing, disclosure rhythm, and high-scale reflow were audited and normalized across the Media, Stage, Timeline, and Director surfaces.
+- Release and support documentation now consistently identify the maintained Mac target as Apple-Silicon-only `arm64`; dated universal-build receipts remain historical evidence, not a current support claim.
+
+## [0.1.0] - 2026-08-28
+
+The first public GitHub Release included source plus an Apple-Silicon DMG signed ad hoc and not notarized. That DMG is historical test material, not a supported or Gatekeeper-ready binary.
 
 ### Added
 
@@ -16,7 +36,7 @@ Changes intended for a future public release belong here. Nothing in this sectio
 - Project V4 undo/redo, temporary non-mutating A/B comparison, domain locks, and visible change receipts.
 - Opt-in deterministic tactile sound from 23 provenance-locked CC0 recordings, with Studio/Cinema/Paper palettes, Dry/Editorial/Organic grammars, and one presenter-plus-sound export master.
 - An explicit **Reset pinned frame** recovery action for historical projects. It restores source ratio, protected layering, authored safe geometry, and still-only track membership without discarding the selected media, crop/focal direction, corners, or border.
-- A sandboxed, universal macOS application foundation with native menus, Finder-backed project and export workflows, rollback-aware destination writes, receipt-verified packaged assets, and a deterministic WKWebView export probe.
+- A sandboxed macOS application foundation with native menus, Finder-backed project and export workflows, rollback-aware destination writes, receipt-verified packaged assets, and a deterministic WKWebView export probe.
 - Durable native import completion: the Mac shell now waits for original media to reach project storage before reporting success or allowing termination.
 - A semantic description of the live WebGL composition for assistive technology, including slide count, centred slide, film world, path, playback state, stage size, and available controls.
 - Runtime licence staging and verification for every dependency distributed inside the standalone app.

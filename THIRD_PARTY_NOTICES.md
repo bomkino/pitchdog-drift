@@ -7,15 +7,23 @@ Drift’s source licence does not replace dependency licences. Exact JavaScript 
 | Dependency | Version | Licence | Role |
 | --- | --- | --- | --- |
 | React / React DOM | 19.2.8 | MIT | Interface |
+| Phosphor Icons for React | 2.1.10 | MIT | Interface iconography |
 | Three.js | 0.185.1 | MIT | WebGL scene and resources |
 | Mediabunny | 1.55.1 | MPL-2.0 | Media decode, encode, mux, readback, and custom encoder contracts |
 | `@mediabunny/aac-encoder` | 1.55.1 | MPL-2.0 | Browser-build software AAC encoder extension |
 | FFmpeg `libavcodec` / `libavutil` | Embedded in the browser AAC extension’s WebAssembly | LGPL-2.1-or-later under the extension’s published non-GPL configure flags | Browser-build AAC implementation |
 | fflate | 0.8.3 | MIT | Portable project and PNG-sequence ZIPs |
+| pitch.dog FontBlind binaries | v13.0.0 (`786b4a2`) | CC0-1.0 | Bundled interface, editorial, and evidence fonts |
 
 Development tooling includes TypeScript, Vite, Vitest, Playwright, React type packages, and GitHub Actions under their respective upstream licences.
 
-No third-party font, stock photograph, presenter clip, proprietary shader, analytics SDK, updater SDK, cloud client, or Electron runtime is bundled by this repository. V2 does bundle the CC0 sound recordings documented below.
+No stock photograph, presenter clip, proprietary shader, analytics SDK, updater SDK, cloud client, or Electron runtime is bundled by this repository. Drift bundles the seven CC0 font binaries documented in `src/assets/fonts/pitchdog/v13/` and the CC0 sound recordings documented below. Neither asset family is fetched from the network at runtime.
+
+## Font binaries
+
+Drift vendors seven FontBlind v13 WOFF2 binaries from [`bomkino/pitchdog-type-system`](https://github.com/bomkino/pitchdog-type-system) release `v13.0.0`, exact commit `786b4a2b671182319320f922b8de8f927ea3a002`. The upstream project dedicates those binary files to the public domain under CC0 1.0 Universal. Drift does not copy that repository's separately licensed CSS, tokens, code, documentation, or examples.
+
+Exact filenames and SHA-256 digests are recorded in `src/assets/fonts/pitchdog/v13/README.md`; the upstream grant is recorded in `src/assets/fonts/pitchdog/v13/FONT-LICENSE.md`.
 
 ## V2 tactile-sound recordings
 

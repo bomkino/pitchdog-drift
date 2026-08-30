@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { NativeFileInputBridge } from "./components/NativeFileInputBridge";
 import { driftBuildIdentity } from "./lib/buildIdentity";
+import "./fonts.css";
 import "./styles.css";
 
 document.documentElement.dataset.driftBuildChannel = driftBuildIdentity.channel;

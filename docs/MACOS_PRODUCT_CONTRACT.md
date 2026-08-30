@@ -1,6 +1,6 @@
 # Drift for macOS — product contract
 
-Frozen for the `feat/native-macos-studio` branch.
+Maintained for the current `main` source line and the `v0.2.0` source-release tree.
 
 ## Outcome
 
@@ -53,6 +53,7 @@ The native layer must disappear when things are going well and become unusually 
 - Hardened-runtime signing, bundle byte manifest, native self-tests, and packaged WebView probe.
 - A drag-to-Applications DMG for local testing.
 - Native AudioToolbox AAC sessions with explicit packet and timeline receipts.
+- Locally bundled FontBlind v13 binaries, Phosphor Icons for React `2.1.10`, and one responsive spacing system shared with the browser build.
 
 ## Codec policy
 
@@ -75,7 +76,7 @@ The contract is specific:
 
 ## Protected boundaries
 
-- No analytics, update daemon, remote font, cloud upload, shipped native `URLSession`/Network.framework/socket client, shell, AppleScript, or arbitrary native command execution.
+- No analytics, update daemon, runtime font download, cloud upload, shipped native `URLSession`/Network.framework/socket client, shell, AppleScript, or arbitrary native command execution.
 - A document-start page-world lockdown removes WebRTC constructors. Versioned content rules block HTTP, HTTPS, WS, WSS, and FTP; navigation/download policy cancels remote responses and download authority before any native destination. Explicit source/help links open in the user’s default browser.
 - `com.apple.security.network.client` is an app-wide entitlement, not a WebKit-only capability. Adding native networking is a protected-boundary change; a WebKit or macOS compromise remains a residual risk.
 - JavaScript never receives an absolute filesystem path.
@@ -120,6 +121,7 @@ The branch holds only when all of the following are direct evidence, not aspirat
 - Exact packaged probes read back those signed entitlements and observe zero token-bearing TCP and UDP loopback requests under the production content, page-world, and navigation/download policies.
 - The source contract proves no native `URLSession`, Network.framework, or socket client is shipped and rejects weakening of the remote response/download gate.
 - The bundled web runtime contains no `.wasm`, source map, FFmpeg, or libavcodec marker.
+- The bundled FontBlind files match the recorded `pitchdog-type-system` v13 checksums, and the packaged licence inventory includes FontBlind and Phosphor.
 
 ### User journey
 
@@ -143,7 +145,7 @@ The branch holds only when all of the following are direct evidence, not aspirat
 ### Release honesty
 
 - Physical Apple Silicon testing passes before a human calls the app release-ready.
-- Intel runtime, VoiceOver, removable-volume, sleep/wake, long-export, and minimum-OS evidence are explicitly recorded as passed, failed, or untested.
+- VoiceOver, removable-volume, sleep/wake, long-export, and minimum-OS evidence are explicitly recorded as passed, failed, or untested. Intel Macs and Windows are explicitly unsupported.
 - No downloadable binary is published without Developer ID, notarization, Gatekeeper, detached verification, and explicit authority.
 
 ## Stop conditions
