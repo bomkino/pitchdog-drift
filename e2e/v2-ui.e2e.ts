@@ -6,7 +6,7 @@ async function ensureInspectorOpen(group: Locator): Promise<void> {
   if (await group.evaluate((element) => element instanceof HTMLDetailsElement)) {
     if (await group.getAttribute("open") === null) await group.locator(":scope > summary").click();
   } else if (await group.getAttribute("data-expanded") !== "true") {
-    await group.locator(":scope > .inspector-group-trigger").click();
+    await group.locator(":scope > button").click();
   }
 }
 
@@ -79,7 +79,7 @@ test("shipping and development identities restore the authored V2 room and repai
   await expect(page.locator(".stage-frame")).toHaveAttribute("data-transparent", "true");
 
   await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
-  const filmWorlds = page.locator("details.world-browser");
+  const filmWorlds = page.locator(".world-browser");
   await ensureInspectorOpen(filmWorlds);
   await filmWorlds.getByRole("button", { name: /^Film World: Editorial Drift\./ }).click();
   // The authored 9:16 Reading Spine scene uses Orbiting Bloom (Aura), not the
@@ -183,7 +183,7 @@ test("comparison pixels return after a still export instead of keeping live dire
   await waitForStudio(page);
   await page.getByRole("button", { name: "LOOK", exact: true }).click();
   await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
-  const filmWorlds = page.locator("details.world-browser");
+  const filmWorlds = page.locator(".world-browser");
   await ensureInspectorOpen(filmWorlds);
   await filmWorlds.getByRole("button", { name: /^Film World: Dread\./ }).click();
   const compare = page.getByRole("button", { name: "A/B", exact: true });

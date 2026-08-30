@@ -1,15 +1,14 @@
 name: Source release
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI, macOS standalone app, macOS WKWebView runtime]
+    types: [completed]
     branches: [main]
-    paths:
-      - package.json
-      - CHANGELOG.md
-      - .github/workflows/source-release.yml
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -19,23 +18,93 @@ concurrency:
 jobs:
   publish:
     name: Tag and publish source
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.head_repository.full_name == github.repository
+        )
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     steps:
+      - name: Require an exact main release source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_SHA"
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            test "$MANUAL_REF" = refs/heads/main
+          fi
+
       - name: Check out exact main commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
 
+      - name: Verify exact main and successful release authority
+        id: authority
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          git fetch --no-tags origin refs/heads/main
+          test "$(git rev-parse FETCH_HEAD)" = "$RELEASE_SHA"
+
+          READY=true
+          for WORKFLOW_FILE in ci.yml macos.yml macos-runtime.yml; do
+            RUNS_JSON="$(gh api --method GET \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?branch=main&event=push&status=completed&per_page=100")"
+            RESULT="$(RUNS_JSON="$RUNS_JSON" WORKFLOW_FILE="$WORKFLOW_FILE" node <<'NODE'
+          const payload = JSON.parse(process.env.RUNS_JSON);
+          const exactRun = payload.workflow_runs?.find((run) => (
+            run.head_sha === process.env.RELEASE_SHA
+            && run.head_branch === "main"
+            && run.event === "push"
+            && run.status === "completed"
+          ));
+          if (!exactRun) {
+            process.stdout.write("pending");
+          } else if (exactRun.conclusion !== "success") {
+            process.stdout.write(`failed:${exactRun.id}:${exactRun.conclusion}`);
+          } else {
+            process.stdout.write(`success:${exactRun.id}`);
+          }
+          NODE
+            )"
+            echo "$WORKFLOW_FILE=$RESULT"
+            if [[ "$RESULT" != success:* ]]; then
+              READY=false
+            fi
+          done
+
+          if [[ "$READY" != true && "$EVENT_NAME" == workflow_dispatch ]]; then
+            echo "Exact-main release gates are not all successful for $RELEASE_SHA." >&2
+            exit 1
+          fi
+          echo "ready=$READY" >> "$GITHUB_OUTPUT"
+
       - name: Resolve version transition
         id: release
         env:
           EVENT_NAME: ${{ github.event_name }}
+          RELEASE_READY: ${{ steps.authority.outputs.ready }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
@@ -46,11 +115,14 @@ jobs:
           fi
           grep -Fq "## [$VERSION]" CHANGELOG.md
 
-          PUBLISH=true
-          if [[ "$EVENT_NAME" == push ]] && git cat-file -e "${GITHUB_SHA}^:package.json" 2>/dev/null; then
-            PREVIOUS_VERSION="$(git show "${GITHUB_SHA}^:package.json" | node -e 'let input=""; process.stdin.on("data", chunk => input += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(input).version));')"
+          PUBLISH="$RELEASE_READY"
+          if [[ "$PUBLISH" == true && "$EVENT_NAME" == workflow_run ]] && git cat-file -e "${RELEASE_SHA}^:package.json" 2>/dev/null; then
+            PREVIOUS_VERSION="$(git show "${RELEASE_SHA}^:package.json" | node -e 'let input=""; process.stdin.on("data", chunk => input += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(input).version));')"
             if [[ "$PREVIOUS_VERSION" == "$VERSION" ]]; then
-              PUBLISH=false
+              REMOTE_TAG="$(git ls-remote --tags origin "refs/tags/$TAG")"
+              if [[ -n "$REMOTE_TAG" ]]; then
+                PUBLISH=false
+              fi
             fi
           fi
 
@@ -87,22 +159,59 @@ jobs:
           TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
+          git fetch --no-tags origin refs/heads/main
+          test "$(git rev-parse FETCH_HEAD)" = "$RELEASE_SHA"
+          test "$(gh api --method GET "repos/$GITHUB_REPOSITORY" --jq .visibility)" = public
+
+          release_state() {
+            local release_pages_json
+            release_pages_json="$(gh api --method GET --paginate --slurp \
+              "repos/$GITHUB_REPOSITORY/releases?per_page=100")"
+            RELEASE_PAGES_JSON="$release_pages_json" node <<'NODE'
+          const pages = JSON.parse(process.env.RELEASE_PAGES_JSON);
+          const releases = pages.flatMap((page) => Array.isArray(page) ? page : []);
+          const release = releases.find((candidate) => candidate.tag_name === process.env.TAG);
+          if (!release) {
+            process.stdout.write("missing");
+            process.exit(0);
+          }
+          if (release.draft !== false) throw new Error(`${process.env.TAG} exists but is a draft.`);
+          if (release.prerelease !== false) throw new Error(`${process.env.TAG} exists but is a prerelease.`);
+          if (!release.published_at) throw new Error(`${process.env.TAG} is not publicly published.`);
+          if (!Array.isArray(release.assets) || release.assets.length !== 0) {
+            throw new Error(`${process.env.TAG} is not source-only; uploaded assets are attached.`);
+          }
+          process.stdout.write("verified");
+          NODE
+          }
+
+          EXISTING_RELEASE_STATE="$(release_state)"
+
           git fetch --force --tags origin
           if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
-            test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
+            test "$(git rev-list -n 1 "$TAG")" = "$RELEASE_SHA"
           else
+            if [[ "$EXISTING_RELEASE_STATE" == verified ]]; then
+              echo "Refusing to repair published release $TAG without its immutable tag." >&2
+              exit 1
+            fi
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" "$GITHUB_SHA" -m "Drift $TAG source release"
+            git tag -a "$TAG" "$RELEASE_SHA" -m "Drift $TAG source release"
             git push origin "refs/tags/$TAG"
           fi
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          test "$(git rev-list -n 1 "$TAG")" = "$RELEASE_SHA"
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "GitHub Release $TAG already exists at the verified tag."
+          if [[ "$EXISTING_RELEASE_STATE" == verified ]]; then
+            gh release edit "$TAG" --latest
+            echo "GitHub Release $TAG already exists, is public, non-prerelease, source-only, and points at the verified tag."
           else
             gh release create "$TAG" \
               --verify-tag \
               --latest \
               --title "Drift $TAG" \
               --notes-file "$NOTES_PATH"
+            test "$(release_state)" = verified
           fi
+          test "$(gh api --method GET "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG"

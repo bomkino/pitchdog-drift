@@ -4,7 +4,24 @@ Notable user-visible and maintainer-facing changes will be recorded here. Drift 
 
 ## Unreleased
 
-Changes intended for the release after `v0.2.0` belong here.
+Changes intended for the release after `v0.2.1` belong here.
+
+## [0.2.1] - 2026-08-30
+
+This entry describes the `v0.2.1` source-release tree. Public availability begins only when the matching tag and GitHub Release exist. No signed or notarized Mac binary is part of this release.
+
+### Changed
+
+- Panel and control interiors now use consistent optical alignment for text, Phosphor icons, carets, button labels, control heights, padding, and gaps.
+- Measured disclosures now use shorter, direction-aware opening and closing motion, retain interruptibility, restore focus safely, and settle immediately for keyboard activation or reduced-motion preferences.
+- Responsive panel selection now keeps the established 1120 px compact-layout floor at every interface scale, preventing low-scale three-panel layouts from becoming too narrow.
+- Source-release publication now waits for successful exact-main CI, standalone macOS, and packaged-WKWebView workflows before tagging the current default-branch commit.
+
+### Fixed
+
+- Nested panels, menus, buttons, background controls, footer disclosures, and compact/high-scale layouts no longer clip content or create unintended overflow.
+- Carets now keep one scale-aware size and spacing relationship with their labels; icons and button text remain optically centred without unstable wrapping.
+- Expanding and closing disclosures no longer leave stale measured heights or introduce avoidable jumps when their content changes during motion.
 
 ## [0.2.0] - 2026-08-30
 

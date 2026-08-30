@@ -3,6 +3,7 @@ export const INTERFACE_SCALE_MAX = 200;
 export const INTERFACE_SCALE_STEP = 5;
 export const INTERFACE_SCALE_DEFAULT = 100;
 export const INTERFACE_SCALE_STORAGE_KEY = "pitchdog.drift.interface-scale.v1";
+export const INTERFACE_SINGLE_PANEL_VIEWPORT_FLOOR = 1120;
 
 export type InterfaceScale = number;
 export type InterfaceScaleLayout = "three-panel" | "single-panel";
@@ -49,6 +50,18 @@ export function normalizeInterfaceScale(value: unknown): InterfaceScale {
 
 export function interfaceScaleLayout(value: InterfaceScale): InterfaceScaleLayout {
   return normalizeInterfaceScale(value) >= 150 ? "single-panel" : "three-panel";
+}
+
+export function interfaceScaleSinglePanelMaximum(value: InterfaceScale): number {
+  return Math.max(
+    INTERFACE_SINGLE_PANEL_VIEWPORT_FLOOR,
+    Math.ceil(440 + 752 * (normalizeInterfaceScale(value) / 100)),
+  );
+}
+
+export function interfaceScaleUsesSinglePanel(value: InterfaceScale, viewportWidth: number): boolean {
+  return interfaceScaleLayout(value) === "single-panel"
+    || viewportWidth <= interfaceScaleSinglePanelMaximum(value);
 }
 
 export function applyInterfaceScaleCommand(

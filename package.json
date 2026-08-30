@@ -1,7 +1,7 @@
 {
   "name": "pitchdog-drift",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A local-first WebGL motion studio for turning pitch-deck slides into deterministic cinematic exports.",
   "keywords": [
     "creative-tools",

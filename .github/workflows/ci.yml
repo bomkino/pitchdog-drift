@@ -94,6 +94,8 @@ jobs:
             test_file: e2e/v2-ui.e2e.ts
           - suite: interface-scale
             test_file: e2e/interface-scale.e2e.ts
+          - suite: layout-polish
+            test_file: e2e/layout-polish.e2e.ts
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

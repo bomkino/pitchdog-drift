@@ -1,5 +1,6 @@
 import type { ProductAutomationService } from "../core/automation/productAutomationService";
 import { stableAutomationJson } from "../core/automation/selfDescription";
+import { CaretRightIcon } from "./icons";
 
 export interface AutomationAccessViewProps {
   readonly enabled: boolean;
@@ -33,7 +34,7 @@ export function AutomationAccessView({
 }: AutomationAccessViewProps) {
   return (
     <details className="automation-access">
-      <summary>Show what Codex can see</summary>
+      <summary><span>Show what Codex can see</span><CaretRightIcon className="footer-disclosure-caret" /></summary>
       <div className="automation-access__body">
         <div className="automation-access__status">
           <strong>{writeEnabled
@@ -111,7 +112,7 @@ export function AutomationAccessView({
         <div className="automation-access__resources">
           {service.listResources().map((resource) => (
             <details key={resource.uri}>
-              <summary>{resource.name}</summary>
+              <summary><span>{resource.name}</span><CaretRightIcon className="resource-disclosure-caret" /></summary>
               <pre>{stableAutomationJson(service.readResource(resource.uri))}</pre>
             </details>
           ))}

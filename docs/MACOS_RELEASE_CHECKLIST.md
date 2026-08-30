@@ -2,7 +2,7 @@
 
 This checklist governs a downloadable Mac binary. Building an `.app` locally or compiling it in CI is not the same as authorizing a public release.
 
-The `v0.2.0` source-release tree does not include a downloadable Mac binary. The historical `v0.1.0` DMG is ad-hoc signed and unnotarized and therefore does not pass this checklist.
+The `v0.2.1` source-release tree does not include a downloadable Mac binary. The historical `v0.1.0` DMG is ad-hoc signed and unnotarized and therefore does not pass this checklist.
 
 Sections 1–12 are pre-merge candidate gates and must pass on one exact reviewed commit. Merge only that green commit and preserve it as reachable from `main`. Section 13 is the post-merge Developer ID/notarization evidence lane. Section 14 is a separate, explicitly authorized publication decision.
 

@@ -34,7 +34,7 @@ function expectMonotone(
 test("measured disclosure reverses in place and removes closed content from focus", async ({ page, request }) => {
   const sourceResponse = await request.get("/src/components/MeasuredDisclosure.tsx");
   expect(sourceResponse.ok()).toBe(true);
-  expect(await sourceResponse.text()).toContain("MAX_DISCLOSURE_DURATION_MS = 420");
+  expect(await sourceResponse.text()).toContain("MAX_DISCLOSURE_OPEN_MS = 250");
 
   await waitForStudio(page);
   await page.getByRole("button", { name: "Pause preview" }).click();
@@ -69,18 +69,19 @@ test("measured disclosure reverses in place and removes closed content from focu
       });
     };
 
-    disclosureTrigger.click();
+    const pointerClick = () => disclosureTrigger.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    pointerClick();
     const openingAnimation = await nextAnimation();
     const opening = sample(openingAnimation);
     const beforeClose = height();
 
-    disclosureTrigger.click();
+    pointerClick();
     const closingAnimation = await nextAnimation();
     const closeContinuity = Math.abs(height() - beforeClose);
     const closing = sample(closingAnimation);
     const beforeReopen = height();
 
-    disclosureTrigger.click();
+    pointerClick();
     const reopeningAnimation = await nextAnimation();
     const reopenContinuity = Math.abs(height() - beforeReopen);
     const reopening = sample(reopeningAnimation);
@@ -120,9 +121,18 @@ test("measured disclosure reverses in place and removes closed content from focu
   await page.keyboard.press("Tab");
   expect(await content.evaluate((element) => element.contains(document.activeElement))).toBe(false);
   await expect(group).toHaveAttribute("data-disclosure-state", "closed");
+
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(group).toHaveAttribute("data-disclosure-state", "open");
+  expect(await viewport.evaluate((element) => element.getAnimations().length)).toBe(0);
+  expect(await viewport.evaluate((element) => (element as HTMLElement).style.height)).toBe("auto");
+  await page.keyboard.press("Enter");
+  await expect(group).toHaveAttribute("data-disclosure-state", "closed");
+  expect(await viewport.evaluate((element) => element.getAnimations().length)).toBe(0);
 });
 
-test("open disclosure retargets measured height when conditional content changes", async ({ page }) => {
+test("settled open disclosure stays auto-sized when conditional content changes", async ({ page }) => {
   await waitForStudio(page);
   await page.getByRole("button", { name: "Pause preview" }).click();
   await page.waitForTimeout(250);
@@ -133,36 +143,21 @@ test("open disclosure retargets measured height when conditional content changes
   expect(await viewport.evaluate((element) => element.getAnimations().length)).toBe(0);
   await expect(group.getByRole("radio", { name: "Cover" })).toBeChecked();
 
-  const before = await viewport.evaluate((element) => element.getBoundingClientRect().height);
   const result = await viewport.evaluate(async (element) => {
     const root = element.parentElement!;
     root.querySelector<HTMLInputElement>('input[type="radio"][value="contain"]')!.click();
-    const deadline = performance.now() + 1_000;
-    let animation = element.getAnimations()[0];
-    while (!animation && performance.now() < deadline) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      animation = element.getAnimations()[0];
-    }
-    if (!animation) throw new Error("ResizeObserver did not retarget the open disclosure.");
-    animation.pause();
-    const duration = Number(animation.effect?.getTiming().duration);
-    if (!Number.isFinite(duration)) throw new Error("Disclosure animation has no finite duration.");
-    const samples = [0, 0.2, 0.4, 0.6, 0.8, 1].map((fraction) => {
-      animation.currentTime = duration * fraction;
-      return element.getBoundingClientRect().height;
-    });
-    animation.finish();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     const content = element.firstElementChild as HTMLElement;
     return {
-      samples,
+      animations: element.getAnimations().length,
+      inlineHeight: (element as HTMLElement).style.height,
       final: element.getBoundingClientRect().height,
       measured: content.scrollHeight,
     };
   });
 
-  expect(before - result.final, JSON.stringify({ before, ...result })).toBeGreaterThan(40);
-  expectMonotone(result.samples, "down", 1.5);
+  expect(result.animations).toBe(0);
+  expect(result.inlineHeight).toBe("auto");
   expect(Math.abs(result.final - result.measured)).toBeLessThanOrEqual(1);
   await expect(group).toHaveAttribute("data-disclosure-state", "open");
   await expect(group.getByRole("radio", { name: "Contain" })).toBeChecked();
@@ -182,8 +177,8 @@ test("desktop action targets stay at least 44px and disclosures cannot move the 
       for (const button of buttons) (button as HTMLButtonElement).click();
     });
     if (workspace === "LOOK") {
-      const worldBrowser = page.locator("details.world-browser");
-      if (await worldBrowser.getAttribute("open") === null) await worldBrowser.locator(":scope > summary").click();
+      const worldBrowser = page.locator(".world-browser");
+      if (await worldBrowser.getAttribute("data-expanded") !== "true") await worldBrowser.locator(":scope > .world-browser-trigger").click();
     }
     await page.waitForTimeout(340);
 

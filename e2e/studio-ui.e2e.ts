@@ -110,8 +110,8 @@ test("boots WebGL2, exposes real controls, restores context, and fits phone view
 
   await switchWorkspace(page, "LOOK");
   await page.getByTestId("workspace-scroll").getByText("Advanced", { exact: true }).click();
-  const filmWorlds = page.locator("details.world-browser");
-  if (await filmWorlds.getAttribute("open") === null) await filmWorlds.locator("summary").click();
+  const filmWorlds = page.locator(".world-browser");
+  if (await filmWorlds.getAttribute("data-expanded") !== "true") await filmWorlds.locator(":scope > .world-browser-trigger").click();
   await filmWorlds.getByRole("button", { name: /^Film World: Dread\./ }).click();
   await expect(page.locator(".stage-topline").first()).toContainText("dread");
   await expect(previewDescription).toContainText("dread.");

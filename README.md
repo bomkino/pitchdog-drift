@@ -4,11 +4,9 @@
 
 Drift turns still slides and one optional talking-head video into authored, Instagram-ready compositions. Three.js draws the scene, custom GLSL gives motion optical weight, and a fixed-step exporter renders frame `n` at exactly `n / fps`.
 
-![Drift studio with media, a vertical WebGL composition, and director controls](docs/media/drift-studio.png)
-
 This is not a CSS carousel wearing a shader as jewellery. Preview and export share the same scene evaluator. Portable projects contain their source media. MP4 output is reopened, decoded, and checked before Drift calls it finished.
 
-Drift is pre-1.0 and source-first. This tree prepares the `v0.2.0` source release dated 30 August 2026; a tag or GitHub Release is public only after it appears on GitHub. Read the [project status](docs/STATUS.md) for the exact boundary between public source, historical downloads, local candidates, verification, and release.
+Drift is pre-1.0 and source-first. This tree identifies the `v0.2.1` source-release line dated 30 August 2026; that version is public only when the matching tag and GitHub Release appear on GitHub. Read the [project status](docs/STATUS.md) for the exact boundary between public source, historical downloads, local candidates, verification, and release.
 
 The editor is organised around one visible journey: **Slides → Look → Motion → Export**. The stage and timeline stay put while the task inspector changes. **Apply clean carousel** gives a proof-safe, smooth, continuous starting point without replacing the chosen background, framing, media, or pinned-frame placement. Read the [Mac user guide](docs/MACOS_USER_GUIDE.md#the-shortest-good-path) or the [editor-journey rebuild note](docs/v2/EDITOR_JOURNEY_REBUILD_2026-08-25.md) before opening every advanced control.
 
@@ -52,7 +50,7 @@ The native application keeps the WebGL renderer and project format intact. AppKi
 - IndexedDB autosave and portable `.pitched` project bundles with SHA-256 asset verification.
 - Visible DOM fallback when WebGL2 is unavailable. It keeps media and project management usable while refusing to fake cinematic export.
 - FontBlind v13 is the default type family across the studio: seven CC0 WOFF2 binaries are vendored from [`bomkino/pitchdog-type-system`](https://github.com/bomkino/pitchdog-type-system) release `v13.0.0`, exact commit `786b4a2b671182319320f922b8de8f927ea3a002`.
-- Interface icons use Phosphor Icons for React `2.1.10`; spacing tokens, control padding, and responsive gaps keep the dense editor legible from compact panels through high interface scales.
+- Interface icons use Phosphor Icons for React `2.1.10`; scale-aware carets, optical centring, spacing tokens, control padding, measured disclosures, and responsive gaps keep the dense editor legible from compact panels through high interface scales.
 - No analytics, cloud upload, runtime font download, runtime API, or hidden network request.
 
 Moving-track media is deliberately image-only in v1. One pinned video keeps decoder load, export timing, and failure states legible.
@@ -171,7 +169,7 @@ JavaScript receives opaque grants rather than absolute file paths. Native save a
 
 ## Release boundary
 
-`v0.2.0` is a source-release line. It does not add a downloadable Mac binary. The earlier `v0.1.0` GitHub Release included an Apple-Silicon DMG signed ad hoc and not notarized; keep it as historical test material, not as a supported or Gatekeeper-ready binary.
+`v0.2.1` is a source-release line. It does not add a downloadable Mac binary. The earlier `v0.1.0` GitHub Release included an Apple-Silicon DMG signed ad hoc and not notarized; keep it as historical test material, not as a supported or Gatekeeper-ready binary.
 
 A local `.app` or CI-built DMG is not automatically a public release.
 
@@ -185,7 +183,7 @@ A distributable candidate still requires:
 - physical Apple Silicon user-journey testing across the supported macOS boundary;
 - explicit authorization to publish.
 
-The Mac candidate workflow is manual and uploads text-only Actions evidence suitable for a public repository. It does not create a GitHub Release, push a tag, deploy a website, or publish binaries. A separate source-release workflow reacts only to a version transition on protected `main` (or explicit manual dispatch), verifies the matching changelog section, tags that exact commit, and publishes a source-only GitHub Release. It never uploads an app or DMG.
+The Mac candidate workflow is manual and uploads text-only Actions evidence suitable for a public repository. It does not create a GitHub Release, push a tag, deploy a website, or publish binaries. A separate source-release workflow waits for successful exact-main CI, standalone macOS, and packaged-WKWebView workflows after a version transition (or validates those same gates on explicit manual dispatch), verifies the matching changelog section, tags that exact current `main` commit, and publishes a source-only GitHub Release. It never uploads an app or DMG.
 
 ## Design position
 

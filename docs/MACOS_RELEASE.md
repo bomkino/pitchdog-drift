@@ -2,7 +2,7 @@
 
 This document covers the distance between “a local `.app` builds” and “a stranger can safely install it.” Those are different claims.
 
-The `v0.2.0` tree is prepared as a source-only release: it does not publish a Mac binary. The Apple-Silicon DMG attached to the historical `v0.1.0` GitHub Release is ad-hoc signed and unnotarized and therefore does not satisfy this document.
+The `v0.2.1` tree is a source-only release line: it does not publish a Mac binary. The Apple-Silicon DMG attached to the historical `v0.1.0` GitHub Release is ad-hoc signed and unnotarized and therefore does not satisfy this document.
 
 Drift’s normal development build is ad-hoc signed and suitable for local testing. A public binary requires all of the following:
 

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,7 +14,7 @@ import { Stage } from "./components/Stage";
 import { CommandPalette } from "./components/CommandPalette";
 import { InterfaceScaleMenu } from "./components/InterfaceScaleMenu";
 import { AutomationAccessView } from "./components/AutomationAccessView";
-import { CheckCircleIcon, InfoIcon, WarningCircleIcon, XIcon } from "./components/icons";
+import { CaretRightIcon, CheckCircleIcon, InfoIcon, WarningCircleIcon, XIcon } from "./components/icons";
 import { createDriftSelfDescription } from "./core/automation/selfDescription";
 import { createProductAutomationService } from "./core/automation/productAutomationService";
 import {
@@ -156,7 +157,11 @@ import {
   DesktopPlatformDocumentError,
   requireDesktopPlatformCompletion,
 } from "./lib/desktopPlatform";
-import type { InterfaceScaleCommand } from "./lib/interfaceScale";
+import {
+  interfaceScaleSinglePanelMaximum,
+  interfaceScaleUsesSinglePanel,
+  type InterfaceScaleCommand,
+} from "./lib/interfaceScale";
 import {
   createDevelopmentMcpAdapter,
   type DevelopmentMcpAdapter,
@@ -429,8 +434,14 @@ export function App() {
   const [focusMode, setFocusMode] = useState(false);
   const [activeSlideIndex, setActiveSlideIndex] = useState(-1);
   const [activePanel, setActivePanel] = useState<"media" | "stage" | "director">("stage");
+  const nativeMac = isNativeMacRuntime();
+  const desktopPlatform = useMemo(() => createDesktopPlatform(), []);
+  const packagedDesktop = nativeMac || desktopPlatform.target === "linux-electron";
+  const [interfaceScale, setInterfaceScale] = useState(
+    () => desktopPlatform.presentation.interfaceScale.getSnapshot(),
+  );
   const [constrainedViewport, setConstrainedViewport] = useState(
-    () => window.matchMedia("(max-width: 1120px)").matches,
+    () => interfaceScaleUsesSinglePanel(interfaceScale.value, window.innerWidth),
   );
   const [activeWorkspace, setActiveWorkspace] = useState<StudioWorkspace>("slides");
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
@@ -453,12 +464,6 @@ export function App() {
   const [comparisonProject, setComparisonProject] = useState<DriftProjectV4 | null>(null);
   const [comparisonActive, setComparisonActive] = useState(false);
   const [changeReceipt, setChangeReceipt] = useState("No V2 direction changed yet.");
-  const nativeMac = isNativeMacRuntime();
-  const desktopPlatform = useMemo(() => createDesktopPlatform(), []);
-  const packagedDesktop = nativeMac || desktopPlatform.target === "linux-electron";
-  const [interfaceScale, setInterfaceScale] = useState(
-    () => desktopPlatform.presentation.interfaceScale.getSnapshot(),
-  );
   const effectiveInterfaceLayout = interfaceScale.layout === "single-panel" || constrainedViewport
     ? "single-panel"
     : "three-panel";
@@ -497,10 +502,12 @@ export function App() {
     [desktopPlatform],
   );
 
-  useEffect(() => {
-    const threePanelMinimum = Math.ceil(440 + 752 * (interfaceScale.value / 100));
+  useLayoutEffect(() => {
+    const threePanelMinimum = interfaceScaleSinglePanelMaximum(interfaceScale.value);
     const query = window.matchMedia(`(max-width: ${threePanelMinimum}px)`);
-    const update = () => setConstrainedViewport(query.matches);
+    const update = () => setConstrainedViewport((current) => (
+      current === query.matches ? current : query.matches
+    ));
     query.addEventListener("change", update);
     update();
     return () => query.removeEventListener("change", update);
@@ -2936,7 +2943,7 @@ export function App() {
           />
         ) : null}
         <details className="legal-notice">
-          <summary>SOURCE · AGPL</summary>
+          <summary><span>SOURCE · AGPL</span><CaretRightIcon className="footer-disclosure-caret" /></summary>
           <div role="note" aria-label="Free software notice">
             <strong>Drift © 2026 pitch.dog and contributors.</strong>
             <p>Free software: you may copy, modify, and convey it under GNU AGPL v3 or later. It comes with absolutely no warranty.</p>
