@@ -4,6 +4,7 @@ import {
   type StudioCommandDefinition,
   type StudioCommandWorkspace,
 } from "../core/commands/studioCommandRegistry";
+import { MagnifyingGlassIcon } from "./icons";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -91,7 +92,7 @@ export function CommandPalette({ open, workspace, disabled, onClose, onRun }: Co
     <div className="command-palette-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section ref={dialogRef} className="command-palette" role="dialog" aria-modal="true" aria-label="Drift commands" onKeyDown={onDialogKeyDown}>
         <div className="command-search-row">
-          <span aria-hidden="true">⌘</span>
+          <MagnifyingGlassIcon />
           <input
             ref={inputRef}
             type="search"

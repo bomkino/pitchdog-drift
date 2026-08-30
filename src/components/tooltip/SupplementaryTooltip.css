@@ -11,7 +11,7 @@
   color: #f1ece4;
   background: rgb(22 21 19 / 96%);
   box-shadow: 0 12px 34px rgb(0 0 0 / 32%);
-  font: 500 12px/1.42 ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font: 500 12px/1.42 var(--font-ui);
   letter-spacing: 0.01em;
   text-wrap: pretty;
   pointer-events: none;

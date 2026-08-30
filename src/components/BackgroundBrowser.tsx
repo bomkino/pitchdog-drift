@@ -6,6 +6,7 @@ import {
   type OpaqueBackgroundStyle,
 } from "../backgrounds";
 import type { BackgroundSettings } from "../model";
+import { ArrowLeftIcon, ArrowRightIcon, CheckCircleIcon } from "./icons";
 
 type PreviewVariables = CSSProperties & {
   "--background-a": string;
@@ -193,7 +194,7 @@ export function BackgroundBrowser({
             className="background-library-back"
             onClick={() => { setLibraryOpen(false); setPreviewTarget(null); }}
           >
-            <span aria-hidden="true">←</span> Curated shelf
+            <ArrowLeftIcon /> Curated shelf
           </button>
           <div className="background-browser-tools">
             <label>
@@ -232,7 +233,7 @@ export function BackgroundBrowser({
         >
           <span>Browse all backgrounds</span>
           <small>{totalStudyCount} directions · {Object.keys(BACKGROUND_FAMILY_LABELS).length} families</small>
-          <span aria-hidden="true">→</span>
+          <ArrowRightIcon />
         </button>
       ) : null}
 
@@ -251,6 +252,7 @@ export function BackgroundBrowser({
             onBlur={clearPreviewOnBlur}
             onClick={chooseTransparent}
           >
+            {background.style === "transparent" ? <CheckCircleIcon className="background-active-icon" /> : null}
             <span className="background-card-stage" aria-hidden="true">
               <span className="background-preview transparent-preview" />
             </span>
@@ -275,6 +277,7 @@ export function BackgroundBrowser({
             onBlur={clearPreviewOnBlur}
             onClick={() => chooseStudy(study)}
           >
+            {activeStudy?.id === study.id ? <CheckCircleIcon className="background-active-icon" /> : null}
             <span className="background-card-stage" aria-hidden="true">
               <BackgroundStudyPreview study={study} />
             </span>

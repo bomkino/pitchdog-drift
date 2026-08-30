@@ -1,0 +1,62 @@
+/*
+ * pitch.dog FontBlind v13 binaries.
+ * Source: https://github.com/bomkino/pitchdog-type-system/tree/786b4a2b671182319320f922b8de8f927ea3a002
+ * Licence: CC0-1.0. Drift authors this registration layer independently.
+ */
+
+@font-face {
+  font-family: "PD Head";
+  src: url("./assets/fonts/pitchdog/v13/pd-head.woff2") format("woff2-variations");
+  font-weight: 265 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PD Head Alt";
+  src: url("./assets/fonts/pitchdog/v13/pd-head-alt.woff2") format("woff2-variations");
+  font-weight: 265 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PD Body";
+  src: url("./assets/fonts/pitchdog/v13/pd-body-roman.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PD Body";
+  src: url("./assets/fonts/pitchdog/v13/pd-body-italic.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PD Body Alt";
+  src: url("./assets/fonts/pitchdog/v13/pd-body-alt-roman.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PD Body Alt";
+  src: url("./assets/fonts/pitchdog/v13/pd-body-alt-italic.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PD Eyebrow";
+  src: url("./assets/fonts/pitchdog/v13/pd-eyebrow-site.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-stretch: 87.5% 100%;
+  font-style: normal;
+  font-display: swap;
+}

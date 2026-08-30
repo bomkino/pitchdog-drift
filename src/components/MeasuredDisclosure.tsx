@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { CaretRightIcon } from "./icons";
 
 const MIN_DISCLOSURE_DURATION_MS = 240;
 const MAX_DISCLOSURE_DURATION_MS = 420;
@@ -217,6 +218,7 @@ export function MeasuredDisclosure({
         onClick={toggle}
       >
         {trigger}
+        <CaretRightIcon className="disclosure-caret" />
       </button>
       <div
         ref={viewportRef}

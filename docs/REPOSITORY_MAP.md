@@ -6,7 +6,8 @@ This repository contains one cinematic studio with two runtime shells. Source, g
 
 | Path | Owns |
 | --- | --- |
-| `src/` | React studio, deterministic scene/export logic, project model, themes, and native web adapters |
+| `src/` | React studio, deterministic scene/export logic, project model, themes, default FontBlind type declarations, and native web adapters |
+| `src/assets/fonts/pitchdog/v13/` | Seven checksum-pinned CC0 FontBlind binaries from `pitchdog-type-system` v13, exact commit `786b4a2b671182319320f922b8de8f927ea3a002` |
 | `macos/App/` | AppKit lifecycle, generation-bound bridge host, scoped file broker, native AAC, recovery, and packaged WKWebView self-test |
 | `macos/NativeBridge.js` | The fixed page-world bridge installed before the packaged studio boots |
 | `macos/Probes/` | Small native runtime probes; never a second product implementation |
@@ -48,7 +49,7 @@ These words are not synonyms:
 5. **pushed** — a commit exists on a remote branch;
 6. **merged**, **released**, **published**, and **approved** — separate maintainer actions.
 
-The construction workflows do not merge, tag, create a GitHub Release, publish a binary, or mark a draft ready. Release documentation describes the additional Developer ID, notarisation, Gatekeeper, checksum, hardware, and human-acceptance gates.
+The construction workflows do not merge, tag, create a GitHub Release, publish a binary, or mark a draft ready. Binary-candidate workflows share the same boundary. `.github/workflows/source-release.yml` is the narrow exception: after a version transition reaches protected `main` (or an explicit manual dispatch), it verifies the matching changelog section, tags that exact commit, and publishes a source-only GitHub Release. It never uploads an app or DMG. The historical `v0.1.0` Release and its ad-hoc, unnotarized arm64 DMG do not satisfy the binary gates. Release documentation describes the additional Developer ID, notarisation, Gatekeeper, checksum, hardware, and human-acceptance gates.
 
 ## First checks
 
@@ -57,6 +58,7 @@ Use Node.js from `.nvmrc`.
 ```bash
 npm ci
 npm run check
+npm run check:fonts
 npm run setup:e2e
 npm run test:e2e
 npm run build:mac

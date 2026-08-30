@@ -2,6 +2,7 @@ import type {
   InterfaceScaleCommand,
   InterfaceScaleSnapshot,
 } from "../lib/interfaceScale";
+import { CaretDownIcon, MinusIcon, PlusIcon } from "./icons";
 
 interface InterfaceScaleMenuProps {
   snapshot: InterfaceScaleSnapshot;
@@ -18,6 +19,7 @@ export function InterfaceScaleMenu({ snapshot, disabled, onCommand }: InterfaceS
       <summary aria-label={`Interface Scale ${snapshot.label}`}>
         <span>Interface Scale</span>
         <strong>{snapshot.label}</strong>
+        <CaretDownIcon className="interface-scale-caret" />
       </summary>
       <section aria-label="Interface Scale controls">
         <header>
@@ -30,14 +32,14 @@ export function InterfaceScaleMenu({ snapshot, disabled, onCommand }: InterfaceS
             disabled={disabled || snapshot.value <= 75}
             aria-label="Smaller Interface Scale"
             onClick={() => onCommand({ type: "smaller" })}
-          >−</button>
+          ><MinusIcon /></button>
           <output aria-live="polite">{snapshot.label}</output>
           <button
             type="button"
             disabled={disabled || snapshot.value >= 200}
             aria-label="Larger Interface Scale"
             onClick={() => onCommand({ type: "larger" })}
-          >+</button>
+          ><PlusIcon /></button>
         </div>
         <div className="interface-scale-presets" role="group" aria-label="Interface Scale presets">
           {SCALE_CHOICES.map((value) => (

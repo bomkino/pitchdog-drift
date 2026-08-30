@@ -1,0 +1,108 @@
+name: Source release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - CHANGELOG.md
+      - .github/workflows/source-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: source-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Tag and publish source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Resolve version transition
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Refusing non-semver source release: $VERSION" >&2
+            exit 1
+          fi
+          grep -Fq "## [$VERSION]" CHANGELOG.md
+
+          PUBLISH=true
+          if [[ "$EVENT_NAME" == push ]] && git cat-file -e "${GITHUB_SHA}^:package.json" 2>/dev/null; then
+            PREVIOUS_VERSION="$(git show "${GITHUB_SHA}^:package.json" | node -e 'let input=""; process.stdin.on("data", chunk => input += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(input).version));')"
+            if [[ "$PREVIOUS_VERSION" == "$VERSION" ]]; then
+              PUBLISH=false
+            fi
+          fi
+
+          {
+            echo "publish=$PUBLISH"
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Extract exact changelog section
+        if: steps.release.outputs.publish == 'true'
+        env:
+          NOTES_PATH: ${{ runner.temp }}/source-release-notes.md
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          node <<'NODE'
+          const { readFileSync, writeFileSync } = require("node:fs");
+          const changelog = readFileSync("CHANGELOG.md", "utf8");
+          const heading = `## [${process.env.VERSION}]`;
+          const start = changelog.indexOf(heading);
+          if (start < 0) throw new Error(`Missing ${heading} in CHANGELOG.md.`);
+          const bodyStart = changelog.indexOf("\n", start) + 1;
+          const next = changelog.indexOf("\n## ", bodyStart);
+          const notes = changelog.slice(bodyStart, next < 0 ? undefined : next).trim();
+          if (!notes) throw new Error(`Empty release notes for ${process.env.VERSION}.`);
+          writeFileSync(process.env.NOTES_PATH, `${notes}\n`, "utf8");
+          NODE
+
+      - name: Tag exact commit and publish source release
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES_PATH: ${{ runner.temp }}/source-release-notes.md
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
+            test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" "$GITHUB_SHA" -m "Drift $TAG source release"
+            git push origin "refs/tags/$TAG"
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $TAG already exists at the verified tag."
+          else
+            gh release create "$TAG" \
+              --verify-tag \
+              --latest \
+              --title "Drift $TAG" \
+              --notes-file "$NOTES_PATH"
+          fi

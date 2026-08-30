@@ -5,6 +5,7 @@ import {
   pickNativeMacFiles,
   type NativeMacImportKind,
 } from "../lib/nativeMac";
+import { WarningCircleIcon, XIcon } from "./icons";
 
 const INPUT_BRIDGE_ERROR_EVENT = "drift-native-file-input-error";
 
@@ -90,10 +91,10 @@ export function NativeFileInputBridge() {
 
   if (!error) return null;
   return (
-    <div className="notice" data-kind="error" role="alert" aria-live="assertive">
-      <span aria-hidden="true">!</span>
+    <div className="notice native-file-notice" data-kind="error" role="alert" aria-live="assertive">
+      <WarningCircleIcon className="notice-icon" />
       <p>{error}</p>
-      <button type="button" onClick={() => setError(null)} aria-label="Dismiss native file error">×</button>
+      <button type="button" onClick={() => setError(null)} aria-label="Dismiss native file error"><XIcon /></button>
     </div>
   );
 }

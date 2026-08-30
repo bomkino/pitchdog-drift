@@ -57,6 +57,17 @@ const components = [
     licenseSha256: "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc",
   },
   {
+    packageName: "@phosphor-icons/react",
+    displayName: "Phosphor Icons for React",
+    version: "2.1.10",
+    license: "MIT",
+    copyrightNotice: "Copyright (c) 2020 Phosphor Icons.",
+    sourceURL: "https://registry.npmjs.org/@phosphor-icons/react/-/react-2.1.10.tgz",
+    licenseSource: "LICENSE",
+    licenseFile: "PhosphorIconsReact-2.1.10-MIT.txt",
+    licenseSha256: "6918b72504641180600cbbd4a86b0dfa9dfccf788775694325b71b9a029f6eb4",
+  },
+  {
     packageName: "mediabunny",
     displayName: "Mediabunny",
     version: "1.55.1",
