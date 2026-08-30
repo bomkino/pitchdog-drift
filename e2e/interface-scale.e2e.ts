@@ -4,6 +4,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, test, type Download, type Locator, type Page } from "@playwright/test";
 import { strFromU8, unzipSync } from "fflate";
+import { INTERFACE_SCALE_STORAGE_KEY } from "../src/lib/interfaceScale";
 import { switchWorkspace, waitForStudio } from "./studio.helpers";
 
 const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
@@ -37,7 +38,42 @@ async function resetMediaScroll(page: Page): Promise<void> {
 
 async function captureLayout(page: Page, path: string): Promise<void> {
   await afterPaint(page);
-  await page.screenshot({ path, animations: "disabled" });
+  await page.screenshot({ path, animations: "disabled", caret: "hide" });
+}
+
+async function loadEvidenceLayout(
+  page: Page,
+  scale: 100 | 150 | 200,
+  viewport: Readonly<{ width: number; height: number }>,
+  panel: "media" | "stage" | "director",
+): Promise<void> {
+  await page.setViewportSize(viewport);
+  await page.addInitScript(({ key, value }) => {
+    localStorage.setItem(key, String(value));
+  }, { key: INTERFACE_SCALE_STORAGE_KEY, value: scale });
+  await page.goto("/");
+  await expect(page.locator(".asset-list li")).toHaveCount(8, { timeout: 30_000 });
+  await expect(page.locator(".stage-frame")).toHaveAttribute("data-context", /ready|restored/u);
+  await page.getByRole("button", { name: "Pause preview" }).click();
+
+  const app = page.locator(".app");
+  await expect(app).toHaveAttribute("data-interface-scale", String(scale));
+  await expect(app).toHaveAttribute("data-interface-layout", scale >= 150 ? "single-panel" : "three-panel");
+  const navigation = page.getByRole("navigation", { name: "Studio panels" });
+  if (await navigation.isVisible()) {
+    await navigation.getByRole("button", { name: panel, exact: true }).click();
+    await expect(app).toHaveAttribute("data-active-panel", panel);
+  }
+
+  if (panel === "media") {
+    await resetMediaScroll(page);
+    await expect(page.locator(".media-library")).toBeVisible();
+  } else if (panel === "director") {
+    await setScrollTop(page.getByTestId("workspace-scroll"), 0);
+    await expect(page.locator("aside.inspector")).toHaveCSS("opacity", "1");
+  } else {
+    await expect(page.getByRole("region", { name: "Cinematic preview" })).toBeVisible();
+  }
 }
 
 async function downloadSha256(download: Promise<Download>): Promise<string> {
@@ -112,11 +148,6 @@ test("Interface Scale reflows chrome without mutating Project V4, authored time,
   await page.keyboard.press("Tab");
   await expect(scaleMenu.getByRole("button", { name: "75%", exact: true })).toBeFocused();
 
-  const candidateSha = process.env.GITHUB_SHA
-    ?? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-  const evidenceDirectory = resolve("artifacts", "runtime-evidence", candidateSha, "browser", "interface-scale");
-  await mkdir(evidenceDirectory, { recursive: true });
-
   for (const scale of [75, 100, 125, 150, 200] as const) {
     await scaleMenu.getByRole("button", { name: `${scale}%`, exact: true }).click();
     await expect(app).toHaveAttribute("data-interface-scale", String(scale));
@@ -128,21 +159,11 @@ test("Interface Scale reflows chrome without mutating Project V4, authored time,
       await mobileTabs.getByRole("button", { name: "media", exact: true }).focus();
       await page.keyboard.press("Enter");
       await expect(page.getByRole("button", { name: "02 Drift study 02.png" })).toHaveAttribute("aria-pressed", "true");
-      if (scale === 150) {
-        await resetMediaScroll(page);
-        await captureLayout(page, resolve(evidenceDirectory, "interface-scale-150-media-1440x900.png"));
-      }
       await mobileTabs.getByRole("button", { name: "director", exact: true }).focus();
       await page.keyboard.press("Enter");
       await expect(page.locator("aside.inspector")).toHaveCSS("opacity", "1");
       await afterPaint(page);
       expect(await page.getByTestId("workspace-scroll").evaluate((element) => element.scrollTop)).toBe(scrollTop);
-      if (scale === 150) {
-        await setScrollTop(workspaceScroll, 0);
-        await captureLayout(page, resolve(evidenceDirectory, "interface-scale-150-director-1440x900.png"));
-        await setScrollTop(workspaceScroll, scrollTop);
-        await afterPaint(page);
-      }
       await mobileTabs.getByRole("button", { name: "stage", exact: true }).focus();
       await page.keyboard.press("Enter");
     } else {
@@ -160,11 +181,6 @@ test("Interface Scale reflows chrome without mutating Project V4, authored time,
     expect(stage!.y).toBeGreaterThanOrEqual(0);
     expect(stage!.x + stage!.width).toBeLessThanOrEqual(viewport!.width + 1);
     expect(stage!.y + stage!.height).toBeLessThanOrEqual(viewport!.height + 1);
-    await setScrollTop(workspaceScroll, 0);
-    await resetMediaScroll(page);
-    await captureLayout(page, resolve(evidenceDirectory, `interface-scale-${scale}-1440x900.png`));
-    await setScrollTop(workspaceScroll, scrollTop);
-    await afterPaint(page);
     await summary.click();
   }
 
@@ -173,10 +189,6 @@ test("Interface Scale reflows chrome without mutating Project V4, authored time,
   await expect(app).toHaveAttribute("data-interface-layout", "single-panel");
   await expect(page.getByRole("navigation", { name: "Studio panels" })).toBeVisible();
   await closeScaleMenuAndSettle(scaleMenu, summary);
-  await setScrollTop(workspaceScroll, 0);
-  await captureLayout(page, resolve(evidenceDirectory, "interface-scale-200-960x640.png"));
-  await setScrollTop(workspaceScroll, scrollTop);
-  await afterPaint(page);
   await summary.click();
   await scaleMenu.getByRole("button", { name: "Reset Interface Scale" }).click();
   await expect(app).toHaveAttribute("data-interface-scale", "100");
@@ -203,3 +215,31 @@ test("Interface Scale reflows chrome without mutating Project V4, authored time,
   expect(preflightAfter).toBe(preflightBefore);
   expect(pixelsAfter).toBe(pixelsBefore);
 });
+
+for (const evidence of [
+  { scale: 100, width: 1440, height: 900, panel: "stage", file: "interface-scale-100-1440x900.png" },
+  { scale: 150, width: 1440, height: 900, panel: "media", file: "interface-scale-150-media-1440x900.png" },
+  { scale: 150, width: 1440, height: 900, panel: "director", file: "interface-scale-150-director-1440x900.png" },
+  { scale: 200, width: 960, height: 640, panel: "stage", file: "interface-scale-200-960x640.png" },
+] as const) {
+  test(`captures clean ${evidence.scale}% ${evidence.panel} layout evidence`, async ({ page }) => {
+    test.setTimeout(300_000);
+    await loadEvidenceLayout(
+      page,
+      evidence.scale,
+      { width: evidence.width, height: evidence.height },
+      evidence.panel,
+    );
+    const candidateSha = process.env.GITHUB_SHA
+      ?? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const evidenceDirectory = resolve(
+      "artifacts",
+      "runtime-evidence",
+      candidateSha,
+      "browser",
+      "interface-scale",
+    );
+    await mkdir(evidenceDirectory, { recursive: true });
+    await captureLayout(page, resolve(evidenceDirectory, evidence.file));
+  });
+}
