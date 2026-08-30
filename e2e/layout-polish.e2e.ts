@@ -29,7 +29,7 @@ async function seedInterfaceScale(page: Page, value: number, recordLayouts = fal
         state.__driftLayoutHistory!.push(layout);
       }
     };
-    new MutationObserver(capture).observe(document.documentElement, {
+    new MutationObserver(capture).observe(document, {
       attributes: true,
       attributeFilter: ["data-interface-layout"],
       childList: true,
@@ -77,6 +77,7 @@ async function expectNoDocumentOrHorizontalControlOverflow(page: Page, label: st
   ].join(", ")).evaluateAll((elements) => elements.flatMap((element) => {
     if (!(element instanceof HTMLElement)) return [];
     if (element.closest("[inert], [aria-hidden='true']")) return [];
+    if (element.closest("details:not([open]) > :not(summary)")) return [];
     const style = getComputedStyle(element);
     if (style.display === "none" || style.visibility === "hidden") return [];
     const rect = element.getBoundingClientRect();
@@ -201,18 +202,17 @@ test("long selected-slide filenames stay ellipsized before the inspector caret",
 
   const longName = `drift-${"long-editorial-shot-name-".repeat(8)}final.png`;
   const slideInput = page.locator('input[accept^="image/png"]');
-  const slideCount = await page.locator(".asset-list li").count();
   await slideInput.setInputFiles({
     name: longName,
     mimeType: "image/png",
     buffer: await readFile(fixturePath),
   });
-  await expect(page.locator(".asset-list li")).toHaveCount(slideCount + 1);
+  const importedRow = page.locator(".asset-list li").filter({ hasText: longName });
+  await expect(importedRow).toHaveCount(1);
 
   const navigation = page.getByRole("navigation", { name: "Studio panels" });
   await navigation.getByRole("button", { name: "media", exact: true }).click();
-  const row = page.locator(".asset-list li").filter({ hasText: longName });
-  await row.locator(".asset-select").click();
+  await importedRow.locator(".asset-select").click();
   await navigation.getByRole("button", { name: "director", exact: true }).click();
 
   const group = page.locator(".inspector-group").filter({
