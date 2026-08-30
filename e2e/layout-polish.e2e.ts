@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { INTERFACE_SCALE_STORAGE_KEY } from "../src/lib/interfaceScale";
-import { fixturePath, switchWorkspace, waitForStudio } from "./studio.helpers";
+import { fixturePath, switchWorkspace } from "./studio.helpers";
 
 type Box = NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>;
 
@@ -9,6 +9,12 @@ async function afterPaint(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   }));
+}
+
+async function waitForPolishStudio(page: Page): Promise<void> {
+  await page.goto("/");
+  await expect(page.locator(".asset-list li")).toHaveCount(8, { timeout: 30_000 });
+  await expect(page.locator(".stage-frame")).toHaveAttribute("data-context", /ready|restored/u);
 }
 
 async function seedInterfaceScale(page: Page, value: number, recordLayouts = false): Promise<void> {
@@ -157,7 +163,7 @@ async function expectCompactStageControlsContained(page: Page): Promise<void> {
 test("75% uses the shared 1120px responsive floor without a first-paint layout flip", async ({ page }) => {
   await page.setViewportSize({ width: 1120, height: 720 });
   await seedInterfaceScale(page, 75, true);
-  await waitForStudio(page);
+  await waitForPolishStudio(page);
 
   const app = page.locator(".app");
   await expect(app).toHaveAttribute("data-interface-scale", "75");
@@ -181,7 +187,7 @@ for (const scenario of [
   test(`${scenario.name} keeps document and visible controls contained`, async ({ page }) => {
     await page.setViewportSize({ width: scenario.width, height: scenario.height });
     await seedInterfaceScale(page, scenario.scale);
-    await waitForStudio(page);
+    await waitForPolishStudio(page);
     await expect(page.locator(".app")).toHaveAttribute("data-interface-layout", scenario.layout);
     await exerciseVisiblePanels(page, scenario.name);
     if (scenario.scale === 200) await expectCompactStageControlsContained(page);
@@ -191,7 +197,7 @@ for (const scenario of [
 test("long selected-slide filenames stay ellipsized before the inspector caret", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await seedInterfaceScale(page, 200);
-  await waitForStudio(page);
+  await waitForPolishStudio(page);
 
   const longName = `drift-${"long-editorial-shot-name-".repeat(8)}final.png`;
   const slideInput = page.locator('input[accept^="image/png"]');
@@ -240,7 +246,7 @@ test("long selected-slide filenames stay ellipsized before the inspector caret",
 
 test("background hover preview keeps the current-background hero height fixed", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await waitForStudio(page);
+  await waitForPolishStudio(page);
   await switchWorkspace(page, "LOOK");
 
   const browser = page.locator(".visual-background-browser");
