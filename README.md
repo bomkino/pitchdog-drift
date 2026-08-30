@@ -185,7 +185,7 @@ A distributable candidate still requires:
 - physical Apple Silicon user-journey testing across the supported macOS boundary;
 - explicit authorization to publish.
 
-The release workflow is manual and uploads text-only Actions evidence suitable for a public repository. It does not create a GitHub Release, push a tag, deploy a website, or publish binaries by itself.
+The Mac candidate workflow is manual and uploads text-only Actions evidence suitable for a public repository. It does not create a GitHub Release, push a tag, deploy a website, or publish binaries. A separate source-release workflow reacts only to a version transition on protected `main` (or explicit manual dispatch), verifies the matching changelog section, tags that exact commit, and publishes a source-only GitHub Release. It never uploads an app or DMG.
 
 ## Design position
 
