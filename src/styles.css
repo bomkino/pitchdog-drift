@@ -3294,6 +3294,10 @@ a:focus-visible {
 .notice[data-kind="good"] { border-color: rgba(120, 162, 115, 0.35); }
 .notice[data-kind="error"] { border-color: rgba(193, 88, 67, 0.52); color: #e1b6ab; }
 
+/* The native bridge is mounted beside .app, so it cannot inherit app-scoped
+   interface metrics. Keep its failure notice below both header layouts. */
+.native-file-notice { top: clamp(132px, 18dvh, 160px); }
+
 .command-palette-backdrop {
   position: fixed;
   inset: 0;
@@ -3344,8 +3348,8 @@ a:focus-visible {
 .command-empty { margin: 0; padding: 24px 10px; color: var(--muted); font-size: 12px; }
 .command-palette footer { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 10px 15px; border-top: 1px solid var(--line); color: var(--faint); font-family: var(--font-mono); font-size: var(--ui-micro-text); line-height: 1.2; }
 .notice-icon { width: 20px; height: 20px; color: var(--rust-light); }
-.notice p { margin: 0; font-size: 11px; line-height: 1.45; }
-.notice button { width: var(--ui-touch-target); height: var(--ui-touch-target); display: grid; place-items: center; padding: 0; border: 0; color: var(--faint); background: transparent; cursor: pointer; }
+.notice p { min-width: 0; flex: 1; margin: 0; overflow-wrap: anywhere; font-size: 11px; line-height: 1.45; }
+.notice button { flex: 0 0 auto; width: var(--ui-touch-target); height: var(--ui-touch-target); display: grid; place-items: center; padding: 0; border: 0; color: var(--faint); background: transparent; cursor: pointer; }
 
 .app-footer {
   position: relative;
