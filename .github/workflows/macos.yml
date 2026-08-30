@@ -33,6 +33,7 @@ on:
       - ".github/workflows/ci.yml"
       - ".github/workflows/macos-runtime.yml"
       - ".github/workflows/macos.yml"
+      - ".github/workflows/source-release.yml"
   pull_request:
     paths:
       - "macos/**"
@@ -64,6 +65,7 @@ on:
       - ".github/workflows/ci.yml"
       - ".github/workflows/macos-runtime.yml"
       - ".github/workflows/macos.yml"
+      - ".github/workflows/source-release.yml"
   workflow_dispatch:
 
 permissions:

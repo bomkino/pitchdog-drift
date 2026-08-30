@@ -69,10 +69,13 @@ jobs:
 
           READY=true
           for WORKFLOW_FILE in ci.yml macos.yml macos-runtime.yml; do
-            RUNS_JSON="$(gh api --method GET \
-              "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?branch=main&event=push&status=completed&per_page=100")"
-            RESULT="$(RUNS_JSON="$RUNS_JSON" WORKFLOW_FILE="$WORKFLOW_FILE" node <<'NODE'
-          const payload = JSON.parse(process.env.RUNS_JSON);
+            RUNS_PATH="$RUNNER_TEMP/source-release-${WORKFLOW_FILE}.json"
+            gh api --method GET \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?branch=main&event=push&status=completed&per_page=100" \
+              > "$RUNS_PATH"
+            RESULT="$(RUNS_PATH="$RUNS_PATH" WORKFLOW_FILE="$WORKFLOW_FILE" node <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const payload = JSON.parse(readFileSync(process.env.RUNS_PATH, "utf8"));
           const exactRun = payload.workflow_runs?.find((run) => (
             run.head_sha === process.env.RELEASE_SHA
             && run.head_branch === "main"
@@ -164,11 +167,13 @@ jobs:
           test "$(gh api --method GET "repos/$GITHUB_REPOSITORY" --jq .visibility)" = public
 
           release_state() {
-            local release_pages_json
-            release_pages_json="$(gh api --method GET --paginate --slurp \
-              "repos/$GITHUB_REPOSITORY/releases?per_page=100")"
-            RELEASE_PAGES_JSON="$release_pages_json" node <<'NODE'
-          const pages = JSON.parse(process.env.RELEASE_PAGES_JSON);
+            local release_pages_path="$RUNNER_TEMP/source-release-pages.json"
+            gh api --method GET --paginate --slurp \
+              "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              > "$release_pages_path"
+            RELEASE_PAGES_PATH="$release_pages_path" node <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const pages = JSON.parse(readFileSync(process.env.RELEASE_PAGES_PATH, "utf8"));
           const releases = pages.flatMap((page) => Array.isArray(page) ? page : []);
           const release = releases.find((candidate) => candidate.tag_name === process.env.TAG);
           if (!release) {
