@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Input, VideoSample, VideoSampleSink } from "mediabunny";
+import { Input, BlobSource, ALL_FORMATS, VideoSampleSink, type VideoSample } from "mediabunny";
 import type { StudioAsset } from "../model";
 import { DEFAULT_SLIDE_VIDEO, slideVideoTime, type SlideVideoPlayback } from "../core/media/videoPlayback";
 import { abortMedia, waitForVideo } from "../lib/mediaWork";
@@ -50,7 +50,6 @@ export class VideoSlideSource {
         source.source.src = asset.objectUrl;
         await ready;
       } else {
-        const { Input, BlobSource, ALL_FORMATS, VideoSampleSink } = await import("mediabunny");
         source.input = new Input({ formats: ALL_FORMATS, source: new BlobSource(asset.blob, { maxCacheSize: 2 * 1024 * 1024 }) });
         const track = await source.input.getPrimaryVideoTrack();
         if (!track || !await track.canDecode()) throw new Error(`${asset.name}: video codec cannot be decoded for export.`);
