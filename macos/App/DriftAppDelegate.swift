@@ -141,6 +141,7 @@ final class DriftAppDelegate: NSObject,
     private var inFlightProjectReplyIdentifier: UUID?
     private var webViewGeneration = NativeWebViewGenerationTracker()
     private var approvedClose = false
+    private var exitDecisionInProgress = false
     private var revealLastSavedFileItem: NSMenuItem?
     private var webContentRecoveryPolicy = WebContentRecoveryPolicy()
     private var navigationIdentity = NavigationIdentityTracker()
@@ -183,12 +184,18 @@ final class DriftAppDelegate: NSObject,
         guard !approvedClose, hasProtectedWork else {
             return .terminateNow
         }
-        if confirmProtectedExit(verb: "Quit") {
-            approvedClose = true
-            invalidateDocumentAuthority()
-            return .terminateNow
+        guard !exitDecisionInProgress else { return .terminateCancel }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { sender.reply(toApplicationShouldTerminate: false); return }
+            self.requestDocumentExit(verb: "Quit") { approved in
+                if approved {
+                    self.approvedClose = true
+                    self.invalidateDocumentAuthority()
+                }
+                sender.reply(toApplicationShouldTerminate: approved)
+            }
         }
-        return .terminateCancel
+        return .terminateLater
     }
 
     func application(_ application: NSApplication, openFiles filenames: [String]) {
@@ -251,10 +258,11 @@ final class DriftAppDelegate: NSObject,
         guard !approvedClose, hasProtectedWork else {
             return true
         }
-        if confirmProtectedExit(verb: "Close") {
-            approvedClose = true
-            invalidateDocumentAuthority()
-            return true
+        guard !exitDecisionInProgress else { return false }
+        requestDocumentExit(verb: "Close") { [weak self, weak sender] approved in
+            guard let self, let sender, approved else { return }
+            self.approvedClose = true
+            sender.performClose(nil)
         }
         return false
     }
@@ -440,6 +448,39 @@ final class DriftAppDelegate: NSObject,
 
         webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Saving is asynchronous: the window stays alive until a verified save
+    /// receipt succeeds. Cancel or failed writes never approve destruction.
+    private func requestDocumentExit(verb: String, completion: @escaping (Bool) -> Void) {
+        guard !exitDecisionInProgress else { completion(false); return }
+        exitDecisionInProgress = true
+        let finish: (Bool) -> Void = { [weak self] approved in
+            self?.exitDecisionInProgress = false
+            completion(approved)
+        }
+        guard webRuntimeReady,
+              let window,
+              let state = nativeBridge?.clientState,
+              !state.hasProtectedWork,
+              state.hasUnsavedDocument else {
+            finish(confirmProtectedExit(verb: verb))
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Save changes before you \(verb.lowercased())?"
+        alert.informativeText = "Save updates your .pitched document. Don’t Save leaves its existing file unchanged; the latest local recovery copy remains available."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Don’t Save")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { finish(false); return }
+            if response == .alertFirstButtonReturn {
+                self.dispatchNativeCommand("save-project", completion: finish)
+            } else {
+                finish(response == .alertThirdButtonReturn)
+            }
+        }
     }
 
     private func confirmProtectedExit(verb: String) -> Bool {
@@ -903,8 +944,10 @@ final class DriftAppDelegate: NSObject,
         let item = NSMenuItem()
         let menu = NSMenu(title: "Edit")
         item.submenu = menu
-        menu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        let redo = menu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        let undo = menu.addItem(withTitle: "Undo", action: #selector(undoDocumentEdit(_:)), keyEquivalent: "z")
+        undo.target = self
+        let redo = menu.addItem(withTitle: "Redo", action: #selector(redoDocumentEdit(_:)), keyEquivalent: "z")
+        redo.target = self
         redo.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(.separator())
         menu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
@@ -987,7 +1030,8 @@ final class DriftAppDelegate: NSObject,
                 && webRuntimeReady
                 && !protected
                 && nativeBridge?.clientState.documentRevertible == true
-        case #selector(addSlides(_:)), #selector(addPresenter(_:)),
+        case #selector(undoDocumentEdit(_:)), #selector(redoDocumentEdit(_:)),
+             #selector(addSlides(_:)), #selector(addPresenter(_:)),
              #selector(exportMP4(_:)), #selector(exportStill(_:)),
              #selector(exportFrames(_:)), #selector(reload(_:)):
             return webRuntimeReady && !protected
@@ -1009,6 +1053,8 @@ final class DriftAppDelegate: NSObject,
         }
         dispatchNativeCommand("open-project")
     }
+    @objc private func undoDocumentEdit(_ sender: Any?) { dispatchNativeCommand("undo-edit") }
+    @objc private func redoDocumentEdit(_ sender: Any?) { dispatchNativeCommand("redo-edit") }
     @objc private func addSlides(_ sender: Any?) { dispatchNativeCommand("add-slides") }
     @objc private func addPresenter(_ sender: Any?) { dispatchNativeCommand("add-presenter") }
     @objc private func savePortableProject(_ sender: Any?) {
@@ -1125,12 +1171,12 @@ final class DriftAppDelegate: NSObject,
         NSPasteboard.general.setString(diagnostics, forType: .string)
     }
 
-    private func dispatchNativeCommand(_ command: String) {
+    private func dispatchNativeCommand(_ command: String, completion: ((Bool) -> Void)? = nil) {
         guard webRuntimeReady,
               let bridge = nativeBridge,
               let ticket = activeDocumentTicket,
               bridge.isCurrentDocument(ticket),
-              let webView else { return }
+              let webView else { completion?(false); return }
         let commandWebViewGeneration = webViewGeneration.generation
         webView.callAsyncJavaScript(
             "return await window.__driftNativeCommand(documentNonce, command);",
@@ -1144,9 +1190,13 @@ final class DriftAppDelegate: NSObject,
                           bridge: bridge,
                           generation: commandWebViewGeneration
                       ),
-                      bridge.isCurrentDocument(ticket) else { return }
-                if case .failure(let error) = result {
+                      bridge.isCurrentDocument(ticket) else { completion?(false); return }
+                switch result {
+                case .failure(let error):
                     NSLog("Drift menu command failed: %@", error.localizedDescription)
+                    completion?(false)
+                case .success(let value):
+                    completion?((value as? Bool) == true)
                 }
             }
         )

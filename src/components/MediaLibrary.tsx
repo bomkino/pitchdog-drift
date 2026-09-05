@@ -138,7 +138,7 @@ export function MediaLibrary({
         <span className="media-count">{assets.length}</span>
       </div>
 
-      <input ref={imageInputRef} hidden tabIndex={-1} disabled={busy} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple onChange={addImages} />
+      <input ref={imageInputRef} hidden tabIndex={-1} disabled={busy} type="file" accept="image/png,image/jpeg,image/webp,image/avif,video/mp4,video/webm,video/quicktime" multiple onChange={addImages} />
       <input ref={presenterInputRef} hidden tabIndex={-1} disabled={busy} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={addPresenter} />
 
       <div className="media-add-row">
@@ -150,7 +150,7 @@ export function MediaLibrary({
         </button>
       </div>
       <p className="media-note" data-error={Boolean(pickerError)} aria-live="polite">
-        {pickerError ?? "Any one image or presenter video can stay still. Original media: 64 MiB each, 80 MiB total. Files remain on this device."}
+        {pickerError ?? "Images or silent video slides. Add a presenter for voice."}
       </p>
 
       <ol className="asset-list" aria-label="Slide order">
@@ -172,7 +172,9 @@ export function MediaLibrary({
               aria-pressed={selectedAssetId === asset.id}
               onClick={() => onSelect(asset.id)}
             >
-              <img src={asset.objectUrl} alt="" />
+              {asset.kind === "video"
+                ? <span className="video-slide-thumbnail" aria-hidden="true">VIDEO<span>{asset.duration?.toFixed(1)} s</span></span>
+                : <img src={asset.objectUrl} alt="" loading="lazy" decoding="async" />}
               <span className="asset-meta">
                 <strong>{String(index + 1).padStart(2, "0")}</strong>
                 <small title={asset.name}>{asset.name}</small>
@@ -207,7 +209,7 @@ export function MediaLibrary({
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || asset.kind === "video"}
                 onClick={() => onPin(pinnedAssetId === asset.id ? null : asset)}
                 aria-label={pinnedAssetId === asset.id ? `Return ${asset.name} to the carousel` : `Keep ${asset.name} still`}
                 aria-pressed={pinnedAssetId === asset.id}

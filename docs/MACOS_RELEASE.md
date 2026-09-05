@@ -1,4 +1,15 @@
+> Current changes and limits: [STATUS.md](STATUS.md) and [Mac user guide](MACOS_USER_GUIDE.md). Retain the technical contracts below; older build receipts apply only to their exact commits.
+
 # Releasing Drift for macOS
+
+## Current downloadable release lane
+
+The user-authorized 0.3.0 download is explicitly **ad-hoc signed and unnotarized**. This lane does not claim Developer ID identity, Gatekeeper acceptance, completed physical-Mac testing, or a fully native editor.
+
+The main Mac job builds once, runs the signed packaged lifecycle and synthetic V2 video-output proof, verifies the DMG, and freezes `MacReleaseReceipt.json`. After all exact-main CI, Mac and WK runtime jobs pass, `source-release.yml` downloads that artifact, verifies every size/digest/source revision, creates a draft release, uploads its exact files, verifies GitHub asset digests, and only then publishes. Neither existing tags nor published assets are overwritten. No branch-specific source-writing workflow is retained.
+
+`BuildReceipt.txt` is the real embedded build receipt; there is no `BuildReceipt.json`. The notarized distribution procedure below remains separate and unchanged. A future Developer ID release must satisfy it rather than relabel this ad-hoc artifact.
+
 
 This document covers the distance between “a local `.app` builds” and “a stranger can safely install it.” Those are different claims.
 

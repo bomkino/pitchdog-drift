@@ -76,6 +76,10 @@ jobs:
             test_file: e2e/native-menu-import.e2e.ts
           - suite: export
             test_file: e2e/studio-export.e2e.ts
+          - suite: video-slides
+            test_file: e2e/video-slides.e2e.ts
+          - suite: document-handoff
+            test_file: e2e/document-handoff.e2e.ts
           - suite: projects
             test_file: e2e/studio-projects.e2e.ts
           - suite: renderer
@@ -134,6 +138,10 @@ jobs:
 
       - name: Install browser runtime
         run: npx playwright install --with-deps chromium
+
+      - name: Install synthetic-media tools
+        if: matrix.suite == 'video-slides'
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
 
       - name: Run real-browser gauntlet suite
         env:

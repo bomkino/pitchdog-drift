@@ -1,3 +1,5 @@
+> Current changes and limits: [STATUS.md](STATUS.md) and [Mac user guide](MACOS_USER_GUIDE.md). Retain the technical contracts below; older build receipts apply only to their exact commits.
+
 # Drift for macOS — release checklist
 
 This checklist governs a downloadable Mac binary. Building an `.app` locally or compiling it in CI is not the same as authorizing a public release.

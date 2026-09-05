@@ -9,7 +9,7 @@ describe("App export job controller contract", () => {
     expect(appSource).toContain("exportJobController.begin(snapshot, controller, initialProgress)");
     expect(appSource.match(/exportJobController\.complete\(reservation\.snapshot\.id, completion\)/gu)).toHaveLength(3);
     expect(appSource).toContain("exportJobController.cancel(active.id)");
-    expect(appSource).toContain("reserveExport(guidedExportIntent, false)");
+    expect(appSource).toContain("reserveExport(background ? { ...guidedExportIntent, background } : guidedExportIntent, false)");
     expect(appSource).not.toContain('abort("Canceled by user")');
     expect(appSource).not.toContain('abort("Canceled from the macOS menu")');
   });

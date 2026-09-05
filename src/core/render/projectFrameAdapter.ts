@@ -107,7 +107,7 @@ function assertOrderedAssets(project: DriftProjectV4, assets: readonly StudioAss
 
     const descriptor = project.media.assets[assetId];
     if (!descriptor) mismatch(assetId, "descriptor");
-    if (asset.kind !== "image" || asset.kind !== descriptor.kind) mismatch(assetId, "kind");
+    if ((asset.kind !== "image" && asset.kind !== "video") || asset.kind !== descriptor.kind) mismatch(assetId, "kind");
     if (asset.name !== descriptor.name) mismatch(assetId, "name");
     if (asset.mimeType !== descriptor.mimeType) mismatch(assetId, "MIME type");
     if (asset.width !== descriptor.width || asset.height !== descriptor.height) mismatch(assetId, "dimensions");

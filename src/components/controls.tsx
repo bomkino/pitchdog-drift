@@ -339,7 +339,7 @@ export function InspectorGroup({ title, eyebrow, description, open = false, chil
         </>
       )}
     >
-      {description ? <p className="inspector-group-description">{description}</p> : null}
+      {description ? <details className="inspector-help"><summary>About {title.toLowerCase()}</summary><p className="inspector-group-description">{description}</p></details> : null}
       {children}
     </MeasuredDisclosure>
   );

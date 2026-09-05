@@ -631,24 +631,19 @@ test("a slow older autosave cannot overwrite a newer imported project", async ({
   await page.locator('input[accept^="image/png"]').setInputFiles(fixturePath);
   await expect(page.locator(".asset-list li")).toHaveCount(1);
   await switchWorkspace(page, "EXPORT");
-  await page.evaluate(() => {
+  // Delay the actual persistence method, not optional cached media hashing.
+  await page.evaluate(async () => {
+    const { ProjectStore } = await import("/src/lib/projectStore.ts");
     const state = window as Window & { __driftInitialReleaseDigest?: () => void };
-    const subtle = crypto.subtle;
-    const original = subtle.digest.bind(subtle);
+    const original = ProjectStore.prototype.save;
     let first = true;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     state.__driftInitialReleaseDigest = release;
-    Object.defineProperty(subtle, "digest", {
-      configurable: true,
-      value: async (...args: Parameters<SubtleCrypto["digest"]>) => {
-        if (first) {
-          first = false;
-          await gate;
-        }
-        return original(...args);
-      },
-    });
+    ProjectStore.prototype.save = async function (...args: Parameters<typeof original>) {
+      if (first) { first = false; await gate; }
+      return original.apply(this, args);
+    } as typeof original;
   });
   await page.getByLabel("Stage width").fill("1200");
   await expect(page.locator(".header-status")).toContainText("saving locally…");
@@ -681,28 +676,21 @@ test("a slow older autosave cannot overwrite a newer imported project", async ({
   const oldPage = await oldContext.newPage();
   try {
     await waitForStudio(oldPage);
-    await oldPage.evaluate(() => {
+    await oldPage.evaluate(async () => {
+      const { ProjectStore } = await import("/src/lib/projectStore.ts");
       const state = window as Window & {
         __driftDigestStarted?: boolean;
         __driftReleaseDigest?: () => void;
       };
-      const subtle = crypto.subtle;
-      const original = subtle.digest.bind(subtle);
+      const original = ProjectStore.prototype.save;
       let first = true;
       let release!: () => void;
       const gate = new Promise<void>((resolve) => { release = resolve; });
       state.__driftReleaseDigest = release;
-      Object.defineProperty(subtle, "digest", {
-        configurable: true,
-        value: async (...args: Parameters<SubtleCrypto["digest"]>) => {
-          if (first) {
-            first = false;
-            state.__driftDigestStarted = true;
-            await gate;
-          }
-          return original(...args);
-        },
-      });
+      ProjectStore.prototype.save = async function (...args: Parameters<typeof original>) {
+        if (first) { first = false; state.__driftDigestStarted = true; await gate; }
+        return original.apply(this, args);
+      } as typeof original;
     });
     await switchWorkspace(oldPage, "EXPORT");
     await oldPage.getByLabel("Stage width").fill("1600");

@@ -56,10 +56,9 @@ test("WebGL2 denial yields an explicit, usable DOM fallback", async ({ page }) =
   await switchWorkspace(page, "EXPORT");
   await expect(page.getByRole("button", { name: "Save portable project" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add slides" })).toBeVisible();
-  const wizard = page.getByRole("region", { name: "Guided Export" });
-  await wizard.getByRole("button", { name: "Choose format" }).click();
-  await expect(wizard.getByRole("radio", { name: /H\.264 MP4/ })).toBeDisabled();
-  await expect(wizard).toContainText("The cinematic render surface is unavailable");
+  const form = page.getByRole("region", { name: "Export", exact: true });
+  await expect(form.getByRole("button", { name: "Export…", exact: true })).toBeDisabled();
+  await expect(form).toContainText("The cinematic render surface is unavailable");
   expect(await page.evaluate(() => (window as Window & { __driftSavePickerCalls?: number }).__driftSavePickerCalls)).toBe(0);
 });
 
@@ -75,7 +74,7 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
 
   const stillDownload = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save one PNG still" }).click();
+  await page.getByRole("button", { name: "Export PNG still" }).click();
   expect(await retainRuntimeEvidence(await stillDownload, "preview-still.png")).toBeTruthy();
   const pause = page.getByRole("button", { name: "Pause preview" });
   await expect(pause).toBeEnabled();
@@ -122,11 +121,9 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
   await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible();
   await expect(page.locator(".header-status")).toContainText("saved locally", { timeout: 10_000 });
 
-  const guidedExport = page.getByRole("region", { name: "Guided Export" });
-  for (const step of ["film-audio", "format", "purpose-background"] as const) {
-    await guidedExport.getByRole("button", { name: "Back" }).click();
-    await expect(guidedExport).toHaveAttribute("data-step", step);
-  }
+  // Cancellation returns directly to the same form, without a wizard rewind.
+  await expect(page.getByRole("region", { name: "Export", exact: true })
+    .getByRole("button", { name: "Export…", exact: true })).toBeEnabled();
 
   await page.locator("[data-testid=webgl-stage]").evaluate((canvas) => {
     const gl = (canvas as HTMLCanvasElement).getContext("webgl2")!;
@@ -141,7 +138,7 @@ test("export lifecycle preserves playback truth and releases a failed GPU prefli
     });
   });
 
-  await page.getByRole("button", { name: "Save one PNG still" }).click();
+  await page.getByRole("button", { name: "Export PNG still" }).click();
   await expect(page.getByRole("alert")).toContainText("exceeds this GPU's safe WebGL limit of 128 × 128");
   const projectDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save portable project" }).click();

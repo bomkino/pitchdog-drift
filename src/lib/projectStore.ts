@@ -1,4 +1,6 @@
-import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { mediaSha256 } from "./mediaDigest";
+import { strFromU8, strToU8, unzipSync } from "fflate";
+import { createStoredZip, readStoredZip } from "./storedZip";
 import { driftBuildIdentity } from "./buildIdentity";
 
 export const PROJECT_MANIFEST_SCHEMA = "pitch.dog/pitched-project" as const;
@@ -9,10 +11,9 @@ const DATABASE_VERSION = 1;
 const PROJECT_STORE = "project";
 const ASSET_STORE = "assets";
 const CURRENT_PROJECT_KEY = "current";
+const REPLACEMENT_KEY = "pending-open";
+const assetRange = (key: string) => IDBKeyRange.bound(`${key}:`, `${key}:\uffff`);
 const MANIFEST_PATH = "manifest.json";
-// fflate reads local date fields. A local constructor keeps ZIP bytes stable in
-// every timezone and stays inside DOS ZIP's 1980-2099 representable range.
-const FIXED_ZIP_MTIME = new Date(1980, 0, 1, 0, 0, 0, 0);
 
 export const DEFAULT_PROJECT_BUNDLE_LIMITS = Object.freeze({
   // This API returns an in-memory Blob. Hashing, ZIP input, ZIP output, and
@@ -283,13 +284,7 @@ function assetPath(order: number, id: string, name: string): string {
   return `assets/${orderPart}-${idPart}-${sanitizeAssetFilename(name)}`;
 }
 
-async function sha256(blob: Blob): Promise<string> {
-  if (typeof globalThis.crypto?.subtle?.digest !== "function") {
-    throw integrityError("invalid-asset", "Web Crypto SHA-256 is unavailable in this browser.");
-  }
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+const sha256 = mediaSha256;
 
 function bytesToBlob(bytes: Uint8Array, type: string): Blob {
   const copy = new Uint8Array(bytes.byteLength);
@@ -550,23 +545,14 @@ export async function exportProjectBundle<TPayload>(
     suppliedAssets.set(asset.path, asset.blob);
   }
   const verified = await hydrateSnapshot(manifest, suppliedAssets);
-  const files: Record<string, Uint8Array> = {
-    [MANIFEST_PATH]: manifestBytes(manifest),
-  };
-  for (const asset of verified.assets) {
-    files[asset.path] = new Uint8Array(await asset.blob.arrayBuffer());
-  }
-
-  let archive: Uint8Array;
   try {
-    archive = zipSync(files, { level: 0, mtime: FIXED_ZIP_MTIME });
+    return await createStoredZip([
+      { path: MANIFEST_PATH, blob: bytesToBlob(manifestBytes(manifest), "application/json") },
+      ...verified.assets.map(asset => ({ path: asset.path, blob: asset.blob })),
+    ], limits.maxArchiveBytes);
   } catch (cause) {
     throw integrityError("invalid-archive", "Could not create portable project archive.", cause);
   }
-  if (archive.byteLength > limits.maxArchiveBytes) {
-    throw integrityError("archive-too-large", "Portable project archive exceeds safe size limit.");
-  }
-  return bytesToBlob(archive, PROJECT_BUNDLE_MIME);
 }
 
 export async function importProjectBundle<TPayload = unknown>(
@@ -579,6 +565,27 @@ export async function importProjectBundle<TPayload = unknown>(
   }
   if (archive.size > limits.maxArchiveBytes) {
     throw integrityError("archive-too-large", "Portable project archive exceeds safe size limit.");
+  }
+
+  let stored: Map<string, Blob> | null;
+  try { stored = await readStoredZip(archive, limits); }
+  catch (cause) { throw integrityError("invalid-archive", "Portable project has invalid ZIP structure.", cause); }
+  if (stored) {
+    const raw = stored.get(MANIFEST_PATH);
+    if (!raw) throw integrityError("invalid-manifest", "Portable project is missing manifest.json.");
+    let decoded: unknown;
+    try { decoded = JSON.parse(await raw.text()); }
+    catch (cause) { throw integrityError("invalid-manifest", "manifest.json is not valid JSON.", cause); }
+    const manifest = parseManifest<TPayload>(decoded, limits);
+    const expectedPaths = new Set([MANIFEST_PATH, ...manifest.assets.map(asset => asset.path)]);
+    for (const path of stored.keys()) if (!expectedPaths.has(path)) throw integrityError("unexpected-file", `Archive contains an unexpected file: ${path}`);
+    const files = new Map<string, Blob>();
+    for (const metadata of manifest.assets) {
+      const blob = stored.get(metadata.path);
+      if (!blob) throw integrityError("missing-asset", `Project asset is missing: ${metadata.path}`);
+      files.set(metadata.path, blob.slice(0, blob.size, metadata.type));
+    }
+    return hydrateSnapshot(manifest, files);
   }
 
   let entries: Record<string, Uint8Array>;
@@ -670,6 +677,11 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
   });
 }
 
+export function sameStoredAssetMetadata(a: ProjectAssetManifest, b: ProjectAssetManifest): boolean {
+  return a.id === b.id && a.order === b.order && a.path === b.path && a.name === b.name
+    && a.type === b.type && a.size === b.size && a.sha256 === b.sha256;
+}
+
 export class ProjectStore {
   readonly databaseName: string;
   readonly limits: ProjectBundleLimits;
@@ -740,20 +752,27 @@ export class ProjectStore {
       try {
         const projects = transaction.objectStore(PROJECT_STORE);
         const assets = transaction.objectStore(ASSET_STORE);
-        projects.clear();
-        assets.clear();
-        const projectRecord: StoredProjectRecord = {
-          key: CURRENT_PROJECT_KEY,
-          manifest: snapshot.manifest,
+        const previousRequest = projects.get(CURRENT_PROJECT_KEY);
+        previousRequest.onsuccess = () => {
+          try {
+            const previous = previousRequest.result as StoredProjectRecord | undefined;
+            const oldAssets = new Map((previous?.manifest?.assets ?? []).map((asset) => [asset.id, asset]));
+            const nextIds = new Set(snapshot.assets.map((asset) => asset.id));
+            if (!previous) assets.delete(assetRange(CURRENT_PROJECT_KEY));
+            for (const id of oldAssets.keys()) if (!nextIds.has(id)) assets.delete(`${CURRENT_PROJECT_KEY}:${id}`);
+            projects.put({ key: CURRENT_PROJECT_KEY, manifest: snapshot.manifest } satisfies StoredProjectRecord);
+            for (const asset of snapshot.assets) {
+              const storageKey = `${CURRENT_PROJECT_KEY}:${asset.id}`;
+              const previousAsset = oldAssets.get(asset.id);
+              const put = () => assets.put({ ...asset, storageKey } satisfies StoredAssetRecord);
+              if (!previousAsset || !sameStoredAssetMetadata(previousAsset, asset)) { put(); continue; }
+              // Read keys, not original media bytes. A settings edit writes only
+              // the manifest; a missing record is repaired in this transaction.
+              const exists = assets.getKey(storageKey);
+              exists.onsuccess = () => { if (exists.result === undefined) put(); };
+            }
+          } catch { transaction.abort(); }
         };
-        projects.put(projectRecord);
-        for (const asset of snapshot.assets) {
-          const assetRecord: StoredAssetRecord = {
-            ...asset,
-            storageKey: `${CURRENT_PROJECT_KEY}:${asset.id}`,
-          };
-          assets.put(assetRecord);
-        }
       } catch (cause) {
         transaction.abort();
         throw cause;
@@ -765,13 +784,83 @@ export class ProjectStore {
     }
   }
 
+  /** Stage B beside A. A remains the recovery document until a single atomic commit. */
+  async stageReplacement<TPayload>(project: NewProject<TPayload>): Promise<string> {
+    const snapshot = await createSnapshot(project, this.limits);
+    const token = crypto.randomUUID();
+    const database = await this.openDatabase();
+    try {
+      const tx = database.transaction([PROJECT_STORE, ASSET_STORE], "readwrite");
+      const done = transactionDone(tx);
+      const assets = tx.objectStore(ASSET_STORE);
+      assets.delete(assetRange(REPLACEMENT_KEY));
+      for (const asset of snapshot.assets) assets.put({ ...asset, storageKey: `${REPLACEMENT_KEY}:${asset.id}` });
+      tx.objectStore(PROJECT_STORE).put({ key: REPLACEMENT_KEY, token, manifest: snapshot.manifest });
+      await done;
+      return token;
+    } finally { database.close(); }
+  }
+
+  /** The current manifest and every original change together, or not at all. */
+  async commitReplacement(token: string): Promise<void> {
+    const database = await this.openDatabase();
+    try {
+      const tx = database.transaction([PROJECT_STORE, ASSET_STORE], "readwrite");
+      const done = transactionDone(tx);
+      const projects = tx.objectStore(PROJECT_STORE), assets = tx.objectStore(ASSET_STORE);
+      let problem: unknown;
+      const request = projects.get(REPLACEMENT_KEY);
+      request.onsuccess = () => {
+        try {
+          const staged = request.result as { token: string; manifest: ProjectManifest<unknown> } | undefined;
+          if (!staged || staged.token !== token) throw new Error("Project replacement no longer owns its staged originals.");
+          const media = assets.getAll(assetRange(REPLACEMENT_KEY));
+          media.onsuccess = () => {
+            try {
+              const records = media.result as StoredAssetRecord[];
+              if (records.length !== staged.manifest.assets.length) throw new Error("Staged project media is incomplete.");
+              const byId = new Map(records.map(asset => [asset.id, asset]));
+              for (const expected of staged.manifest.assets) {
+                const actual = byId.get(expected.id);
+                if (!actual || !sameStoredAssetMetadata(expected, actual) || actual.blob.size !== expected.size) throw new Error("Staged project media differs from its manifest.");
+              }
+              assets.delete(assetRange(CURRENT_PROJECT_KEY));
+              for (const asset of records) assets.put({ ...asset, storageKey: `${CURRENT_PROJECT_KEY}:${asset.id}` });
+              projects.put({ key: CURRENT_PROJECT_KEY, manifest: staged.manifest });
+              assets.delete(assetRange(REPLACEMENT_KEY));
+              projects.delete(REPLACEMENT_KEY);
+            } catch (error) { problem = error; tx.abort(); }
+          };
+        } catch (error) { problem = error; tx.abort(); }
+      };
+      try { await done; } catch (error) { throw problem ?? error; }
+    } finally { database.close(); }
+  }
+
+  /** Remove only this abandoned replacement, never the current document. */
+  async abandonReplacement(token: string): Promise<void> {
+    const database = await this.openDatabase();
+    try {
+      const tx = database.transaction([PROJECT_STORE, ASSET_STORE], "readwrite");
+      const done = transactionDone(tx);
+      const projects = tx.objectStore(PROJECT_STORE);
+      const request = projects.get(REPLACEMENT_KEY);
+      request.onsuccess = () => {
+        if (request.result?.token !== token) return;
+        tx.objectStore(ASSET_STORE).delete(assetRange(REPLACEMENT_KEY));
+        projects.delete(REPLACEMENT_KEY);
+      };
+      await done;
+    } finally { database.close(); }
+  }
+
   async load<TPayload = unknown>(): Promise<ProjectSnapshot<TPayload> | null> {
     const database = await this.openDatabase();
     try {
       const transaction = database.transaction([PROJECT_STORE, ASSET_STORE], "readonly");
       const done = transactionDone(transaction);
       const projectRequest = transaction.objectStore(PROJECT_STORE).get(CURRENT_PROJECT_KEY);
-      const assetsRequest = transaction.objectStore(ASSET_STORE).getAll();
+      const assetsRequest = transaction.objectStore(ASSET_STORE).getAll(assetRange(CURRENT_PROJECT_KEY));
       const [storedProject, storedAssets] = await Promise.all([
         requestResult(projectRequest) as Promise<StoredProjectRecord | undefined>,
         requestResult(assetsRequest) as Promise<StoredAssetRecord[]>,

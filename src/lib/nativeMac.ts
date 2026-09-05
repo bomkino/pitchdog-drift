@@ -10,6 +10,8 @@ export const NATIVE_MAC_COMMANDS = [
   "open-project",
   "add-slides",
   "add-presenter",
+  "undo-edit",
+  "redo-edit",
   "save-project",
   "save-project-as",
   "revert-project",
@@ -153,6 +155,7 @@ declare global {
     __driftNativeDocumentTransaction?: (
       request: NativeMacDocumentTransactionRequest,
     ) => Promise<unknown>;
+    __driftNativeCommitProjectOpen?: () => void;
     __driftNativeConfirmProjectOpen?: (file: File) => Promise<unknown>;
     __driftNativeAbandonProjectOpen?: () => Promise<void> | void;
     __driftNativeSaveBlob?: (blob: Blob, suggestedName: string) => Promise<void>;
@@ -168,12 +171,15 @@ const NATIVE_PICKER_TYPES: Readonly<Record<NativeMacImportKind, ReadonlyArray<{
   accept: Record<string, string[]>;
 }>>> = Object.freeze({
   slides: [{
-    description: "Pitch-deck images",
+    description: "Pitch-deck media",
     accept: {
       "image/png": [".png"],
       "image/jpeg": [".jpg", ".jpeg"],
       "image/webp": [".webp"],
       "image/avif": [".avif"],
+      "video/mp4": [".mp4"],
+      "video/quicktime": [".mov"],
+      "video/webm": [".webm"],
     },
   }],
   presenter: [{
@@ -368,6 +374,10 @@ export async function confirmNativeMacDocumentOpen(
     conflict: false as const,
     verified: true as const,
   });
+}
+
+export function commitNativeMacDocumentOpen(): void {
+  if (isNativeMacRuntime()) window.__driftNativeCommitProjectOpen?.();
 }
 
 export async function abandonNativeMacDocumentOpen(): Promise<void> {

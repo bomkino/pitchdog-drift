@@ -1,3 +1,4 @@
+import { slideVideoTime, videoSlideBudget } from "../media/videoPlayback";
 import {
   DRIFT_PROJECT_V4_MIGRATOR,
   DRIFT_PROJECT_V4_VERSION,
@@ -549,7 +550,7 @@ function validatePerformanceV4(value: unknown): PerformanceLifecycleAuthoring {
   }
 }
 
-export function validateDriftProjectV3(value: unknown): DriftProjectV3 {
+export function validateDriftProjectV3(value: unknown, allowVideoSlides = false): DriftProjectV3 {
   const project = object(value, "project", [
     "schema", "formatVersion", "projectId", "projectSeed", "createdAt", "updatedAt",
     "composition", "media", "slides", "motion", "card", "material", "lighting",
@@ -578,7 +579,8 @@ export function validateDriftProjectV3(value: unknown): DriftProjectV3 {
   for (const id of order) {
     const descriptor = assets[id] as UnknownRecord | undefined;
     if (!descriptor) fail("project.media.order", `references missing asset ${id}`);
-    if (descriptor.kind !== "image") fail("project.media.order", `references non-image asset ${id}`);
+    if (descriptor.kind !== "image" && !(allowVideoSlides && descriptor.kind === "video")) fail("project.media.order", `references non-image asset ${id}`);
+    if (descriptor.kind === "video") finiteNumber(descriptor.duration, `project.media.assets.${id}.duration`, 0.001, 86400);
   }
   if (presenterId !== null) {
     const descriptor = assets[presenterId] as UnknownRecord | undefined;
@@ -593,7 +595,13 @@ export function validateDriftProjectV3(value: unknown): DriftProjectV3 {
   const slides = dictionary(project.slides, "project.slides");
   if (Object.keys(slides).length !== order.length) fail("project.slides", "must contain one directive per ordered slide");
   for (const id of order) {
-    const directive = object(slides[id], `project.slides.${id}`, ["assetId", "fit", "focalX", "focalY", "scaleOffset"]);
+    const directive = objectWithOptional(slides[id], `project.slides.${id}`, ["assetId", "fit", "focalX", "focalY", "scaleOffset"], allowVideoSlides ? ["video"] : []);
+    if (directive.video !== undefined) {
+      if ((assets[id] as UnknownRecord).kind !== "video") fail(`project.slides.${id}.video`, "requires video media");
+      const playback = object(directive.video, `project.slides.${id}.video`, ["loop", "trimStart", "trimEnd", "rate"]);
+      try { slideVideoTime(0, (assets[id] as UnknownRecord).duration as number, playback as unknown as NonNullable<DriftProjectV4["slides"][string]["video"]>); }
+      catch { fail(`project.slides.${id}.video`, "invalid trim, loop, or playback rate"); }
+    }
     if (directive.assetId !== id) fail(`project.slides.${id}.assetId`, "must match the slide key");
     oneOf(directive.fit, ["cover", "contain"] as const, `project.slides.${id}.fit`);
     numbers(directive, `project.slides.${id}`, { focalX: [0, 1], focalY: [0, 1], scaleOffset: [-0.75, 0.75] });
@@ -763,7 +771,9 @@ export function validateDriftProjectV4(value: unknown): DriftProjectV4 {
     provenance: project.provenance,
   };
   assertPlainDataTree(v3Candidate, "project", { nodes: 0, active: new WeakSet() });
-  const v3 = validateDriftProjectV3(v3Candidate);
+  const v3 = validateDriftProjectV3(v3Candidate, true);
+  const videoBudget = videoSlideBudget(v3.media.order.map((id) => v3.media.assets[id]!));
+  if (videoBudget) fail("project.media.order", videoBudget);
   const lifecycle = createPerformanceLifecycle(performance);
   if (Math.abs(lifecycle.totalDuration - v3.master.duration) > 1e-9) {
     fail("project.performance", "derived total duration must equal project.master.duration");

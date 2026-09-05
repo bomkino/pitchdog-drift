@@ -435,7 +435,7 @@ test("handles empty, one, twelve, and corrupt moving-slide inputs", async ({ pag
   await expect(page.locator(".asset-list li")).toHaveCount(12);
 
   await input.setInputFiles({ name: "broken.png", mimeType: "image/png", buffer: Buffer.from("not a png") });
-  await expect(page.getByText("None of those images could be decoded.")).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: /None of those media files could be decoded/ })).toBeVisible();
   await expect(page.locator(".asset-list li")).toHaveCount(12);
   expect(errors).toEqual([]);
 });

@@ -102,7 +102,7 @@ async function portableProjectPayloadSha256(page: Page): Promise<string> {
 async function stillSha256(page: Page): Promise<string> {
   await switchWorkspace(page, "EXPORT");
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save one PNG still" }).click();
+  await page.getByRole("button", { name: "Export PNG still" }).click();
   return downloadSha256(download);
 }
 

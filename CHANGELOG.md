@@ -2,6 +2,39 @@
 
 Notable user-visible and maintainer-facing changes will be recorded here. Drift is pre-1.0, and a changelog entry is not by itself evidence of a tag, GitHub Release, binary publication, or approval.
 
+## [0.3.0] — 2026-09-05
+
+### Changed
+
+- Mac-only product direction; retain the existing AppKit/WKWebView and native file/audio foundation.
+- Video slides with explicit silent playback, saved looping and trim, frame-timed offline decoding, and bounded source admission.
+- Media-aware undo/redo, saved-content tracking, transactional Open rollback, and asynchronous native Save-on-close.
+- Two-worker imports, common image-header admission, shared immutable-media digests, and incremental IndexedDB asset writes.
+- File-backed AudioToolbox PCM staging and a 300-second encoder boundary; audio output remains 24/25/30 fps only.
+- Direct ordinary export, optional advanced details, frame timecode, and presenter trim independent of mute.
+
+### Fixed and optimized
+
+- Project Open stages originals separately and atomically commits the accepted manifest/media set; interrupted staging cannot replace current recovery.
+- Paused previews stop continuous redraw; edits, decode completion, scrubbing and resumed playback wake them.
+- Video export reuses covering source frames and reads forward sequentially; loop/backward seeks reset safely.
+- Cancel propagates into image/video preparation and releases late decoder results.
+- Portable stored ZIP output uses chunks, and reopening uses Blob slices instead of fully inflating stored originals.
+- Added video speed, Reset trim, on-demand source filmstrip and loop audition.
+- Consolidated export into one form/draft; format, background, audio acknowledgement and completion stay tied to the current document.
+- Corrected stale UI/persistence tests while retaining actual media, pixel and save-race assertions. Added packaged V2 video-loop MP4/PNG evidence and atomic recovery/reopen coverage.
+
+### Download and installation
+
+The Apple-silicon DMG is built and verified in macOS CI, then published from that exact artifact with SHA-256 and build receipts. It is **ad-hoc signed, unnotarized**, and has not been tested on the physical M2 mini or M1 Pro laptop. Drag Drift to Applications; use Privacy & Security → Open Anyway only for this known download. Retain project copies for rollback. No NSDocument/Metal completion or measured physical-Mac performance is claimed.
+
+### Boundaries
+
+- Still a hybrid application, not a finished NSDocument/Metal migration.
+- Physical M2 mini/M1 Pro validation and measured performance are not claimed.
+- Any published ad-hoc Mac test artifact is explicitly unnotarized. Developer ID distribution guards remain intact.
+- Keep earlier project copies; older apps do not understand video-slide directives.
+
 ## Unreleased
 
 Changes intended for the release after `v0.2.1` belong here.

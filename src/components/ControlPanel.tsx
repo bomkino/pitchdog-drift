@@ -1,3 +1,6 @@
+import { VideoClipPreview } from "./VideoClipPreview";
+import type { StudioAsset } from "../model";
+import { DEFAULT_SLIDE_VIDEO } from "../core/media/videoPlayback";
 import { useMemo, useState, type CSSProperties } from "react";
 import {
   BACKGROUND_COMPOSITIONS,
@@ -154,7 +157,7 @@ const WORKSPACE_COPY: Readonly<Record<StudioWorkspace, { kicker: string; title: 
   slides: { kicker: "SLIDES", title: "Build the deck.", purpose: "DECK", guide: "Choose order, fit, and the one frame that can stay still." },
   look: { kicker: "LOOK", title: "Choose the atmosphere.", purpose: "WORLD", guide: "Choose a background first. Scene-wide starters and fine treatment stay in Advanced." },
   motion: { kicker: "MOTION", title: "Shape the movement.", purpose: "FLOW", guide: "Choose a direction, axis, path, pace, and complete-deck timing." },
-  export: { kicker: "EXPORT", title: "Finish the master.", purpose: "OUTPUT", guide: "Choose the frame and duration, read preflight, then export." },
+  export: { kicker: "EXPORT", title: "Finish the master.", purpose: "OUTPUT", guide: "Set the frame, duration, and output format." },
 });
 
 const TRANSITION_OPTIONS: Array<{ value: TransitionPresetId; label: string }> =
@@ -252,6 +255,9 @@ function minimumTotalDuration(performance: PerformanceLifecycleAuthoring): numbe
 interface ControlPanelProps {
   settings: StudioSettings;
   project: DriftProjectV4;
+  documentRevision?: number;
+  selectedSlideAsset?: StudioAsset;
+  onSourceAudition?: () => void;
   v2Active: boolean;
   onSettings: (settings: StudioSettings) => void;
   onV2Project: (project: DriftProjectV4, message: string) => void;
@@ -268,7 +274,7 @@ interface ControlPanelProps {
   sonicState: TactileRuntimeState;
   onTheme: (id: ThemeId) => void;
   onResetPinnedFrame: () => void;
-  onExportStill: () => void;
+  onExportStill: (background?: "opaque" | "transparent") => void;
   onRunGuidedExport: (request: GuidedExportRunRequest) => Promise<GuidedExportCompletion | null>;
   onExportProject: () => void;
   onImportProject: () => void;
@@ -295,6 +301,9 @@ interface ControlPanelProps {
 export function ControlPanel({
   settings,
   project,
+  documentRevision = 0,
+  selectedSlideAsset,
+  onSourceAudition,
   v2Active,
   onSettings,
   onV2Project,
@@ -834,10 +843,41 @@ export function ControlPanel({
                   <RangeField label="Focal Y" value={selectedDirective.focalY * 100} min={0} max={100} step={1} unit="%" onChange={(value) => directProject("Selected slide focal point changed.", (next) => { next.slides[selectedSlideKey]!.focalY = value / 100; })} />
                 </>
               ) : null}
+              {selectedSlide.kind === "video" ? (
+                <div className="video-slide-controls" aria-label="Video slide playback">
+                  {selectedSlideAsset ? <VideoClipPreview key={selectedSlideAsset.id} asset={selectedSlideAsset} playback={{ ...DEFAULT_SLIDE_VIDEO, ...selectedDirective.video }} onAudition={() => onSourceAudition?.()} /> : null}
+                  <SwitchField label="Loop video" checked={selectedDirective.video?.loop ?? true}
+                    onChange={(loop) => directProject("Video looping changed.", (next) => {
+                      next.slides[selectedSlideKey]!.video = { ...DEFAULT_SLIDE_VIDEO, ...next.slides[selectedSlideKey]!.video, loop };
+                    })} />
+                  <RangeNumberField label="Video start" value={selectedDirective.video?.trimStart ?? 0}
+                    softMin={0} softMax={selectedSlide.duration ?? 1} hardMin={0}
+                    hardMax={Math.max(0, (selectedDirective.video?.trimEnd ?? selectedSlide.duration ?? 1) - 0.01)} step={0.01} decimals={2} unit=" s"
+                    onChange={(trimStart) => directProject("Video trim changed.", (next) => {
+                      next.slides[selectedSlideKey]!.video = { ...DEFAULT_SLIDE_VIDEO, ...next.slides[selectedSlideKey]!.video, trimStart };
+                    })} />
+                  <RangeNumberField label="Video end" value={selectedDirective.video?.trimEnd ?? selectedSlide.duration ?? 1}
+                    softMin={(selectedDirective.video?.trimStart ?? 0) + 0.01} softMax={selectedSlide.duration ?? 1}
+                    hardMin={(selectedDirective.video?.trimStart ?? 0) + 0.01} hardMax={selectedSlide.duration ?? 1} step={0.01} decimals={2} unit=" s"
+                    onChange={(trimEnd) => directProject("Video trim changed.", (next) => {
+                      next.slides[selectedSlideKey]!.video = { ...DEFAULT_SLIDE_VIDEO, ...next.slides[selectedSlideKey]!.video, trimEnd };
+                    })} />
+                  <RangeNumberField label="Playback speed" value={selectedDirective.video?.rate ?? 1}
+                    softMin={0.25} softMax={2} hardMin={0.1} hardMax={4} step={0.05} decimals={2} unit="×"
+                    onChange={(rate) => directProject("Video speed changed.", (next) => {
+                      next.slides[selectedSlideKey]!.video = { ...DEFAULT_SLIDE_VIDEO, ...next.slides[selectedSlideKey]!.video, rate };
+                    })} />
+                  <button type="button" onClick={() => directProject("Video trim reset.", (next) => {
+                    next.slides[selectedSlideKey]!.video = { ...DEFAULT_SLIDE_VIDEO, ...next.slides[selectedSlideKey]!.video, trimStart: 0, trimEnd: null };
+                  })}>Reset trim</button>
+                  <small>Silent clip · {selectedDirective.video?.loop === false ? "holds its last frame" : "repeats from its start"}. Use Presenter for voice.</small>
+                </div>
+              ) : null}
               <RangeField label="Scale offset" value={selectedDirective.scaleOffset * 100} min={-75} max={75} step={1} unit="%" onChange={(value) => directProject("Selected slide scale changed.", (next) => { next.slides[selectedSlideKey]!.scaleOffset = value / 100; })} />
               <div className="pin-reset-control">
                 <button type="button" onClick={() => directProject("Selected slide direction reset.", (next) => {
                   next.slides[selectedSlideKey] = {
+                    ...next.slides[selectedSlideKey]!,
                     assetId: selectedSlideKey,
                     fit: next.card.defaultFit,
                     focalX: 0.5,
@@ -1535,11 +1575,11 @@ export function ControlPanel({
             <RangeNumberField label="Pinned shadow Y" value={settings.presenter.shadowOffsetY} softMin={-128} softMax={128} hardMin={-512} hardMax={512} step={1} unit=" px" onChange={(shadowOffsetY) => patch("presenter", { shadowOffsetY })} />
           </>
         ) : null}
+        <RangeNumberField label="Source trim" value={settings.presenter.trimStart} softMin={0} softMax={60} hardMin={0} hardMax={86400} step={0.01} decimals={2} unit=" s" onChange={(trimStart) => patch("presenter", { trimStart })} />
         <SwitchField label="Mute presenter in export" checked={settings.presenter.muted} onChange={(muted) => patch("presenter", { muted })} />
         {!settings.presenter.muted ? (
           <>
             <RangeField label="Presenter level" value={settings.presenter.gain * 100} min={0} max={200} step={1} unit="%" onChange={(value) => patch("presenter", { gain: value / 100 })} />
-            <RangeField label="Source trim" value={settings.presenter.trimStart} min={0} max={settings.output.duration} step={0.05} decimals={2} unit=" s" onChange={(trimStart) => patch("presenter", { trimStart })} />
           </>
         ) : null}
       </InspectorGroup>
@@ -1838,6 +1878,7 @@ export function ControlPanel({
           <strong>H.264 · SDR sRGB</strong>
           <small>{(settings.output.videoBitrate / 1_000_000).toFixed(0)} Mbit/s · AAC 48 kHz at 24–30 fps · mute presenter audio for 50/60 fps</small>
         </div>
+        <details className="output-details"><summary>Output details</summary>
         {v2Active ? (
           <div className="delivery-receipt" role="status" aria-label="Delivery receipt">
             <div><span>DELIVERY RECEIPT</span><strong>{deliveryReceipt.output.frameCount.toLocaleString()} frames</strong></div>
@@ -1878,8 +1919,10 @@ export function ControlPanel({
             ))}
           </div>
         ) : null}
+        </details>
         <GuidedExportWizard
           sourceIntent={guidedExportIntent}
+          sourceIdentity={`${project.projectId}:${documentRevision}`}
           runtimeCapabilities={exportCapabilities}
           exportSurfaceSupported={exportSurfaceSupported}
           applicationBlockers={preflight.blockers

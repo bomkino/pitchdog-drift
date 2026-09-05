@@ -1,3 +1,5 @@
+> Historical planning/snapshot material. The current Mac-only product and validation boundary is [docs/STATUS.md](STATUS.md). Do not use older completion tables as proof for 0.3.0.
+
 # Drift repository map
 
 This repository contains one cinematic studio with two runtime shells. Source, generated output, evidence, and release authority stay deliberately separate.

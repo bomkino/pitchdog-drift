@@ -31,7 +31,7 @@ async function scrubOutside(page: Page, track: Locator, target: "start" | "end")
 async function exportStillSha256(page: Page): Promise<string> {
   await switchWorkspace(page, "EXPORT");
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save one PNG still" }).click();
+  await page.getByRole("button", { name: "Export PNG still" }).click();
   const path = await (await download).path();
   if (!path) throw new Error("Still export did not produce a readable download path.");
   return createHash("sha256").update(await readFile(path)).digest("hex");

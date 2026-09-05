@@ -1,8 +1,10 @@
+> Current changes and limits: [STATUS.md](STATUS.md) and [Mac user guide](MACOS_USER_GUIDE.md). Retain the technical contracts below; older build receipts apply only to their exact commits.
+
 # Drift for macOS
 
 Drift can be built as a standalone, sandboxed macOS application without replacing its deterministic WebGL renderer or project model.
 
-The `v0.2.x` source line gives both browser and packaged-WebKit builds the same local interface system: FontBlind v13 binaries from `pitchdog-type-system` commit `786b4a2b671182319320f922b8de8f927ea3a002`, Phosphor Icons for React `2.1.10`, and shared alignment, spacing, disclosure-motion, and reflow rules. No font or icon is fetched at runtime.
+The `v0.3.x` source line gives both browser and packaged-WebKit builds the same local interface system: FontBlind v13 binaries from `pitchdog-type-system` commit `786b4a2b671182319320f922b8de8f927ea3a002`, Phosphor Icons for React `2.1.10`, and shared alignment, spacing, disclosure-motion, and reflow rules. No font or icon is fetched at runtime.
 
 The native shell is intentionally narrow. AppKit owns the things macOS should own: the application lifecycle, menus, windows, Finder documents, save/open panels, scoped file permissions, staged writes, crash recovery, code signing, packaging, and native AAC encoding. The React/Three.js studio still owns the composition, settings, project archive, scene evaluation, and frame-by-frame export.
 

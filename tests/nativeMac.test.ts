@@ -282,12 +282,15 @@ describe("native macOS app contract", () => {
     expect(picker).toHaveBeenCalledWith({
       multiple: true,
       types: [{
-        description: "Pitch-deck images",
+        description: "Pitch-deck media",
         accept: {
           "image/png": [".png"],
           "image/jpeg": [".jpg", ".jpeg"],
           "image/webp": [".webp"],
           "image/avif": [".avif"],
+          "video/mp4": [".mp4"],
+          "video/quicktime": [".mov"],
+          "video/webm": [".webm"],
         },
       }],
     });

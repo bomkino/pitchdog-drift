@@ -5,7 +5,7 @@ private let nativeAacSampleRate = 48_000
 private let nativeAacChannelCount = 2
 private let nativeAacBitRate = 192_000
 private let nativeAacFramesPerPacket = 1_024
-private let nativeAacMaximumFrames = 35 * nativeAacSampleRate
+private let nativeAacMaximumFrames = 300 * nativeAacSampleRate
 private let nativeAacMaximumAppendBytes = 2 * 1024 * 1024
 private let nativeAacPacketsPerFill: UInt32 = 32
 private let nativeAacAppleManufacturer: UInt32 = 0x6170_706C // 'appl'
@@ -74,20 +74,59 @@ private struct NativeAacEncoding {
     }
 }
 
+/// Cancellation is admitted on main while encoding runs on the broker queue.
+private final class NativeAacCancellation {
+    private let lock = NSLock()
+    private var tokens: [String: Bool] = [:]
+    func register(_ token: String) { lock.lock(); tokens[token] = false; lock.unlock() }
+    func cancel(_ token: String) { lock.lock(); if tokens[token] != nil { tokens[token] = true }; lock.unlock() }
+    func cancelAll() { lock.lock(); for token in tokens.keys { tokens[token] = true }; lock.unlock() }
+    func remove(_ token: String) { lock.lock(); tokens.removeValue(forKey: token); lock.unlock() }
+    func isCancelled(_ token: String) -> Bool { lock.lock(); defer { lock.unlock() }; return tokens[token] ?? true }
+}
+
 private final class NativeAacSession {
     let token: String
     let firstTimestamp: Double
-    private(set) var pcm = Data()
+    private let scratchDirectory: URL
+    private let pcmURL: URL
+    private let pcmWriter: FileHandle
+    private let cancelled: () -> Bool
+    var pcmByteCount: Int { frameCount * nativeAacChannelCount * MemoryLayout<Float>.size }
     private(set) var frameCount = 0
     private(set) var finished: NativeAacEncoding?
 
-    init(token: String, firstTimestamp: Double) {
+    init(token: String, firstTimestamp: Double, cancelled: @escaping () -> Bool) throws {
         self.token = token
         self.firstTimestamp = firstTimestamp
-        pcm.reserveCapacity(min(nativeAacMaximumFrames * nativeAacChannelCount * MemoryLayout<Float>.size, 2 * 1024 * 1024))
+        self.cancelled = cancelled
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("drift-pcm-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        let url = directory.appendingPathComponent("audio.f32")
+        do {
+            guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+                throw BridgeFailure("NotReadableError", "Could not stage native audio in the private app container.")
+            }
+            pcmWriter = try FileHandle(forWritingTo: url)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+        scratchDirectory = directory
+        pcmURL = url
+    }
+
+    deinit {
+        try? pcmWriter.close()
+        try? FileManager.default.removeItem(at: scratchDirectory)
+    }
+
+    private func checkCancellation() throws {
+        if cancelled() { throw BridgeFailure("AbortError", "Native audio export cancelled.") }
     }
 
     func append(bytes: Data, frames: Int) throws {
+        try checkCancellation()
         guard finished == nil else {
             throw BridgeFailure("InvalidStateError", "This native AAC session has already been finalized.")
         }
@@ -110,7 +149,7 @@ private final class NativeAacSession {
         guard frameCount <= nativeAacMaximumFrames - frames else {
             throw BridgeFailure(
                 "QuotaExceededError",
-                "Presenter audio exceeds Drift’s 35-second native AAC safety limit."
+                "Audio exceeds the 300-second native AAC limit."
             )
         }
 
@@ -127,16 +166,21 @@ private final class NativeAacSession {
             throw BridgeFailure("DataError", "Presenter PCM contains a non-finite sample.")
         }
 
-        pcm.append(bytes)
+        try pcmWriter.write(contentsOf: bytes)
         frameCount += frames
     }
 
     func finish() throws -> NativeAacEncoding {
         if let finished { return finished }
-        guard frameCount > 0, !pcm.isEmpty else {
+        try checkCancellation()
+        guard frameCount > 0 else {
             throw BridgeFailure("DataError", "Presenter audio produced no PCM frames.")
         }
-        let encoding = try NativeAacAudioToolbox.encode(interleavedFloat32: pcm, frameCount: frameCount)
+        try pcmWriter.synchronize()
+        // A read-only mapping avoids growing and copying a full PCM heap buffer.
+        // The source is private, immutable during conversion, and capped at 300 s.
+        let pcm = try Data(contentsOf: pcmURL, options: .alwaysMapped)
+        let encoding = try NativeAacAudioToolbox.encode(interleavedFloat32: pcm, frameCount: frameCount, cancelled: cancelled)
         finished = encoding
         return encoding
     }
@@ -144,6 +188,10 @@ private final class NativeAacSession {
 
 final class NativeAacEncoderBroker {
     private var sessions: [String: NativeAacSession] = [:]
+    private let cancellation = NativeAacCancellation()
+
+    func cancel(_ token: String) { cancellation.cancel(token) }
+    func cancelAll() { cancellation.cancelAll() }
 
     func create(_ payload: JSONDictionary) throws -> JSONDictionary {
         let sampleRate = try exactInteger(payload, key: "sampleRate")
@@ -164,7 +212,10 @@ final class NativeAacEncoderBroker {
         }
 
         let token = UUID().uuidString.lowercased()
-        sessions[token] = NativeAacSession(token: token, firstTimestamp: firstTimestamp)
+        let cancellation = cancellation
+        let session = try NativeAacSession(token: token, firstTimestamp: firstTimestamp, cancelled: { cancellation.isCancelled(token) })
+        cancellation.register(token)
+        sessions[token] = session
         return [
             "token": token,
             "codec": "aac",
@@ -194,7 +245,7 @@ final class NativeAacEncoderBroker {
         return [
             "acceptedFrames": frames,
             "totalFrames": session.frameCount,
-            "totalBytes": session.pcm.count,
+            "totalBytes": session.pcmByteCount,
         ]
     }
 
@@ -211,11 +262,15 @@ final class NativeAacEncoderBroker {
 
     func close(_ payload: JSONDictionary) throws -> JSONDictionary {
         let token = try requiredString(payload, "token")
+        cancellation.cancel(token)
         let removed = sessions.removeValue(forKey: token) != nil
+        cancellation.remove(token)
         return ["closed": true, "existed": removed]
     }
 
     func closeAll() {
+        cancellation.cancelAll()
+        for token in sessions.keys { cancellation.remove(token) }
         sessions.removeAll(keepingCapacity: false)
     }
 
@@ -235,6 +290,39 @@ final class NativeAacEncoderBroker {
         receipt["provider"] = "AudioToolbox"
         receipt["appleSoftwareEncoder"] = true
         return receipt
+    }
+
+    static func fileBackedProbeReceipt() throws -> JSONDictionary {
+        let broker = NativeAacEncoderBroker()
+        defer { broker.closeAll() }
+        let created = try broker.create(["sampleRate": 48000, "numberOfChannels": 2, "bitRate": 192000, "firstTimestamp": 0])
+        guard let token = created["token"] as? String else { throw BridgeFailure("DataError", "Missing probe token.") }
+        let blockFrames = 4096
+        var block = [Float](repeating: 0, count: blockFrames * 2)
+        for frame in 0..<blockFrames {
+            let value = Float(sin(2 * Double.pi * Double(frame) / 64) * 0.12)
+            block[frame * 2] = value; block[frame * 2 + 1] = value
+        }
+        let bytes = block.withUnsafeBytes { Data($0) }
+        var remaining = nativeAacMaximumFrames
+        while remaining > 0 {
+            let frames = min(remaining, blockFrames)
+            _ = try broker.append(["token": token, "frameCount": frames, "dataBase64": bytes.prefix(frames * 8).base64EncodedString()])
+            remaining -= frames
+        }
+        let encoded = try broker.finish(["token": token])
+        guard encoded["inputFrames"] as? Int == nativeAacMaximumFrames,
+              encoded["frameEquationHolds"] as? Bool == true else { throw BridgeFailure("EncodingError", "File-backed AAC frame equation failed.") }
+        broker.cancel(token)
+        do {
+            _ = try broker.append(["token": token, "frameCount": blockFrames, "dataBase64": bytes.base64EncodedString()])
+            throw BridgeFailure("DataError", "Cancelled audio accepted more PCM.")
+        } catch let failure as BridgeFailure {
+            guard failure.name == "AbortError" else { throw failure }
+        }
+        return ["durationSeconds": 300, "inputFrames": nativeAacMaximumFrames, "pcmBytes": nativeAacMaximumFrames * 8,
+                "storage": "private-file-readonly-mapping", "frameEquationHolds": true, "cancellationRejectedAppend": true,
+                "packetCount": encoded["packetCount"] ?? 0]
     }
 
     static func runSelfTest() throws {
@@ -280,7 +368,7 @@ final class NativeAacEncoderBroker {
 }
 
 private enum NativeAacAudioToolbox {
-    static func encode(interleavedFloat32 pcm: Data, frameCount: Int) throws -> NativeAacEncoding {
+    static func encode(interleavedFloat32 pcm: Data, frameCount: Int, cancelled: () -> Bool = { false }) throws -> NativeAacEncoding {
         guard frameCount > 0,
               pcm.count == frameCount * nativeAacChannelCount * MemoryLayout<Float>.size else {
             throw BridgeFailure("DataError", "Native AAC PCM buffer and frame count disagree.")
@@ -344,7 +432,8 @@ private enum NativeAacAudioToolbox {
             converter,
             pcm: pcm,
             frameCount: frameCount,
-            maximumPacketSize: maximumPacketSize
+            maximumPacketSize: maximumPacketSize,
+            cancelled: cancelled
         )
         guard !packets.isEmpty else {
             throw BridgeFailure("EncodingError", "AudioToolbox produced no AAC access units.")
@@ -506,7 +595,8 @@ private enum NativeAacAudioToolbox {
         _ converter: AudioConverterRef,
         pcm: Data,
         frameCount: Int,
-        maximumPacketSize: UInt32
+        maximumPacketSize: UInt32,
+        cancelled: () -> Bool
     ) throws -> [NativeAacPacket] {
         let capacity = Int(maximumPacketSize) * Int(nativeAacPacketsPerFill)
         guard capacity > 0, capacity <= Int(UInt32.max) else {
@@ -538,6 +628,7 @@ private enum NativeAacAudioToolbox {
             return try withUnsafeMutablePointer(to: &state) { statePointer in
                 var fillCount = 0
                 while true {
+                    if cancelled() { throw BridgeFailure("AbortError", "Native audio export cancelled.") }
                     fillCount += 1
                     guard fillCount <= frameCount / nativeAacFramesPerPacket + 64 else {
                         throw BridgeFailure("EncodingError", "AudioToolbox AAC drain did not terminate.")

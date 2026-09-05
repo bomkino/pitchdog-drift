@@ -1,6 +1,8 @@
+> Current changes and limits: [STATUS.md](STATUS.md) and [Mac user guide](MACOS_USER_GUIDE.md). Retain the technical contracts below; older build receipts apply only to their exact commits.
+
 # Drift for macOS — product contract
 
-Maintained for the current `main` source line and the `v0.2.x` source-release series.
+Maintained for the current `main` source line and the `v0.3.x` source-release series.
 
 ## Outcome
 
@@ -65,7 +67,7 @@ The contract is specific:
 
 - H.264 video remains capability-gated through WKWebView.
 - Presenter audio uses native AAC-LC, 48 kHz stereo, 192 kbit/s.
-- Native AAC accepts at most 35.00 seconds of PCM in one bounded session. Audio-bearing masters above that limit fail preflight before rendering. Muted, video-only masters may use Drift’s wider duration range.
+- Native AAC accepts at most 300.00 seconds of PCM in one bounded session. Audio-bearing masters above that limit fail preflight before rendering. Muted, video-only masters may use Drift’s wider duration range.
 - The receipt must include packet bytes, AudioSpecificConfig, magic-cookie data, leading priming frames, trailing padding frames, and frame counts.
 - `representedFrames` must equal `leadingFrames + inputFrames + trailingFrames`.
 - Packet timestamps must represent priming truthfully rather than pretending audio begins at zero.

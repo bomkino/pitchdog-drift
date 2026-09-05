@@ -311,6 +311,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
 
     func invalidateDocument() {
         precondition(Thread.isMainThread)
+        aacBroker.cancelAll()
         documentSession.invalidate()
         failPendingExternalImports(staleDocumentError())
         exportActivityGuard.end()
@@ -397,8 +398,8 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
             for url in urls {
                 try validateRegularImport(url)
                 let type = UTType(filenameExtension: url.pathExtension)
-                guard type?.conforms(to: .image) == true else {
-                    throw BridgeFailure("TypeMismatchError", "Slides must be PNG, JPEG, WebP, or AVIF images.")
+                guard type?.conforms(to: .image) == true || type?.conforms(to: .movie) == true || ["mp4", "mov", "webm"].contains(url.pathExtension.lowercased()) else {
+                    throw BridgeFailure("TypeMismatchError", "Slides must be images or MP4, MOV, or WebM videos.")
                 }
                 let size = try fileSize(at: url)
                 guard size <= driftMaximumProjectAssetBytes else {
@@ -569,6 +570,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     private func closeAllBrokerResourcesSynchronously() {
+        aacBroker.cancelAll()
         if DispatchQueue.getSpecific(key: brokerQueueSpecificKey) == brokerQueueSpecificValue {
             broker.abortAll()
             aacBroker.closeAll()
@@ -1029,9 +1031,9 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         panel.prompt = kind == .project ? "Open" : "Add"
         switch kind {
         case .slides:
-            panel.allowedContentTypes = ["png", "jpg", "jpeg", "webp", "avif"]
+            panel.allowedContentTypes = ["png", "jpg", "jpeg", "webp", "avif", "mp4", "mov", "webm"]
                 .compactMap { UTType(filenameExtension: $0) }
-            panel.message = "Choose up to 200 pitch-deck images. Original project media is limited to 64 MiB per file and 80 MiB total."
+            panel.message = "Choose images or silent video slides. Original media: 64 MiB per file, 80 MiB total."
         case .presenter:
             panel.allowedContentTypes = [.mpeg4Movie, .quickTimeMovie, .movie]
             panel.message = "Choose one presenter video up to 64 MiB. Audio support is checked before export."
@@ -1122,6 +1124,7 @@ final class NativeBridgeHost: NSObject, WKScriptMessageHandlerWithReply {
         document: NativeDocumentTicket,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
+        if command == "aac-close", let token = payload["token"] as? String { aacBroker.cancel(token) }
         brokerQueue.async { [weak self] in
             guard let self else { return }
             guard self.documentSession.isCurrent(document) else {

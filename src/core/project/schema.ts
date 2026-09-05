@@ -1,3 +1,4 @@
+import type { SlideVideoPlayback } from "../media/videoPlayback";
 import type { PerformanceLifecycleAuthoring } from "../timeline/performanceLifecycle";
 
 export const DRIFT_PROJECT_SCHEMA = "dog.pitch.drift/project" as const;
@@ -82,6 +83,8 @@ export interface MediaManifest {
 }
 
 export interface SlideDirective {
+  /** Video slides are silent. Presenter and sound-design audio remain independent. */
+  video?: SlideVideoPlayback;
   assetId: string;
   fit: ImageFit;
   focalX: number;

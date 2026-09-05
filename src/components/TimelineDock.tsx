@@ -41,6 +41,13 @@ export function formatTimelineTime(seconds: number): string {
   return `${minutes}:${remaining.toFixed(1).padStart(4, "0")}`;
 }
 
+export function formatFrameTime(seconds: number, fps: number): string {
+  const rate = Number.isSafeInteger(fps) && fps > 0 ? fps : 30;
+  const frame = Math.max(0, Math.round(seconds * rate));
+  const second = Math.floor(frame / rate);
+  return `${Math.floor(second / 60)}:${String(second % 60).padStart(2, "0")}:${String(frame % rate).padStart(2, "0")}`;
+}
+
 export function timelineTimeFromClientX(
   clientX: number,
   trackLeft: number,
@@ -215,9 +222,9 @@ export function TimelineDock({
           <NextFrameIcon />
         </button>
         <output className="timeline-time" aria-label="Playhead time">
-          <strong>{formatTimelineTime(time)}</strong>
+          <strong>{formatFrameTime(time, outputFps)}</strong>
           <span>/</span>
-          <small>{formatTimelineTime(model.totalDuration)}</small>
+          <small>{formatFrameTime(model.totalDuration, outputFps)}</small>
         </output>
       </div>
 
@@ -231,7 +238,7 @@ export function TimelineDock({
           aria-valuemin={0}
           aria-valuemax={model.totalDuration}
           aria-valuenow={Number(time.toFixed(3))}
-          aria-valuetext={`${formatTimelineTime(time)} of ${formatTimelineTime(model.totalDuration)}`}
+          aria-valuetext={`Frame ${Math.round(time * outputFps)} of ${Math.round(model.totalDuration * outputFps)} at ${outputFps} frames per second`}
           aria-orientation="horizontal"
           aria-keyshortcuts="Space ArrowLeft ArrowRight Shift+ArrowLeft Shift+ArrowRight Home End"
           tabIndex={busy ? -1 : 0}

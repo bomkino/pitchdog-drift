@@ -59,6 +59,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
     private var staleDocumentRejected = false
     private var recoveredCommandVerified = false
     private var persistedAssetVerified = false
+    private var videoOutputReceipt: [String: Any]?
     private var isolatedDatabaseCleanupVerified = false
     private var runtimeBuildIdentityVerified = false
     private var lastProbe = "no probe completed"
@@ -320,6 +321,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
               staleDocumentRejected,
               recoveredCommandVerified,
               persistedAssetVerified,
+              videoOutputReceipt?["verified"] as? Bool == true,
               outboundProbeAttempted,
               outboundProbeCompleted,
               webRTCCapabilityLockdownVerified,
@@ -427,6 +429,7 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
                 "staleDocumentRejected": staleDocumentRejected,
                 "recoveredCommandVerified": recoveredCommandVerified,
                 "persistedAssetVerified": persistedAssetVerified,
+                "videoSlideOutput": videoOutputReceipt ?? [:],
                 "phase": phase.rawValue,
                 "webKitFileInputVerified": webKitFileInputVerified,
                 "nativeImportCompletionVerified": nativeImportCompletionVerified,
@@ -1681,8 +1684,21 @@ final class WebViewSelfTest: NSObject, WKNavigationDelegate {
 
         if savedAndIdle, stableSavedObservationsRemaining <= 1 {
             recoveredDocumentEpoch = document.epoch
-            phase = .complete
-            finished = true
+            guard let webView else { failure = "Video output proof has no WebView"; finished = true; return }
+            webView.callAsyncJavaScript(
+                "if (typeof window.__driftVerifyVideoOutput !== 'function') throw new Error('Packaged video proof missing'); return await window.__driftVerifyVideoOutput();",
+                arguments: [:], in: nil, in: .page
+            ) { [weak self] result in
+                guard let self, !self.finished, self.bridge?.isCurrentDocument(document) == true else { return }
+                switch result {
+                case .success(let raw):
+                    self.videoOutputReceipt = raw as? [String: Any]
+                    if self.videoOutputReceipt?["verified"] as? Bool != true { self.failure = "Packaged video output was not verified" }
+                case .failure(let error): self.failure = "Packaged video output failed: \(error.localizedDescription)"
+                }
+                self.phase = .complete
+                self.finished = true
+            }
             return
         }
         if ["failed", "recovery"].contains(state.saveState) {
