@@ -1,3 +1,4 @@
+import { VideoSlideSource } from "./VideoSlideSource";
 import * as THREE from "three";
 import { evaluateProjectFrame, type ProjectFrameEvaluation } from "../core/render/projectFrameAdapter";
 import {
@@ -332,7 +333,8 @@ export function clampPreviewSeekTime(time: number, duration: number): number {
 
 interface TextureRecord {
   texture: THREE.Texture;
-  source: ImageBitmap | HTMLImageElement;
+  source: ImageBitmap | HTMLImageElement | HTMLVideoElement | HTMLCanvasElement;
+  video?: VideoSlideSource;
   aspect: number;
   lastUsed: number;
 }
@@ -921,7 +923,7 @@ export class CinematicCarousel {
 
   private async applyAssets(assets: StudioAsset[], render: boolean): Promise<void> {
     const previousKeys = new Set(this.assets.map((asset) => this.textureKey(asset)));
-    this.assets = assets.filter((asset) => asset.kind === "image");
+    this.assets = assets.filter((asset) => asset.kind === "image" || asset.kind === "video");
     this.pruneInactiveTextures();
     this.pruneInactiveTextureRequests();
     const activeKeys = new Set(this.assets.map((asset) => this.textureKey(asset)));
@@ -1174,6 +1176,8 @@ export class CinematicCarousel {
     this.pendingPreviewResize = null;
     this.exportInvalidatedByContextLoss = false;
     this.exportActive = true;
+    this.pruneInactiveTextures();
+    this.pruneInactiveTextureRequests();
     this.paused = true;
     this.syncPresenterPlayback();
     // A paused HTMLVideoElement still owns its decoder. Keeping that live
@@ -1195,6 +1199,8 @@ export class CinematicCarousel {
       restore: () => {
         if (!this.exportActive) return;
         this.exportActive = false;
+        this.pruneInactiveTextures();
+        this.pruneInactiveTextureRequests();
         this.exportInvalidatedByContextLoss = false;
         this.paused = previousPaused;
         this.syncPresenterPlayback();
@@ -1217,6 +1223,10 @@ export class CinematicCarousel {
         }
       },
     };
+  }
+
+  releaseVideoSlideDecoders(): void {
+    for (const record of this.textureCache.values()) if (record.video?.exportMode) record.video.finishDecoding();
   }
 
   renderAt(time: number, frameIndex: number | null = null): void {
@@ -1250,7 +1260,7 @@ export class CinematicCarousel {
     this.assertExplicitFrameRendererAvailable();
   }
 
-  async renderAtAsync(time: number, frameIndex: number | null = null): Promise<void> {
+  async renderAtAsync(time: number, frameIndex: number | null = null, signal?: AbortSignal): Promise<void> {
     this.assertExplicitFrameRendererAvailable();
     const exportFrameIndex = resolveExportFrameIndex(frameIndex);
     if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
@@ -1276,6 +1286,9 @@ export class CinematicCarousel {
         Promise.all(Array.from(needed.values(), (asset) => this.ensureTexture(asset))),
         pinnedImage ? this.ensureTexture(pinnedImage) : Promise.resolve(null),
       ]);
+      for (const asset of needed.values()) {
+        await this.textureCache.get(this.textureKey(asset))?.video?.sample(time, this.project?.slides[asset.id]?.video, signal);
+      }
       this.assertExplicitFrameRendererAvailable();
       const currentPinnedRecord = pinnedImage
         && pinnedRecord
@@ -1330,6 +1343,9 @@ export class CinematicCarousel {
       Promise.all(Array.from(needed.values(), (asset) => this.ensureTexture(asset))),
       pinnedImage ? this.ensureTexture(pinnedImage) : Promise.resolve(null),
     ]);
+    for (const asset of needed.values()) {
+      await this.textureCache.get(this.textureKey(asset))?.video?.sample(time, this.project?.slides[asset.id]?.video, signal);
+    }
     this.assertExplicitFrameRendererAvailable();
     const currentPinnedRecord = pinnedImage
       && pinnedRecord
@@ -1607,6 +1623,14 @@ export class CinematicCarousel {
     }
 
     const keepTextureKeys = new Set(renderable.map((item) => this.textureKey(item.asset)));
+    if (!exportMode) {
+      for (const [key, record] of this.textureCache) {
+        if (!record.video) continue;
+        const asset = renderable.find((item) => this.textureKey(item.asset) === key)?.asset;
+        if (asset) record.video.syncPreview(time, this.project?.slides[asset.id]?.video, this.paused || this.reducedMotionPreview);
+        else record.video.pause();
+      }
+    }
     this.setTextureDemand(keepTextureKeys);
     const presenterLayout = this.resolveSafePresenterLayout();
     for (let poolIndex = 0; poolIndex < this.pool.length; poolIndex += 1) {
@@ -2256,13 +2280,13 @@ export class CinematicCarousel {
 
   private textureKey(asset: StudioAsset): string {
     const digest = asset.hash?.trim();
-    if (digest) return `${asset.id}\u0000sha256:${digest}`;
+    if (digest) return `${asset.id}\u0000sha256:${digest}:${this.exportActive ? "export" : "preview"}`;
     let blobKey = this.blobTextureKeys.get(asset.blob);
     if (!blobKey) {
       blobKey = `blob:${++this.blobTextureKeyCounter}`;
       this.blobTextureKeys.set(asset.blob, blobKey);
     }
-    return `${asset.id}\u0000${blobKey}`;
+    return `${asset.id}\u0000${blobKey}:${this.exportActive ? "export" : "preview"}`;
   }
 
   private isTextureKeyActive(key: string): boolean {
@@ -2271,6 +2295,7 @@ export class CinematicCarousel {
   }
 
   private disposeTextureRecord(record: TextureRecord): void {
+    record.video?.dispose();
     record.texture.dispose();
     if (record.source instanceof ImageBitmap) record.source.close();
   }
@@ -2284,7 +2309,13 @@ export class CinematicCarousel {
   }
 
   private async decodeTexture(asset: StudioAsset): Promise<TextureRecord> {
-    const maximum = Math.min(PREVIEW_TEXTURE_EDGE, this.renderer.capabilities.maxTextureSize);
+    const maximum = Math.min(this.exportActive
+      ? Math.max(this.drawState.stage.width, this.drawState.stage.height)
+      : PREVIEW_TEXTURE_EDGE, this.renderer.capabilities.maxTextureSize);
+    if (asset.kind === "video") {
+      const video = await VideoSlideSource.create(asset, this.exportActive, maximum, () => this.renderPreview());
+      return { texture: video.texture, source: video.source, aspect: asset.width / asset.height, lastUsed: performance.now(), video };
+    }
     const scale = Math.min(1, maximum / Math.max(asset.width, asset.height));
     const options: ImageBitmapOptions = {
       // Texture.flipY is ignored for ImageBitmap sources. Flip during decode so
@@ -2383,6 +2414,7 @@ export class CinematicCarousel {
   }
 
   private onVisibilityChange(): void {
+    if (document.hidden) for (const record of this.textureCache.values()) record.video?.pause();
     this.lastFrameTime = performance.now();
     this.syncPresenterPlayback();
   }
@@ -2552,6 +2584,7 @@ export class CinematicCarousel {
     this.canvas.removeEventListener("webglcontextrestored", this.onContextRestoredBound);
     document.removeEventListener("visibilitychange", this.onVisibilityBound);
     for (const record of this.textureCache.values()) {
+      record.video?.dispose();
       record.texture.dispose();
       if (record.source instanceof ImageBitmap) record.source.close();
     }

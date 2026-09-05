@@ -10,6 +10,8 @@ export const NATIVE_MAC_COMMANDS = [
   "open-project",
   "add-slides",
   "add-presenter",
+  "undo-edit",
+  "redo-edit",
   "save-project",
   "save-project-as",
   "revert-project",
@@ -168,12 +170,15 @@ const NATIVE_PICKER_TYPES: Readonly<Record<NativeMacImportKind, ReadonlyArray<{
   accept: Record<string, string[]>;
 }>>> = Object.freeze({
   slides: [{
-    description: "Pitch-deck images",
+    description: "Pitch-deck media",
     accept: {
       "image/png": [".png"],
       "image/jpeg": [".jpg", ".jpeg"],
       "image/webp": [".webp"],
       "image/avif": [".avif"],
+      "video/mp4": [".mp4"],
+      "video/quicktime": [".mov"],
+      "video/webm": [".webm"],
     },
   }],
   presenter: [{

@@ -1,8 +1,8 @@
 {
   "name": "pitchdog-drift",
   "private": true,
-  "version": "0.2.1",
-  "description": "A local-first WebGL motion studio for turning pitch-deck slides into deterministic cinematic exports.",
+  "version": "0.3.0",
+  "description": "An Apple-silicon Mac directing instrument for image and video slides.",
   "keywords": [
     "creative-tools",
     "local-first",
@@ -59,7 +59,7 @@
     "verify:mac:dmg": "bash scripts/verify-macos-dmg.sh",
     "verify:mac-release": "bash scripts/verify-macos-release.sh",
     "release:mac": "bash scripts/release-macos-app.sh",
-    "check": "npm run check:fonts && npm run typecheck && npm run test && npm run check:mac-source && npm run check:linux-source && npm run build"
+    "check": "npm run check:fonts && npm run typecheck && npm run test && npm run check:mac-source && npm run build"
   },
   "dependencies": {
     "@mediabunny/aac-encoder": "1.55.1",

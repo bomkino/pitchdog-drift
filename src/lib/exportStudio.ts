@@ -55,7 +55,7 @@ export const AAC_BITRATE = DRIFT_AAC_BITRATE;
 export const AUDIO_SAMPLE_RATE = 48_000;
 export const AUDIO_CHANNELS = 2;
 export const AAC_SAMPLES_PER_PACKET = 1024;
-export const NATIVE_MAC_AAC_MAXIMUM_DURATION_SECONDS = 35;
+export const NATIVE_MAC_AAC_MAXIMUM_DURATION_SECONDS = 300;
 let softwareAacRegistration: Promise<void> | null = null;
 
 async function ensureSoftwareAacEncoder(): Promise<void> {

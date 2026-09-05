@@ -1,3 +1,4 @@
+import { videoSlideBudget } from "./core/media/videoPlayback";
 import {
   useCallback,
   useEffect,
@@ -99,9 +100,12 @@ import {
 import { installPreviewAuthority } from "./core/render/previewAuthority";
 import {
   createProjectRevisionState,
+  projectDocumentIsDirty,
   recordProjectMutation,
   type ProjectRevisionState,
 } from "./core/project/revisions";
+import { captureDocumentHistory, trimDocumentHistory, type DocumentHistory, type DocumentHistoryEntry } from "./core/project/documentHistory";
+import { commitProjectReplacement, documentContentIdentity } from "./core/project/documentContent";
 import { validateDriftProjectV4 } from "./core/project/validation";
 import {
   applyEditorialDriftFoundation,
@@ -124,7 +128,8 @@ import {
   clampPreviewSeekTime,
   getShadowSupportMargin,
 } from "./engine/CinematicCarousel";
-import { disposeAsset, imageFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
+import { mapMediaSettled } from "./lib/mediaWork";
+import { disposeAsset, imageFileToAsset, slideFileToAsset, sanitizeFilename, videoFileToAsset } from "./lib/assets";
 import { driftBuildIdentity } from "./lib/buildIdentity";
 import { createDemoSlides } from "./lib/demoSlides";
 import {
@@ -226,12 +231,6 @@ interface PreparedProjectState {
   settings: StudioSettings;
   slides: StudioAsset[];
   presenter: StudioAsset | null;
-}
-
-interface V2HistoryState {
-  past: DriftProjectV4[];
-  future: DriftProjectV4[];
-  lastGesture: { message: string; at: number } | null;
 }
 
 const MAX_V2_HISTORY = 50;
@@ -356,7 +355,7 @@ export function App() {
   const assetsRef = useRef<StudioAsset[]>([]);
   const presenterRef = useRef<StudioAsset | null>(null);
   const settingsRef = useRef<StudioSettings>(cloneSettings(initialSettings));
-  const v2HistoryRef = useRef<V2HistoryState>({ past: [], future: [], lastGesture: null });
+  const v2HistoryRef = useRef<DocumentHistory>({ past: [], future: [], lastGesture: null });
   const nativeCommandRef = useRef<(command: NativeMacCommand) => boolean | void | Promise<boolean | void>>(() => false);
   const nativeImportRef = useRef<(
     kind: NativeMacImportKind,
@@ -686,6 +685,10 @@ export function App() {
   }, [automationAdapter, automationEnabled, automationExportEnabled, automationPreviewEnabled, automationWriteEnabled]);
 
   useEffect(() => {
+    trimDocumentHistory(v2HistoryRef.current, assets, presenter);
+  }, [assets, presenter]);
+
+  useEffect(() => {
     if (selectedSlideId && assets.some((asset) => asset.id === selectedSlideId)) return;
     setSelectedSlideId(assets[0]?.id ?? null);
   }, [assets, selectedSlideId]);
@@ -798,6 +801,8 @@ export function App() {
 
   const publishLiveProject = useCallback((project: DriftProjectV4) => {
     projectRef.current = project;
+    documentRevisionRef.current = { ...documentRevisionRef.current, currentContentIdentity: documentContentIdentity(project) };
+    setDocumentRevisionVersion((version) => version + 1);
     setLiveProject(project);
   }, []);
 
@@ -905,14 +910,14 @@ export function App() {
       slides.length !== project.media.order.length
       || slides.some((asset) => {
         const descriptor = descriptorById.get(asset.id);
-        return asset.kind !== "image"
+        return (asset.kind !== "image" && asset.kind !== "video")
           || !descriptor
           || asset.width !== descriptor.width
           || asset.height !== descriptor.height;
       })
     ) {
       restored.forEach(disposeAsset);
-      throw new Error("Project slide order references missing or non-image media.");
+      throw new Error("Project slide order references missing or unsupported media.");
     }
     const presenterId = project.media.presenterAssetId;
     const nextPresenter = presenterId ? restoredById.get(presenterId) ?? null : null;
@@ -1320,6 +1325,46 @@ export function App() {
     if (presenterRef.current) disposeAsset(presenterRef.current);
   }, []);
 
+  const recordV2History = useCallback((
+    current: DriftProjectV4,
+    next: DriftProjectV4,
+    message: string,
+  ): string[] => {
+    const changedPaths = projectV4ChangePaths(current, next);
+    if (changedPaths.length === 0) return changedPaths;
+    const now = performance.now();
+    const history = v2HistoryRef.current;
+    const coalesced = history.lastGesture?.message === `${message}:${changedPaths.join(",")}`
+      && now - history.lastGesture.at <= V2_GESTURE_COALESCE_MS;
+    if (!coalesced) {
+      history.past = [...history.past.slice(-(MAX_V2_HISTORY - 1)), captureDocumentHistory(current, assetsRef.current, presenterRef.current)];
+      setComparisonProject(structuredClone(current));
+    }
+    history.future = [];
+    history.lastGesture = { message: `${message}:${changedPaths.join(",")}`, at: now };
+    trimDocumentHistory(history, assetsRef.current, presenterRef.current);
+    setComparisonActive(false);
+    setV2HistoryVersion((version) => version + 1);
+    const domains = [...new Set(changedPaths.map((path) => path.split(/[.[]/, 1)[0]))];
+    setChangeReceipt(`${message} ${changedPaths.length} value${changedPaths.length === 1 ? "" : "s"} · ${domains.join(", ")}.`);
+    return changedPaths;
+  }, []);
+
+  const recordMediaHistory = useCallback((message: string) => {
+    const current = projectRef.current;
+    if (!current) return;
+    const history = v2HistoryRef.current;
+    history.past.push(captureDocumentHistory(current, assetsRef.current, presenterRef.current));
+    history.future = [];
+    history.lastGesture = null;
+    trimDocumentHistory(history, assetsRef.current, presenterRef.current);
+    // A different media tuple cannot audition against the live renderer's sources.
+    setComparisonProject(null);
+    setComparisonActive(false);
+    setChangeReceipt(message);
+    setV2HistoryVersion((version) => version + 1);
+  }, []);
+
   const addImagesNow = useCallback(async (
     files: File[],
     options: { persistBeforeReply?: boolean; propagateFailure?: boolean } = {},
@@ -1341,9 +1386,9 @@ export function App() {
       return;
     }
 
-    const supportedImages = files.filter((file) => file.type.startsWith("image/"));
+    const supportedImages = files.filter((file) => /^(image|video)\//.test(file.type));
     if (!supportedImages.length) {
-      rejectImport("No supported images were selected.");
+      rejectImport("No supported images or videos were selected.");
       return;
     }
     const existingMedia = [
@@ -1366,10 +1411,10 @@ export function App() {
       return;
     }
 
-    const decoded = await Promise.allSettled(candidates.map((file) => imageFileToAsset(file)));
+    const decoded = await mapMediaSettled(candidates, (file) => slideFileToAsset(file));
     const decodedAssets = decoded.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     if (!decodedAssets.length) {
-      rejectImport("None of those images could be decoded.");
+      rejectImport("None of those media files could be decoded.");
       return;
     }
     const current = assetsRef.current;
@@ -1385,6 +1430,12 @@ export function App() {
       return;
     }
     const next = [...retained, ...accepted];
+    const videoBudget = videoSlideBudget(next);
+    if (videoBudget) {
+      accepted.forEach(disposeAsset);
+      rejectImport(videoBudget);
+      return;
+    }
     const nextSettings = settingsForCurrentAuthority();
     const nextPresenter = presenterRef.current;
     if (options.persistBeforeReply) {
@@ -1411,6 +1462,7 @@ export function App() {
         if (options.propagateFailure) throw error;
         return;
       }
+      recordMediaHistory("Added slides.");
       directPersistenceSnapshotRef.current = {
         settings: reconciledSettings,
         assets: next,
@@ -1423,6 +1475,7 @@ export function App() {
       setAssets(next);
       if (replacingDemos) current.forEach(disposeAsset);
     } else {
+      recordMediaHistory("Added slides.");
       if (replacingDemos) current.forEach(disposeAsset);
       markProjectDirty();
       assetsRef.current = next;
@@ -1437,7 +1490,7 @@ export function App() {
       `${accepted.length} slide${accepted.length === 1 ? "" : "s"} added${rejected ? `; ${rejected} rejected by format, count, decode, or project-media budget` : ""}. ${formatProjectMiB(usedBytes)} of ${formatProjectMiB(PROJECT_MEDIA_LIMITS.maxTotalBytes)} project media used.`,
       rejected ? "quiet" : "good",
     );
-  }, [announce, markProjectDirty, persistExactProject, publishLiveProject, reconcileLiveProject, recordDocumentMutation, settingsForCurrentAuthority, synchronizeProjectedSettings]);
+  }, [recordMediaHistory, announce, markProjectDirty, persistExactProject, publishLiveProject, reconcileLiveProject, recordDocumentMutation, settingsForCurrentAuthority, synchronizeProjectedSettings]);
 
   const addImages = useCallback((files: File[]) => {
     void enqueueProjectOperation(() => addImagesNow(files));
@@ -1489,6 +1542,7 @@ export function App() {
         }));
         const reconciledSettings = studioSettingsFromDriftProject(nextProject);
         await persistExactProject(nextProject, assetsRef.current, next);
+        recordMediaHistory("Replaced presenter.");
         directPersistenceSnapshotRef.current = {
           settings: reconciledSettings,
           assets: assetsRef.current,
@@ -1501,6 +1555,7 @@ export function App() {
         setPresenter(next);
         if (previous) disposeAsset(previous);
       } else {
+        recordMediaHistory("Replaced presenter.");
         if (previous) disposeAsset(previous);
         presenterRef.current = next;
         setPresenter(next);
@@ -1517,7 +1572,7 @@ export function App() {
       announce(error instanceof Error ? error.message : "Presenter video could not be opened.", "error");
       if (options.propagateFailure) throw error;
     }
-  }, [announce, markProjectDirty, persistExactProject, publishLiveProject, reconcileLiveProject, recordDocumentMutation, settingsForCurrentAuthority, synchronizeProjectedSettings]);
+  }, [recordMediaHistory, announce, markProjectDirty, persistExactProject, publishLiveProject, reconcileLiveProject, recordDocumentMutation, settingsForCurrentAuthority, synchronizeProjectedSettings]);
 
   const addPresenter = useCallback((file: File) => {
     void enqueueProjectOperation(() => addPresenterNow(file));
@@ -1526,20 +1581,23 @@ export function App() {
   const removeAsset = useCallback((id: string) => {
     const current = assetsRef.current;
     const removed = current.find((asset) => asset.id === id);
-    if (removed) disposeAsset(removed);
+    if (!removed) return;
+    recordMediaHistory("Removed slide.");
+    disposeAsset(removed);
     const nextAssets = current.filter((asset) => asset.id !== id);
     markProjectDirty();
     assetsRef.current = nextAssets;
     const nextSettings = clearPinnedAssetIfRemoved(settingsForCurrentAuthority(), id);
     reconcileLiveProject(nextSettings, nextAssets, presenterRef.current);
     setAssets(nextAssets);
-  }, [markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
+  }, [recordMediaHistory, markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const reorder = useCallback((fromId: string, toId: string) => {
     const current = assetsRef.current;
     const from = current.findIndex((asset) => asset.id === fromId);
     const to = current.findIndex((asset) => asset.id === toId);
     if (from < 0 || to < 0 || from === to) return;
+    recordMediaHistory("Reordered slides.");
     const next = [...current];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved!);
@@ -1547,9 +1605,14 @@ export function App() {
     assetsRef.current = next;
     reconcileLiveProject(settingsForCurrentAuthority(), next, presenterRef.current);
     setAssets(next);
-  }, [markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
+  }, [recordMediaHistory, markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const pin = useCallback((asset: StudioAsset | null) => {
+    if (asset?.kind === "video" && asset.id !== presenterRef.current?.id) {
+      announce("Moving video slides loop independently. Add the clip as Presenter to pin it.", "quiet");
+      return;
+    }
+    recordMediaHistory("Changed pinned frame.");
     const current = settingsForCurrentAuthority();
     const nextSettings: StudioSettings = {
       ...current,
@@ -1570,7 +1633,7 @@ export function App() {
     } else {
       announce("Pinned media returned to its moving track.");
     }
-  }, [announce, markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
+  }, [recordMediaHistory, announce, markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const resetPinnedFrame = useCallback(() => {
     const current = settingsForCurrentAuthority();
@@ -1583,23 +1646,26 @@ export function App() {
       announce("Choose a still image or presenter video before resetting the pinned frame.", "error");
       return;
     }
+    recordMediaHistory("Reset pinned frame.");
     const nextSettings = resetPinnedFrameComposition(current, asset);
     markProjectDirty();
     reconcileLiveProject(nextSettings, assetsRef.current, presenterRef.current);
     announce("Pinned frame reset to its source ratio, protected layer, and still-only track.", "good");
-  }, [announce, markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
+  }, [recordMediaHistory, announce, markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const removePresenter = useCallback(() => {
     const removedPresenter = presenterRef.current;
     const removedPresenterId = removedPresenter?.id ?? null;
-    if (removedPresenter) disposeAsset(removedPresenter);
+    if (!removedPresenter) return;
+    recordMediaHistory("Removed presenter.");
+    disposeAsset(removedPresenter);
     presenterRef.current = null;
     setPresenter(null);
 
     const nextSettings = clearPinnedAssetIfRemoved(settingsForCurrentAuthority(), removedPresenterId);
     markProjectDirty();
     reconcileLiveProject(nextSettings, assetsRef.current, null);
-  }, [markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
+  }, [recordMediaHistory, markProjectDirty, reconcileLiveProject, settingsForCurrentAuthority]);
 
   const renderForExport = useCallback(async (
     time: number,
@@ -1612,6 +1678,7 @@ export function App() {
     await engine.renderAtAsync(
       time,
       context?.sampleKind === "sequence" ? context.frameIndex : null,
+      context?.signal,
     );
     if (
       context?.sampleKind === "sequence"
@@ -1621,6 +1688,7 @@ export function App() {
       // decoded-presenter CanvasTexture before the H.264 encoder flushes so a
       // lingering GPU-backed video surface cannot hold finalization open.
       engine.setPresenterExportFrame(null);
+      engine.releaseVideoSlideDecoders();
     }
   }, []);
 
@@ -2083,25 +2151,18 @@ export function App() {
 
   const savePortableProjectNow = useCallback(async (operation: "save" | "save-as" = "save") => {
     try {
-      let blob: Blob;
-      if (!hydratedRef.current) {
-        const recovery = recoverySnapshotRef.current;
-        if (!recovery) {
-          throw new Error("The locked saved project could not be read safely. Open a verified project to replace it; fallback demos will not overwrite it.");
-        }
-        blob = await exportProject(recovery);
-      } else {
-        const snapshot = await persist();
-        blob = await exportProject(snapshot);
+      const recovery = !hydratedRef.current ? recoverySnapshotRef.current : null;
+      if (!hydratedRef.current && !recovery) {
+        throw new Error("The recovery project is locked. Open a verified project or save the recovery copy before continuing.");
       }
-
-      const prepared = desktopPlatform.documents.preparePortableProjectSave(
-        documentRevisionRef.current,
-      );
+      // persist() captures and reconciles synchronously. Bind the ticket before
+      // hashing/archiving awaits, so a subsequent edit cannot become falsely saved.
+      const snapshotPromise = recovery ? Promise.resolve(recovery) : persist();
+      const prepared = desktopPlatform.documents.preparePortableProjectSave(documentRevisionRef.current);
       documentRevisionRef.current = prepared.revisions;
-      if (prepared.ticket) {
-        setDocumentRevisionVersion((version) => version + 1);
-      }
+      if (prepared.ticket) setDocumentRevisionVersion((version) => version + 1);
+      const snapshot = await snapshotPromise;
+      const blob = await exportProject(snapshot);
       const receipt = requireDesktopPlatformCompletion(
         await desktopPlatform.documents.savePortableProject({
           operation,
@@ -2137,15 +2198,16 @@ export function App() {
         setDocumentConflict(true);
       }
       announce(isAbortError(error) ? "Portable project save canceled." : error instanceof Error ? error.message : "Portable project could not be saved.", isAbortError(error) ? "quiet" : "error");
+      throw error;
     }
   }, [announce, desktopPlatform, persist]);
 
   const savePortableProject = useCallback(() => {
-    void enqueueProjectOperation(savePortableProjectNow);
+    void enqueueProjectOperation(savePortableProjectNow).catch(() => undefined);
   }, [enqueueProjectOperation, savePortableProjectNow]);
 
   const savePortableProjectAs = useCallback(() => {
-    void enqueueProjectOperation(() => savePortableProjectNow("save-as"));
+    void enqueueProjectOperation(() => savePortableProjectNow("save-as")).catch(() => undefined);
   }, [enqueueProjectOperation, savePortableProjectNow]);
 
   const openPortableProjectFile = useCallback(async (
@@ -2189,39 +2251,51 @@ export function App() {
               });
             })();
         try {
+          await commitProjectReplacement({
+            persistCandidate: async () => {
+              await persistExactProject(prepared.project, prepared.slides, prepared.presenter);
+            },
+            bindCandidate: async () => {
+              if (!finalizeDesktopDocument) return;
+              const receipt = requireDesktopPlatformCompletion(
+                await desktopPlatform.documents.finalizePortableProjectOpen(file),
+              );
+              if (receipt.bound) {
+                const contentIdentity = documentContentIdentity(prepared.project);
+                documentRevisionRef.current = {
+                  ...createProjectRevisionState(),
+                  currentContentIdentity: contentIdentity,
+                  savedContentIdentity: contentIdentity,
+                };
+                documentSha256Ref.current = receipt.sha256;
+                setDocumentBound(true);
+                setDocumentConflict(false);
+                setDocumentRevisionVersion((version) => version + 1);
+              }
+            },
+            restorePrevious: async () => {
+              await saveProject({
+                payload: previous.payload,
+                assets: previous.assets.map(({ id, name, blob }) => ({ id, name, blob })),
+                engineVersion: previous.manifest.engineVersion,
+                themeVersion: previous.manifest.themeVersion,
+                projectId: previous.manifest.projectId,
+                createdAt: previous.manifest.createdAt,
+                updatedAt: previous.manifest.updatedAt,
+              });
+              identityRef.current = { projectId: previous.manifest.projectId, createdAt: previous.manifest.createdAt };
+              setSaveState(wasHydrated ? "saved" : "recovery");
+            },
+          });
           installPreparedProjectState(prepared);
           preparedInstalled = true;
-          const saved = await persistExactProject(
-            prepared.project,
-            prepared.slides,
-            prepared.presenter,
-          );
-          identityRef.current = { projectId: saved.manifest.projectId, createdAt: saved.manifest.createdAt };
-          if (finalizeDesktopDocument) {
-            const documentReceipt = requireDesktopPlatformCompletion(
-              await desktopPlatform.documents.finalizePortableProjectOpen(file),
-            );
-            if (documentReceipt.bound) {
-              documentRevisionRef.current = createProjectRevisionState();
-              documentSha256Ref.current = documentReceipt.sha256;
-              setDocumentBound(true);
-              setDocumentConflict(false);
-              setDocumentRevisionVersion((version) => version + 1);
-            }
-          }
           hydratedRef.current = true;
           recoverySnapshotRef.current = null;
         } catch (error) {
-          if (preparedInstalled) {
-            try {
-              await replaceProjectState(previous);
-              setSaveState(wasHydrated ? "saved" : "recovery");
-            } catch (rollbackError) {
-              throw new Error(
-                `Imported project could not be stored, and the open project could not be restored: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
-                { cause: error },
-              );
-            }
+          if (error instanceof AggregateError) {
+            hydratedRef.current = false;
+            recoverySnapshotRef.current = previous;
+            setSaveState("recovery");
           }
           throw error;
         }
@@ -2265,7 +2339,8 @@ export function App() {
           type: "application/vnd.pitchdog.pitched+zip",
         });
         await openPortableProjectFile(file, true, false);
-        documentRevisionRef.current = createProjectRevisionState();
+        const identity = documentContentIdentity(projectRef.current!);
+        documentRevisionRef.current = { ...createProjectRevisionState(), currentContentIdentity: identity, savedContentIdentity: identity };
         documentSha256Ref.current = result.receipt.sha256;
         setDocumentConflict(false);
         setDocumentRevisionVersion((version) => version + 1);
@@ -2339,30 +2414,6 @@ export function App() {
     announce(`${theme.name} is now directing the scene.`);
   }, [announce, markProjectDirty, publishLiveProject, reconcileLiveProject, settingsForCurrentAuthority]);
 
-  const recordV2History = useCallback((
-    current: DriftProjectV4,
-    next: DriftProjectV4,
-    message: string,
-  ): string[] => {
-    const changedPaths = projectV4ChangePaths(current, next);
-    if (changedPaths.length === 0 || current.renderContract !== DRIFT_V2_RENDER_CONTRACT) return changedPaths;
-    const now = performance.now();
-    const history = v2HistoryRef.current;
-    const coalesced = history.lastGesture?.message === message
-      && now - history.lastGesture.at <= V2_GESTURE_COALESCE_MS;
-    if (!coalesced) {
-      history.past = [...history.past.slice(-(MAX_V2_HISTORY - 1)), structuredClone(current)];
-      setComparisonProject(structuredClone(current));
-    }
-    history.future = [];
-    history.lastGesture = { message, at: now };
-    setComparisonActive(false);
-    setV2HistoryVersion((version) => version + 1);
-    const domains = [...new Set(changedPaths.map((path) => path.split(/[.[]/, 1)[0]))];
-    setChangeReceipt(`${message} ${changedPaths.length} value${changedPaths.length === 1 ? "" : "s"} · ${domains.join(", ")}.`);
-    return changedPaths;
-  }, []);
-
   const updateSettings = useCallback((nextSettings: StudioSettings) => {
     const currentProject = projectRef.current;
     const currentSettings = settingsForCurrentAuthority();
@@ -2423,8 +2474,17 @@ export function App() {
     announce(message);
   }, [announce, markProjectDirty, publishLiveProject, recordV2History]);
 
-  const restoreV2HistoryProject = useCallback((project: DriftProjectV4, message: string) => {
-    const next = validateDriftProjectV4(structuredClone(project));
+  const restoreV2HistoryProject = useCallback((entry: DocumentHistoryEntry, message: string) => {
+    const next = validateDriftProjectV4(structuredClone(entry.project));
+    const restore = (asset: StudioAsset): StudioAsset => ({ ...asset, objectUrl: URL.createObjectURL(asset.blob) });
+    const restoredAssets = entry.assets.map(restore);
+    const restoredPresenter = entry.presenter ? restore(entry.presenter) : null;
+    assetsRef.current.forEach(disposeAsset);
+    if (presenterRef.current) disposeAsset(presenterRef.current);
+    assetsRef.current = restoredAssets;
+    presenterRef.current = restoredPresenter;
+    setAssets(restoredAssets);
+    setPresenter(restoredPresenter);
     const projected = studioSettingsFromDriftProject(next);
     publishLiveProject(next);
     markProjectDirty();
@@ -2478,9 +2538,9 @@ export function App() {
     const previous = history.past.at(-1);
     if (!current || !previous) return;
     history.past = history.past.slice(0, -1);
-    history.future = [structuredClone(current), ...history.future].slice(0, MAX_V2_HISTORY);
+    history.future = [captureDocumentHistory(current, assetsRef.current, presenterRef.current), ...history.future].slice(0, MAX_V2_HISTORY);
     history.lastGesture = null;
-    restoreV2HistoryProject(previous, "Undid the last directing gesture.");
+    restoreV2HistoryProject(previous, "Undid the last edit.");
   }, [restoreV2HistoryProject]);
 
   const redoV2Project = useCallback(() => {
@@ -2489,9 +2549,9 @@ export function App() {
     const next = history.future[0];
     if (!current || !next) return;
     history.future = history.future.slice(1);
-    history.past = [...history.past.slice(-(MAX_V2_HISTORY - 1)), structuredClone(current)];
+    history.past = [...history.past.slice(-(MAX_V2_HISTORY - 1)), captureDocumentHistory(current, assetsRef.current, presenterRef.current)];
     history.lastGesture = null;
-    restoreV2HistoryProject(next, "Redid the directing gesture.");
+    restoreV2HistoryProject(next, "Redid the last edit.");
   }, [restoreV2HistoryProject]);
 
   const toggleV2Comparison = useCallback(() => {
@@ -2508,7 +2568,7 @@ export function App() {
 
   useEffect(() => {
     const onHistoryKeyDown = (event: KeyboardEvent) => {
-      if (!v2Active || !event.metaKey || event.altKey || event.key.toLowerCase() !== "z") return;
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "z") return;
       if (exportProgress || projectBusy || abortRef.current || projectPendingRef.current > 0 || saveState === "loading") return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input[type=text], input[type=number], textarea, [contenteditable=true]")) return;
@@ -2551,12 +2611,21 @@ export function App() {
       return Boolean(presenterInputRef.current);
     case "save-project":
       if (!portableProjectFilesEnabled) return false;
-      savePortableProject();
-      return true;
+      return enqueueProjectOperation(() => savePortableProjectNow("save"), true)
+        .then(() => !projectDocumentIsDirty(documentRevisionRef.current, true));
     case "save-project-as":
       if (!portableProjectFilesEnabled) return false;
-      savePortableProjectAs();
+      return enqueueProjectOperation(() => savePortableProjectNow("save-as"), true)
+        .then(() => !projectDocumentIsDirty(documentRevisionRef.current, true));
+    case "undo-edit":
+    case "redo-edit": {
+      const target = document.activeElement;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) {
+        return document.execCommand(command === "undo-edit" ? "undo" : "redo");
+      }
+      if (command === "undo-edit") undoV2Project(); else redoV2Project();
       return true;
+    }
     case "revert-project":
       if (!portableProjectFilesEnabled || !nativeDocumentState.revertible) return false;
       revertPortableProject();

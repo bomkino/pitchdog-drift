@@ -4,11 +4,14 @@ export interface ProjectRevisionState {
   recoveryRevision: number;
   saveSequence: number;
   completedSaveSequence: number;
+  currentContentIdentity?: string;
+  savedContentIdentity?: string;
 }
 
 export interface ProjectSaveTicket {
   sequence: number;
   revision: number;
+  contentIdentity?: string;
 }
 
 function revision(value: number, label: string): number {
@@ -38,7 +41,7 @@ export function beginProjectSave(
   const sequence = revision(state.saveSequence + 1, "saveSequence");
   return {
     state: { ...state, saveSequence: sequence },
-    ticket: { sequence, revision: state.currentRevision },
+    ticket: { sequence, revision: state.currentRevision, ...(state.currentContentIdentity === undefined ? {} : { contentIdentity: state.currentContentIdentity }) },
   };
 }
 
@@ -52,6 +55,8 @@ export function completeProjectSave(
   if (ticket.revision > state.currentRevision) throw new Error("Save ticket belongs to a future project revision.");
   return {
     ...state,
+    ...(ticket.sequence >= state.completedSaveSequence && ticket.contentIdentity !== undefined
+      ? { savedContentIdentity: ticket.contentIdentity } : {}),
     savedRevision: Math.max(state.savedRevision, ticket.revision),
     completedSaveSequence: Math.max(state.completedSaveSequence, ticket.sequence),
   };
@@ -67,6 +72,9 @@ export function recordProjectRecovery(
 }
 
 export function projectIsDirty(state: ProjectRevisionState): boolean {
+  if (state.currentContentIdentity !== undefined && state.savedContentIdentity !== undefined) {
+    return state.currentContentIdentity !== state.savedContentIdentity;
+  }
   return state.currentRevision !== state.savedRevision;
 }
 

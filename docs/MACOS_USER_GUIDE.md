@@ -1,313 +1,60 @@
 # Drift for macOS — user guide
 
-Drift turns pitch-deck slides and one optional presenter video into directed, cinematic social-video compositions. The Mac app keeps the project local, uses the same deterministic renderer for preview and output, and replaces browser download prompts with Finder-native workflows.
+Drift turns images and video slides into directed sequences. This guide describes the `0.3.0` Mac application. The interface is still hybrid; no account, cloud project, or browser product is required.
 
-## Install a local build
+## Install and open
 
-From a clean checkout on macOS 13.3 or newer:
+Use the exact Apple-silicon DMG attached to the release, when present. Drag `Drift.app` to Applications and open it. Ad-hoc test downloads are unnotarized; they are not represented as Gatekeeper-ready. Do not disable system-wide security to install Drift. Keep the previous application and a copy of your `.pitched` files before upgrading.
 
-```bash
-npm ci
-npm run build:mac
-open build/macos/Drift.app
-```
+The source’s deployment floor is macOS 13.3. Refer to the artifact’s receipt for the actual macOS version tested. Intel Macs, Windows, and Linux are outside this product.
 
-The default build is Apple-Silicon-only and contains exactly the `arm64` slice. It is ad-hoc signed for local use. A public build requires Developer ID signing and Apple notarization; the local command does not pretend otherwise.
+## Add and arrange media
 
-Create a local disk image after the app verifies:
+Use Add slides or the File menu to select PNG, JPEG, WebP, AVIF, MP4, MOV, or WebM files. Codec support depends on the installed Mac runtime, not just the extension. Imported originals remain unchanged. Select a tile to adjust its fit and crop; reorder or remove it from Media. Undo/Redo includes media edits and original bytes.
 
-```bash
-npm run package:mac:dmg
-```
+A video slide starts at master time zero. **Loop video** repeats the selected source range; off holds its last frame. Source start/end trim remains in the project. Repeated cards share the same clip clock. Turning a clip into a seamless loop may still require an authored source edit; Drift does not manufacture a dissolve across its cut.
 
-Drag `Drift.app` from the disk image to Applications. Keep one copy open at a time. Drift deliberately prohibits multiple application instances because its current project store is single-editor.
+Video slides are silent. Their embedded source audio is preserved in the portable original, but is not mixed. Use the separate presenter video slot for voice. Moving video slides cannot themselves be pinned in this release. Images can be pinned, and the dedicated presenter retains protected/in-scene placement, layer order, fit, borders, shadows, and timing.
 
-## First launch
+This build admits up to eight video slides and 33,177,600 combined decoded source pixels. Originals remain limited to 64 MiB per file and 80 MiB total. Very large or unsupported files produce an actionable error instead of silently recompressing the original.
 
-A built-in study opens immediately so the stage is alive before you import anything. It is starter material, not part of your future deck. The first successful real-slide import replaces the study instead of mixing the two.
+## Direct and preview
 
-No account, login, server, browser extension, cloud folder, or network setup is required. Drift does not ask for a network permission or run a local server.
+Slides controls framing. Look controls worlds, backgrounds, surfaces, and optics. Motion controls paths, readable holds, cadence, tempo, transitions, and repeats. The stage stays dominant; explanatory and advanced material is expandable.
 
-The header reports three distinct truths:
+Use Space for playback, arrow controls for output-frame steps, and the timeline for scrubbing. The clock reads minutes:seconds:frames at the selected output frame rate. Preview Reduce Motion does not silently change the authored export. A/B previews an earlier direction without saving it; it is unavailable for comparisons that change the media set.
 
-- whether the cinematic WebGL renderer is ready;
-- whether H.264 export is available for the chosen output settings;
-- whether the current project is loading, saving, saved, failed, or recovery locked.
+Presenter source trim is separate from mute. Its story start/end place the source in the sequence; muting does not alter its video timing.
 
-“Saved locally” refers to the app-container project. It does not mean a portable `.pitched` backup has been created.
+## Save, open, and recovery
 
-## Start with your deck
+Use **File → Save Project** or **Command–S** to save the current document. Use **File → Save Project As…** to preserve another named copy. A successful native Save includes staged writing and readback verification. Edits made while saving remain dirty unless the exact saved content is restored by Undo.
 
-Use **File → Add Slides…**, click **Add slides**, or drop images onto the stage. Drift accepts the image formats the current WebKit runtime can decode, including PNG, JPEG, WebP, and AVIF on supported systems.
+Open it through **File → Open Project…**, Finder, or Open With Drift. A candidate project is verified before replacing the visible document. Failed finalization restores the prior recovery snapshot; a failed rollback is shown as recovery, not as saved work.
 
-Current limits:
+Local recovery and the named `.pitched` file are different. The local copy protects completed autosaves; it does not mean the named file contains the latest edits. On close/quit, Save must succeed before Drift closes. Cancel keeps the document open. Don’t Save leaves the named file unchanged; a completed local recovery copy may remain. An unfinished import/export has its own operation warning.
 
-- up to 200 moving slides;
-- 64 MiB per portable-project asset;
-- 80 MiB total portable-project media;
-- 96 MiB portable archive input.
+New video-slide projects require this app version or later. Older image-only V4/legacy projects retain compatibility. Before downgrading, retain an untouched project copy. Never resave a video-slide project in an older version that does not understand it.
 
-A larger or unsupported file fails visibly rather than partially entering the project. Reorder with drag, arrow controls, or keyboard focus. Removal is deliberately two-step: click **×**, then **YES**. Press Escape to keep the media. Removing a slide changes the current project only; it never deletes the source file in Finder.
+## Export
 
-Use **File → Add Presenter Video…** or the Presenter control for one MP4, MOV, or WebM video. The presenter can stay pinned while the deck moves. Container support does not guarantee that every embedded codec can be decoded. Drift validates the video before mutating the project.
+Open Export, choose MP4 or PNG sequence, then **Export…** and a destination. Ordinary exports do not require the advanced wizard. Use **Export PNG still** for a single frame. More export options contains specialist settings; Output details is an optional diagnostic summary.
 
-## Direct the scene
+MP4 is opaque H.264. Transparent output uses PNG. PNG frames contain no audio; when the project includes audio, explicitly acknowledge the silent frame sequence. Invalid media, unsupported output, or unsafe destination replacement blocks export. Creative/reading-time recommendations are advisory.
 
-The editor has four stable surfaces:
+Native AAC accepts up to 300 seconds at 24/25/30 fps; 50/60 fps remains silent-only. This limit is backed by a native encoder test, not a claim that every five-minute mixed-media composition has been tested. Presenter audio is never dropped silently.
 
-- **Media** — slide order, removal, presenter media, and pinned-frame ownership.
-- **Stage** — the live WebGL composition. Drag or use the wheel to move; Space plays or pauses; previous/next commands step the track; F toggles full-frame focus.
-- **Timeline** — transport, current and total time, a draggable playhead, and the authored pass sequence. Fast and readable sections appear as different blocks instead of hiding inside a speed field.
-- **Inspector** — the task controls for the selected room. Changing rooms does not replace the stage or timeline. Each room keeps its own scroll position, so returning to it returns to the same place.
+Cancel before final commit preserves the previous destination and removes only Drift-owned temporary output. Once atomic publication begins, the committed result is final. File → Reveal Last Saved File in Finder reveals the most recent committed file. A complete frame sequence contains numbered frames; failed cleanup is reported rather than hidden.
 
-The Inspector is split into four short journeys rather than one wall of controls:
-
-- **Slides · Deck** — set the shared slide frame, crop the selected slide, and place the optional pinned frame.
-- **Look · World** — choose the background and complete World, then decide how literally Drift must preserve the source artwork.
-- **Motion · Flow** — choose an outcome, cadence, timeline intent, path, pace, material response, and sound.
-- **Export · Output** — choose **Exact length** or **Fit to slides** directly in the room, then set output format, platform guides, preflight, and export. Exact length reveals an editable master duration; Fit to slides derives the master from moving slides, complete deck passes, and reading pace.
-
-### The shortest good path
-
-1. Add the deck.
-2. Open **Motion** and choose **Apply clean carousel**. This is the safe motion default: smooth continuous movement, one readable pass, no entry or exit flourish, and literal source pixels. It keeps the existing background, framing, slide order, and pinned-frame placement.
-3. Open **Look** only if the world needs art direction. Choose a visual background card, or keep the current one. **Literal source pixels** means the slide face receives no relighting, finish, border, or lens treatment.
-4. Scrub the timeline. Open **Export**, resolve any blocking preflight item, and export.
-
-This path is intentionally boring to learn and beautiful in motion. The deeper controls remain available, but they are not prerequisites for a coherent carousel.
-
-### Smooth motion and authored sequences
-
-**Motion cadence** chooses whether the track glides continuously or lands on authored poses such as 12 fps. Continuous is the right starting point for a classic carousel. It changes the feel of movement; it does not change the requested export frame rate.
-
-Outcome cards change motion, performance, timing, and sequence as one understandable result. **Casino Reveal** authors exactly:
-
-```text
-FAST ×2 → READ ×1 → FAST ×1
-```
-
-The fast passes use 0.22 seconds per slide and the readable pass uses 0.90 seconds per slide. Drift derives the total from the number of moving slides, so the sequence closes on a complete deck pass. If an authored sequence owns the timeline, free-run speed and deck-pass controls stay out of the way instead of pretending to be active. Choose Exact Length only when a fixed delivery duration should compress or stretch that authored sequence.
-
-Use the local **Reset** actions when one layer has wandered: motion reset keeps timing and Look; sequence reset keeps motion feel and Look. **Apply clean carousel** is the stronger recovery action when both movement and slide fidelity need a known-good baseline.
-
-Choosing **Keep still** opens **Slides → Pinned frame** immediately. That is where you set position, size, source/custom ratio, fit, focal point, safe inset, corners, border, matte, shadow, audio, and whether the same media also appears in the moving track.
-
-Backgrounds are chosen visually in both new V2 projects and restored V1-compatible projects. The **On canvas** card identifies the live result; the library below shows every available look as a large preview card with its name and family. Search by mood or name, narrow the library by visual family, then click a card to apply it to the live WebGL canvas. **Transparent** is the first explicit choice. Fine composition, palette, variation, intensity, motion, grain, and vignette controls remain below the library. The canvas—not the small preview—is export truth.
-
-The source-fidelity strip in **Look** always states one of two truths:
-
-- **Protected artwork** — slide-face relighting is blocked, but chosen lens or local finish may still affect the result.
-- **Literal source pixels** — no lens, relighting, border, or local finish touches the slide.
-
-Use **Make literal** when a deck looks washed out, strangely lit, textured, or otherwise unlike the source. The world can remain cinematic around it.
-
-Native menu equivalents exist for the important actions. They use the renderer’s reported state rather than guessing from the visible interface. Commands disable while Drift is hashing media, replacing a project, saving protected state, or exporting.
-
-Slides and the presenter are borderless by default. Add a border only when it belongs to the art direction; Noir Contact demonstrates a deliberate opaque keyline. The Shadow control follows the rounded card rather than drawing a second translucent rectangle. Grain textures the surrounding world only, so imported slides remain proof-safe. Pause and the macOS Reduce Motion preference freeze the animated grain plate in preview; the saved reduced-motion master switch independently controls export.
-
-App full-frame focus and macOS full screen are separate:
-
-- **F** hides studio chrome around the composition.
-- **Control–Command–F** enters macOS full screen.
-
-## Save the project
-
-Drift autosaves the current project and original media into sandboxed app-container storage. That protects the current Mac. It is not a collaboration format or durable external backup.
-
-Use **File → Save Project** or **Command–S** to save the current `.pitched` document. The first explicit save asks for a Finder destination. Use **File → Save Project As…** to create a separate copy. The archive contains:
-
-- a versioned manifest;
-- engine and theme versions;
-- ordered media references;
-- original media bytes;
-- SHA-256 digests;
-- validated project settings.
-
-Open it through **File → Open Project…**, the **Export** room, Finder, or “Open With Drift.” Finder-open events arriving while the application is launching are queued until React’s importer is ready.
-
-Drift verifies an archive before replacing the open project. A malformed, oversized, contradictory, unsupported, or hash-mismatched project is rejected without mutating the current valid one.
-
-Keep `.pitched` backups before major changes or app upgrades. Deleting the app container or clearing website data can remove the autosaved current project; an external `.pitched` file remains independent.
-
-## Export finished media
-
-### MP4 master
-
-Use **File → Export MP4 Master…**. Choose the destination before rendering.
-
-The default output is:
-
-```text
-1080 × 1920
-30 fps
-8 seconds
-SDR sRGB / Rec.709
-H.264 video at 16 Mbit/s
-AAC-LC presenter audio at 48 kHz stereo / 192 kbit/s when enabled
-```
-
-The standalone app uses two system paths:
-
-- WKWebView encodes H.264 video.
-- Drift’s bounded native bridge sends presenter PCM to Apple’s software AAC-LC encoder in AudioToolbox.
-
-The app does **not** bundle the browser build’s FFmpeg-derived AAC WebAssembly extension.
-
-Presenter-audio exports support 24, 25, or 30 fps. For 50 or 60 fps, mute presenter audio. Drift never silently deletes audio to make an export appear successful.
-
-The native AAC session holds at most 35.00 seconds of audio. Drift blocks a longer audio-bearing master before rendering. A longer muted, video-only master remains valid.
-
-Export progress is evidence-based: preparation is indeterminate; video reports real `Frame N of M` counts; elapsed time starts immediately; throughput and ETA appear only after enough completed samples. If presenter decoding produces no first frame, Drift says so, keeps Cancel responsive, and stops with a specific timeout instead of remaining at a synthetic percentage.
-
-MP4 completion checks:
-
-- nonempty MP4 container;
-- H.264/AVC video;
-- exact requested dimensions;
-- exact fixed-step frame count;
-- `n / fps` packet timestamps and one-frame durations;
-- expected timeline duration;
-- Rec.709/sRGB-compatible colour metadata;
-- first, middle, and final frame decode;
-- no false alpha claim;
-- expected audio-track presence;
-- AAC codec, sample rate, and channel count;
-- presenter start/end A/V timing within one output frame.
-
-A file is not called finished merely because bytes were written.
-
-### Destination replacement
-
-The chosen destination is not truncated when rendering begins.
-
-1. Drift creates a staging file in Foundation’s item-replacement directory on the destination volume.
-2. Export streams into the staging file.
-3. The completed bytes are reopened and verified through the same opaque native grant.
-4. Only after success does the native broker commit the selected filename.
-5. Cancellation or failure removes staging and preserves the previous destination.
-
-The status message should state whether older work survived. “Cancelled” never means “probably okay.”
-
-### PNG still
-
-Use **File → Export PNG Still…** for one alpha-capable frame. Transparent output must contain actual non-opaque pixels as well as visible pixels. Cancelling the save panel writes nothing.
-
-### PNG sequence
-
-Use **File → Export PNG Sequence…** and choose a directory. Frames are numbered deterministically.
-
-Before rendering, Drift checks the full expected filename set. Existing matching files are never overwritten. If rendering fails, Drift removes only frames created by that attempt and reports any cleanup failure by filename.
-
-Use a directory for full-resolution sequences. The in-memory ZIP fallback has a strict memory ceiling and may reject otherwise valid long or large sequences.
-
-### Reveal output
-
-After a successful native commit, use **File → Reveal Last Export in Finder**. The command refers only to the last committed destination, never to a staged or cancelled one.
-
-## Presenter audio truth
-
-The native AAC bridge is narrow by design:
-
-- AAC-LC only;
-- 48 kHz;
-- stereo;
-- 192 kbit/s target;
-- bounded PCM chunks;
-- bounded session duration and memory;
-- explicit packet sizes;
-- AudioSpecificConfig and magic-cookie metadata;
-- leading priming and trailing padding counts;
-- exact frame-accounting validation.
-
-The muxer receives negative priming timestamps rather than a convenient lie that audio begins at zero. Final MP4 readback then checks the actual audio timeline against video.
-
-A native AAC failure can come from unsupported system behavior, bridge/session corruption, memory pressure, invalid presenter audio, or receipt mismatch. The remedy is not always “update macOS.” Drift reports the failure; muting presenter audio remains the explicit video-only route.
-
-## Cancellation and protected work
-
-An active export can be cancelled from the progress overlay or native menu. Drift abandons any waiting presenter decoder, aborts the renderer and staged native write exactly once, preserves the existing destination, then reports cleanup.
-
-Closing the window or quitting during any of these states triggers a warning:
-
-- export;
-- project import/replacement;
-- local save;
-- failed local save;
-- recovery lock.
-
-**Keep Working** is the safe default. The destructive action explicitly says that it will cancel or abandon protected work.
-
-If the WebKit content process terminates, Drift aborts every native write session before offering Reload or Quit. Reload uses persistent app-container storage; a staged file is never promoted to completed output.
-
-## Recovery lock
-
-A saved project enters recovery lock when storage exists but cannot be safely hydrated. Demo slides may render as a visual fallback, but autosave remains disabled so they cannot overwrite the preserved saved project.
-
-When a recovery bundle is available, save it before opening a replacement. A recovery export re-verifies and repackages preserved media; it does not claim that the archive is byte-identical to an earlier `.pitched` file.
-
-## Privacy and filesystem boundary
-
-The signed app uses App Sandbox with user-selected read/write access. It also carries macOS’s network-client entitlement because the packaged WebView needs that capability; the entitlement applies to the whole app, not only to WebKit. The app has no network-server or broad-folder entitlement, and Drift ships no native network client.
-
-Inside Drift:
-
-- WebRTC constructors are removed from the page before Drift’s application code starts;
-- HTTP, HTTPS, WebSocket, and FTP requests are blocked by the packaged WebView policy;
-- remote responses and downloads are cancelled before Drift can choose a file destination;
-- bundled files and generated Blob/data media remain available;
-- deliberate source, licence, and documentation links open in the default browser.
-
-Imported media, projects, and renders remain on the Mac unless you move or share them.
-
-These layers are tested as Drift’s local-only boundary. They cannot promise that a security flaw in WebKit or macOS itself would be harmless, so keep macOS security updates current and treat unexpected network behavior as a bug.
-
-JavaScript receives opaque permission tokens, leaf filenames, MIME types, sizes, dates, and bytes. It never receives an absolute Finder path. The bridge exposes no shell, AppleScript, URLSession, socket, selector reflection, arbitrary method dispatch, or recursive deletion.
-
-## Useful Mac commands
+## Shortcuts
 
 - **Command–O:** Open `.pitched` project
-- **Shift–Command–O:** Add slides
-- **Option–Command–O:** Add presenter video
 - **Command–S:** Save project
-- **Command–E:** Export MP4 master
-- **Shift–Command–E:** Export PNG still
-- **Option–Command–E:** Export PNG sequence
-- **Space:** Play or pause
-- **[ / ]:** Previous or next slide
-- **F:** Full-frame focus
-- **Command–0 / + / –:** Reset, increase, or decrease interface magnification
-- **Control–Command–F:** macOS full screen
+- **Command–Shift–S:** Save Project As
+- **Command–Z / Command–Shift–Z:** Undo / Redo
+- **Space:** Play / pause outside text fields
+- **Left / Right:** Output-frame step with timeline focus
 
-## Troubleshooting
+## Known validation boundaries
 
-### MP4 is unavailable
-
-WKWebView could not encode H.264 at the chosen dimensions or settings. Reduce output dimensions, use a supported even size, or export PNG. A macOS update may change capability, but Drift probes the actual request rather than assuming from the OS version.
-
-### MP4 works, presenter audio fails
-
-H.264 and AAC are separate paths. The video encoder succeeded, but the native AudioToolbox AAC session, presenter decode, packet receipt, mux, or A/V verification did not. Read the exact error. Mute presenter audio for an explicit video-only export; do not expect Drift to silently remove it.
-
-### Audio export is blocked at 50/60 fps
-
-Presenter audio is limited to 30 fps or lower. Choose 24, 25, or 30 fps, or mute the presenter.
-
-### A project is recovery locked
-
-The saved project could not hydrate safely. Save the recovery bundle when available, then open a verified replacement. Do not assume the visible demo replaced the damaged saved project.
-
-### A save panel was cancelled
-
-No native destination was committed. Drift suppresses browser-style success while the panel is unresolved and reports native cancellation separately.
-
-### An export was cancelled over an existing file
-
-The native staged-replacement path is designed to preserve the existing destination byte-for-byte. A cleanup error must be reported explicitly. Verify the destination before discarding a backup if the volume disconnected or denied access during cleanup.
-
-### The app reloads after a visual-engine crash
-
-Native staging sessions were aborted first. Reopen the autosaved project, inspect the notice, and repeat the export. Use **Drift → Copy Diagnostics** before filing an issue; diagnostics must not contain deck contents or absolute file paths.
-
-### The app will not open on another Mac
-
-An ad-hoc local build is not a notarized public release. Build from source on that Mac or use a properly Developer-ID-signed and notarized release when one is explicitly published.
+Physical M2 mini 8 GB and M1 Pro laptop testing, sleep/wake, external displays, actual process-crash recovery, colour-managed visual comparisons, and installation rollback remain separate from source/build tests. Keep original project copies. Report the app version, build number, source revision, operation, and error; do not upload private client decks to public issues or CI.

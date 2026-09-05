@@ -699,9 +699,9 @@ describe("export safety checks", () => {
 
 describe("presenter timing", () => {
   it("preflights the real native AAC duration ceiling", () => {
-    expect(() => assertNativeMacAacDurationSupported(35, true, true)).not.toThrow();
+    expect(() => assertNativeMacAacDurationSupported(300, true, true)).not.toThrow();
     expectExportCode(
-      () => assertNativeMacAacDurationSupported(35.001, true, true),
+      () => assertNativeMacAacDurationSupported(300.001, true, true),
       "AAC_UNSUPPORTED",
     );
     expect(() => assertNativeMacAacDurationSupported(60, true, false)).not.toThrow();
@@ -713,7 +713,7 @@ describe("presenter timing", () => {
     // hasOutputAudio fact, covering both presenter audio and soundtracks.
     expect(() => assertNativeMacAacDurationSupported(60, false, true)).not.toThrow();
     expectExportCode(
-      () => assertNativeMacAacDurationSupported(60, true, true),
+      () => assertNativeMacAacDurationSupported(301, true, true),
       "AAC_UNSUPPORTED",
     );
   });

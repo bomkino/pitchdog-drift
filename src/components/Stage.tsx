@@ -161,7 +161,7 @@ export function Stage({
           }}
           onDrop={(event) => {
             if (busy) return;
-            const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+            const files = Array.from(event.dataTransfer.files).filter((file) => /^(image|video)\//.test(file.type));
             if (files.length) {
               event.preventDefault();
               onDropImages(files);
@@ -208,7 +208,7 @@ export function Stage({
             <div className="empty-stage">
               <span>DROP SLIDES</span>
               <strong>A film needs frames.</strong>
-              <small>PNG · JPEG · WebP · AVIF</small>
+              <small>Images or video clips</small>
             </div>
           ) : null}
 

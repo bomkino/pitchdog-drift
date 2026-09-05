@@ -28,7 +28,8 @@ import Foundation
 let reportPath = ProcessInfo.processInfo.environment["DRIFT_NATIVE_AAC_REPORT"]
 
 do {
-    let receipt = try NativeAacEncoderBroker.probeReceipt(durationSeconds: 0.125)
+    var receipt = try NativeAacEncoderBroker.probeReceipt(durationSeconds: 0.125)
+    receipt["fileBacked"] = try NativeAacEncoderBroker.fileBackedProbeReceipt()
     let data = try JSONSerialization.data(
         withJSONObject: receipt,
         options: [.prettyPrinted, .sortedKeys]
@@ -98,6 +99,7 @@ const exitCode = Number(exitRaw);
 const failures = [];
 const expect = (condition, message) => { if (!condition) failures.push(message); };
 
+expect(report.fileBacked?.durationSeconds === 300 && report.fileBacked?.frameEquationHolds === true && report.fileBacked?.cancellationRejectedAppend === true, '300-second file-backed AAC probe failed');
 expect(report.schemaVersion === 1, 'unknown native AAC report schema');
 expect(report.encoded === true, `AudioToolbox did not encode AAC: ${report.error?.message ?? 'unknown failure'}`);
 expect(exitCode === 0, `native AAC probe process exited with ${exitCode}`);

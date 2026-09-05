@@ -1,3 +1,5 @@
+> Historical planning/snapshot material. The current Mac-only product and validation boundary is [docs/STATUS.md](../STATUS.md). Do not use older completion tables as proof for 0.3.0.
+
 # Drift implementation status
 
 Updated: 30 August 2026

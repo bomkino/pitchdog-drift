@@ -12,6 +12,7 @@ const INPUT_BRIDGE_ERROR_EVENT = "drift-native-file-input-error";
 export function nativeImportKindForInput(input: HTMLInputElement): NativeMacImportKind {
   const accept = input.accept.toLowerCase();
   if (accept.includes(".pitched") || accept.includes("pitchdog.pitched")) return "project";
+  if (accept.includes("image/")) return "slides";
   if (accept.includes("video/") || accept.includes(".mp4") || accept.includes(".mov") || accept.includes(".webm")) {
     return "presenter";
   }

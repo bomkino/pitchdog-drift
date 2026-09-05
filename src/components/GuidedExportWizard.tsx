@@ -1,3 +1,4 @@
+import { QuickExport } from "./QuickExport";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import type { ExportProgress } from "../model";
 import type { ExportCapabilityReport } from "../lib/exportStudio";
@@ -119,6 +120,9 @@ export function GuidedExportWizard({
 
   return (
     <section className="guided-export" aria-label="Guided Export" data-step={draft.step}>
+      <QuickExport sourceIntent={sourceIntent} runtime={runtimeCapabilities} available={exportSurfaceSupported} busy={busy || starting} blockers={applicationBlockers} onRun={onRun} onStill={onQuickStill} />
+      <details className="advanced-export-options">
+      <summary>More export options</summary>
       <header className="guided-export-header">
         <div>
           <span>GUIDED EXPORT</span>
@@ -302,6 +306,7 @@ export function GuidedExportWizard({
           <div className="guided-export-actions"><button type="button" onClick={() => { setCompletion(null); dispatch({ type: "edit" }); }}>Edit choices</button><button type="button" onClick={onQuickStill}>Save one PNG still</button></div>
         </div>
       ) : null}
+      </details>
     </section>
   );
 }

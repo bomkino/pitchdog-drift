@@ -27,6 +27,13 @@ export async function switchWorkspace(
   }
   const button = page.getByRole("button", { name, exact: true });
   if (await button.getAttribute("aria-current") !== "page") await button.click();
+  // These historical journeys exercise the optional detailed exporter.
+  if (name === "EXPORT") {
+    const outputDetails = page.locator(".output-details");
+    if (await outputDetails.count() && await outputDetails.getAttribute("open") === null) await outputDetails.locator(":scope > summary").click();
+    const details = page.locator(".advanced-export-options");
+    if (await details.count() && await details.getAttribute("open") === null) await details.locator(":scope > summary").click();
+  }
 }
 
 export async function prepareGuidedExport(

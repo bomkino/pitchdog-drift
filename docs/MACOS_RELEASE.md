@@ -1,3 +1,5 @@
+> Current changes and limits: [STATUS.md](STATUS.md) and [Mac user guide](MACOS_USER_GUIDE.md). Retain the technical contracts below; older build receipts apply only to their exact commits.
+
 # Releasing Drift for macOS
 
 This document covers the distance between “a local `.app` builds” and “a stranger can safely install it.” Those are different claims.

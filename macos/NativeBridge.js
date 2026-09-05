@@ -13,7 +13,9 @@
     "open-project",
     "add-slides",
     "add-presenter",
-    "save-project",
+    "undo-edit",
+  "redo-edit",
+  "save-project",
     "save-project-as",
     "revert-project",
     "export-mp4",
@@ -559,7 +561,7 @@
     const handle = pendingProjectHandle;
     pendingProjectHandle = null;
     documentBinding = { handle, sha256, byteLength: file.size, conflict: false };
-    if (previous && previous !== handle) await previous._release();
+    if (previous && previous !== handle) void previous._release().catch(() => undefined);
     reportDocumentBinding();
     return Object.freeze({
       sha256,
@@ -677,7 +679,7 @@
         byteLength: request.byteLength,
         conflict: false,
       };
-      if (selectedForSaveAs && previous && previous !== handle) await previous._release();
+      if (selectedForSaveAs && previous && previous !== handle) void previous._release().catch(() => undefined);
       reportDocumentBinding();
       return Object.freeze({
         operation: request.operation,

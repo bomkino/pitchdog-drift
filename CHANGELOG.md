@@ -2,6 +2,24 @@
 
 Notable user-visible and maintainer-facing changes will be recorded here. Drift is pre-1.0, and a changelog entry is not by itself evidence of a tag, GitHub Release, binary publication, or approval.
 
+## [0.3.0] — 2026-09-05
+
+### Changed
+
+- Mac-only product direction; retain the existing AppKit/WKWebView and native file/audio foundation.
+- Video slides with explicit silent playback, saved looping and trim, frame-timed offline decoding, and bounded source admission.
+- Media-aware undo/redo, saved-content tracking, transactional Open rollback, and asynchronous native Save-on-close.
+- Two-worker imports, common image-header admission, shared immutable-media digests, and incremental IndexedDB asset writes.
+- File-backed AudioToolbox PCM staging and a 300-second encoder boundary; audio output remains 24/25/30 fps only.
+- Direct ordinary export, optional advanced details, frame timecode, and presenter trim independent of mute.
+
+### Boundaries
+
+- Still a hybrid application, not a finished NSDocument/Metal migration.
+- Physical M2 mini/M1 Pro validation and measured performance are not claimed.
+- Any published ad-hoc Mac test artifact is explicitly unnotarized. Developer ID distribution guards remain intact.
+- Keep earlier project copies; older apps do not understand video-slide directives.
+
 ## Unreleased
 
 Changes intended for the release after `v0.2.1` belong here.

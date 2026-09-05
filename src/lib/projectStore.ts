@@ -1,3 +1,4 @@
+import { mediaSha256 } from "./mediaDigest";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { driftBuildIdentity } from "./buildIdentity";
 
@@ -283,13 +284,7 @@ function assetPath(order: number, id: string, name: string): string {
   return `assets/${orderPart}-${idPart}-${sanitizeAssetFilename(name)}`;
 }
 
-async function sha256(blob: Blob): Promise<string> {
-  if (typeof globalThis.crypto?.subtle?.digest !== "function") {
-    throw integrityError("invalid-asset", "Web Crypto SHA-256 is unavailable in this browser.");
-  }
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+const sha256 = mediaSha256;
 
 function bytesToBlob(bytes: Uint8Array, type: string): Blob {
   const copy = new Uint8Array(bytes.byteLength);
@@ -670,6 +665,11 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
   });
 }
 
+export function sameStoredAssetMetadata(a: ProjectAssetManifest, b: ProjectAssetManifest): boolean {
+  return a.id === b.id && a.order === b.order && a.path === b.path && a.name === b.name
+    && a.type === b.type && a.size === b.size && a.sha256 === b.sha256;
+}
+
 export class ProjectStore {
   readonly databaseName: string;
   readonly limits: ProjectBundleLimits;
@@ -740,20 +740,27 @@ export class ProjectStore {
       try {
         const projects = transaction.objectStore(PROJECT_STORE);
         const assets = transaction.objectStore(ASSET_STORE);
-        projects.clear();
-        assets.clear();
-        const projectRecord: StoredProjectRecord = {
-          key: CURRENT_PROJECT_KEY,
-          manifest: snapshot.manifest,
+        const previousRequest = projects.get(CURRENT_PROJECT_KEY);
+        previousRequest.onsuccess = () => {
+          try {
+            const previous = previousRequest.result as StoredProjectRecord | undefined;
+            const oldAssets = new Map((previous?.manifest?.assets ?? []).map((asset) => [asset.id, asset]));
+            const nextIds = new Set(snapshot.assets.map((asset) => asset.id));
+            if (!previous) assets.clear();
+            for (const id of oldAssets.keys()) if (!nextIds.has(id)) assets.delete(`${CURRENT_PROJECT_KEY}:${id}`);
+            projects.put({ key: CURRENT_PROJECT_KEY, manifest: snapshot.manifest } satisfies StoredProjectRecord);
+            for (const asset of snapshot.assets) {
+              const storageKey = `${CURRENT_PROJECT_KEY}:${asset.id}`;
+              const previousAsset = oldAssets.get(asset.id);
+              const put = () => assets.put({ ...asset, storageKey } satisfies StoredAssetRecord);
+              if (!previousAsset || !sameStoredAssetMetadata(previousAsset, asset)) { put(); continue; }
+              // Read keys, not original media bytes. A settings edit writes only
+              // the manifest; a missing record is repaired in this transaction.
+              const exists = assets.getKey(storageKey);
+              exists.onsuccess = () => { if (exists.result === undefined) put(); };
+            }
+          } catch { transaction.abort(); }
         };
-        projects.put(projectRecord);
-        for (const asset of snapshot.assets) {
-          const assetRecord: StoredAssetRecord = {
-            ...asset,
-            storageKey: `${CURRENT_PROJECT_KEY}:${asset.id}`,
-          };
-          assets.put(assetRecord);
-        }
       } catch (cause) {
         transaction.abort();
         throw cause;

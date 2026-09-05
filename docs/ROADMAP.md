@@ -1,3 +1,5 @@
+> Historical planning/snapshot material. The current Mac-only product and validation boundary is [docs/STATUS.md](STATUS.md). Do not use older completion tables as proof for 0.3.0.
+
 # Roadmap
 
 Drift is pre-1.0 and source-first. This roadmap names outcomes the project can defend; it is not a promise of dates, a feature landfill, or evidence that a public binary exists.

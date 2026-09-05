@@ -1,3 +1,4 @@
+import { DEFAULT_SLIDE_VIDEO } from "../media/videoPlayback";
 import {
   createCompatibilityPerformanceLifecycle,
   ENGINE_VERSION,
@@ -376,6 +377,7 @@ function directiveFor(
   }
   return {
     assetId,
+    ...(project.media.assets[assetId]?.kind === "video" ? { video: { ...DEFAULT_SLIDE_VIDEO } } : {}),
     fit: settings.slide.fit,
     focalX: settings.slide.focalX,
     focalY: settings.slide.focalY,
