@@ -35,6 +35,7 @@
   let appBridgeGeneration = 0;
   let pendingProjectHandle = null;
   let documentBinding = null;
+  let provisionalProjectBinding = null;
   const documentInstanceBytes = new Uint8Array(16);
   crypto.getRandomValues(documentInstanceBytes);
   const documentInstanceChallenge = Array.from(
@@ -291,6 +292,15 @@
         return result;
       });
 
+      const writeValue = async (session, value, position) => {
+        if (!(value instanceof Blob)) return writeBytes(session, await toBytes(value), position);
+        let cursor = position;
+        for (let offset = 0; offset < value.size; offset += TRANSFER_CHUNK_BYTES) {
+          cursor = await writeBytes(session, new Uint8Array(await value.slice(offset, offset + TRANSFER_CHUNK_BYTES).arrayBuffer()), cursor);
+        }
+        return cursor;
+      };
+
       const abortNativeSession = async (reason) => {
         if (state.status === "closed" || state.status === "aborted") return;
         try {
@@ -330,12 +340,12 @@
               const position = chunk.position === undefined
                 ? state.position
                 : assertSafeInteger(chunk.position, "Write position");
-              state.position = await writeBytes(session, await toBytes(chunk.data), position);
+              state.position = await writeValue(session, chunk.data, position);
               return;
             }
           }
 
-          state.position = await writeBytes(session, await toBytes(chunk), state.position);
+          state.position = await writeValue(session, chunk, state.position);
         },
         async close() {
           if (state.status === "closed" || state.status === "aborted") return;
@@ -545,7 +555,22 @@
   async function abandonProjectOpen() {
     const candidate = pendingProjectHandle;
     pendingProjectHandle = null;
+    if (provisionalProjectBinding) {
+      const provisional = documentBinding?.handle;
+      documentBinding = provisionalProjectBinding.previous;
+      provisionalProjectBinding = null;
+      reportDocumentBinding();
+      if (provisional && provisional !== documentBinding?.handle) await provisional._release();
+    }
     if (candidate && candidate !== documentBinding?.handle) await candidate._release();
+  }
+
+  function commitProjectOpen() {
+    const previous = provisionalProjectBinding?.previous?.handle;
+    provisionalProjectBinding = null;
+    if (previous && previous !== documentBinding?.handle) {
+      void previous._release().catch(() => showNativeStatus("Project opened; a previous file permission will be released when Drift closes.", "warning"));
+    }
   }
 
   async function confirmProjectOpen(file) {
@@ -557,11 +582,11 @@
       throw new DOMException("The verified project does not match the native selection.", "SecurityError");
     }
     const sha256 = await sha256Blob(file);
-    const previous = documentBinding?.handle ?? null;
+    if (provisionalProjectBinding) throw new DOMException("Another project binding is awaiting commit.", "InvalidStateError");
+    provisionalProjectBinding = { previous: documentBinding };
     const handle = pendingProjectHandle;
     pendingProjectHandle = null;
     documentBinding = { handle, sha256, byteLength: file.size, conflict: false };
-    if (previous && previous !== handle) void previous._release().catch(() => undefined);
     reportDocumentBinding();
     return Object.freeze({
       sha256,
@@ -983,6 +1008,7 @@
       __driftNativeCall: { configurable: false, writable: false, value: callNative },
       __driftNativeSaveBlob: { configurable: false, writable: false, value: saveBlob },
       __driftNativeDocumentTransaction: { configurable: false, writable: false, value: documentTransaction },
+      __driftNativeCommitProjectOpen: { configurable: false, writable: false, value: commitProjectOpen },
       __driftNativeConfirmProjectOpen: { configurable: false, writable: false, value: confirmProjectOpen },
       __driftNativeAbandonProjectOpen: { configurable: false, writable: false, value: abandonProjectOpen },
       __driftNativeImportGranted: { configurable: false, writable: false, value: importGranted },

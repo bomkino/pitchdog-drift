@@ -1,3 +1,4 @@
+import { abortMedia, runMediaTask } from "../lib/mediaWork";
 import { VideoSlideSource } from "./VideoSlideSource";
 import * as THREE from "three";
 import { evaluateProjectFrame, type ProjectFrameEvaluation } from "../core/render/projectFrameAdapter";
@@ -340,6 +341,7 @@ interface TextureRecord {
 }
 
 interface TextureDecodeJob {
+  signal?: AbortSignal;
   key: string;
   asset: StudioAsset;
   promise: Promise<TextureRecord>;
@@ -615,6 +617,7 @@ export class CinematicCarousel {
   private presenterShouldPlay = false;
 
   private animationFrame = 0;
+  private schedulerRunning = false;
   private lastFrameTime = 0;
   private elapsed = 0;
   private previewSeekOverride: number | null = null;
@@ -1097,7 +1100,9 @@ export class CinematicCarousel {
 
   setPaused(paused: boolean): void {
     this.paused = paused;
+    this.lastFrameTime = performance.now();
     this.syncPresenterPlayback();
+    this.renderPreview();
   }
 
   togglePaused(): boolean {
@@ -1132,8 +1137,10 @@ export class CinematicCarousel {
       this.presenterReducedMotionMasterTime = null;
     }
     this.reducedMotionPreview = reduced;
+    this.lastFrameTime = performance.now();
     if (reduced) this.interaction.hold();
     this.syncPresenterPlayback();
+    this.renderPreview();
   }
 
   stepSlides(amount: number): void {
@@ -1203,6 +1210,7 @@ export class CinematicCarousel {
         this.pruneInactiveTextureRequests();
         this.exportInvalidatedByContextLoss = false;
         this.paused = previousPaused;
+        this.lastFrameTime = performance.now();
         this.syncPresenterPlayback();
         const previewSurface = this.pendingPreviewResize;
         this.pendingPreviewResize = null;
@@ -1261,6 +1269,7 @@ export class CinematicCarousel {
   }
 
   async renderAtAsync(time: number, frameIndex: number | null = null, signal?: AbortSignal): Promise<void> {
+    abortMedia(signal);
     this.assertExplicitFrameRendererAvailable();
     const exportFrameIndex = resolveExportFrameIndex(frameIndex);
     if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
@@ -1283,13 +1292,14 @@ export class CinematicCarousel {
       const presenterGeneration = this.presenterRequestGeneration;
       this.setTextureDemand(needed.keys());
       const [, pinnedRecord] = await Promise.all([
-        Promise.all(Array.from(needed.values(), (asset) => this.ensureTexture(asset))),
-        pinnedImage ? this.ensureTexture(pinnedImage) : Promise.resolve(null),
+        Promise.all(Array.from(needed.values(), (asset) => this.ensureTexture(asset, signal))),
+        pinnedImage ? this.ensureTexture(pinnedImage, signal) : Promise.resolve(null),
       ]);
       for (const asset of needed.values()) {
         await this.textureCache.get(this.textureKey(asset))?.video?.sample(time, this.project?.slides[asset.id]?.video, signal);
       }
-      this.assertExplicitFrameRendererAvailable();
+      abortMedia(signal);
+    this.assertExplicitFrameRendererAvailable();
       const currentPinnedRecord = pinnedImage
         && pinnedRecord
         && presenterGeneration === this.presenterRequestGeneration
@@ -1302,7 +1312,8 @@ export class CinematicCarousel {
         currentPinnedRecord && pinnedImage ? { asset: pinnedImage, record: currentPinnedRecord } : undefined,
       );
       this.renderProjectFrame(evaluation, true);
-      this.assertExplicitFrameRendererAvailable();
+      abortMedia(signal);
+    this.assertExplicitFrameRendererAvailable();
       return;
     }
     const settings = this.requireV1Settings();
@@ -1340,12 +1351,13 @@ export class CinematicCarousel {
     const presenterGeneration = this.presenterRequestGeneration;
     this.setTextureDemand(needed.keys());
     const [, pinnedRecord] = await Promise.all([
-      Promise.all(Array.from(needed.values(), (asset) => this.ensureTexture(asset))),
-      pinnedImage ? this.ensureTexture(pinnedImage) : Promise.resolve(null),
+      Promise.all(Array.from(needed.values(), (asset) => this.ensureTexture(asset, signal))),
+      pinnedImage ? this.ensureTexture(pinnedImage, signal) : Promise.resolve(null),
     ]);
     for (const asset of needed.values()) {
       await this.textureCache.get(this.textureKey(asset))?.video?.sample(time, this.project?.slides[asset.id]?.video, signal);
     }
+    abortMedia(signal);
     this.assertExplicitFrameRendererAvailable();
     const currentPinnedRecord = pinnedImage
       && pinnedRecord
@@ -1383,29 +1395,35 @@ export class CinematicCarousel {
   }
 
   start(): void {
-    if (this.animationFrame || this.disposed) return;
+    if (this.schedulerRunning || this.disposed) return;
+    this.schedulerRunning = true;
     this.lastFrameTime = performance.now();
-    const tick = (now: number) => {
-      this.animationFrame = requestAnimationFrame(tick);
-      const wallDelta = Math.max(0, (now - this.lastFrameTime) / 1000);
-      this.lastFrameTime = now;
-      if (this.exportActive || this.contextLost || document.hidden) return;
-      // The authored show clock follows real active time; otherwise a slow
-      // paint loop makes decoder-driven presenter video outrun the slides.
-      // Only inertial interaction physics is capped after a long frame.
-      if (!this.paused) {
-        this.elapsed += wallDelta;
-        this.previewSeekOverride = null;
-      }
-      this.advanceMotion(Math.min(0.05, wallDelta));
-      this.renderPreview();
-      this.emitPreviewTime(now);
-      this.sampleFps(now);
-    };
-    this.animationFrame = requestAnimationFrame(tick);
+    this.renderPreview();
+  }
+
+  private readonly paintPreview = (now: number): void => {
+    this.animationFrame = 0;
+    if (!this.schedulerRunning || this.disposed || this.exportActive || this.contextLost || document.hidden) return;
+    const wallDelta = Math.max(0, (now - this.lastFrameTime) / 1000);
+    this.lastFrameTime = now;
+    if (!this.paused && !this.reducedMotionPreview) {
+      this.elapsed += wallDelta;
+      this.previewSeekOverride = null;
+    }
+    this.advanceMotion(Math.min(0.05, wallDelta));
+    this.renderPreview();
+    this.emitPreviewTime(now);
+    this.sampleFps(now);
+  };
+
+  private armPreview(): void {
+    if (!this.schedulerRunning || this.animationFrame || this.disposed || this.exportActive || this.contextLost || document.hidden) return;
+    if ((this.paused || this.reducedMotionPreview) && this.interaction.snapshot().settled) return;
+    this.animationFrame = requestAnimationFrame(this.paintPreview);
   }
 
   stop(): void {
+    this.schedulerRunning = false;
     if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
     this.animationFrame = 0;
   }
@@ -1432,6 +1450,7 @@ export class CinematicCarousel {
 
   private renderPreview(): void {
     if (this.contextLost || this.disposed || this.exportActive) return;
+    this.armPreview();
     if (this.project?.renderContract === DRIFT_V2_RENDER_CONTRACT) {
       this.normalizeV2InteractionPosition();
       const interaction = this.interaction.snapshot();
@@ -1627,7 +1646,7 @@ export class CinematicCarousel {
       for (const [key, record] of this.textureCache) {
         if (!record.video) continue;
         const asset = renderable.find((item) => this.textureKey(item.asset) === key)?.asset;
-        if (asset) record.video.syncPreview(time, this.project?.slides[asset.id]?.video, this.paused || this.reducedMotionPreview);
+        if (asset) record.video.syncPreview(time, this.project?.slides[asset.id]?.video, this.paused || this.reducedMotionPreview, this.drawState.output.fps);
         else record.video.pause();
       }
     }
@@ -2175,7 +2194,8 @@ export class CinematicCarousel {
     this.backgroundMaterial.uniforms.uResolution!.value.set(stage.width, stage.height);
   }
 
-  private async ensureTexture(asset: StudioAsset): Promise<TextureRecord> {
+  private async ensureTexture(asset: StudioAsset, signal?: AbortSignal): Promise<TextureRecord> {
+    abortMedia(signal);
     const key = this.textureKey(asset);
     const cached = this.textureCache.get(key);
     if (cached) {
@@ -2192,6 +2212,7 @@ export class CinematicCarousel {
       rejectJob = reject;
     });
     const job: TextureDecodeJob = {
+      signal,
       key,
       asset,
       promise,
@@ -2257,7 +2278,7 @@ export class CinematicCarousel {
       if (job.cancelled) continue;
       job.started = true;
       this.activeTextureDecodes += 1;
-      void this.decodeTexture(job.asset)
+      void this.decodeTexture(job.asset, job.signal)
         .then((record) => {
           if (this.disposed || !this.isTextureKeyActive(job.key)) {
             this.disposeTextureRecord(record);
@@ -2266,6 +2287,7 @@ export class CinematicCarousel {
           this.textureCache.set(job.key, record);
           this.evictTextures(this.textureDemandKeys);
           job.resolve(record);
+          if (!this.exportActive) this.renderPreview();
         })
         .catch((error: unknown) => {
           job.reject(error);
@@ -2308,12 +2330,13 @@ export class CinematicCarousel {
     }
   }
 
-  private async decodeTexture(asset: StudioAsset): Promise<TextureRecord> {
+  private async decodeTexture(asset: StudioAsset, signal?: AbortSignal): Promise<TextureRecord> {
+    abortMedia(signal);
     const maximum = Math.min(this.exportActive
       ? Math.max(this.drawState.stage.width, this.drawState.stage.height)
       : PREVIEW_TEXTURE_EDGE, this.renderer.capabilities.maxTextureSize);
     if (asset.kind === "video") {
-      const video = await VideoSlideSource.create(asset, this.exportActive, maximum, () => this.renderPreview());
+      const video = await VideoSlideSource.create(asset, this.exportActive, maximum, () => this.renderPreview(), signal);
       return { texture: video.texture, source: video.source, aspect: asset.width / asset.height, lastUsed: performance.now(), video };
     }
     const scale = Math.min(1, maximum / Math.max(asset.width, asset.height));
@@ -2329,8 +2352,11 @@ export class CinematicCarousel {
     };
     let bitmap: ImageBitmap;
     try {
-      bitmap = await createImageBitmap(asset.blob, options);
-    } catch {
+      bitmap = await runMediaTask(() => createImageBitmap(asset.blob, options), {
+        signal, label: `${asset.name}: image decoding`, cancel: () => undefined, disposeLate: (late) => late.close(),
+      });
+    } catch (error) {
+      abortMedia(signal);
       throw new Error(`Could not decode ${asset.name}. File may be corrupt or unsupported.`);
     }
     const texture = new THREE.CanvasTexture(bitmap);
@@ -2414,9 +2440,14 @@ export class CinematicCarousel {
   }
 
   private onVisibilityChange(): void {
-    if (document.hidden) for (const record of this.textureCache.values()) record.video?.pause();
+    if (document.hidden) {
+      for (const record of this.textureCache.values()) record.video?.pause();
+      if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = 0;
+    }
     this.lastFrameTime = performance.now();
     this.syncPresenterPlayback();
+    if (!document.hidden) this.renderPreview();
   }
 
   private previewMasterTime(): number {

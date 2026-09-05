@@ -169,6 +169,7 @@ test("Reading Pace, platform guides, preflight, and Command-K use the settled V2
   await ensureInspectorOpen(platformGuides);
   await platformGuides.getByRole("combobox", { name: "Preview overlay" }).selectOption("instagram-combined");
   await expect(page.locator(".platform-guide-overlay[data-profile='instagram-combined']")).toBeVisible();
+  await page.locator(".output-details > summary").click();
   await expect(page.getByRole("status", { name: "Master preflight" })).toContainText(/MP4 READY|BLOCKED/);
 
   await page.keyboard.press("Meta+k");
@@ -202,7 +203,7 @@ test("comparison pixels return after a still export instead of keeping live dire
 
   await page.getByRole("button", { name: "EXPORT", exact: true }).click();
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save one PNG still" }).click();
+  await page.getByRole("button", { name: "Export PNG still" }).click();
   const exportPath = await (await download).path();
   expect(exportPath).toBeTruthy();
   // A still export must render the live Dread direction even while the stage

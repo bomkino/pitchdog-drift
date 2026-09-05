@@ -2,6 +2,15 @@
 
 # Releasing Drift for macOS
 
+## Current downloadable release lane
+
+The user-authorized 0.3.0 download is explicitly **ad-hoc signed and unnotarized**. This lane does not claim Developer ID identity, Gatekeeper acceptance, completed physical-Mac testing, or a fully native editor.
+
+The main Mac job builds once, runs the signed packaged lifecycle and synthetic V2 video-output proof, verifies the DMG, and freezes `MacReleaseReceipt.json`. After all exact-main CI, Mac and WK runtime jobs pass, `source-release.yml` downloads that artifact, verifies every size/digest/source revision, creates a draft release, uploads its exact files, verifies GitHub asset digests, and only then publishes. Neither existing tags nor published assets are overwritten. No branch-specific source-writing workflow is retained.
+
+`BuildReceipt.txt` is the real embedded build receipt; there is no `BuildReceipt.json`. The notarized distribution procedure below remains separate and unchanged. A future Developer ID release must satisfy it rather than relabel this ad-hoc artifact.
+
+
 This document covers the distance between “a local `.app` builds” and “a stranger can safely install it.” Those are different claims.
 
 The `v0.2.1` tree is a source-only release line: it does not publish a Mac binary. The Apple-Silicon DMG attached to the historical `v0.1.0` GitHub Release is ad-hoc signed and unnotarized and therefore does not satisfy this document.

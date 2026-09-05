@@ -105,12 +105,13 @@ DRIFT FOR macOS
 
 1. Drag Drift.app to the Applications alias.
 2. Open Drift from Applications.
-3. Add slide images or open a .pitched project. Your media stays on this Mac.
+3. Add images/video slides or open a .pitched project. Your media stays on this Mac.
 
-This local disk image is not a notarized public release. macOS may block it when
-it arrives through a quarantining download. Public distribution requires a
-Developer ID signature, Apple notarization, stapling, Gatekeeper assessment,
-and physical-Mac release QA.
+This disk image is ad-hoc signed and unnotarized. After a blocked first launch,
+use System Settings > Privacy & Security > Open Anyway only for this trusted
+download. Do not disable system-wide security. Physical M2 mini and M1 Pro
+testing is not claimed. Keep your previous app and copies of your projects.
+Developer ID/notarized distribution remains a separate verification lane.
 
 The standalone app contains no FFmpeg WebAssembly encoder. Presenter audio uses
 Drift’s bounded native bridge to Apple’s software AAC-LC encoder in AudioToolbox.

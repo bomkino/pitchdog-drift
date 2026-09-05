@@ -4172,3 +4172,13 @@ a:focus-visible {
 .quick-export .quick-export-audio { display: flex; align-items: start; line-height: 1.4; }
 .quick-export-problem { font-size: .85rem; line-height: 1.45; }
 .inspector-help:not([open]) + * { margin-top: 4px; }
+
+/* Source decoding is on demand; the inspector keeps its width during loading. */
+.clip-source-preview { margin-block: 12px; min-width: 0; }
+.clip-source-preview summary { cursor: pointer; padding-block: 10px; }
+.clip-source-preview video { display: block; width: 100%; max-height: 220px; background: #111; margin-block: 12px; border-radius: 8px; }
+.clip-filmstrip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; min-height: 38px; }
+.clip-filmstrip button { padding: 0; min-width: 0; overflow: hidden; }
+.clip-filmstrip img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.clip-filmstrip [role="status"] { grid-column: 1 / -1; }
+.clip-timing { font-variant-numeric: tabular-nums; }

@@ -4,9 +4,11 @@ Drift is a local-first Mac directing instrument: turn pitch-deck images and vide
 
 **Mac only.** The maintained product is an Apple-Silicon-only `arm64` application. Intel Macs and Windows are unsupported; Linux and browser builds are not products. Browser tooling remains an internal renderer/test harness during the native migration.
 
-## Current release line
+## Install
 
-`0.3.0` adds silent video slides with looping and source trim, complete media-aware undo, safer project replacement, native Save-on-close, frame timecode, and a direct export form. Original files remain embedded in portable `.pitched` projects.
+Download **Drift-0.3.0-macOS-arm64.dmg** from [Releases](https://github.com/bomkino/pitchdog-drift/releases/latest), drag Drift to Applications, and open it. This release is **ad-hoc signed and unnotarized**. When macOS blocks the first launch, use System Settings → Privacy & Security → Open Anyway after verifying the download source. Never disable system-wide Gatekeeper. Keep your previous app and a copy of your projects before upgrading.
+
+`0.3.0` adds video slides, looping, source trim and speed, a source filmstrip/audition, media-aware undo, transactional project replacement, native Save-on-close, exact frame timecode, and one direct export form. Original files remain embedded in portable `.pitched` projects.
 
 The application still uses an AppKit window and native file/audio infrastructure around a WKWebView editor and Three.js renderer. It is **not yet** the planned NSDocument/Metal application. [Status](docs/STATUS.md) records the remaining boundaries. A source tag is not proof of a downloadable or validated Mac binary; use the matching release asset and its build receipt.
 

@@ -2,19 +2,21 @@ import * as THREE from "three";
 import { Input, BlobSource, ALL_FORMATS, VideoSampleSink, type VideoSample } from "mediabunny";
 import type { StudioAsset } from "../model";
 import { DEFAULT_SLIDE_VIDEO, slideVideoTime, type SlideVideoPlayback } from "../core/media/videoPlayback";
-import { abortMedia, waitForVideo } from "../lib/mediaWork";
+import { SequentialSamples } from "../core/media/sequentialSamples";
+import { abortMedia, runMediaTask, waitForVideo } from "../lib/mediaWork";
 
-/** One source per clip, shared by every repeated card. Never plays source audio. */
+/** One source clock per clip; repeated cards share it without duplicating decoders. */
 export class VideoSlideSource {
   readonly texture: THREE.Texture;
   readonly source: HTMLVideoElement | HTMLCanvasElement;
   private input: Input | null = null;
-  private sink: VideoSampleSink | null = null;
+  private samples: SequentialSamples<VideoSample> | null = null;
   private start = 0;
   private end = Infinity;
   private disposed = false;
   private playPending = false;
   private shouldPlay = false;
+  private previousTarget: number | null = null;
   private readonly lifetime = new AbortController();
 
   private constructor(private asset: StudioAsset, readonly exportMode: boolean, edge: number, private invalidate: () => void) {
@@ -40,32 +42,32 @@ export class VideoSlideSource {
     this.texture.generateMipmaps = false;
   }
 
-  static async create(asset: StudioAsset, exportMode: boolean, edge: number, invalidate: () => void): Promise<VideoSlideSource> {
+  static async create(asset: StudioAsset, exportMode: boolean, edge: number, invalidate: () => void, signal?: AbortSignal): Promise<VideoSlideSource> {
+    abortMedia(signal);
     const source = new VideoSlideSource(asset, exportMode, edge, invalidate);
-    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await Promise.race([(async () => {
-      if (source.source instanceof HTMLVideoElement) {
-        const ready = waitForVideo(source.source, "loadeddata", source.lifetime.signal);
-        source.source.src = asset.objectUrl;
-        await ready;
-      } else {
-        source.input = new Input({ formats: ALL_FORMATS, source: new BlobSource(asset.blob, { maxCacheSize: 2 * 1024 * 1024 }) });
-        const track = await source.input.getPrimaryVideoTrack();
-        if (!track || !await track.canDecode()) throw new Error(`${asset.name}: video codec cannot be decoded for export.`);
-        source.start = Math.max(0, await track.getFirstTimestamp());
-        source.end = await track.computeDuration();
-        if (source.disposed) throw new DOMException("Video loading cancelled.", "AbortError");
-        if (!Number.isFinite(source.end) || source.end <= source.start) throw new Error(`${asset.name}: video has no playable time range.`);
-        source.sink = new VideoSampleSink(track);
-      }
-      })(), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { source.dispose(); reject(new Error(`${asset.name}: video loading timed out.`)); }, 15000); })]);
+      await runMediaTask(async () => {
+        if (source.source instanceof HTMLVideoElement) {
+          const ready = waitForVideo(source.source, "loadeddata", source.lifetime.signal);
+          source.source.src = asset.objectUrl;
+          await ready;
+        } else {
+          source.input = new Input({ formats: ALL_FORMATS, source: new BlobSource(asset.blob, { maxCacheSize: 2 * 1024 * 1024 }) });
+          const track = await source.input.getPrimaryVideoTrack();
+          if (!track || !await track.canDecode()) throw new Error(`${asset.name}: video codec cannot be decoded for export.`);
+          source.start = Math.max(0, await track.getFirstTimestamp());
+          source.end = await track.computeDuration();
+          if (source.disposed) throw new DOMException("Video loading cancelled.", "AbortError");
+          if (!Number.isFinite(source.end) || source.end <= source.start) throw new Error(`${asset.name}: video has no playable time range.`);
+          const sink = new VideoSampleSink(track);
+          source.samples = new SequentialSamples((time) => sink.samples(time));
+        }
+      }, { signal, label: `${asset.name}: video loading`, cancel: () => source.dispose() });
       return source;
     } catch (error) { source.dispose(); throw error; }
-    finally { clearTimeout(timer); }
   }
 
-  syncPreview(time: number, playback: SlideVideoPlayback = DEFAULT_SLIDE_VIDEO, paused: boolean): void {
+  syncPreview(time: number, playback: SlideVideoPlayback = DEFAULT_SLIDE_VIDEO, paused: boolean, outputFps = 30): void {
     if (this.disposed || !(this.source instanceof HTMLVideoElement)) return;
     const video = this.source;
     const target = slideVideoTime(time, this.asset.duration!, playback);
@@ -73,10 +75,14 @@ export class VideoSlideSource {
     const ended = !playback.loop && time * playback.rate >= end - playback.trimStart;
     this.shouldPlay = !paused && !ended && !document.hidden;
     video.playbackRate = playback.rate;
-    const tolerance = this.shouldPlay ? 0.10 : 0.001;
+    const wrapped = this.previousTarget !== null && target < this.previousTarget - 1e-6;
+    this.previousTarget = target;
+    // A running decoder may coast within one delivery frame. Scrubs and wraps
+    // seek exactly; a pending seek is allowed to finish before the next request.
+    const tolerance = this.shouldPlay && !wrapped ? Math.max(0.015, playback.rate / Math.max(24, outputFps)) : 0.001;
     if (!video.seeking && Math.abs(video.currentTime - target) > tolerance) video.currentTime = target;
     if (!this.shouldPlay) video.pause();
-    else if (video.paused && !this.playPending) {
+    else if (video.paused && !video.seeking && !this.playPending) {
       this.playPending = true;
       void video.play().catch(() => undefined).finally(() => {
         this.playPending = false;
@@ -87,39 +93,20 @@ export class VideoSlideSource {
 
   async sample(time: number, playback: SlideVideoPlayback = DEFAULT_SLIDE_VIDEO, signal?: AbortSignal): Promise<void> {
     abortMedia(signal);
-    if (this.disposed || !this.sink || !(this.source instanceof HTMLCanvasElement)) throw new Error("Video export source is unavailable.");
-    // Use the container timeline, exactly like HTMLVideoElement.currentTime.
-    // A late first sample or short video track holds its nearest visible frame.
+    const samples = this.samples;
+    if (this.disposed || !samples || !(this.source instanceof HTMLCanvasElement)) throw new Error("Video export source is unavailable.");
+    // Match the container timeline used by HTMLVideoElement.currentTime.
     const timestamp = Math.max(this.start, Math.min(this.end - 1e-7, slideVideoTime(time, this.asset.duration!, playback)));
-    // Decoder work can outlive cancellation. Observe and close its late sample.
-    let rejected = false;
-    const decoded = this.sink.getSample(timestamp);
-    void decoded.then((sample) => { if (rejected) sample?.close(); }, () => undefined);
-    let cancel!: () => void;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const stopped = new Promise<never>((_resolve, reject) => {
-      cancel = () => { rejected = true; this.input?.dispose(); reject(signal?.reason ?? new DOMException("Video export cancelled.", "AbortError")); };
-      signal?.addEventListener("abort", cancel, { once: true });
-      if (signal?.aborted) cancel();
-      timer = setTimeout(() => { rejected = true; this.input?.dispose(); reject(new Error(`${this.asset.name}: video frame decoding timed out.`)); }, 15000);
+    const sample = await runMediaTask(() => samples.read(timestamp), {
+      signal, label: `${this.asset.name}: video frame decoding`, cancel: () => this.finishDecoding(),
     });
-    let sample: VideoSample | null = null;
-    try {
-      sample = await Promise.race([decoded, stopped]);
-      abortMedia(signal);
-      if (!sample || sample.timestamp > timestamp + 1e-6 || sample.timestamp + sample.duration < timestamp - 1e-6) {
-        throw new Error(`${this.asset.name}: no decoded video frame covers the requested time.`);
-      }
-      const context = this.source.getContext("2d");
-      if (!context) throw new Error("Video staging surface is unavailable.");
-      context.clearRect(0, 0, this.source.width, this.source.height);
-      sample.draw(context, 0, 0, this.source.width, this.source.height);
-      this.texture.needsUpdate = true;
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", cancel);
-      sample?.close();
-    }
+    abortMedia(signal);
+    const context = this.source.getContext("2d");
+    if (!context) throw new Error("Video staging surface is unavailable.");
+    context.clearRect(0, 0, this.source.width, this.source.height);
+    sample.draw(context, 0, 0, this.source.width, this.source.height);
+    this.texture.needsUpdate = true;
+    // The cursor owns the sample until advancement, cancellation or disposal.
   }
 
   pause(): void {
@@ -128,9 +115,10 @@ export class VideoSlideSource {
   }
 
   finishDecoding(): void {
+    this.samples?.reset();
+    this.samples = null;
     this.input?.dispose();
     this.input = null;
-    this.sink = null;
   }
 
   dispose(): void {
@@ -138,9 +126,7 @@ export class VideoSlideSource {
     this.disposed = true;
     this.lifetime.abort();
     this.pause();
-    this.input?.dispose();
-    this.input = null;
-    this.sink = null;
+    this.finishDecoding();
     if (this.source instanceof HTMLVideoElement) {
       this.source.removeAttribute("src");
       this.source.load();

@@ -61,13 +61,15 @@ test('real video loops sample identical source frames and produces a decoded MP4
   await page.goto('/');
   const encoded=(await readFile(loopFixture)).toString('base64');
   const receipt=await page.evaluate(async(encoded)=>{
-    const [{CinematicCarousel},{DEFAULT_SETTINGS},{exportMp4},{videoFileToAsset}]=await Promise.all([
+    const [{CinematicCarousel},{DEFAULT_SETTINGS,createCompatibilityPerformanceLifecycle},{exportMp4},{videoFileToAsset}]=await Promise.all([
       import('/src/engine/CinematicCarousel.ts'),import('/src/model.ts'),import('/src/lib/exportStudio.ts'),import('/src/lib/assets.ts')]);
     const asset=await videoFileToAsset(new File([Uint8Array.from(atob(encoded),c=>c.charCodeAt(0))],'loop.mp4',{type:'video/mp4'}));
     const settings=structuredClone(DEFAULT_SETTINGS);
     settings.stage={width:320,height:320,transparent:false};
     settings.background={...settings.background,style:"solid",grain:0,vignette:0,motion:0};
     settings.output={...settings.output,width:320,height:320,fps:24,duration:asset.duration!*2};
+    // Isolate source timing; authored opening/ending opacity has a separate test.
+    settings.performance=createCompatibilityPerformanceLifecycle(asset.duration!*2);
     settings.motion={...settings.motion,axis:'horizontal',speed:0,flow:'straight',gap:0,curvature:0,depth:0,tilt:0,distortion:0,focusScale:0,edgeFade:0};
     settings.slide={...settings.slide,aspectWidth:1,aspectHeight:1,scale:1,fit:'cover',radius:0,borderWidth:0,shadowOpacity:0};
     const canvas=document.createElement('canvas');document.body.append(canvas);
@@ -102,4 +104,14 @@ test('real video loops sample identical source frames and produces a decoded MP4
   expect(receipt.bytes).toBeGreaterThan(1000);
   expect(receipt.verification.verified).toBe(true);
   expect(receipt.verification.frameCount).toBe(Math.floor(receipt.duration!*2*24));
+});
+
+test('V2 video output uses the same packaged proof and returns a decoded looping movie', async ({page}) => {
+  await page.goto('/');
+  const proof = await page.evaluate(async () => (await import('/src/lib/videoSlideProof.ts')).verifyVideoSlideOutput());
+  expect(proof.verified).toBe(true);
+  expect(proof.frameCount).toBe(48);
+  expect(proof.rawLoopDifference).toBe(0);
+  expect(proof.changingPixels).toBeGreaterThan(100);
+  expect(proof.encodedLoopMeanError).toBeLessThan(8);
 });

@@ -155,6 +155,7 @@ declare global {
     __driftNativeDocumentTransaction?: (
       request: NativeMacDocumentTransactionRequest,
     ) => Promise<unknown>;
+    __driftNativeCommitProjectOpen?: () => void;
     __driftNativeConfirmProjectOpen?: (file: File) => Promise<unknown>;
     __driftNativeAbandonProjectOpen?: () => Promise<void> | void;
     __driftNativeSaveBlob?: (blob: Blob, suggestedName: string) => Promise<void>;
@@ -373,6 +374,10 @@ export async function confirmNativeMacDocumentOpen(
     conflict: false as const,
     verified: true as const,
   });
+}
+
+export function commitNativeMacDocumentOpen(): void {
+  if (isNativeMacRuntime()) window.__driftNativeCommitProjectOpen?.();
 }
 
 export async function abandonNativeMacDocumentOpen(): Promise<void> {

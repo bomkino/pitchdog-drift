@@ -1,3 +1,5 @@
+import { VideoClipPreview } from "./VideoClipPreview";
+import type { StudioAsset } from "../model";
 import { DEFAULT_SLIDE_VIDEO } from "../core/media/videoPlayback";
 import { useMemo, useState, type CSSProperties } from "react";
 import {
@@ -253,6 +255,9 @@ function minimumTotalDuration(performance: PerformanceLifecycleAuthoring): numbe
 interface ControlPanelProps {
   settings: StudioSettings;
   project: DriftProjectV4;
+  documentRevision?: number;
+  selectedSlideAsset?: StudioAsset;
+  onSourceAudition?: () => void;
   v2Active: boolean;
   onSettings: (settings: StudioSettings) => void;
   onV2Project: (project: DriftProjectV4, message: string) => void;
@@ -269,7 +274,7 @@ interface ControlPanelProps {
   sonicState: TactileRuntimeState;
   onTheme: (id: ThemeId) => void;
   onResetPinnedFrame: () => void;
-  onExportStill: () => void;
+  onExportStill: (background?: "opaque" | "transparent") => void;
   onRunGuidedExport: (request: GuidedExportRunRequest) => Promise<GuidedExportCompletion | null>;
   onExportProject: () => void;
   onImportProject: () => void;
@@ -296,6 +301,9 @@ interface ControlPanelProps {
 export function ControlPanel({
   settings,
   project,
+  documentRevision = 0,
+  selectedSlideAsset,
+  onSourceAudition,
   v2Active,
   onSettings,
   onV2Project,
@@ -837,6 +845,7 @@ export function ControlPanel({
               ) : null}
               {selectedSlide.kind === "video" ? (
                 <div className="video-slide-controls" aria-label="Video slide playback">
+                  {selectedSlideAsset ? <VideoClipPreview key={selectedSlideAsset.id} asset={selectedSlideAsset} playback={{ ...DEFAULT_SLIDE_VIDEO, ...selectedDirective.video }} onAudition={() => onSourceAudition?.()} /> : null}
                   <SwitchField label="Loop video" checked={selectedDirective.video?.loop ?? true}
                     onChange={(loop) => directProject("Video looping changed.", (next) => {
                       next.slides[selectedSlideKey]!.video = { ...DEFAULT_SLIDE_VIDEO, ...next.slides[selectedSlideKey]!.video, loop };
@@ -853,6 +862,14 @@ export function ControlPanel({
                     onChange={(trimEnd) => directProject("Video trim changed.", (next) => {
                       next.slides[selectedSlideKey]!.video = { ...DEFAULT_SLIDE_VIDEO, ...next.slides[selectedSlideKey]!.video, trimEnd };
                     })} />
+                  <RangeNumberField label="Playback speed" value={selectedDirective.video?.rate ?? 1}
+                    softMin={0.25} softMax={2} hardMin={0.1} hardMax={4} step={0.05} decimals={2} unit="×"
+                    onChange={(rate) => directProject("Video speed changed.", (next) => {
+                      next.slides[selectedSlideKey]!.video = { ...DEFAULT_SLIDE_VIDEO, ...next.slides[selectedSlideKey]!.video, rate };
+                    })} />
+                  <button type="button" onClick={() => directProject("Video trim reset.", (next) => {
+                    next.slides[selectedSlideKey]!.video = { ...DEFAULT_SLIDE_VIDEO, ...next.slides[selectedSlideKey]!.video, trimStart: 0, trimEnd: null };
+                  })}>Reset trim</button>
                   <small>Silent clip · {selectedDirective.video?.loop === false ? "holds its last frame" : "repeats from its start"}. Use Presenter for voice.</small>
                 </div>
               ) : null}
@@ -1905,6 +1922,7 @@ export function ControlPanel({
         </details>
         <GuidedExportWizard
           sourceIntent={guidedExportIntent}
+          sourceIdentity={`${project.projectId}:${documentRevision}`}
           runtimeCapabilities={exportCapabilities}
           exportSurfaceSupported={exportSurfaceSupported}
           applicationBlockers={preflight.blockers

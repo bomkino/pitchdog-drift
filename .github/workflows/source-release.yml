@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Tag and publish source
+    name: Publish verified Mac installer
     if: >-
       ${{
         github.event_name == 'workflow_dispatch' ||
@@ -68,6 +68,7 @@ jobs:
           test "$(git rev-parse FETCH_HEAD)" = "$RELEASE_SHA"
 
           READY=true
+          MAC_RUN=""
           for WORKFLOW_FILE in ci.yml macos.yml macos-runtime.yml; do
             RUNS_PATH="$RUNNER_TEMP/source-release-${WORKFLOW_FILE}.json"
             gh api --method GET \
@@ -92,6 +93,7 @@ jobs:
           NODE
             )"
             echo "$WORKFLOW_FILE=$RESULT"
+            if [[ "$WORKFLOW_FILE" == macos.yml && "$RESULT" == success:* ]]; then MAC_RUN="${RESULT#success:}"; fi
             if [[ "$RESULT" != success:* ]]; then
               READY=false
             fi
@@ -102,6 +104,7 @@ jobs:
             exit 1
           fi
           echo "ready=$READY" >> "$GITHUB_OUTPUT"
+          echo "mac_run=$MAC_RUN" >> "$GITHUB_OUTPUT"
 
       - name: Resolve version transition
         id: release
@@ -154,69 +157,24 @@ jobs:
           writeFileSync(process.env.NOTES_PATH, `${notes}\n`, "utf8");
           NODE
 
-      - name: Tag exact commit and publish source release
+      - name: Download the exact tested installer
         if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          NOTES_PATH: ${{ runner.temp }}/source-release-notes.md
-          TAG: ${{ steps.release.outputs.tag }}
+          MAC_RUN: ${{ steps.authority.outputs.mac_run }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin refs/heads/main
-          test "$(git rev-parse FETCH_HEAD)" = "$RELEASE_SHA"
-          test "$(gh api --method GET "repos/$GITHUB_REPOSITORY" --jq .visibility)" = public
+          test -n "$MAC_RUN"
+          gh run download "$MAC_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "drift-macos-installer-$RELEASE_SHA" --dir "$RUNNER_TEMP/drift-installer"
+          python3 scripts/freeze-macos-artifact.py --verify "$RUNNER_TEMP/drift-installer" "$RELEASE_SHA"
 
-          release_state() {
-            local release_pages_path="$RUNNER_TEMP/source-release-pages.json"
-            gh api --method GET --paginate --slurp \
-              "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-              > "$release_pages_path"
-            RELEASE_PAGES_PATH="$release_pages_path" node <<'NODE'
-          const { readFileSync } = require("node:fs");
-          const pages = JSON.parse(readFileSync(process.env.RELEASE_PAGES_PATH, "utf8"));
-          const releases = pages.flatMap((page) => Array.isArray(page) ? page : []);
-          const release = releases.find((candidate) => candidate.tag_name === process.env.TAG);
-          if (!release) {
-            process.stdout.write("missing");
-            process.exit(0);
-          }
-          if (release.draft !== false) throw new Error(`${process.env.TAG} exists but is a draft.`);
-          if (release.prerelease !== false) throw new Error(`${process.env.TAG} exists but is a prerelease.`);
-          if (!release.published_at) throw new Error(`${process.env.TAG} is not publicly published.`);
-          if (!Array.isArray(release.assets) || release.assets.length !== 0) {
-            throw new Error(`${process.env.TAG} is not source-only; uploaded assets are attached.`);
-          }
-          process.stdout.write("verified");
-          NODE
-          }
-
-          EXISTING_RELEASE_STATE="$(release_state)"
-
-          git fetch --force --tags origin
-          if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
-            test "$(git rev-list -n 1 "$TAG")" = "$RELEASE_SHA"
-          else
-            if [[ "$EXISTING_RELEASE_STATE" == verified ]]; then
-              echo "Refusing to repair published release $TAG without its immutable tag." >&2
-              exit 1
-            fi
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" "$RELEASE_SHA" -m "Drift $TAG source release"
-            git push origin "refs/tags/$TAG"
-          fi
-          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
-          test "$(git rev-list -n 1 "$TAG")" = "$RELEASE_SHA"
-
-          if [[ "$EXISTING_RELEASE_STATE" == verified ]]; then
-            gh release edit "$TAG" --latest
-            echo "GitHub Release $TAG already exists, is public, non-prerelease, source-only, and points at the verified tag."
-          else
-            gh release create "$TAG" \
-              --verify-tag \
-              --latest \
-              --title "Drift $TAG" \
-              --notes-file "$NOTES_PATH"
-            test "$(release_state)" = verified
-          fi
-          test "$(gh api --method GET "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG"
+      - name: Tag and publish the verified installer without rebuilding
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          NOTES_PATH: ${{ runner.temp }}/source-release-notes.md
+          ARTIFACT_DIR: ${{ runner.temp }}/drift-installer
+        run: python3 scripts/publish-macos-installer.py

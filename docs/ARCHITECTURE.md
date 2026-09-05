@@ -33,3 +33,11 @@ Move document ownership and undo to NSDocument; retain the broker’s transactio
 The temporary WK renderer exists to preserve exact creative behaviour during this migration. No browser release or web-only feature branch is authorized by this architecture. Remove the boundary only when legacy and V4 projects, every preserved feature class, original media, presenter timing/audio, colour/alpha, preview, and exported outputs meet agreed parity tests through the native pipeline.
 
 Current native app build tests and source assertions do not satisfy this exit condition. The physical M2 mini 8 GB and M1 Pro laptop remain required validation targets.
+
+## 0.3.0 implementation boundaries
+
+`ProjectStore.stageReplacement/commitReplacement` keeps the accepted recovery record separate from an unaccepted Open. Native binding is provisional until that atomic commit succeeds. Undo and export snapshots retain original media references independently of renderer caches.
+
+`SequentialSamples` owns a bounded forward decoder cursor. The paused renderer sleeps after interaction settles; direct edits/media completion wake it. Source audition is separate from authored timing. `storedZip` creates the portable stored ZIP in chunks and reads it through Blob slices; the deflated legacy path remains bounded. This reduces copying, but does not remove the archive-size limit or complete native media storage.
+
+The old GuidedExportWizard import is only a compatibility facade over one export draft. There is no second wizard state. Public Mac artifact identity is frozen after the packaged lifecycle and V2 video-output checks, then verified again by the publisher without rebuilding.

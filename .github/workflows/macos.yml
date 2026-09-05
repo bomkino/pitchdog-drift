@@ -285,6 +285,24 @@ jobs:
       - name: Reopen and independently verify local DMG
         run: npm run verify:mac:dmg
 
+      - name: Freeze the verified installer identity
+        run: |
+          set -euo pipefail
+          mkdir -p build/macos/release-artifact
+          cp build/macos/Drift-*-macOS-arm64.dmg build/macos/release-artifact/
+          cp build/macos/Drift-*-macOS-arm64.dmg.sha256 build/macos/release-artifact/
+          cp build/macos/Drift.app/Contents/Resources/BuildReceipt.txt build/macos/release-artifact/
+          { sw_vers; xcodebuild -version; uname -m; } > build/macos/release-artifact/TestEnvironment.txt
+          python3 scripts/freeze-macos-artifact.py
+
+      - name: Preserve the exact verified Mac installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: drift-macos-installer-${{ github.sha }}
+          path: build/macos/release-artifact/
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Prove release guard rejects non-Developer-ID signing
         run: |
           set -euo pipefail

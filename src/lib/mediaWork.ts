@@ -38,3 +38,43 @@ export function waitForVideo(video: HTMLVideoElement, event: "loadedmetadata" | 
     if (signal?.aborted) cancelled();
   });
 }
+
+/** A cancellable/deadlined media operation. Late results never regain ownership. */
+export function runMediaTask<T>(run: () => Promise<T>, options: {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  label: string;
+  cancel: () => void;
+  disposeLate?: (value: T) => void;
+}): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abort);
+    };
+    const stop = (reason: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      try { options.cancel(); }
+      catch (cleanupError) { reject(new AggregateError([reason, cleanupError], "Media stopped, but decoder cleanup failed.")); return; }
+      reject(reason);
+    };
+    const abort = () => stop(options.signal?.reason ?? new DOMException("Media operation cancelled.", "AbortError"));
+    const timer = setTimeout(() => stop(new Error(`${options.label} timed out.`)), options.timeoutMs ?? 15000);
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) { abort(); return; }
+    Promise.resolve().then(() => settled ? undefined : run()).then((value) => {
+      if (settled) { if (value !== undefined) options.disposeLate?.(value); return; }
+      settled = true;
+      cleanup();
+      resolve(value as T);
+    }, (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    });
+  });
+}

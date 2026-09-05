@@ -150,6 +150,7 @@ import {
 } from "./lib/exportProgress";
 import {
   installNativeMacAppBridge,
+  commitNativeMacDocumentOpen,
   isNativeMacRuntime,
   nativeMacDocumentClientState,
   reportNativeMacClientState,
@@ -160,6 +161,7 @@ import {
 import {
   createDesktopPlatform,
   DesktopPlatformDocumentError,
+  type DesktopDocumentOpenReceipt,
   requireDesktopPlatformCompletion,
 } from "./lib/desktopPlatform";
 import {
@@ -180,6 +182,7 @@ import {
 } from "./lib/projectMediaBudget";
 import {
   createProjectBundle,
+  projectStore,
   exportProject,
   importProject,
   loadProject,
@@ -474,6 +477,12 @@ export function App() {
   const nativeSelfTestDatabase = (globalThis as typeof globalThis & {
     __DRIFT_NATIVE_SELF_TEST_DB__?: unknown;
   }).__DRIFT_NATIVE_SELF_TEST_DB__;
+  useEffect(() => {
+    if (!nativeMac || typeof nativeSelfTestDatabase !== "string" || !/^drift-project-self-test-[a-f0-9-]{36}$/.test(nativeSelfTestDatabase)) return;
+    const target = globalThis as typeof globalThis & { __driftVerifyVideoOutput?: () => Promise<Record<string, unknown>> };
+    target.__driftVerifyVideoOutput = async () => (await import("./lib/videoSlideProof")).verifyVideoSlideOutput();
+    return () => { delete target.__driftVerifyVideoOutput; };
+  }, [nativeMac, nativeSelfTestDatabase]);
   const portableProjectFilesEnabled = !driftBuildIdentity.isDevelopment || nativeMac
     || (typeof nativeSelfTestDatabase === "string"
       && /^drift-project-self-test-[a-f0-9-]{36}$/.test(nativeSelfTestDatabase));
@@ -1979,11 +1988,11 @@ export function App() {
     }
   }, [acceptEncoderProgress, announce, beginExport, endExport, exportJobController, guidedExportIntent, mp4Supported, nativeMac, renderForExport, reserveExport]);
 
-  const exportStill = useCallback(async () => {
+  const exportStill = useCallback(async (background?: "opaque" | "transparent") => {
     let reservation: ReturnType<typeof reserveExport> | null = null;
     let session: Awaited<ReturnType<typeof beginExport>> | null = null;
     try {
-      reservation = reserveExport(guidedExportIntent, false);
+      reservation = reserveExport(background ? { ...guidedExportIntent, background } : guidedExportIntent, false);
       session = await beginExport(reservation);
       const pinnedVideo = session.pinnedAsset?.kind === "video" ? session.pinnedAsset : null;
       const { exportPngStill } = await import("./lib/exportStudio");
@@ -2251,44 +2260,47 @@ export function App() {
               });
             })();
         try {
+          let stagedToken: string | null = null;
+          const transaction = { receipt: null as DesktopDocumentOpenReceipt | null };
           await commitProjectReplacement({
             persistCandidate: async () => {
-              await persistExactProject(prepared.project, prepared.slides, prepared.presenter);
+              // Never replace the recovery document before native acceptance.
+              stagedToken = await projectStore.stageReplacement({
+                payload: createDriftProjectPayload(prepared.project),
+                assets: [...prepared.slides, ...(prepared.presenter ? [prepared.presenter] : [])].map(({ id, name, blob }) => ({ id, name, blob })),
+                engineVersion: ENGINE_VERSION, themeVersion: THEME_VERSION,
+                projectId: prepared.project.projectId, createdAt: prepared.project.createdAt, updatedAt: prepared.project.updatedAt,
+              });
             },
             bindCandidate: async () => {
-              if (!finalizeDesktopDocument) return;
-              const receipt = requireDesktopPlatformCompletion(
-                await desktopPlatform.documents.finalizePortableProjectOpen(file),
-              );
-              if (receipt.bound) {
-                const contentIdentity = documentContentIdentity(prepared.project);
-                documentRevisionRef.current = {
-                  ...createProjectRevisionState(),
-                  currentContentIdentity: contentIdentity,
-                  savedContentIdentity: contentIdentity,
-                };
-                documentSha256Ref.current = receipt.sha256;
-                setDocumentBound(true);
-                setDocumentConflict(false);
-                setDocumentRevisionVersion((version) => version + 1);
+              if (finalizeDesktopDocument) {
+                transaction.receipt = requireDesktopPlatformCompletion(await desktopPlatform.documents.finalizePortableProjectOpen(file));
               }
+              await projectStore.commitReplacement(stagedToken!);
             },
             restorePrevious: async () => {
-              await saveProject({
-                payload: previous.payload,
-                assets: previous.assets.map(({ id, name, blob }) => ({ id, name, blob })),
-                engineVersion: previous.manifest.engineVersion,
-                themeVersion: previous.manifest.themeVersion,
-                projectId: previous.manifest.projectId,
-                createdAt: previous.manifest.createdAt,
-                updatedAt: previous.manifest.updatedAt,
-              });
-              identityRef.current = { projectId: previous.manifest.projectId, createdAt: previous.manifest.createdAt };
+              // The failed transaction left A intact; roll back the transient
+              // Finder binding as well, then remove only B's staging records.
+              await desktopPlatform.documents.abandonPortableProjectOpen();
+              await projectStore.abandonReplacement(stagedToken!);
               setSaveState(wasHydrated ? "saved" : "recovery");
             },
           });
           installPreparedProjectState(prepared);
           preparedInstalled = true;
+          if (transaction.receipt) {
+            const receipt = transaction.receipt;
+            if (receipt.bound) {
+              const contentIdentity = documentContentIdentity(prepared.project);
+              documentRevisionRef.current = { ...createProjectRevisionState(), currentContentIdentity: contentIdentity, savedContentIdentity: contentIdentity };
+              documentSha256Ref.current = receipt.sha256;
+              setDocumentBound(true);
+              setDocumentConflict(false);
+              setDocumentRevisionVersion(version => version + 1);
+            }
+          }
+          commitNativeMacDocumentOpen();
+          setSaveState("saved");
           hydratedRef.current = true;
           recoverySnapshotRef.current = null;
         } catch (error) {
@@ -2919,6 +2931,9 @@ export function App() {
           onCustomGuideInsets={setCustomGuideInsets}
           settings={settings}
           project={liveProject}
+          documentRevision={documentRevisionRef.current.currentRevision}
+          selectedSlideAsset={assets.find(asset => asset.id === selectedSlideId)}
+          onSourceAudition={() => setPreviewPaused(true)}
           v2Active={v2Active}
           onSettings={updateSettings}
           onV2Project={updateV2Project}

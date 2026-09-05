@@ -20,13 +20,7 @@ const RUNTIME: ExportCapabilityReport = {
 };
 
 describe("Guided Export wizard", () => {
-  /**
-   * Promise: Export opens as a stable six-step outcome journey, not three unexplained sink buttons.
-   * Failure: the initial application surface omits step identity, purpose choices, or background consequence.
-   * Public seam: rendered GuidedExportWizard.
-   * Cheapest loop: static semantic render; visual acceptance remains human-gated.
-   */
-  it("renders the first stable step with outcome and canvas choices", () => {
+  it("uses one direct export form with optional settings and no duplicate wizard", () => {
     const markup = renderToStaticMarkup(
       <GuidedExportWizard
         sourceIntent={createExportIntent({
@@ -45,16 +39,12 @@ describe("Guided Export wizard", () => {
       />,
     );
 
-    expect(markup).toContain('aria-label="Guided Export"');
-    expect(markup).toContain("Step 1 of 6");
-    expect(markup).toContain("What are you making?");
-    expect(markup).toContain("Social / delivery");
-    expect(markup).toContain("Editing master");
-    expect(markup).toContain("Transparent overlay");
-    expect(markup).toContain("Frame sequence");
-    expect(markup).toContain("Opaque background");
-    expect(markup).toContain("Transparent background");
-    expect((markup.match(/role="radio"/gu) ?? [])).toHaveLength(5);
-    expect((markup.match(/<li/g) ?? [])).toHaveLength(6);
+    expect(markup).toContain('aria-label="Export"');
+    expect(markup).toContain("Export PNG still");
+    expect(markup).toContain("More export options");
+    expect(markup).toContain("Use project background");
+    expect(markup).not.toContain("Step 1 of 6");
+    expect(markup).not.toContain("What are you making?");
+    expect((markup.match(/aria-label="Output format"/gu) ?? [])).toHaveLength(1);
   });
 });

@@ -4,7 +4,7 @@ Drift turns images and video slides into directed sequences. This guide describe
 
 ## Install and open
 
-Use the exact Apple-silicon DMG attached to the release, when present. Drag `Drift.app` to Applications and open it. Ad-hoc test downloads are unnotarized; they are not represented as Gatekeeper-ready. Do not disable system-wide security to install Drift. Keep the previous application and a copy of your `.pitched` files before upgrading.
+Download **Drift-0.3.0-macOS-arm64.dmg** from the matching GitHub release. Drag `Drift.app` to Applications and open it. When macOS blocks an unnotarized app you trust, open System Settings → Privacy & Security → Open Anyway after the first launch attempt. Ad-hoc test downloads are unnotarized; they are not represented as Gatekeeper-ready. Do not disable system-wide security to install Drift. Keep the previous application and a copy of your `.pitched` files before upgrading.
 
 The source’s deployment floor is macOS 13.3. Refer to the artifact’s receipt for the actual macOS version tested. Intel Macs, Windows, and Linux are outside this product.
 
@@ -12,7 +12,7 @@ The source’s deployment floor is macOS 13.3. Refer to the artifact’s receipt
 
 Use Add slides or the File menu to select PNG, JPEG, WebP, AVIF, MP4, MOV, or WebM files. Codec support depends on the installed Mac runtime, not just the extension. Imported originals remain unchanged. Select a tile to adjust its fit and crop; reorder or remove it from Media. Undo/Redo includes media edits and original bytes.
 
-A video slide starts at master time zero. **Loop video** repeats the selected source range; off holds its last frame. Source start/end trim remains in the project. Repeated cards share the same clip clock. Turning a clip into a seamless loop may still require an authored source edit; Drift does not manufacture a dissolve across its cut.
+A video slide starts at master time zero. **Loop video** repeats the selected source range; off holds its last frame. Source start/end trim and playback speed remain in the project. **Reset trim** restores the whole source without changing its speed. **Preview source clip** opens an on-demand filmstrip and silent audition; playing it pauses the master preview. Repeated cards share the same clip clock. Turning a clip into a seamless loop may still require an authored source edit; Drift does not manufacture a dissolve across its cut.
 
 Video slides are silent. Their embedded source audio is preserved in the portable original, but is not mixed. Use the separate presenter video slot for voice. Moving video slides cannot themselves be pinned in this release. Images can be pinned, and the dedicated presenter retains protected/in-scene placement, layer order, fit, borders, shadows, and timing.
 
@@ -30,7 +30,7 @@ Presenter source trim is separate from mute. Its story start/end place the sourc
 
 Use **File → Save Project** or **Command–S** to save the current document. Use **File → Save Project As…** to preserve another named copy. A successful native Save includes staged writing and readback verification. Edits made while saving remain dirty unless the exact saved content is restored by Undo.
 
-Open it through **File → Open Project…**, Finder, or Open With Drift. A candidate project is verified before replacing the visible document. Failed finalization restores the prior recovery snapshot; a failed rollback is shown as recovery, not as saved work.
+Open it through **File → Open Project…**, Finder, or Open With Drift. A candidate project is verified and staged beside the current project. The current recovery project stays intact until an atomic replacement commits all its media and manifest together. Failed native acceptance restores the prior file binding; failed cleanup is shown as recovery, not as saved work.
 
 Local recovery and the named `.pitched` file are different. The local copy protects completed autosaves; it does not mean the named file contains the latest edits. On close/quit, Save must succeed before Drift closes. Cancel keeps the document open. Don’t Save leaves the named file unchanged; a completed local recovery copy may remain. An unfinished import/export has its own operation warning.
 
@@ -38,7 +38,7 @@ New video-slide projects require this app version or later. Older image-only V4/
 
 ## Export
 
-Open Export, choose MP4 or PNG sequence, then **Export…** and a destination. Ordinary exports do not require the advanced wizard. Use **Export PNG still** for a single frame. More export options contains specialist settings; Output details is an optional diagnostic summary.
+Open Export, choose MP4 or PNG sequence, then **Export…** and a destination. There is one export form; no step-by-step wizard. Use **Export PNG still** for a single frame. More export options changes the background and frame destination without mutating the project; Output details is an optional diagnostic summary.
 
 MP4 is opaque H.264. Transparent output uses PNG. PNG frames contain no audio; when the project includes audio, explicitly acknowledge the silent frame sequence. Invalid media, unsupported output, or unsafe destination replacement blocks export. Creative/reading-time recommendations are advisory.
 
