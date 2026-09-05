@@ -476,7 +476,7 @@ test("Finder-style project delivery rejects when an export wins the admission ra
   await page.getByRole("group", { name: "Frame rate" }).getByText("24", { exact: true }).click();
   await prepareGuidedExport(page, "PNG Frames", "Numbered directory");
   await startGuidedExport(page);
-  await expect(page.getByRole("region", { name: "Guided Export" })).toHaveAttribute("data-step", "render-verify");
+  await expect(page.getByRole("region", { name: "Export", exact: true }).getByRole("button", { name: "Exporting…", exact: true })).toBeDisabled();
 
   const result = await page.evaluate(async () => {
     const state = (window as unknown as {
@@ -510,5 +510,5 @@ test("Finder-style project delivery rejects when an export wins the admission ra
   await page.evaluate(() => (window as unknown as {
     __driftHeldDirectoryPicker: { reject: null | ((error: DOMException) => void) };
   }).__driftHeldDirectoryPicker.reject?.(new DOMException("Export canceled.", "AbortError")));
-  await expect(page.getByRole("region", { name: "Guided Export" })).toHaveAttribute("data-step", "destination-preflight");
+  await expect(page.getByRole("region", { name: "Export", exact: true }).getByRole("button", { name: "Export…", exact: true })).toBeEnabled();
 });

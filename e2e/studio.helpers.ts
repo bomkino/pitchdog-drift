@@ -27,7 +27,7 @@ export async function switchWorkspace(
   }
   const button = page.getByRole("button", { name, exact: true });
   if (await button.getAttribute("aria-current") !== "page") await button.click();
-  // These historical journeys exercise the optional detailed exporter.
+  // Open optional dimensions/details used by these editing journeys.
   if (name === "EXPORT") {
     const outputDetails = page.locator(".output-details");
     if (await outputDetails.count() && await outputDetails.getAttribute("open") === null) await outputDetails.locator(":scope > summary").click();
@@ -41,27 +41,21 @@ export async function prepareGuidedExport(
   format: "H.264 MP4" | "PNG Frames",
   pngDestination: "Numbered directory" | "Bounded ZIP" = "Bounded ZIP",
 ): Promise<void> {
-  const wizard = page.getByRole("region", { name: "Guided Export" });
-  await expect(wizard).toHaveAttribute("data-step", "purpose-background");
-  await wizard.getByRole("button", { name: "Choose format" }).click();
-  await expect(wizard).toHaveAttribute("data-step", "format");
-  const formatChoice = wizard.getByRole("radio", {
-    name: format === "H.264 MP4" ? /^DELIVERY H\.264 MP4/u : /^UNIVERSAL ALPHA PNG Frames/u,
-  });
-  if (await formatChoice.getAttribute("aria-checked") !== "true") await formatChoice.click();
+  const form = page.getByRole("region", { name: "Export", exact: true });
+  await expect(form).toBeVisible();
+  await form.getByRole("combobox", { name: "Output format" }).selectOption(format === "H.264 MP4" ? "h264-mp4" : "png-frames");
   if (format === "PNG Frames") {
-    await wizard.getByText(pngDestination, { exact: true }).click();
+    const details = form.locator(".advanced-export-options");
+    if (await details.getAttribute("open") === null) await details.locator(":scope > summary").click();
+    const destination = form.getByRole("combobox", { name: "Frame destination" });
+    if (await destination.count()) await destination.selectOption(pngDestination === "Numbered directory" ? "directory" : "zip");
+    const acknowledgement = form.getByRole("checkbox", { name: /Export silent frames/ });
+    if (await acknowledgement.count()) await acknowledgement.check();
   }
-  await wizard.getByRole("button", { name: "Review film + audio" }).click();
-  await expect(wizard).toHaveAttribute("data-step", "film-audio");
-  const acknowledgement = wizard.getByRole("checkbox");
-  if (await acknowledgement.count()) await acknowledgement.check();
-  await wizard.getByRole("button", { name: "Preflight destination" }).click();
-  await expect(wizard).toHaveAttribute("data-step", "destination-preflight");
+  await expect(form.getByRole("button", { name: "Export…", exact: true })).toBeEnabled();
 }
 
 export async function startGuidedExport(page: Page): Promise<void> {
-  await page.getByRole("region", { name: "Guided Export" })
-    .getByRole("button", { name: "Choose destination + render" })
-    .click();
+  await page.getByRole("region", { name: "Export", exact: true })
+    .getByRole("button", { name: "Export…", exact: true }).click();
 }

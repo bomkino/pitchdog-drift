@@ -45,16 +45,13 @@ def freeze():
     assert 'Signature=adhoc' in signature, 'This publication lane labels ad-hoc signing only.'
     matrix = json.loads(Path('build/macos/packaged-webview/matrix-summary.json').read_text())
     assert matrix['productionVariantPassed'] is True
-    # Every receipt is already bound by the packaged gauntlet to its exact executable.
-    receipts = []
-    for path in Path('build/macos/packaged-webview').rglob('*.json'):
-        try:
-            item = json.loads(path.read_text())
-            if (item.get('ok') is True and item.get('sourceRevision') == source and item.get('bundleIdentifier') == 'dog.pitch.drift' and item.get('sandboxed') is True and item.get('videoSlideOutput', {}).get('verified') is True):
-                receipts.append(item['videoSlideOutput'])
-        except (ValueError, AttributeError):
-            continue
-    assert receipts, 'Missing packaged V2 video-output evidence.'
+    # Require the production variant, not a successful unsandboxed control.
+    variant = json.loads(Path('build/macos/packaged-webview/variants/sandbox-adhoc.json').read_text())
+    assert variant['variant'] == 'sandbox-adhoc' and variant['passed'] is True
+    receipt = variant['receipt']
+    assert receipt['ok'] is True and receipt['sourceRevision'] == source
+    assert receipt['bundleIdentifier'] == 'dog.pitch.drift' and receipt['sandboxed'] is True
+    assert receipt['videoSlideOutput']['verified'] is True, 'Missing packaged V2 video-output evidence.'
     names = [f'Drift-{version}-macOS-arm64.dmg', f'Drift-{version}-macOS-arm64.dmg.sha256', 'BuildReceipt.txt', 'TestEnvironment.txt']
     hardware = json.loads(subprocess.check_output(['system_profiler', 'SPHardwareDataType', '-json'], text=True))['SPHardwareDataType'][0]
     record = {
@@ -62,7 +59,7 @@ def freeze():
         'schemaVersion': 1, 'version': version, 'sourceRevision': source, 'buildNumber': build['build_number'],
         'architecture': 'arm64', 'signing': 'ad-hoc', 'notarized': False, 'physicalTargetMacsTested': False,
         'workflowRun': os.environ.get('GITHUB_RUN_ID'), 'packagedLifecyclePassed': True,
-        'videoSlideOutput': receipts[0],
+        'videoSlideOutput': receipt['videoSlideOutput'],
         'files': {name: {'bytes': (root / name).stat().st_size, 'sha256': digest(root / name)} for name in names},
     }
     (root / 'MacReleaseReceipt.json').write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')

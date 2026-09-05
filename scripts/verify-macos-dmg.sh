@@ -67,8 +67,8 @@ DEVICE="$(awk '/^\/dev\// {print $1; exit}' <<<"$ATTACH_OUTPUT")"
 [[ "$(readlink "$MOUNT_ROOT/Applications")" == "/Applications" ]] || fail "Applications alias points somewhere unexpected"
 [[ -s "$MOUNT_ROOT/Install Drift.txt" ]] || fail "install/privacy note is missing"
 
-grep -q 'not a notarized public release' "$MOUNT_ROOT/Install Drift.txt" \
-  || fail "local-only distribution boundary is absent from the install note"
+grep -q 'ad-hoc signed and unnotarized' "$MOUNT_ROOT/Install Drift.txt" \
+  || fail "ad-hoc/unnotarized distribution boundary is absent from the install note"
 grep -q 'AudioToolbox' "$MOUNT_ROOT/Install Drift.txt" \
   || fail "install note does not describe the native AudioToolbox AAC path"
 grep -q 'WKWebView' "$MOUNT_ROOT/Install Drift.txt" \
