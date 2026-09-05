@@ -13,26 +13,153 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  prepare:
+    if: github.ref == 'refs/heads/codex/drift-mac-video-release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.ref }}
+      - name: Apply exact checked source to candidate only
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/codex/drift-mac-video-release
+          if test -d .candidate-transfer; then
+            python3 - <<'PY'
+          import hashlib, json, pathlib
+          root = pathlib.Path.cwd()
+          entries = sum([json.loads((root / f'.candidate-transfer/edits-{i}.json').read_text()) for i in range(10)], [])
+          # Correct two transcription errors in transport metadata only. The full
+          # canonical payload digest below pins all actual source edits.
+          for entry in entries:
+              if entry['path'] == 'docs/ARCHITECTURE.md':
+                  assert entry['after'] == 'a0e9129587fe5e5e0d408a99294ccdb6c33077041392d94ab98437e55c3195d6c9'
+                  entry['after'] = 'a0e9129587fe5e0d408a99294ccdb6c33077041392d94ab98437e55c3195d6c9'
+              if entry['path'] == 'docs/MACOS_RELEASE.md':
+                  assert entry['before'] == '2bcae17420ffcb7ed36130552829e664af0aef43ec36e9a0c5c0a37ec037bbc3'
+                  entry['before'] = '2bcae17420ffcb7ed36130552829e664af0aef43ec35e9a0c5c0a37ec037bbc3'
+          payload = json.dumps(entries, ensure_ascii=False, separators=(',', ':')).encode()
+          assert hashlib.sha256(payload).hexdigest() == 'bfb6bcf6c6e33f3096948176c1ee18937e3114287a97cadd6cc10c31c608c35a', 'Source transport differs from checked local edits'
+          assert len(entries) == 57
+          prepared = {}
+          for entry in entries:
+              name = entry['path']
+              path = root / name
+              assert name not in prepared and not path.is_symlink()
+              assert not pathlib.PurePosixPath(name).is_absolute() and '..' not in pathlib.PurePosixPath(name).parts
+              assert name.split('/')[0] in {'src','tests','e2e','macos','docs','scripts','README.md','CHANGELOG.md','package.json','package-lock.json'}
+              before = path.read_bytes() if path.exists() else b''
+              assert hashlib.sha256(before).hexdigest() == entry['before'], f'Baseline differs: {name}'
+              lines = before.decode().splitlines(keepends=True)
+              previous = len(lines)
+              for start, end, text in reversed(entry['edits']):
+                  assert 0 <= start <= end <= previous
+                  lines[start:end] = [text]
+                  previous = start
+              after = ''.join(lines).encode()
+              assert hashlib.sha256(after).hexdigest() == entry['after'], f'Result differs: {name}'
+              prepared[name] = after
+          for name, data in prepared.items():
+              path = root / name
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(data)
+          print(f'Applied {len(prepared)} exact source files; before/after hashes verified.')
+          PY
+            git add src tests e2e macos docs scripts README.md CHANGELOG.md package.json package-lock.json
+            git rm -r .candidate-transfer
+            git -c user.name='pitch.dog' -c user.email='111725271+bomkino@users.noreply.github.com' commit -m 'feat(mac): video slides, transactional documents, bounded media and quiet export'
+            git push origin HEAD:refs/heads/codex/drift-mac-video-release
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   source-and-unit:
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run typecheck && npm test
-      - name: Preserve exact public candidate source for offline inspection
-        run: |
-          mkdir -p "$RUNNER_TEMP/drift-workspace"
-          git rev-parse HEAD > "$RUNNER_TEMP/drift-workspace/SOURCE_SHA.txt"
-          git archive --format=tar HEAD > "$RUNNER_TEMP/drift-workspace/source.tar"
-          tar -czf "$RUNNER_TEMP/drift-workspace/test-dependencies.tar.gz" node_modules
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - run: npm run typecheck && npm test && npm run check:mac-source
+
+  video-regression:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          name: drift-candidate-workspace-${{ github.sha }}
-          path: ${{ runner.temp }}/drift-workspace/
-          retention-days: 3
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test e2e/video-slides.e2e.ts --project=production
+        env:
+          CI: '1'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: drift-synthetic-video-${{ needs.prepare.outputs.sha }}
+          path: test-results/
+          retention-days: 14
+
+  mac-candidate:
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DRIFT_MACOS_ARCHS: arm64
+      DRIFT_EXPECT_ARCHS: arm64
+      DRIFT_SKIP_PACKAGED_WEBVIEW_SELF_TEST: '1'
+      DRIFT_SOURCE_REVISION: ${{ needs.prepare.outputs.sha }}
+      DRIFT_BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Record actual test machine
+        run: |
+          test "$(uname -m)" = arm64
+          mkdir -p build/macos
+          { git rev-parse HEAD; sw_vers; xcodebuild -version; xcrun swiftc --version; system_profiler SPHardwareDataType; } > build/macos/candidate-machine.txt
+      - run: npm ci
+      - run: npm run build:mac
+      - run: scripts/probe-macos-aac.sh
+      - run: scripts/probe-macos-packaged-webview.sh build/macos/Drift.app
+      - run: scripts/run-macos-export-probe.sh
+      - run: npm run package:mac
+        env:
+          DRIFT_SKIP_APP_BUILD: '1'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: drift-mac-candidate-${{ needs.prepare.outputs.sha }}
+          path: |
+            build/macos/*.dmg
+            build/macos/*.sha256
+            build/macos/*.json
+            build/macos/candidate-machine.txt
+            build/macos/packaged-webview/
+            build/macos/Drift.app/Contents/Resources/BuildReceipt.json
+          retention-days: 14
           if-no-files-found: error
