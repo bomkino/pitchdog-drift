@@ -62,10 +62,10 @@
     "check": "npm run check:fonts && npm run typecheck && npm run test && npm run check:mac-source && npm run build"
   },
   "dependencies": {
-    "@mediabunny/aac-encoder": "1.55.1",
+    "@mediabunny/aac-encoder": "1.55.5",
     "@phosphor-icons/react": "2.1.10",
     "fflate": "0.8.3",
-    "mediabunny": "1.55.1",
+    "mediabunny": "1.55.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "three": "0.185.1"
