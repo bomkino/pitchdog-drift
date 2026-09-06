@@ -1,0 +1,52 @@
+name: Native media decoding
+on:
+  push:
+    branches: [codex/drift-native-completion]
+    paths: [macos/NativeCore/Sources/CDriftCodecs/**, macos/Probes/NativeCodecProbe.cpp, scripts/build-native-codecs.sh, .github/workflows/native-codec-validation.yml]
+  pull_request:
+    paths: [macos/NativeCore/Sources/CDriftCodecs/**, macos/Probes/NativeCodecProbe.cpp, scripts/build-native-codecs.sh, .github/workflows/native-codec-validation.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-decoding-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  decode:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build pinned arm64 codec SDK
+        run: scripts/build-native-codecs.sh
+      - name: Generate synthetic input only
+        run: |
+          set -euo pipefail
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          mkdir -p build/native-decoding
+          ffmpeg -hide_banner -loglevel error -f lavfi -i 'color=red@0.5:size=160x90,format=rgba' -frames:v 1 -c:v libwebp -lossless 1 build/native-decoding/still.webp
+          ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=4:duration=1' -c:v libwebp_anim -lossless 1 -loop 0 build/native-decoding/animated.webp
+          ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=12:duration=1' -c:v libvpx -g 6 -an build/native-decoding/vp8.webm
+          ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=12:duration=1' -c:v libvpx-vp9 -g 6 -an build/native-decoding/vp9.webm
+          ffmpeg -version > build/native-decoding/FIXTURE_TOOL.txt
+          shasum -a 256 build/native-decoding/*.web* > build/native-decoding/ORIGINALS_SHA256.txt
+      - name: Decode actual pixels, backward seeks, trim ends and cancellation
+        run: |
+          set -euo pipefail
+          xcrun clang++ -std=c++17 -O2 -arch arm64 -mmacosx-version-min=13.3 \
+            -I macos/NativeCore/Sources/CDriftCodecs/include -I build/native-codecs/include \
+            macos/NativeCore/Sources/CDriftCodecs/DriftCodecs.cpp macos/Probes/NativeCodecProbe.cpp \
+            -L build/native-codecs/lib -lwebpdemux -lwebp -lsharpyuv -lwebm -lvpx \
+            -o build/native-decoding/NativeCodecProbe
+          build/native-decoding/NativeCodecProbe build/native-decoding/still.webp build/native-decoding/animated.webp build/native-decoding/vp8.webm build/native-decoding/vp9.webm | tee build/native-decoding/ASSERTIONS.txt
+          shasum -a 256 -c build/native-decoding/ORIGINALS_SHA256.txt
+          git rev-parse HEAD > build/native-decoding/SOURCE_SHA.txt
+          sw_vers > build/native-decoding/HOST.txt
+          xcrun clang++ --version >> build/native-decoding/HOST.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: drift-native-decoding-${{ github.sha }}
+          path: build/native-decoding/
+          if-no-files-found: error
+          retention-days: 14
