@@ -33,7 +33,9 @@ enum RecoveryStore {
     private let sound=PreviewSound()
     override init(){super.init();fileType=Self.typeName}
     override var isDocumentEdited:Bool{editor?.dirty ?? false}
-    nonisolated override class var autosavesInPlace:Bool{true}
+    // RecoveryWriter owns private autosave; only Save/Save As replaces the named file.
+    nonisolated override class var autosavesInPlace:Bool{false}
+    override var autosavingFileType:String?{nil}
     nonisolated override class func canConcurrentlyReadDocuments(ofType typeName:String)->Bool{false}
     nonisolated override func canAsynchronouslyWrite(to url:URL,ofType typeName:String,for saveOperation:NSDocument.SaveOperationType)->Bool{true}
     nonisolated override func read(from url:URL,ofType typeName:String)throws{

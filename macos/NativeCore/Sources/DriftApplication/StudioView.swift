@@ -165,7 +165,7 @@ struct JsonField:View {
     private var value:Any?{session.jsonValue(path,slideID:slideIDs?.sorted().first)}
     private func update(_ value:Any){let ids=slideIDs,ticket=session.ticket(targets:ids ?? []);session.changeJSON(human(field.key),path:path,value:value,ticket:ticket,slideIDs:ids)}
     var body:some View {
-        if field.type=="Bool"{Toggle(human(field.key),isOn:Binding(get:{value as? Bool ?? false},set:update))}
+        if field.type=="Bool"{Toggle(human(field.key),isOn:Binding(get:{value as? Bool ?? false},set:{ newValue in update(newValue) }))}
         else if !field.options.isEmpty{
             Picker(human(field.key),selection:Binding(get:{field.type=="Double" ? String((value as? NSNumber)?.doubleValue ?? 0):String(describing:value ?? "")},set:{text in
                 if field.type=="Double",let number=Double(text){update(number)}else{update(text)}
