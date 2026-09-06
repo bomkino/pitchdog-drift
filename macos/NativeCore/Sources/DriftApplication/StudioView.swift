@@ -272,8 +272,8 @@ struct MotionInspector:View {
 struct TransitionEditor:View {
     @ObservedObject var session:EditorSession
     let entry:Bool
-    private var value:Transition{entry ? session.project.direction.entry:session.project.direction.exit}
-    private func change(_ edit:(inout Transition)->Void){session.change(entry ? "Entry":"Exit"){p in if entry{edit(&p.direction.entry)}else{edit(&p.direction.exit)}}}
+    private var value:DriftCore.Transition{entry ? session.project.direction.entry:session.project.direction.exit}
+    private func change(_ edit:(inout DriftCore.Transition)->Void){session.change(entry ? "Entry":"Exit"){p in if entry{edit(&p.direction.entry)}else{edit(&p.direction.exit)}}}
     var body:some View{
         DisclosureGroup(entry ? "Entry":"Exit"){
             Toggle("Enabled",isOn:Binding(get:{value.enabled},set:{v in change{$0.enabled=v}}))

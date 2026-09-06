@@ -22,7 +22,10 @@ ditto build/native-sound "$APP/Contents/Resources/Sound"
 ditto build/native-codecs/licenses "$APP/Contents/Resources/ThirdPartyNotices"
 cp LICENSE "$APP/Contents/Resources/"
 if [[ -d build/native-fixtures ]];then ditto build/native-fixtures "$APP/Contents/Resources/Fixtures";fi
-python3 scripts/generate-macos-icon.py "$APP/Contents/Resources/Drift.icns"
+ICONSET="$ROOT/build/native/Drift.iconset"
+python3 scripts/generate-macos-icon.py "$ICONSET"
+xcrun iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Drift.icns"
+test -f "$APP/Contents/Resources/Drift.icns"
 APP="$APP" VERSION="$VERSION" BUILD="$BUILD" SOURCE="$SOURCE" python3 - <<'PY'
 import os,plistlib,pathlib
 app=pathlib.Path(os.environ['APP']);version=os.environ['VERSION'];build=os.environ['BUILD'];source=os.environ['SOURCE']
