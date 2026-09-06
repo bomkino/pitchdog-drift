@@ -95,7 +95,6 @@ public enum NativeExport {
         try cancellation.check();progress(0.98,"Saving export")
         let hash=try OwnedFiles.fingerprint(folder ? stage.appendingPathComponent("sequence.json"):stage,maximum:Int64.max,cancel:{try cancellation.check()})
         if folder{try cancellation.check();let moved=stage.path.withCString{src in destination.path.withCString{dst in renamex_np(src,dst,UInt32(RENAME_EXCL))}};try check(moved==0,"The sequence destination appeared during export. Choose another name.");OwnedFiles.syncDirectory(parent)}else{try permission!.publish(stage,preserveStage:{cleanupStage=false})}
-        // Publication is the commit point. A subsequent cancel cannot erase a valid output.
         progress(1,"Exported")
         return ExportReceipt(name:destination.lastPathComponent,path:destination.path,format:format.rawValue,documentID:project.id,width:project.canvas.width,height:project.canvas.height,frameCount:format == .png ? 1:selected.count,sourceStartFrame:format == .png ? stillFrame:selected.start,rateNumerator:project.output.rate.numerator,rateDenominator:project.output.rate.denominator,audio:audio,sha256:hash,sourceRevision:Bundle.main.object(forInfoDictionaryKey:"DriftSourceRevision") as? String ?? "development")
     }
@@ -166,9 +165,10 @@ public enum NativeExport {
         guard !busy else{error="An export is already running.";return}
         let token=MediaCancellation(),id=UUID();generation=id;cancellation=token;busy=true;progress=0;status="Preparing export";error=nil;receipt=nil
         task=Task.detached(priority:.userInitiated){[weak self] in
+            guard let self else{return}
             do{let result=try await NativeExport.run(snapshot:snapshot,destination:destination,range:range,stillFrame:stillFrame,cancellation:token){v,s in Task{@MainActor [weak self] in guard let self,self.generation==id,self.busy else{return};self.progress=v;self.status=s}}
-                await self?.finish(result:result,error:nil,id:id)
-            }catch{await self?.finish(result:nil,error:error is CancellationError ? "Cancelled. The previous destination is unchanged.":error.localizedDescription,id:id)}
+                await self.finish(result:result,error:nil,id:id)
+            }catch{await self.finish(result:nil,error:error is CancellationError ? "Cancelled. The previous destination is unchanged.":error.localizedDescription,id:id)}
         }
     }
     private func finish(result:ExportReceipt?,error:String?,id:UUID){guard generation==id else{return};busy=false;receipt=result;self.error=error;task=nil;cancellation=nil;status=result==nil ? (error ?? "Export failed"):"Exported";if result != nil{progress=1}}
