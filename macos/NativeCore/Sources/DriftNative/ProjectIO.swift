@@ -58,13 +58,13 @@ public enum ProjectIO {
         try archive.finish();try check(seen==Set(paths.keys),"The project does not contain every original.")
         try check(try FileIdentity.read(url)==before,"The project changed while it was opened.");return project
     }
-    public static func read(_ url:URL)throws->(DriftProject,MediaWorkspace){let workspace=try MediaWorkspace();let project=try inspect(url,extract:workspace);return(project,workspace)}
+    public static func read(_ url:URL,workspace supplied:MediaWorkspace?=nil)throws->(DriftProject,MediaWorkspace){let workspace=try supplied ?? MediaWorkspace();let project=try inspect(url,extract:workspace);return(project,workspace)}
     public static func verify(_ url:URL,expected:DriftProject)throws{try check(try inspect(url,extract:nil)==expected,"The saved project did not match its immutable snapshot.")}
-    public static func write(_ snapshot:RenderSnapshot,to url:URL)throws{
+    public static func write(_ snapshot:RenderSnapshot,to url:URL,beforePublish:@Sendable ()throws->Void = {})throws{
         let destination=try SafeDestination(url),parent=url.deletingLastPathComponent()
         let scoped=parent.startAccessingSecurityScopedResource();defer{if scoped{parent.stopAccessingSecurityScopedResource()}}
         let stage=parent.appendingPathComponent(".drift-save-\(UUID().uuidString).pitched")
-        let reserved=try OwnedFiles.create(stage);try reserved.close();defer{try? FileManager.default.removeItem(at:stage)}
+        let reserved=try OwnedFiles.create(stage);try reserved.close();var cleanupStage=true;defer{if cleanupStage{try? FileManager.default.removeItem(at:stage)}}
         let writer=try Archive(stage,writing:true),manifest=try snapshot.project.encoded()
         try writer.begin("project.json",size:Int64(manifest.count));try writer.write(manifest)
         for original in snapshot.project.assets.values.sorted(by:{$0.path<$1.path}){
@@ -77,6 +77,6 @@ public enum ProjectIO {
         }
         try writer.finish()
         let file=try FileHandle(forWritingTo:stage);try file.synchronize();try file.close()
-        try verify(stage,expected:snapshot.project);try destination.publish(stage)
+        try verify(stage,expected:snapshot.project);try beforePublish();try destination.publish(stage,preserveStage:{cleanupStage=false})
     }
 }

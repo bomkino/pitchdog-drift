@@ -1,0 +1,61 @@
+name: Native Drift application
+on:
+  push:
+    branches: [codex/drift-native-completion, main]
+    paths: [macos/NativeCore/**, scripts/build-native-*.sh, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
+  pull_request:
+    paths: [macos/NativeCore/**, scripts/build-native-*.sh, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-app-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  application:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install build-only tools
+        run: brew install glslang spirv-cross ffmpeg-full
+      - name: Generate synthetic originals
+        run: python3 scripts/generate-native-fixtures.py
+      - name: Build the actual native app
+        env:
+          DRIFT_BUILD_NUMBER: ${{ github.run_number }}
+          DRIFT_SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/native-app-evidence
+          git rev-parse HEAD > build/native-app-evidence/SOURCE_SHA.txt
+          sw_vers > build/native-app-evidence/HOST.txt
+          scripts/build-native-app.sh 2>&1 | tee build/native-app-evidence/build.txt
+      - name: Exercise native document, Metal preview and actual output
+        run: |
+          set -euo pipefail
+          build/native/Drift.app/Contents/MacOS/Drift --native-self-test 2>&1 | tee build/native-app-evidence/runtime.txt
+      - name: Collect synthetic evidence
+        if: always()
+        run: |
+          mkdir -p build/native-app-evidence
+          SOURCE="$HOME/Library/Application Support/Drift Native Proof"
+          if [[ -d "$SOURCE" ]]; then ditto "$SOURCE" build/native-app-evidence/outputs; fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: drift-native-app-evidence-${{ github.sha }}
+          path: build/native-app-evidence/
+          retention-days: 14
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: drift-native-application-${{ github.sha }}
+          path: build/native/Drift.app
+          retention-days: 14
+          if-no-files-found: error

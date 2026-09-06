@@ -13,6 +13,7 @@ const declarations=new Map(schema.statements.filter(n=>n.name).map(n=>[n.name.te
 const chosen=['MotionSettings','CardSettings','MaterialSettings','LightingSettings','AtmosphereSettings','LensSettings','SoundSettings'];
 const omitted=new Set(['LensSettings.presenterTreatment','SoundSettings.underVoice']);
 const generated=[];
+const descriptors=[];
 function swiftString(x){return JSON.stringify(x).replace(/\\u2028/g,'\\u{2028}').replace(/\\u2029/g,'\\u{2029}');}
 function resolved(t){if(ts.isTypeReferenceNode(t)){const n=declarations.get(t.typeName.getText(schema));if(ts.isTypeAliasDeclaration(n))return resolved(n.type);}return t;}
 function typeInfo(t,name){
@@ -24,7 +25,7 @@ function typeInfo(t,name){
   if(nullable&&values.length===1){const child=typeInfo(values[0],name);return {type:child.type+'?',check:x=>`if let v=${x} { ${child.check('v')} }`};}
   const literals=values.map(v=>{if(!ts.isLiteralTypeNode(v))throw Error('Unsupported union '+name);return v.literal.getText(schema);});
   const numeric=literals.every(v=>/^-?\d+$/.test(v));
-  return {type:numeric?'Double':'String',check:x=>`guard [${literals.join(',')}].contains(${x}) else { throw DriftCoreError.invalid(${swiftString('Invalid '+name)}) }`};
+  return {type:numeric?'Double':'String',options:literals.map(v=>JSON.parse(v)),check:x=>`guard [${literals.join(',')}].contains(${x}) else { throw DriftCoreError.invalid(${swiftString('Invalid '+name)}) }`};
  }
  if(t.kind===ts.SyntaxKind.NumberKeyword)return {type:'Double',check:x=>`guard ${x}.isFinite, abs(${x}) <= 1_000_000_000 else { throw DriftCoreError.invalid(${swiftString('Invalid '+name)}) }`};
  if(t.kind===ts.SyntaxKind.BooleanKeyword)return {type:'Bool',check:()=>''};
@@ -35,6 +36,7 @@ function emitStruct(name,members,originalName=name){
  const fields=members.filter(n=>ts.isPropertySignature(n)&&!omitted.has(originalName+'.'+n.name.getText(schema))).map(n=>{
   const key=n.name.getText(schema);return {key,...typeInfo(n.type,name+key[0].toUpperCase()+key.slice(1))};
  });
+ descriptors.push({name,fields:fields.map(f=>({key:f.key,type:f.type,options:f.options??[]}))});
  const keys=fields.map(f=>swiftString(f.key)).join(',');
  const code=[`public struct ${name}: Codable, Equatable, Sendable {`,...fields.map(f=>`    public var \`${f.key}\`: ${f.type}`),
   `    enum CodingKeys: String, CodingKey { case ${fields.map(f=>'`'+f.key+'`').join(', ')} }`,
@@ -75,7 +77,7 @@ try{
  add('performance',motion.PERFORMANCE_RECIPES,motion.applyPerformanceRecipe);add('character',motion.MOTION_CHARACTERS,motion.applyMotionCharacter);
  add('material',materials.MATERIAL_RECIPES,materials.applyMaterialRecipe);add('finish',materials.FINISH_RECIPES,materials.applyFinishRecipe);
  add('lighting',lighting.LIGHTING_RECIPES,lighting.applyLightingRecipe);add('lens',lenses.LENS_RECIPES,lenses.applyLensRecipe);
- const catalog={defaults:strip(baseline),worlds,recipes,backgrounds:backgrounds.BACKGROUND_STUDIES,backgroundCompositions:backgrounds.BACKGROUND_COMPOSITIONS,transitions:transitions.TRANSITION_PRESETS,tempos:tempo.TEMPO_CURVE_PRESETS};
+ const catalog={sourceSeed:baseline.projectSeed,fields:descriptors,defaults:strip(baseline),worlds,recipes,backgrounds:backgrounds.BACKGROUND_STUDIES,backgroundCompositions:backgrounds.BACKGROUND_COMPOSITIONS,transitions:transitions.TRANSITION_PRESETS,tempos:tempo.TEMPO_CURVE_PRESETS};
  await writeFile(resolve(resources,'CreativeCatalog.json'),JSON.stringify(catalog));
  console.log(`Native catalog: ${worlds.length} world variants, ${recipes.length} recipes; generated ${generated.length} typed structures.`);
 }finally{await server.close();}

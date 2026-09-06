@@ -72,17 +72,23 @@ public struct SafeDestination:Sendable {
         try check(url.isFileURL,"Choose a local destination.");self.url=url
         identity=try FileIdentity.read(url)
     }
-    public func publish(_ stage:URL)throws{
+    public func publish(_ stage:URL,preserveStage:()->Void = {})throws{
         try Task.checkCancellation()
         try check(try FileIdentity.read(url)==identity,"The destination changed. Choose another name; its current file was not replaced.")
         if let identity {
             let swapped=stage.path.withCString{src in url.path.withCString{dst in renamex_np(src,dst,UInt32(RENAME_SWAP))}}
             try check(swapped==0,"The completed output could not replace the destination.")
             guard let displaced=try FileIdentity.read(stage),identity.sameBytesAndObject(as:displaced) else{
-                _=stage.path.withCString{src in url.path.withCString{dst in renamex_np(src,dst,UInt32(RENAME_SWAP))}}
+                let restored=stage.path.withCString{src in url.path.withCString{dst in renamex_np(src,dst,UInt32(RENAME_SWAP))}}
+                if restored != 0 {
+                    preserveStage()
+                    throw NativeFailure.message("The destination changed during replacement. Its displaced file is preserved at \(stage.path); automatic rollback failed. Neither file was deleted.")
+                }
                 throw NativeFailure.message("The destination changed during replacement. The prior file was restored.")
             }
-            try FileManager.default.removeItem(at:stage)
+            // Replacement is committed. A cleanup failure must not be reported as
+            // a failed export or erase an unrelated subsequent destination change.
+            do{try FileManager.default.removeItem(at:stage)}catch{preserveStage();NSLog("Drift retained replaced-file backup at %@: %@",stage.path,error.localizedDescription)}
         }else{
             let moved=stage.path.withCString{src in url.path.withCString{dst in renamex_np(src,dst,UInt32(RENAME_EXCL))}}
             try check(moved==0,"The destination now exists or could not be written. Choose a new name.")

@@ -1,5 +1,8 @@
 // Build-time translation of Drift's authored shaders. No JavaScript or WebKit
 // enters the native application. SPIR-V reflection owns the buffer layout.
+// Interchange contract: extended-linear-sRGB, premultiplied RGBA16F. Source
+// samples unpremultiply before authored shading; every pass premultiplies once.
+// Transfer encoding occurs only at the final native display/export boundary.
 import { createServer } from 'vite';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
@@ -28,7 +31,7 @@ vec3 driftDecode(vec3 x) { return mix(x/12.92,pow((max(x,vec3(0))+0.055)/1.055,v
     text=text.replace(/precision\s+\w+\s+\w+\s*;/g,'').replace(/uniform\s+\w+\s+\w+\s*;/g,'');
     const location={vUv:0,vSurfaceEnergy:1,vViewPosition:2};
     text=text.replace(/varying\s+(\w+)\s+(\w+)\s*;/g,(_,type,name)=>`layout(location=${location[name]}) ${stage==='vert'?'out':'in'} ${type} ${name};`);
-    text=text.replace(/#include\s*<colorspace_fragment>/g,'driftOutput.rgb = driftEncode(driftOutput.rgb);');
+    text=text.replace(/#include\s*<colorspace_fragment>/g,'');
     text=text.replace(/\bgl_FragColor\b/g,'driftOutput').replace(/gl_FragCoord\.xy/g,'vec2(gl_FragCoord.x,uResolution.y-gl_FragCoord.y)');
     let prefix='#version 450\n'+block;
     if(stage==='vert'){
@@ -39,14 +42,15 @@ vec3 driftDecode(vec3 x) { return mix(x/12.92,pow((max(x,vec3(0))+0.055)/1.055,v
       prefix+='layout(location=0) out vec4 driftOutput;\n'+helpers;
       if(kind==='slide'){
         prefix+='layout(set=0,binding=1) uniform sampler2D uMap;\n';
-        prefix+=`vec4 driftOriginal(vec2 point){if(uIsShell>0.5)return vec4(uShellColor,1);vec2 uv=uCrop.xy+vec2(point.x,1.0-point.y)*uCrop.zw;vec4 c=texture(uMap,uv);if(c.a<=0.00001)c.rgb=vec3(0);return c;}\n`;
+        prefix+=`vec4 driftOriginal(vec2 point){if(uIsShell>0.5)return vec4(uShellColor,1);vec2 uv=uCrop.xy+vec2(point.x,1.0-point.y)*uCrop.zw;vec4 c=texture(uMap,uv);c.rgb=c.a>0.00001?c.rgb/c.a:vec3(0);return c;}\n`;
         text=text.replace(/texture2D\(uMap,\s*clamp\(textureUv, 0\.0, 1\.0\)\)/g,'driftOriginal(clamp(textureUv,0.0,1.0))');
       }
       if(kind==='lens'){
         prefix+='layout(set=0,binding=1) uniform sampler2D uScene;\n';
-        text=text.replace('return texture2D(uScene, clamp(uv, 0.0, 1.0));','vec4 c=texture(uScene,vec2(clamp(uv.x,0.0,1.0),1.0-clamp(uv.y,0.0,1.0)));c.rgb=driftDecode(c.rgb);return c;');
+        text=text.replace('return texture2D(uScene, clamp(uv, 0.0, 1.0));','vec4 c=texture(uScene,vec2(clamp(uv.x,0.0,1.0),1.0-clamp(uv.y,0.0,1.0)));c.rgb=c.a>0.00001?c.rgb/c.a:vec3(0);return c;');
       }
     }
+    if(stage==='frag'){text=text.replace(/void\s+main\s*\(\s*\)/,'void driftShade()');text+='\nvoid main(){driftShade();driftOutput.rgb*=driftOutput.a;}\n';}
     if(/texture2D|#include|varying|precision/.test(text))throw Error('Untranslated shader syntax '+kind+' '+stage);
     const name=`drift_${kind}_${stage}`,file=resolve(out,`${name}.${stage}`),spv=file+'.spv';
     await writeFile(file,prefix+text);

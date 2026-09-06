@@ -61,7 +61,7 @@ public struct RGBA: Codable, Equatable, Sendable {
         try Self.validateHex(hex);let value=UInt32(hex.dropFirst(),radix:16)!
         self.init(Double((value>>16)&255)/255,Double((value>>8)&255)/255,Double(value&255)/255)
     }
-    static func validateHex(_ value: String) throws {
+    public static func validateHex(_ value: String) throws {
         try require(value.count==7 && value.first=="#" && UInt32(value.dropFirst(),radix:16) != nil,"Use a six-digit RGB colour.")
     }
 }
@@ -333,14 +333,69 @@ public struct DriftProject:Codable,Equatable,Sendable {
 }
 public struct WorldTemplate:Codable,Sendable,Identifiable {public var id:String,worldID:String,label:String,pressure:String,scene:Int,values:CreativeValues}
 public struct RecipeTemplate:Codable,Sendable,Identifiable {public var id:String,category:String,recipeID:String,label:String,values:CreativeValues}
+public struct BackgroundComposition:Decodable,Sendable {public let id:String;public let name:String?}
+public struct BackgroundStudy:Decodable,Sendable,Identifiable {
+    public let id:String,name:String,family:String,paletteId:String
+    public let composition:Int,variation:Double,background:BackgroundParameters
+}
+public struct BackgroundParameters:Decodable,Sendable {public let style:String,colorA:String,colorB:String,accent:String,intensity:Double,motion:Double,grain:Double,vignette:Double,seed:Double}
+public enum FieldOption:Decodable,Sendable {case string(String),number(Double)
+    public init(from decoder:any Decoder)throws{let c=try decoder.singleValueContainer();if let s=try? c.decode(String.self){self = .string(s)}else{self = .number(try c.decode(Double.self))}}
+    public var text:String{switch self{case .string(let s):return s;case .number(let n):return String(n)}}
+}
+public struct CreativeField:Decodable,Sendable {public let key:String,type:String,options:[FieldOption]}
+public struct CreativeStructure:Decodable,Sendable {public let name:String,fields:[CreativeField]}
 public struct CreativeCatalog:Decodable,Sendable {
+    public let sourceSeed:Double
+    public let fields:[CreativeStructure]
+    public let backgrounds:[BackgroundStudy]
+    public let backgroundCompositions:[String:[BackgroundComposition]]
     public var defaults:CreativeValues
     public var worlds:[WorldTemplate]
     public var recipes:[RecipeTemplate]
     public static func load() throws -> Self {
-        guard let url=Bundle.module.url(forResource:"CreativeCatalog",withExtension:"json") else {throw DriftCoreError.invalid("The native creative catalog is missing.")}
+        guard let url=Bundle.main.url(forResource:"CreativeCatalog",withExtension:"json") ?? Bundle.module.url(forResource:"CreativeCatalog",withExtension:"json") else {throw DriftCoreError.invalid("The native creative catalog is missing.")}
         let catalog=try JSONDecoder().decode(Self.self,from:Data(contentsOf:url));try catalog.defaults.validate()
         for world in catalog.worlds{try world.values.validate()};for recipe in catalog.recipes{try recipe.values.validate()}
         return catalog
+    }
+}
+
+public extension DriftProject {
+    mutating func applyWorld(_ template:WorldTemplate,catalog:CreativeCatalog,recut:Int?=nil){
+        let locks=Set(lockedDomains);var values=template.values
+        values.card.aspectWidth=creative.card.aspectWidth;values.card.aspectHeight=creative.card.aspectHeight;values.card.defaultFit=creative.card.defaultFit
+        let take=recut ?? worldRecut
+        values.motion.performance.take=1+Double((seed+Int64(take)*17)%999)
+        values.atmosphere.recut=Double(take)
+        values.atmosphere.seedOffset=positiveModulo(values.atmosphere.seedOffset-catalog.sourceSeed+Double(seed)+Double(take)*37,100)
+        if !locks.contains("motion"){creative.motion=values.motion}
+        if !locks.contains("card"){creative.card=values.card}
+        if !locks.contains("material"){creative.material=values.material}
+        if !locks.contains("lighting"){creative.lighting=values.lighting}
+        if !locks.contains("atmosphere"){creative.atmosphere=values.atmosphere}
+        if !locks.contains("lens"){creative.lens=values.lens}
+        worldID=template.worldID;worldPressure=template.pressure;worldScene=template.scene;worldRecut=take
+    }
+    mutating func applyRecipe(_ recipe:RecipeTemplate){
+        let v=recipe.values
+        switch recipe.category{
+        case "path":creative.motion.path=v.motion.path
+        case "cadence":creative.motion.cadence=v.motion.cadence
+        case "performance":creative.motion.performance=v.motion.performance
+        case "character":creative.motion.character=v.motion.character
+        case "material":creative.material=v.material
+        case "finish":creative.material.finish=v.material.finish
+        case "lighting":creative.lighting=v.lighting
+        case "lens":creative.lens=v.lens
+        default:break
+        }
+    }
+    mutating func applyBackground(_ study:BackgroundStudy,catalog:CreativeCatalog){
+        let b=study.background;creative.atmosphere.enabled=true;creative.atmosphere.family=study.family
+        creative.atmosphere.composition=catalog.backgroundCompositions[study.family]?[study.composition].id ?? "pure-field"
+        creative.atmosphere.paletteId=study.paletteId;creative.atmosphere.seedOffset=study.variation
+        creative.atmosphere.colourA=b.colorA;creative.atmosphere.colourB=b.colorB;creative.atmosphere.accent=b.accent
+        creative.atmosphere.intensity=b.intensity;creative.atmosphere.motion=b.motion;creative.atmosphere.grain=b.grain;creative.atmosphere.vignette=b.vignette
     }
 }

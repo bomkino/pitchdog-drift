@@ -1,24 +1,13 @@
 # Drift — current state
 
-## Native completion execution · 6 September 2026
+## Native application integration · 6 September 2026
 
-Authorized scope: DRIFT_EXECUTION_SPEC_V3. Keep Pin; add Spotlight and Closing; remove Presenter entirely. No old-project compatibility. Exact 2576 × 1080 defaults. WebM plus still and animated WebP. Apple silicon Mac only, deployment floor 13.3. Galileo is read-only reference. Final native completion and release require the specification's actual app/output gates; this branch is not a released application.
+Working branch: `codex/drift-native-completion`. Main remains the earlier hybrid at `340b5f631c9147890bc775c86a71af315dd17929` until the new application passes essential document/output checks. This is the canonical status; a commit, successful component test, built app, and published release are separate states.
 
-Base main: `340b5f631c9147890bc775c86a71af315dd17929`.
-Working branch: `codex/drift-native-completion`.
+The native candidate now contains an AppKit/NSDocument executable with SwiftUI media/inspector/timeline controls; file-backed original ownership and streamed ZIP64 projects; native VP8/VP9 WebM and still/animated WebP; a Metal compositor using build-time-translated Drift shader algorithms; exact wide-deck canvas and decimal slide ratios; independent Pin/Spotlight/global Closing; a reversible document journal; source audition; AVFoundation MP4, PNG and PNG-sequence output; and the existing licensed recorded sound sources. Presenter and old-format conversion are absent from the new model/runtime.
 
-Accepted component work: pure Swift exact ratios/canvas values and frame-quantized presentation insertion, including one global Closing. Commit `c5b10862d8f67bce14f04f4e6368efb5c8740b88` passed four core tests on an arm64 Mac runner (macOS 15.7.9, build 24G830, Swift 6.1.2). This does not prove an integrated editor or exported media.
+The current execution step is the first integrated packaged native application build and synthetic media/output journey. These new application paths have not yet passed that gate. Earlier hosted-Mac component checks established the core model, codec decoding and shader compilation only. The first document/media build compiled its sources but exposed a PNG test-fixture creation failure; fixture setup is corrected without removing the project or output assertions.
 
-In progress: exact-size editor repair; native document/command ownership; analytical motion port and role integration; native codec adapters. The codec SDK job builds immutable libwebp/libwebm/libvpx revisions and retains their notices. SDK compilation is not an end-to-end format-support claim. Originals are never replaced by compatibility transcodes.
+The final accepted app must have no WebKit/JavaScript runtime dependency, preserve authored appearance and essential features, and publish the exact checked binary. Large-project capacity, colour/alpha, sound, cancellation, document lifecycle and actual output remain explicit acceptance work. Physical M2 mini 8 GB and M1 Pro validation are not claimed. The native deployment floor remains macOS 13.3 arm64.
 
-Execution environment: direct Git DNS is unavailable but the GitHub connector can read/write. Local Chromium navigation is blocked by administrator policy; no bypass is attempted. Use supported Mac CI for actual app/output proof. The user's physical M2 mini 8 GB and M1 Pro have not been tested.
-
-## Existing main / release boundary
-
-Main remains the 0.3.0 AppKit/WKWebView hybrid until the native candidate passes acceptance. It includes video-slide loop/trim/rate, transactional recovery handoff, media-aware history, saved-content tracking, Save-on-close, bounded sequential video decoding, settled-preview scheduling, and direct export. It retains 64 MiB/file, 80 MiB total and 96 MiB archive limits, silent video slides, and a separate presenter slot. Those existing limits are not raised by this native-core or SDK commit.
-
-The inspected v0.3.0 release record `383255443` remains an unpublished draft with no assets. Do not treat source/main, a passing component job, a tag, an installer artifact and a published release as the same state. Do not claim native completion or installation readiness from this branch yet.
-
-Next implementation boundary: integrate the native typed document, complete command/snapshot semantics and faithful frame evaluation; finish actual WebM/WebP decoding, file-backed original ownership and native editor/render/output. The final release additionally requires exact-artifact packaging, release-ID-based publication, mandatory checksums and a non-destructive reinstall/rollback path.
-
-Historical plans and earlier QA remain evidence, not competing current status documents. Licensing, attribution, old tags/releases and user files remain intact.
+Scope is Drift only. Keep Pin, add Spotlight and Closing, remove Presenter, no legacy-project compatibility. Galileo is read-only reference. No private client media belongs in CI evidence. No production-ready claim follows from a component test. Preserve licensing, source history and user files; do not force-push main or replace immutable release assets.
