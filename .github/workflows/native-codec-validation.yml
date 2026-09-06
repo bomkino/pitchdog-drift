@@ -22,13 +22,16 @@ jobs:
       - name: Generate synthetic input only
         run: |
           set -euo pipefail
-          command -v ffmpeg >/dev/null || brew install ffmpeg
           mkdir -p build/native-decoding
-          ffmpeg -hide_banner -loglevel error -f lavfi -i 'color=red@0.5:size=160x90,format=rgba' -frames:v 1 -c:v libwebp -lossless 1 build/native-decoding/still.webp
-          ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=4:duration=1' -c:v libwebp_anim -lossless 1 -loop 0 build/native-decoding/animated.webp
-          ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=12:duration=1' -c:v libvpx -g 6 -an build/native-decoding/vp8.webm
-          ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=12:duration=1' -c:v libvpx-vp9 -g 6 -an build/native-decoding/vp9.webm
-          ffmpeg -version > build/native-decoding/FIXTURE_TOOL.txt
+          brew list --versions ffmpeg-full >/dev/null || brew install ffmpeg-full
+          FFMPEG="$(brew --prefix ffmpeg-full)/bin/ffmpeg"
+          "$FFMPEG" -version > build/native-decoding/FIXTURE_TOOL.txt
+          "$FFMPEG" -hide_banner -encoders > build/native-decoding/FIXTURE_ENCODERS.txt
+          grep -q libwebp_anim build/native-decoding/FIXTURE_ENCODERS.txt
+          "$FFMPEG" -hide_banner -loglevel error -f lavfi -i 'color=red@0.5:size=160x90,format=rgba' -frames:v 1 -c:v libwebp -lossless 1 build/native-decoding/still.webp
+          "$FFMPEG" -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=4:duration=1' -c:v libwebp_anim -lossless 1 -loop 0 build/native-decoding/animated.webp
+          "$FFMPEG" -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=12:duration=1' -c:v libvpx -g 6 -an build/native-decoding/vp8.webm
+          "$FFMPEG" -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=12:duration=1' -c:v libvpx-vp9 -g 6 -an build/native-decoding/vp9.webm
           shasum -a 256 build/native-decoding/*.web* > build/native-decoding/ORIGINALS_SHA256.txt
       - name: Decode actual pixels, backward seeks, trim ends and cancellation
         run: |
