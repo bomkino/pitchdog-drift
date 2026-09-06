@@ -2,9 +2,9 @@ name: Native application integration
 on:
   push:
     branches: [codex/drift-native-completion, main]
-    paths: [macos/NativeCore/**, scripts/build-native-codecs.sh, scripts/generate-native-catalog.mjs, .github/workflows/native-integration.yml]
+    paths: [macos/NativeCore/**, scripts/build-native-codecs.sh, scripts/build-native-archive.sh, scripts/generate-native-catalog.mjs, .github/workflows/native-integration.yml]
   pull_request:
-    paths: [macos/NativeCore/**, scripts/build-native-codecs.sh, scripts/generate-native-catalog.mjs, .github/workflows/native-integration.yml]
+    paths: [macos/NativeCore/**, scripts/build-native-codecs.sh, scripts/build-native-archive.sh, scripts/generate-native-catalog.mjs, .github/workflows/native-integration.yml]
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,6 +24,7 @@ jobs:
       - run: npm ci
       - run: node scripts/generate-native-catalog.mjs
       - run: scripts/build-native-codecs.sh
+      - run: scripts/build-native-archive.sh
       - name: Native document and media integration
         run: |
           set -euo pipefail

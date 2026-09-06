@@ -11,7 +11,7 @@ var products:[Product]=[.library(name:"DriftCore",targets:["DriftCore"])]
 #if os(macOS)
 if ProcessInfo.processInfo.environment["DRIFT_CORE_ONLY"] != "1" {
 targets += [
-    .target(name:"CDriftArchive",publicHeadersPath:"include",linkerSettings:[.linkedLibrary("archive")]),
+    .target(name:"CDriftArchive",publicHeadersPath:"include",cSettings:[.unsafeFlags(["-I",sdk+"/include"])],linkerSettings:[.unsafeFlags([sdk+"/lib/libarchive.a"]),.linkedLibrary("z")]),
     .target(name:"CDriftCodecs",publicHeadersPath:"include",cxxSettings:[.unsafeFlags(["-I",sdk+"/include"])],linkerSettings:[.unsafeFlags(["-L",sdk+"/lib"]),.linkedLibrary("webpdemux"),.linkedLibrary("webp"),.linkedLibrary("sharpyuv"),.linkedLibrary("webm"),.linkedLibrary("vpx")]),
     .target(name:"DriftNative",dependencies:["DriftCore","CDriftArchive","CDriftCodecs"],linkerSettings:[.linkedFramework("Metal"),.linkedFramework("MetalKit"),.linkedFramework("AVFoundation"),.linkedFramework("CoreImage"),.linkedFramework("ImageIO"),.linkedFramework("AudioToolbox")]),
     .testTarget(name:"DriftNativeTests",dependencies:["DriftNative","DriftCore"])
