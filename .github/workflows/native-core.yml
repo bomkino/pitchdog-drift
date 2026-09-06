@@ -40,7 +40,7 @@ jobs:
       - name: Test native document, geometry, history and presentation scheduling
         run: |
           set -euo pipefail
-          xcrun swift test --package-path macos/NativeCore 2>&1 | tee "$RUNNER_TEMP/drift-core-evidence/tests.txt"
+          DRIFT_CORE_ONLY=1 xcrun swift test --package-path macos/NativeCore 2>&1 | tee "$RUNNER_TEMP/drift-core-evidence/tests.txt"
       - name: Preserve exact reproducible source and test evidence
         if: always()
         run: |
