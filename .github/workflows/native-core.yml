@@ -3,9 +3,9 @@ name: Native directing core
 on:
   push:
     branches: [codex/drift-native-completion, main]
-    paths: [macos/NativeCore/**, .github/workflows/native-core.yml]
+    paths: [macos/NativeCore/**, scripts/generate-native-catalog.mjs, src/core/**, src/backgrounds.ts, package.json, package-lock.json, .github/workflows/native-core.yml]
   pull_request:
-    paths: [macos/NativeCore/**, .github/workflows/native-core.yml]
+    paths: [macos/NativeCore/**, scripts/generate-native-catalog.mjs, src/core/**, src/backgrounds.ts, package.json, package-lock.json, .github/workflows/native-core.yml]
   workflow_dispatch:
 
 permissions:
@@ -18,10 +18,10 @@ concurrency:
 jobs:
   directing-core:
     runs-on: macos-15
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Test exact geometry and presentation scheduling
+      - name: Record exact source and host
         run: |
           set -euo pipefail
           test "$(uname -m)" = arm64
@@ -30,10 +30,22 @@ jobs:
           git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/drift-core-evidence/TREE_SHA.txt"
           sw_vers > "$RUNNER_TEMP/drift-core-evidence/host.txt"
           xcrun swift --version >> "$RUNNER_TEMP/drift-core-evidence/host.txt"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Preserve authored recipes as typed native data
+        run: node scripts/generate-native-catalog.mjs
+      - name: Test native document, geometry, history and presentation scheduling
+        run: |
+          set -euo pipefail
           xcrun swift test --package-path macos/NativeCore 2>&1 | tee "$RUNNER_TEMP/drift-core-evidence/tests.txt"
       - name: Preserve exact reproducible source and test evidence
         if: always()
-        run: git archive --format=tar HEAD > "$RUNNER_TEMP/drift-core-evidence/source.tar"
+        run: |
+          mkdir -p "$RUNNER_TEMP/drift-core-evidence"
+          git archive --format=tar HEAD > "$RUNNER_TEMP/drift-core-evidence/source.tar"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS("13.3")],
     products: [.library(name: "DriftCore", targets: ["DriftCore"])],
     targets: [
-        .target(name: "DriftCore"),
+        .target(name: "DriftCore", resources: [.process("Resources")]),
         .testTarget(name: "DriftCoreTests", dependencies: ["DriftCore"]),
     ]
 )
