@@ -1,0 +1,30 @@
+name: Native media SDK
+on:
+  push:
+    branches: [codex/drift-native-completion]
+    paths: [scripts/build-native-codecs.sh, .github/workflows/native-codecs.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-codecs-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  sdk:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build pinned native media SDK
+        run: scripts/build-native-codecs.sh
+      - name: Record build identity
+        run: |
+          git rev-parse HEAD > build/native-codecs/SOURCE_SHA.txt
+          sw_vers > build/native-codecs/HOST.txt
+          xcrun clang --version >> build/native-codecs/HOST.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: drift-native-codec-sdk-${{ github.sha }}
+          path: build/native-codecs/
+          retention-days: 7
+          if-no-files-found: error
