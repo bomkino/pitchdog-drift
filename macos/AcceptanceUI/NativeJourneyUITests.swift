@@ -66,7 +66,7 @@ final class NativeJourneyUITests:XCTestCase {
                 XCTAssertTrue(nextFrame.isEnabled)
                 nextFrame.click()
             }
-            for choice in ["edit-enter","edit-blur","edit-escape","edit-undo","edit-undo-enter","look-start","look-original","look-preview","look-cancel","look-restart","look-seek","look-apply","look-undo"]{
+            for choice in ["edit-enter","edit-blur","edit-escape","edit-undo","edit-undo-enter","edit-reorder","edit-undo-reorder","look-start","look-original","look-preview","look-cancel","look-restart","look-seek","look-apply","look-undo"]{
                 try awaitValue(choice){self.json(root.appendingPathComponent("UI_STEP.json"))?["choice"] as? String==choice || self.json(root.appendingPathComponent("RESULT.json")) != nil || app.state == .notRunning}
                 XCTAssertNil(json(root.appendingPathComponent("RESULT.json")),"Application failed before \(choice)")
                 let step=try XCTUnwrap(json(root.appendingPathComponent("UI_STEP.json")))
@@ -89,7 +89,11 @@ final class NativeJourneyUITests:XCTestCase {
                 case "edit-escape":
                     let field=window.textFields["Focal X"];replace(field,"0.9");field.typeKey(.escape,modifierFlags:[])
                     window.buttons["drift.next-frame"].click()
-                case "edit-undo","edit-undo-enter","look-undo":window.buttons["Undo"].click()
+                case "edit-undo","edit-undo-enter","edit-undo-reorder","look-undo":window.buttons["Undo"].click()
+                case "edit-reorder":
+                    let source=window.staticTexts[try XCTUnwrap(step["sourceMedia"] as? String)].firstMatch
+                    let target=window.staticTexts[try XCTUnwrap(step["targetMedia"] as? String)].firstMatch
+                    source.press(forDuration:1,thenDragTo:target)
                 case "look-start","look-restart":
                     if choice=="look-start"{window.radioButtons["Look"].click();try click("drift.look-audition")}
                     try click("drift.world")

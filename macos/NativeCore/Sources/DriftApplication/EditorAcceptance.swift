@@ -36,6 +36,12 @@ import DriftNative
         try step("edit-undo-enter")
         try await NativeApplicationProof.wait("real Undo of Enter"){editor.project.slides[0].focalX==original.slides[0].focalX}
         try NativeApplicationProof.require(try editor.project.contentIdentity()==original.contentIdentity(),"two numeric Undos restore all authored content")
+        try step("edit-reorder",["sourceMedia":original.assets[original.slides[1].assetID]!.name,"targetMedia":original.assets[original.slides[0].assetID]!.name])
+        try await NativeApplicationProof.wait("native list drag reorders media"){editor.project.slides[0].id==ids[1]}
+        try NativeApplicationProof.require(editor.journal.past.count==initial+1,"native list drag is one edit")
+        try step("edit-undo-reorder")
+        try await NativeApplicationProof.wait("real Undo of native drag"){editor.project.slides.map(\.id)==ids}
+        try NativeApplicationProof.require(try editor.project.contentIdentity()==original.contentIdentity(),"reorder Undo preserves media and authored content")
 
         editor.change("Acceptance playback loop"){$0.direction.mode = .loop}
         let base=editor.project,baseIdentity=try base.contentIdentity(),history=editor.journal.past.count
@@ -68,7 +74,7 @@ import DriftNative
         try await NativeApplicationProof.wait("one real Undo of Apply Look"){editor.journal.past.count==history}
         try NativeApplicationProof.require(try editor.project.contentIdentity()==baseIdentity,"one Undo restores the complete prior Look")
         try NativeApplicationProof.require(editor.issue==nil,"focused editor operations complete without an issue")
-        return "Real focused Enter/blur/Escape retain selection ownership and single Undo; Look A/B, Cancel/resume and Apply/Undo preserve accepted content and newer user seeks"
+        return "Real focused Enter/blur/Escape and native list drag retain selection ownership and single Undo; Look A/B, Cancel/resume and Apply/Undo preserve accepted content and newer user seeks"
     }
 
     static func repeatPreview(document:DriftDocument,output:URL)async throws->String{

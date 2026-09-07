@@ -103,7 +103,7 @@ struct StudioView:View {
                             }
                         }.opacity(slide.included ? 1:0.5).padding(.vertical,5).tag(slide.id)
                         .contextMenu{slideMenu(slide,original)}
-                        .onDrag{NSItemProvider(object:slide.id as NSString)}
+                        .itemProvider{NSItemProvider(object:slide.id as NSString)}
                         .onDrop(of:["public.utf8-plain-text"],isTargeted:nil){providers in reorder(providers,before:slide.id)}
                         .accessibilityLabel("\(original.name)\(slide.included ? "":", excluded")")
                     }
