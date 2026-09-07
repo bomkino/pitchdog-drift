@@ -1,5 +1,5 @@
 import XCTest
-import DriftCore
+@testable import DriftCore
 @testable import DriftNative
 
 final class FinalNativeBoundaryTests:XCTestCase {
