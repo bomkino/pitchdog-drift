@@ -35,24 +35,7 @@ Small, coherent pull requests are easier to falsify than bundles of unrelated po
 
 ## Local checks
 
-```bash
-npm ci
-npm run check
-npm run setup:e2e
-npm run test:e2e
-```
-
-`npm run check` covers TypeScript, focused tests, the production browser build, and the native source contract. `npm run setup:e2e` installs the Chromium runtime once; the Playwright suite then exercises real browser behavior.
-
-On macOS 13.3 or newer:
-
-```bash
-npm run build:mac
-npm run verify:mac
-npm run package:mac:dmg
-```
-
-A Mac PR is not complete because Swift parses. It must compile on macOS, preserve the web engine’s tests, pass bundle verification, and include direct evidence for any native behavior it claims.
+Use `npm ci` and `npm run check` for authored source regressions. On Apple silicon with full Xcode and the build tools listed in README, run `npm run test:mac`, build the native app, archive it, run the external UI journey and package the tested DMG. Follow `docs/MACOS_RELEASE.md` for the exact sequence. Browser tests remain historical renderer references; they do not certify the native app.
 
 ## Visual and motion changes
 
@@ -82,45 +65,7 @@ A Mac PR is not complete because Swift parses. It must compile on macOS, preserv
 
 ## macOS contributions
 
-The native app exists to supply Mac behavior that the web runtime cannot supply honestly. Do not move rendering, project semantics, or media verification into Swift without a demonstrated reason and a migration plan.
-
-### Native command rule
-
-Every bridge command must have:
-
-- one concrete user journey;
-- a fixed command name;
-- bounded, typed payload validation;
-- main-frame enforcement;
-- no renderer-provided path;
-- a success/failure envelope;
-- cancellation and cleanup semantics;
-- a source-contract marker;
-- a test or a documented reason why only physical-Mac testing can prove it.
-
-Do not add general method dispatch, arbitrary Objective-C selectors, shell execution, AppleScript, `Process`, `NSTask`, URLSession, sockets, recursive deletion, or temporary-exception entitlements.
-
-### Filesystem rule
-
-- Access begins with a user panel or Finder document event.
-- Renderer receives opaque tokens, not absolute paths.
-- Reject symlinks and traversal.
-- Keep bridge chunks bounded.
-- Stage destination replacement in `itemReplacementDirectory`.
-- Commit only after synchronize and close.
-- Abort preserves the prior destination.
-- Directory sequence operations remain one validated leaf at a time.
-- Extract and inspect the signed entitlements of the finished app.
-
-### Codec rule
-
-The Mac build is system-codec-only. Do not remove or bypass the Vite alias to `src/lib/macosAacEncoder.ts`. Do not add a `.wasm` codec binary to `Drift.app` without an explicit architecture, licensing, source-provision, security, size, and release review.
-
-A feature that requires unavailable AAC should fail visibly or offer an honest alternative. Silent audio removal is not an alternative.
-
-### App lifecycle rule
-
-The current project store is single-editor. Preserve one application instance and one window unless project storage is redesigned for multiwriter coordination. Close, Quit, WebKit process termination, sleep/wake, and removable-volume failure are first-class paths.
+Work in `macos/NativeCore`. NSDocument owns document lifecycle; SwiftUI owns native controls; typed core state and a shared frame plan own preview/export semantics; native media and Metal own rendering and output. Preserve originals, tickets, cancellation, transaction boundaries and recorded-source provenance. The app is local-first without claiming sandbox containment. The authored browser sources are build inputs/reference tests, not a second shipped runtime. Follow the current native architecture, product contract and release procedure.
 
 ## Tests and receipts
 

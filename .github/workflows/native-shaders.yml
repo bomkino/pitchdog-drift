@@ -1,0 +1,39 @@
+name: Native authored shaders
+on:
+  push:
+    branches: [codex/drift-native-completion]
+    paths: [src/engine/shaders.ts, src/engine/backgroundShader.ts, src/engine/lensShader.ts, scripts/generate-native-shaders.mjs, scripts/build-native-shaders.sh, .github/workflows/native-shaders.yml]
+  pull_request:
+    paths: [src/engine/shaders.ts, src/engine/backgroundShader.ts, src/engine/lensShader.ts, scripts/generate-native-shaders.mjs, scripts/build-native-shaders.sh, .github/workflows/native-shaders.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  metal:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install build-only shader compilers
+        run: brew install glslang spirv-cross
+      - name: Compile actual Drift shader algorithms to Metal
+        run: scripts/build-native-shaders.sh
+      - name: Record identity
+        if: always()
+        run: |
+          mkdir -p build/native-shaders
+          git rev-parse HEAD > build/native-shaders/SOURCE_SHA.txt
+          sw_vers > build/native-shaders/HOST.txt
+          xcrun metal --version >> build/native-shaders/HOST.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: drift-authored-metal-${{ github.sha }}
+          path: build/native-shaders/
+          retention-days: 14
+          if-no-files-found: error

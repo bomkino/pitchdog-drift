@@ -31,57 +31,30 @@ These are response targets, not guarantees or automatic disclosure deadlines. If
 
 ## Supported surfaces
 
-Security fixes target the current `main` branch and explicitly active construction or release branches. This source tree identifies as `v0.2.1`; treat that version as public only when the matching GitHub tag and release exist. Public source can move faster than a notarized binary, so always identify the exact commit or app build.
+Security fixes target the current `main` branch and explicitly active construction or release branches. This source tree identifies as native `v0.4.0`; treat that version as public only when the matching GitHub tag and release exist. Public source can move faster than a notarized binary, so always identify the exact commit or app build.
 
 No public compiled Mac release is promised merely because CI can build `Drift.app`. The DMG attached to the historical `v0.1.0` release is ad-hoc signed and unnotarized and is not a supported security-maintained binary. A binary is supported only when the repository explicitly publishes it with a version, source revision, checksum, signing/notarization receipt, and release notes.
 
 ## High-priority classes
 
-- App Sandbox escape or entitlement expansion.
-- Native bridge commands callable from a subframe or remote page.
-- Arbitrary path read, write, deletion, shell, AppleScript, process launch, socket, or URLSession access.
-- Path traversal, symlink substitution, grant confusion, or token reuse across files.
-- Cancelled or failed export replacing a previously valid destination.
-- Directory-sequence cleanup deleting unrelated files.
-- Remote network request or exfiltration from the supposedly local runtime.
-- `.pitched` archive mutation before schema, digest, path, size, and reference verification.
-- Cross-project or stale-operation races that expose or overwrite newer work.
-- Unbounded decode, archive, bridge, or export memory that bypasses documented caps.
-- Output verification accepting corrupt, silent, mistimed, wrong-size, wrong-codec, or falsely transparent media.
-- Packaged Mac bundle including an undeclared codec binary or losing its intended entitlements after signing.
-- Sensitive path, filename, project, or media disclosure through diagnostics or logs.
+- Archive traversal, symlink substitution, unsafe file kinds or malformed native media.
+- Cross-document or stale-operation races that expose or overwrite newer work.
+- Cancelled/failed Save, export or installation replacing accepted content.
+- Cleanup deleting user projects, originals or unrelated output.
+- Unbounded archive/decode/export memory or output verification accepting corrupt, silent, mistimed or falsely transparent media.
+- Runtime network requests, undeclared codec binaries, compromised source-to-artifact identity or sensitive diagnostic disclosure.
 
 ## Native security invariants
 
-The Mac application is expected to preserve all of the following:
+Native Drift uses typed projects, strict new-format archive validation, original-file hashes, bounded work, document tickets, immutable saves/exports and staged publication. A failed operation preserves the previously accepted destination. The signed runtime contains no WebKit, JavaScript, WebAssembly, analytics, updater, cloud client or runtime downloads. Native codec libraries must match their pinned source and legal notices.
 
-- main-frame-only `WKScriptMessageHandlerWithReply` bridge;
-- fixed command allowlist and bounded payloads;
-- opaque file/directory tokens; no renderer-visible absolute paths;
-- App Sandbox with user-selected read/write and the app-wide network-client entitlement required by the packaged WKWebView topology;
-- no network-server, broad-directory, or temporary-exception entitlement;
-- no shipped native `URLSession`, Network.framework, socket, updater, analytics, or cloud-upload client;
-- no broad home, Documents, Downloads, temporary-exception, shell, process, AppleScript, or recursive-delete capability;
-- symlink and traversal rejection;
-- item-replacement staging and atomic commit;
-- abort preserving the prior committed destination;
-- document-start removal of page-visible WebRTC constructors, plus HTTP, HTTPS, WebSocket, and FTP blocking inside the WebView;
-- remote response/download cancellation before WebKit or AppKit can grant destination authority;
-- system-codec-only Mac bundle with no FFmpeg WebAssembly;
-- executable broker and packaged-WebView self-tests;
-- CI compilation without accidental binary publication.
+The application has normal user-process permissions; it is **not sandbox-contained**. Historical bridge-token and WKWebView sandbox rules describe the retired hybrid app. They are not native security claims. Native parser flaws or a compromised user process remain risks. See `docs/MACOS_THREAT_MODEL.md`.
 
-A change that breaks one of these is security-relevant even when the interface still appears to work.
-
-See `docs/MACOS_THREAT_MODEL.md` for trust boundaries and residual risks.
+Installation verifies the released bytes before normal Quit, respects Cancel and retains the previous bundle for rollback. Publishing is an explicit exact-main operation with immutable tags/assets. Ad-hoc signing must never be presented as Developer ID or notarization.
 
 ## Privacy expectations
 
-Production runtime source contains no analytics, runtime font download, cloud upload, hidden API, or automatic update service. The FontBlind binaries used by the interface are bundled locally. Imported media and projects remain in browser storage, the Mac app container, or user-selected files unless the user deliberately moves or shares them.
-
-External links in the Mac app should open in the default browser only after user activation. The network-client entitlement is app-wide, not WebKit-only: adding any native networking is a security-boundary change, and arbitrary WebKit/macOS compromise remains a residual risk.
-
-Diagnostics must remain useful without including absolute paths, project contents, asset hashes that identify private material, or raw media metadata beyond what a reporter deliberately supplies.
+Projects and originals stay in user-selected files and private native workspaces. Native controls use system fonts; retained sound recordings are bundled. The app needs no account or network service. Diagnostic evidence uses synthetic media and excludes private paths, project contents, secrets and identifying media hashes unless deliberately supplied through the private reporting process.
 
 ## Coordinated disclosure
 

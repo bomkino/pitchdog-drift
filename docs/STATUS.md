@@ -1,46 +1,17 @@
-# Project status
+# Drift — native acceptance checkpoint
 
-This is the single current status record for Drift. Updated 5 September 2026 for the `0.3.0` Mac release line. Publication is determined by the exact GitHub tag, release assets, and their receipts—not this document or a green source check.
+7 September 2026 · `drift-native-completion` · `bomkino/pitchdog-drift` · [PR 49](https://github.com/bomkino/pitchdog-drift/pull/49). Contract: `DRIFT-NATIVE-COMPLETION-V3`, including static/animated WebP. This is the acceptance checkpoint before protected merge/publication. The published release's immutable `MacReleaseReceipt.json` supplies the final main source, build, tested bundle identity and asset hashes; this checkpoint does not substitute for that receipt.
 
-## Product boundary
+**Accepted candidate:** [CI 34121299811](https://github.com/bomkino/pitchdog-drift/actions/runs/34121299811), head `64a32eb8e4daad34f0b0c83ce8b3d488265d7332`, tested merge source `fda3db0d568795698ce8e2801f94ea3f20139f5a`. All 587 source tests, 13 installer/publisher tests, 36 native integration tests, 19 archived-application assertions, frozen/mounted DMG and strict `verify` pass. Downloaded receipt and exact asset hashes verified in `build/accepted-64a32eb`; build 984, code-directory hash `91c7ca8c2df7fc6ecfbc06d7a28e49df25637a3b`, DMG SHA-256 `35f09dce6af36fee9d2ad64f645626054718e9ee932f24e294c0ccc8e6959e48`.
 
-Drift is exclusively an Apple-silicon Mac application. No browser, Windows, or Linux product is maintained. The current app remains an AppKit/WKWebView hybrid with native scoped file handling and AudioToolbox AAC. The NSDocument, native inspector/timeline, AVFoundation media pipeline, and Metal renderer migration are **not complete**.
+**Actual application evidence:** Save/Save As/Cancel/Don't Save/Revert/private recovery; immutable in-flight Save and export ownership across documents; original hashes; latest source/preview scrub; upright asymmetric originals and top-half crop; Spotlight/Closing frames; animated WebP, VP8/VP9 WebM and MP4 Pin loops; wide alpha PNG/sequence; licensed non-silent finite unclipped AAC and rational timing; cancellation preserving destinations. Light/Dark native screenshots are inspected and artwork stays unchanged. Real focused Enter/selection/blur/Escape, sidebar drag, toolbar/menu/keyboard Undo/Redo, Look A/B/Apply/Cancel/Undo and newer-seek ownership pass through the external UI driver.
 
-## Implemented in this line
+**Measured repeated use:** on hosted macOS 15.7.9, three real document/window passes across all 72 Worlds took 4.68/5.20/6.02 seconds; peak RSS 175,800,320/175,800,320/184,025,088 bytes, growth after warmup 8,224,768 bytes. Same six synthetic originals and 320×256 canvas; this is not representative full-size project stress. Actual preview audio performs eight Look edits with one soundtrack build and three starts. Decoded AAC/preview PCM correlation is 0.99944, peak 0.06177, with 57,600 decoded frames.
 
-- Project Open stages the replacement beside the current recovery project and preserves the original binding until commit. An atomic IndexedDB transaction replaces manifest and media together. Failed acceptance leaves the old recovery intact; failed cleanup enters recovery.
-- Undo/redo retains project state and original-media references, including media removal, import, ordering, presenter replacement, and pin changes. History is bounded by count and unique original bytes.
-- Dirty state compares canonical document content to the saved snapshot while preserving revisioned save completion. Undo to the saved document is clean. Save snapshots are captured before asynchronous work.
-- Native close/quit offers Save, Cancel, and Don’t Save for a dirty idle document. Save completion must succeed before closing. Don’t Save leaves any completed local recovery copy; it does not overwrite the bound file.
-- Image admission reads common headers before validation decoding; image import concurrency is two. Unknown image encodings still use a decoder fallback. Video metadata and frame waits have deadlines.
-- Unchanged original Blobs reuse digest work and IndexedDB records during settings-only autosaves.
-- Moving slides accept images and silent MP4/MOV/WebM video. Video directives save looping, source start/end, and playback rate. The interface exposes loop, trim, speed, Reset trim, and on-demand source filmstrip/audition. Clips share one master-relative source clock across repeated cards.
-- Native AAC PCM is staged to private disk storage, then mapped for conversion, rather than accumulated as one heap buffer. Limit: 300 seconds. This is not a fully incremental audio encoder or proof of long-form mixed-output fidelity.
-- Ordinary export uses one direct form and one draft; advanced background/destination fields expand in place. Stale results and audio-loss acknowledgments cannot belong to a different draft. Timeline shows output-frame timecode; presenter video trim remains available while muted.
+**Physical M2:** Apple M2, 8 GB, macOS 27.0 (26A5425a). Archived candidate `a40f916` opens a native project while the old installed UTI remains registered; physical sidebar drag, single Undo, Look comparison/Cancel/Apply/Undo and normal Quit pass (`build/native-integration/physical-ui-a40f916.json`). It exposed disconnected menu Undo, repaired and covered by the accepted hosted run above. Native module diagnostics additionally write/reopen a 4,294,979,346-byte ZIP64 project with eight verified originals, 16,646,144-byte peak RSS and zero measured growth. All 72 World renderings differ; protected Pin is pixel-identical; moving source pixels survive held Spotlight; Closing-only endpoints remain visible. Those module diagnostics are separate from full application proof.
 
-## Performance changes
+**Repairs:** strict native extension routing; bounded ZIP64 autorelease buffers; upright Metal source upload; correct Fill/Fit import defaults; screen-constrained windows; Sendable audio completion across SDK versions; stable focused numeric drafts; native List selection/reorder; document-journal menu routing while preserving native field-text undo. The recorded duplicate-filename drag failure was an inspector test target and is corrected by scoping the driver to the media list. No interface redesign was requested or performed in this completion pass.
 
-- A paused, settled preview no longer schedules continuous rendering. UI edits, media arrival, scrubbing, inertia, visibility changes, and playback wake the renderer.
-- Forward video export retains a bounded sample iterator and reuses a source frame while it covers an output timestamp. Loops, backward seeks, and sparse jumps reset the decoder.
-- Cancellation reaches texture/video preparation, not only later output frames; late results are released.
-- Source audition uses one on-demand decoder and five small thumbnails. Closing it releases the video, callbacks, and thumbnail URLs.
+**Installation and release boundary:** archive round-trip preserves signing and bytes; DMG freezes the tested app without rebuilding/re-signing. Stock-macOS installation validates exact receipt hashes/source/version/build/architecture/code hash, stages before normal Quit, respects Cancel, retains rollback and rejects unsafe targets. Real readonly-DMG fresh/replacement installation passes in disposable Applications storage (`build/native-integration/dmg-install-NCLvf3xm/RESULT.json`); user Applications is untouched. Normal protected PR, exact-main CI, immutable publication and independent public-byte readback remain required after this checkpoint. Version 0.4.0 is ad-hoc signed and unnotarized; Developer ID/notary credentials remain a separate protected lane. Legacy hybrid projects are not migrated; source-video audio stays silent by contract.
 
-## Validation boundary
-
-The release pipeline requires exact-source unit/type/source checks, project handoff/reopen tests, video-loop MP4 pixel checks, Mac compilation/broker tests, packaged lifecycle and V2 video-output proof, native AAC probing, and verification of the exact disk image. A release asset is uploaded only from the successful exact-main Mac run; it is not rebuilt for publication. CI jobs and release receipts carry their exact commits; no future result is asserted here.
-
-Neither the physical Mac mini M2 with 8 GB nor the M1 Pro MacBook Pro was tested during this implementation. No claim of measured frame rate, memory peak, thermal behaviour, battery use, sleep/wake reliability, wide-gamut fidelity, or low-memory crash recovery is made.
-
-## Retained limits and remaining work
-
-Audio-bearing output stays limited to 24/25/30 fps. Video slides are silent and cannot themselves become the pin; the dedicated presenter slot retains its audio, placement, and timing. Byte budgets remain 64 MiB/file, 80 MiB total, 96 MiB archive. Moving-video admission is at most eight sources and 33,177,600 combined source pixels. Stored project ZIPs are written in chunks and read as Blob slices, avoiding a second full set of original-media arrays. Archives and originals still live within conservative Blob/IndexedDB budgets; this is not the future native file-backed original vault. Deflated legacy ZIPs use the existing bounded compatibility reader.
-
-Full native document/render migration, comprehensive colour/alpha visual parity, actual process-crash recovery, physical-Mac performance profiling, installation/rollback, and long-form mixed presenter audio remain acceptance work. Do not equate a silent browser MP4 test or native AAC packet equation with that coverage.
-
-## Publication vocabulary
-
-Committed, tested, merged, tagged, asset-published, signed, and notarized are separate states. Developer ID/notarization checks remain mandatory for a distribution described as notarized. An explicitly identified ad-hoc test DMG may be published with its unnotarized and untested-hardware limitations.
-
-## Historical material
-
-`docs/programme/`, `docs/v2/`, dated QA reports, and Linux tracer documents retain useful design and provenance evidence. Their completion tables and browser/platform assumptions are historical, not the current product contract. Consult this page first, then the Mac user guide and architecture.
+**Maintenance and limits:** original ZIP, prior worktrees, untracked contributor guidance, published historical tags and the installed app are preserved. Empty v0.3.0 draft is marked superseded and stays unpublished. PR 42's exact Mediabunny/AAC 1.55.5 patch is integrated; retire the duplicate after merge. PR 43's grouped TypeScript 7 migration remains separate. Active runtime/CI/release paths are native; historical hybrid source remains labelled. Local CLT lacks full Xcode build/test support. Physical macOS 13.3, M1 Pro, battery, sleep/wake, external displays and assistive technologies remain untested. These hardware limits are disclosed, not silently treated as passes. Known code, file-safety or output defects block publication.

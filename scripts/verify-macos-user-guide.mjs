@@ -31,11 +31,11 @@ const forbidMarkers = (markers) => {
 if (buildChannel === "release") {
   requireMarkers([
     "# Drift for macOS — user guide",
-    "Use **File → Save Project** or **Command–S**",
-    "Use **File → Save Project As…**",
-    "Open it through **File → Open Project…**",
-    "**Command–O:** Open `.pitched` project",
-    "**Command–S:** Save project",
+    "Use **File → Save** or **Command–S**",
+    "Use **File → Save As…**",
+    "Open through **File → Open…**",
+    "The native `.pitched` ZIP64 archive",
+    "macOS Light/Dark appearance",
   ]);
   forbidMarkers([
     "Drift V2 Dev does **not** open, save, register, or own `.pitched` documents.",

@@ -1,3 +1,5 @@
+> Historical browser/hybrid reference. For current native Drift use [architecture](ARCHITECTURE.md), [product contract](PRODUCT_CONTRACT.md), [release procedure](MACOS_RELEASE.md) and [status](STATUS.md).
+
 # Drift for macOS — CI evidence budgets
 
 The packaged-WebKit matrix is a falsification tool, not permission for diagnostics to consume the entire release lane. Every subprocess that can wait on WindowServer, Gatekeeper, a temporary keychain, code signing, or the unified log has an explicit wall-clock budget.

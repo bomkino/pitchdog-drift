@@ -64,8 +64,8 @@ jobs:
           CANONICAL_REQUESTED_COMMIT="$(printf '%s' "$REQUESTED_COMMIT" | tr '[:upper:]' '[:lower:]')"
           git fetch --no-tags origin main
           git cat-file -e "${REQUESTED_COMMIT}^{commit}"
-          if ! git merge-base --is-ancestor "$REQUESTED_COMMIT" origin/main; then
-            echo "The requested commit is not reachable from trusted main." >&2
+          if [[ "$REQUESTED_COMMIT" != "$(git rev-parse origin/main)" ]]; then
+            echo "The requested commit is not current trusted main." >&2
             exit 1
           fi
           git checkout --detach "$REQUESTED_COMMIT"
@@ -81,6 +81,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Install native build and external UI-test tools
+        run: brew install glslang spirv-cross ffmpeg-full xcodegen
 
       - name: Require signing and notarisation secrets
         env:
@@ -198,5 +201,5 @@ jobs:
           set +e
           security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1
           rm -f "$CERTIFICATE_PATH" "$NOTARY_KEY_PATH"
-          rm -rf build/macos/Drift.app
-          rm -f build/release/Drift-macOS.zip build/release/Drift-macOS.dmg
+          rm -rf build/native/Drift.app build/native-roundtrip build/native-release build/native-ui-driver
+          rm -f build/release/Drift-notary.zip build/native/Drift-native-arm64.zip

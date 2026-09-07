@@ -1,3 +1,5 @@
+> Historical browser/hybrid reference. For current native Drift use [architecture](ARCHITECTURE.md), [product contract](PRODUCT_CONTRACT.md), [release procedure](MACOS_RELEASE.md) and [status](STATUS.md).
+
 > Current changes and limits: [STATUS.md](STATUS.md) and [Mac user guide](MACOS_USER_GUIDE.md). Retain the technical contracts below; older build receipts apply only to their exact commits.
 
 # Drift for macOS — product contract

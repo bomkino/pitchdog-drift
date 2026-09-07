@@ -2,6 +2,16 @@
 
 Notable user-visible and maintainer-facing changes will be recorded here. Drift is pre-1.0, and a changelog entry is not by itself evidence of a tag, GitHub Release, binary publication, or approval.
 
+## [0.4.0] — 2026-09-07
+
+Native Apple-silicon Drift: AppKit/NSDocument, SwiftUI controls and Metal rendering; no shipped web runtime. Requires macOS 13.3 or later. Retains eight authored Worlds, 72 variants, creative recipes and recorded sound. New documents use 2576 × 1080. The interface follows macOS Light/Dark appearance without changing artwork.
+
+Adds the native ZIP64 `.pitched` format with unchanged originals, native static/animated WebP and opaque VP8/VP9 WebM, independent moving-media Pin/Spotlight/Closing, source audition and rational native MP4/PNG output. Legacy web/hybrid projects are not migrated. Source-video audio remains silent.
+
+Native document transactions preserve Save/Undo/recovery and export ownership across documents. Safe installation verifies exact release bytes before normal Quit, respects Cancel and retains rollback. Published assets are immutable and bound to the tested main source/build.
+
+Default installer: **ad-hoc signed, unnotarized**. Read the release receipt for tested hardware/OS. Hosted proof does not certify minimum macOS, physical M1 Pro, sleep/wake, battery, external displays or assistive-technology acceptance. Keep the previous app and project backups. Follow the native user guide for installation.
+
 ## [0.3.0] — 2026-09-05
 
 ### Changed
