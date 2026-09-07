@@ -44,12 +44,14 @@ struct StudioView:View {
             if session.importing{
                 Divider();HStack{ProgressView().controlSize(.small);Text(session.importStatus);Spacer();Button("Cancel import"){session.cancelImport()}}.padding(12)
             }
-            if exports.busy || exports.receipt != nil || exports.error != nil{
+            if exports.belongs(to:session) && (exports.busy || exports.receipt != nil || exports.error != nil){
                 Divider();HStack(spacing:12){
                     if exports.busy{ProgressView(value:exports.progress).frame(width:130);Text(exports.status);Spacer();Button("Cancel"){exports.cancel()}}
                     else if let receipt=exports.receipt{Text("Exported \(receipt.name)");Spacer();Button("Reveal in Finder"){exports.reveal()};Button("Dismiss"){exports.clear()}}
                     else if let error=exports.error{Text(error).foregroundStyle(.red).textSelection(.enabled);Spacer();Button("Dismiss"){exports.clear()}}
                 }.padding(12)
+            }else if exports.busy{
+                Divider();HStack{Text("Export running in \(exports.ownerName)").foregroundStyle(.secondary);Spacer()}.padding(12)
             }
             if let issue=session.issue{
                 Divider();HStack(alignment:.top){Image(systemName:"exclamationmark.triangle");Text(issue).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading);Button("Dismiss"){session.issue=nil}}.padding(12).foregroundStyle(.red)

@@ -168,10 +168,14 @@ public enum NativeExport {
     @Published public private(set) var status=""
     @Published public private(set) var receipt:ExportReceipt?
     @Published public private(set) var error:String?
+    @Published public private(set) var ownerID:UUID?
+    @Published public private(set) var ownerName=""
     private var task:Task<Void,Never>?,cancellation:MediaCancellation?,generation=UUID()
     public init(){}
-    public func start(snapshot:RenderSnapshot,destination:URL,range:ExportRange?,stillFrame:Int64){
-        guard !busy else{error="An export is already running.";return}
+    public func belongs(to session:EditorSession)->Bool{ownerID==session.id}
+    public func start(snapshot:RenderSnapshot,destination:URL,range:ExportRange?,stillFrame:Int64,ownerID:UUID,ownerName:String)throws{
+        guard !busy else{throw NativeFailure.message("An export is already running in \(self.ownerName).") }
+        self.ownerID=ownerID;self.ownerName=ownerName.isEmpty ? "Untitled":ownerName
         let token=MediaCancellation(),id=UUID();generation=id;cancellation=token;busy=true;progress=0;status="Preparing export";error=nil;receipt=nil
         task=Task.detached(priority:.userInitiated){[weak self] in
             guard let self else{return}
@@ -183,5 +187,5 @@ public enum NativeExport {
     private func finish(result:ExportReceipt?,error:String?,id:UUID){guard generation==id else{return};busy=false;receipt=result;self.error=error;task=nil;cancellation=nil;status=result==nil ? (error ?? "Export failed"):"Exported";if result != nil{progress=1}}
     public func cancel(){guard busy,progress<0.98 else{return};status="Cancelling";cancellation?.cancel();task?.cancel()}
     public func reveal(){if let receipt{NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath:receipt.path)])}}
-    public func clear(){guard !busy else{return};receipt=nil;error=nil;status=""}
+    public func clear(){guard !busy else{return};receipt=nil;error=nil;status="";ownerID=nil;ownerName=""}
 }

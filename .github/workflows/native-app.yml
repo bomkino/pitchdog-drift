@@ -2,9 +2,9 @@ name: Native Drift application
 on:
   push:
     branches: [codex/drift-native-completion, main]
-    paths: [macos/NativeCore/**, scripts/build-native-*.sh, scripts/package-native-app.sh, scripts/run-native-proof.py, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
+    paths: [macos/NativeCore/**, macos/AcceptanceUI/**, scripts/run-native-ui-proof.py, scripts/build-native-*.sh, scripts/package-native-app.sh, scripts/run-native-proof.py, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
   pull_request:
-    paths: [macos/NativeCore/**, scripts/build-native-*.sh, scripts/package-native-app.sh, scripts/run-native-proof.py, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
+    paths: [macos/NativeCore/**, macos/AcceptanceUI/**, scripts/run-native-ui-proof.py, scripts/build-native-*.sh, scripts/package-native-app.sh, scripts/run-native-proof.py, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,7 +23,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Install build-only tools
-        run: brew install glslang spirv-cross ffmpeg-full
+        run: brew install glslang spirv-cross ffmpeg-full xcodegen
       - name: Generate synthetic originals
         run: python3 scripts/generate-native-fixtures.py
       - name: Build the actual native app
@@ -43,7 +43,7 @@ jobs:
       - name: Exercise native document, Metal preview and actual output
         run: |
           set -euo pipefail
-          python3 scripts/run-native-proof.py build/native-roundtrip/Drift.app 2>&1 | tee build/native-app-evidence/runtime.txt
+          python3 scripts/run-native-ui-proof.py build/native-roundtrip/Drift.app 2>&1 | tee build/native-app-evidence/runtime.txt
       - name: Collect synthetic evidence
         if: always()
         run: |

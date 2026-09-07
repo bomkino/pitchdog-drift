@@ -33,7 +33,7 @@ private final class HeldWrite:@unchecked Sendable {
             }
         }
     }
-    private static func open(_ url:URL)async throws->DriftDocument{
+    static func open(_ url:URL)async throws->DriftDocument{
         try await withCheckedThrowingContinuation{(c:CheckedContinuation<DriftDocument,Error>) in
             NSDocumentController.shared.openDocument(withContentsOf:url,display:true){document,_,error in
                 if let error{c.resume(throwing:error)}else if let document=document as? DriftDocument{c.resume(returning:document)}
@@ -41,44 +41,20 @@ private final class HeldWrite:@unchecked Sendable {
             }
         }
     }
-    private static func button(in view:NSView?,matching predicate:(NSButton)->Bool)->NSButton?{
-        guard let view else{return nil}
-        if let button=view as? NSButton,predicate(button){return button}
-        for child in view.subviews{if let found=button(in:child,matching:predicate){return found}}
-        return nil
-    }
     private static func closeDecision(_ document:DriftDocument,cancel:Bool)async throws->Bool{
+        guard CommandLine.arguments.contains("--native-ui-driver") else{
+            throw NativeFailure.message("Document close acceptance requires the external XCUITest driver. Run scripts/run-native-ui-proof.py.")
+        }
         let decision=CloseDecision()
         document.canClose(withDelegate:decision,shouldClose:#selector(CloseDecision.document(_:shouldClose:contextInfo:)),contextInfo:nil)
-        try await NativeApplicationProof.wait("real dirty-document close sheet",seconds:8){document.windowForSheet?.attachedSheet?.isVisible==true || decision.result != nil}
-        guard let sheet=document.windowForSheet?.attachedSheet else{throw NativeFailure.message("Dirty document closed without presenting its save decision.")}
-        if let panel=sheet as? NSSavePanel {
-            // NSSavePanel's controls live in AppKit's view-service process.
-            // Exercise its public Cancel action or actual keyboard equivalent;
-            // never manufacture a modal return code or call the delegate.
-            if cancel{mark("close-remote-cancel");panel.cancel(nil)}
-            else{
-                guard let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:.command,timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:panel.windowNumber,context:nil,characters:"\u{7f}",charactersIgnoringModifiers:"\u{7f}",isARepeat:false,keyCode:51) else{throw NativeFailure.message("Could not form the synthetic discard key event.")}
-                var handled=false
-                try await NativeApplicationProof.wait("remote Save panel discard key equivalent",seconds:8){
-                    guard document.windowForSheet?.attachedSheet === panel else{return decision.result != nil}
-                    if !handled{handled=panel.performKeyEquivalent(with:event)}
-                    return handled || decision.result != nil
-                }
-                mark("close-remote-command-delete handled=\(handled)")
-            }
-        }else{
-            func choice()->NSButton?{
-                button(in:sheet.contentView?.superview ?? sheet.contentView){button in
-                    let title=button.title.trimmingCharacters(in:.whitespacesAndNewlines).lowercased().replacingOccurrences(of:"’",with:"'")
-                    return cancel ? title=="cancel":["don't save","delete","discard","discard changes"].contains(title)
-                }
-            }
-            try await NativeApplicationProof.wait("local close alert control",seconds:8){choice() != nil}
-            guard let chosen=choice() else{throw NativeFailure.message("Close alert lost its requested control.")}
-            mark("close-choice-"+chosen.title);chosen.performClick(nil)
-        }
-        try await NativeApplicationProof.wait("real close decision callback",seconds:8){decision.result != nil}
+        try await NativeApplicationProof.wait("real dirty-document close sheet",seconds:15){document.windowForSheet?.attachedSheet?.isVisible==true || decision.result != nil}
+        guard let parent=document.windowForSheet,parent.attachedSheet != nil else{throw NativeFailure.message("Dirty document closed without presenting its save decision.")}
+        // The external UI process presses the real remote AppKit control.
+        // This marker identifies the synthetic document only; it cannot decide
+        // the result. NSDocument's actual shouldClose callback remains required.
+        let step:[String:Any]=["choice":cancel ? "cancel":"discard","window":parent.title]
+        try OwnedFiles.writeAtomic(JSONSerialization.data(withJSONObject:step,options:.sortedKeys),to:NativeApplicationProof.proofRoot.appendingPathComponent("UI_STEP.json"))
+        try await NativeApplicationProof.wait("externally selected real close decision",seconds:60){decision.result != nil}
         return decision.result!
     }
     static func run(snapshot:RenderSnapshot,output:URL)async throws->[String]{

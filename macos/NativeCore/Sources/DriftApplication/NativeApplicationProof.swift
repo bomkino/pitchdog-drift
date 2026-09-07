@@ -5,6 +5,8 @@ import DriftCore
 import DriftNative
 
 @MainActor enum NativeApplicationProof {
+    private static let runID=ProcessInfo.processInfo.environment["DRIFT_PROOF_RUN_ID"].flatMap(UUID.init(uuidString:)) ?? UUID()
+    static var proofRoot:URL{FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Drift Native Proof",isDirectory:true).appendingPathComponent(runID.uuidString,isDirectory:true)}
     static func require(_ condition:Bool,_ message:String)throws{if !condition{throw NativeFailure.message("Native app proof: "+message)}}
     static func wait(_ name:String,seconds:Double=45,_ predicate:()->Bool)async throws{
         let deadline=ProcessInfo.processInfo.systemUptime+seconds
@@ -19,7 +21,7 @@ import DriftNative
         try bytes.withUnsafeMutableBytes{p in guard let context=CGContext(data:p.baseAddress,width:image.width,height:image.height,bitsPerComponent:8,bytesPerRow:image.width*4,space:CGColorSpace(name:CGColorSpace.sRGB)!,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else{throw NativeFailure.message("Proof pixel buffer unavailable.")};context.draw(image,in:CGRect(x:0,y:0,width:image.width,height:image.height))};return bytes
     }
     static func run()async{
-        let root=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Drift Native Proof",isDirectory:true)
+        let root=proofRoot
         var assertions:[String]=[]
         do{
             try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
@@ -68,6 +70,7 @@ import DriftNative
             try require(editor.project.canvas==CanvasSize.wideDeck,"World cannot resize canvas");editor.undo();try require(!editor.dirty,"Undo back to saved content")
             assertions.append("NSDocument save; new-format reopening; World/canvas ownership; undo-to-saved")
             assertions += try await DocumentAcceptance.run(snapshot:editor.snapshot,output:output)
+            assertions.append(try await ExportAcceptance.run(snapshot:editor.snapshot,output:output))
             let ids=editor.project.slides.map(\.id)
             editor.change("Role proof"){p in
                 p.canvas=try CanvasSize(width:320,height:256);p.direction.contentPaced=false;p.direction.bodyMilliseconds=1000;p.direction.entry.enabled=false;p.direction.exit.enabled=false;p.direction.mode = .repeatCount;p.direction.repeats=3

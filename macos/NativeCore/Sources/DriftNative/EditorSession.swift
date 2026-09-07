@@ -29,6 +29,8 @@ public actor RecoveryWriter {
     }
 }
 @MainActor public final class EditorSession:ObservableObject {
+    /// Identity of this open document, not its portable project or file copy.
+    public let id=UUID()
     @Published public private(set) var revision:UInt64=0
     @Published public var selection=Set<String>()
     @Published public var issue:String?
@@ -54,6 +56,7 @@ public actor RecoveryWriter {
         snapshot=try RenderSnapshot(project:journal.project,workspace:workspace);revision=journal.revision;jsonRevision=nil;jsonSnapshot=nil;selection.formIntersection(Set(project.slides.map(\.id)));didEdit?();scheduleRecovery()
     }
     public func change(_ name:String,ticket:EditTicket?=nil,_ edit:(inout DriftProject)throws->Void){
+        guard !closed else{return}
         do{let before=journal
             if try journal.apply(name,ticket:ticket,edit){do{try refresh()}catch{journal=before;throw error}}
         }catch{issue=error.localizedDescription}
