@@ -38,14 +38,6 @@ public enum NativeExport {
         let status=CMSampleBufferCreateReady(allocator:kCFAllocatorDefault,dataBuffer:block,formatDescription:format,sampleCount:data.count/2,sampleTimingEntryCount:1,sampleTimingArray:&timing,sampleSizeEntryCount:1,sampleSizeArray:&sampleSize,sampleBufferOut:&sample)
         guard status==noErr,let sample else{throw NativeFailure.message("Audio sample packaging failed (\(status)).")};return sample
     }
-    private static func ready(_ input:AVAssetWriterInput,_ writer:AVAssetWriter,_ cancel:MediaCancellation)async throws{
-        let deadline=ProcessInfo.processInfo.systemUptime+30
-        while !input.isReadyForMoreMediaData{
-            try cancel.check();try check(writer.status != .failed,writer.error?.localizedDescription ?? "The encoder failed.")
-            try check(ProcessInfo.processInfo.systemUptime<deadline,"The encoder stopped accepting frames. The destination is unchanged.")
-            try await Task.sleep(nanoseconds:2_000_000)
-        }
-    }
     public static func writePNG(_ image:CGImage,to url:URL)throws{
         let bytes=NSMutableData()
         guard let destination=CGImageDestinationCreateWithData(bytes,UTType.png.identifier as CFString,1,nil) else{throw NativeFailure.message("The macOS PNG encoder is unavailable.")}
@@ -112,26 +104,42 @@ public enum NativeExport {
             try check(writer.canAdd(audio),"The movie writer could not accept audio.");writer.add(audio);audioInput=audio
         }
         try check(writer.startWriting(),writer.error?.localizedDescription ?? "The movie writer could not start.");writer.startSession(atSourceTime:.zero)
-        let soundStart=Int64((rate.seconds(frame:range.start)*48000).rounded()),soundCount=Int64((rate.seconds(frame:range.count)*48000).rounded());var audioCursor:Int64=0
+        let soundStart=Int64((rate.seconds(frame:range.start)*48000).rounded()),soundCount=Int64((rate.seconds(frame:range.count)*48000).rounded())
+        var frame:Int64=0,audioCursor:Int64=0,videoFinished=false,audioFinished=audioInput==nil
+        var lastProgress=ProcessInfo.processInfo.systemUptime
         do{
-            for frame in 0..<range.count{
-                try cancel.check();try await ready(input,writer,cancel)
-                try autoreleasepool{
-                    guard let pool=adaptor.pixelBufferPool else{throw NativeFailure.message("The output frame pool is unavailable.")};var buffer:CVPixelBuffer?
-                    guard CVPixelBufferPoolCreatePixelBuffer(nil,pool,&buffer)==kCVReturnSuccess,let buffer else{throw NativeFailure.message("Not enough memory for the output frame.")}
-                    let surface=try renderer.render(snapshot,frame:range.start+frame);try renderer.write(surface,into:buffer)
-                    try check(adaptor.append(buffer,withPresentationTime:CMTime(value:frame*rate.denominator,timescale:Int32(rate.numerator))),writer.error?.localizedDescription ?? "The movie frame could not be written.")
-                }
-                if let audioInput,let track{
-                    let boundary=min(soundCount,Int64((rate.seconds(frame:frame+1)*48000).rounded()))
-                    while audioCursor<boundary{try cancel.check();try await ready(audioInput,writer,cancel);let n=Int(min(4096,boundary-audioCursor))
-                        let sample=try audioSample(track.samples(start:soundStart+audioCursor,count:n),start:audioCursor)
-                        try check(audioInput.append(sample),writer.error?.localizedDescription ?? "Audio encoding failed.");audioCursor+=Int64(n)
+            // Each writer input owns its readiness. Waiting for one track before
+            // feeding the other can deadlock the writer's interleaving policy.
+            // Pump bounded units on this one renderer-confined worker instead.
+            while !videoFinished || !audioFinished{
+                try cancel.check()
+                try check(writer.status == .writing,writer.error?.localizedDescription ?? "The encoder stopped writing.")
+                var advanced=false
+                if !videoFinished,input.isReadyForMoreMediaData{
+                    try autoreleasepool{
+                        guard let pool=adaptor.pixelBufferPool else{throw NativeFailure.message("The output frame pool is unavailable.")};var buffer:CVPixelBuffer?
+                        guard CVPixelBufferPoolCreatePixelBuffer(nil,pool,&buffer)==kCVReturnSuccess,let buffer else{throw NativeFailure.message("Not enough memory for the output frame.")}
+                        let surface=try renderer.render(snapshot,frame:range.start+frame);try renderer.write(surface,into:buffer)
+                        try check(adaptor.append(buffer,withPresentationTime:CMTime(value:frame*rate.denominator,timescale:Int32(rate.numerator))),writer.error?.localizedDescription ?? "The movie frame could not be written.")
                     }
+                    frame+=1;advanced=true
+                    progress(Double(frame)/Double(range.count)*0.91,"Rendering \(frame) / \(range.count)")
+                    if frame==range.count{input.markAsFinished();videoFinished=true}
                 }
-                progress(Double(frame+1)/Double(range.count)*0.91,"Rendering \(frame+1) / \(range.count)")
+                if !audioFinished,let audioInput,let track,audioInput.isReadyForMoreMediaData{
+                    try cancel.check();let n=Int(min(4096,soundCount-audioCursor))
+                    let sample=try audioSample(track.samples(start:soundStart+audioCursor,count:n),start:audioCursor)
+                    try check(audioInput.append(sample),writer.error?.localizedDescription ?? "Audio encoding failed.")
+                    audioCursor+=Int64(n);advanced=true
+                    if audioCursor==soundCount{audioInput.markAsFinished();audioFinished=true}
+                }
+                if advanced{lastProgress=ProcessInfo.processInfo.systemUptime}
+                else{
+                    try check(ProcessInfo.processInfo.systemUptime-lastProgress<30,"The encoder stalled at video \(frame)/\(range.count), audio \(audioCursor)/\(soundCount). The destination is unchanged.")
+                    try await Task.sleep(nanoseconds:2_000_000)
+                }
             }
-            input.markAsFinished();audioInput?.markAsFinished();writer.endSession(atSourceTime:CMTime(value:range.count*rate.denominator,timescale:Int32(rate.numerator)))
+            writer.endSession(atSourceTime:CMTime(value:range.count*rate.denominator,timescale:Int32(rate.numerator)))
             let finish=WriterCompletion();writer.finishWriting{finish.finish()};let deadline=ProcessInfo.processInfo.systemUptime+60
             while !finish.finished{try cancel.check();try check(ProcessInfo.processInfo.systemUptime<deadline,"The encoder did not finalize. The destination is unchanged.");try await Task.sleep(nanoseconds:10_000_000)}
             try check(writer.status == .completed,writer.error?.localizedDescription ?? "The movie was not completed.")
@@ -149,6 +157,7 @@ public enum NativeExport {
         while let sample=out.copyNextSampleBuffer(){try cancellation.check();let pts=CMSampleBufferGetPresentationTimeStamp(sample).seconds;try check(abs(pts-project.output.rate.seconds(frame:count))<0.002,"An encoded frame has the wrong timestamp.");try check(CMSampleBufferGetImageBuffer(sample) != nil,"An encoded frame has no decodable pixels.");count+=1;if count%60==0{await Task.yield()}}
         try check(reader.status == .completed && count==frames,"The encoded frame count is incomplete.")
         let sounds=try await asset.loadTracks(withMediaType:.audio);try check(sounds.count==(audio ? 1:0),"The movie audio-track count is incorrect.")
+        if audio{_=try await inspectAudio(url,duration:project.output.rate.seconds(frame:frames),cancellation:cancellation)}
     }
 }
 
