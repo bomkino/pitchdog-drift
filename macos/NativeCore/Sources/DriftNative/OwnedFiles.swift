@@ -63,8 +63,19 @@ public enum OwnedFiles {
     public static func syncDirectory(_ url:URL){let fd=url.path.withCString{open($0,O_RDONLY|O_CLOEXEC)};if fd>=0{_ = fsync(fd);close(fd)}}
 }
 
-/// Captures replacement authority before rendering. Atomic swap validates the
-/// displaced file too, so an intervening replacement is not silently destroyed.
+// Synchronous filesystem seam: tests inject post-swap inspection, rollback and
+// cleanup failures without changing the production transaction or global state.
+struct DestinationFileOperations {
+    var identity:(URL)throws->FileIdentity?
+    var swap:(URL,URL)->Int32
+    var remove:(URL)throws->Void
+    static var live:Self{Self(identity:FileIdentity.read,swap:{source,destination in
+        source.path.withCString{src in destination.path.withCString{dst in renamex_np(src,dst,UInt32(RENAME_SWAP))}}
+    },remove:{try FileManager.default.removeItem(at:$0)})}
+}
+
+/// Captures replacement authority before rendering. Never let caller cleanup
+/// collect a displaced destination when verification or rollback is uncertain.
 public struct SafeDestination:Sendable {
     public let url:URL
     public let identity:FileIdentity?
@@ -73,22 +84,44 @@ public struct SafeDestination:Sendable {
         identity=try FileIdentity.read(url)
     }
     public func publish(_ stage:URL,preserveStage:()->Void = {})throws{
+        try publish(stage,preserveStage:preserveStage,using:.live)
+    }
+    func publish(_ stage:URL,preserveStage:()->Void,using files:DestinationFileOperations)throws{
         try Task.checkCancellation()
-        try check(try FileIdentity.read(url)==identity,"The destination changed. Choose another name; its current file was not replaced.")
+        try check(stage.standardizedFileURL != url.standardizedFileURL,"The staging file must differ from the destination.")
+        guard let prepared=try files.identity(stage) else{throw NativeFailure.message("The completed staging file is missing.")}
+        try check(try files.identity(url)==identity,"The destination changed. Choose another name; its current file was not replaced.")
         if let identity {
-            let swapped=stage.path.withCString{src in url.path.withCString{dst in renamex_np(src,dst,UInt32(RENAME_SWAP))}}
-            try check(swapped==0,"The completed output could not replace the destination.")
-            guard let displaced=try FileIdentity.read(stage),identity.sameBytesAndObject(as:displaced) else{
-                let restored=stage.path.withCString{src in url.path.withCString{dst in renamex_np(src,dst,UInt32(RENAME_SWAP))}}
-                if restored != 0 {
-                    preserveStage()
-                    throw NativeFailure.message("The destination changed during replacement. Its displaced file is preserved at \(stage.path); automatic rollback failed. Neither file was deleted.")
+            try check(prepared.device != identity.device || prepared.inode != identity.inode,"The staging file must be independent of the destination.")
+            try check(files.swap(stage,url)==0,"The completed output could not replace the destination.")
+            var displaced:FileIdentity?
+            do{
+                displaced=try files.identity(stage)
+                try check(displaced.map{identity.sameBytesAndObject(as:$0)} == true,"The destination changed during replacement.")
+                let published=try files.identity(url)
+                try check(published.map{prepared.sameBytesAndObject(as:$0)} == true,"Another process changed the destination after replacement.")
+            }catch{
+                // Do this BEFORE any fallible rollback inspection. The stage now
+                // contains the only recoverable copy of the displaced file.
+                preserveStage()
+                let reason=error.localizedDescription
+                // Never swap over somebody else's newer destination. If its
+                // identity cannot be established, keep both paths untouched.
+                if let current=try? files.identity(url),prepared.sameBytesAndObject(as:current),files.swap(stage,url)==0 {
+                    let expected=displaced ?? identity
+                    if let restored=try? files.identity(url),expected.sameBytesAndObject(as:restored),
+                       let remaining=try? files.identity(stage),prepared.sameBytesAndObject(as:remaining){
+                        do{try files.remove(stage)}catch{NSLog("Drift retained rolled-back output at %@: %@",stage.path,error.localizedDescription)}
+                        OwnedFiles.syncDirectory(url.deletingLastPathComponent())
+                        throw NativeFailure.message("\(reason) The prior destination was restored. No accepted file was deleted.")
+                    }
                 }
-                throw NativeFailure.message("The destination changed during replacement. The prior file was restored.")
+                OwnedFiles.syncDirectory(url.deletingLastPathComponent())
+                throw NativeFailure.message("\(reason) Automatic rollback could not be verified. Both files were retained; inspect \(url.path) and \(stage.path). Do not delete either until the original is recovered.")
             }
-            // Replacement is committed. A cleanup failure must not be reported as
-            // a failed export or erase an unrelated subsequent destination change.
-            do{try FileManager.default.removeItem(at:stage)}catch{preserveStage();NSLog("Drift retained replaced-file backup at %@: %@",stage.path,error.localizedDescription)}
+            // Replacement is committed. Cleanup failure is not export failure;
+            // the verified displaced copy must remain available as a backup.
+            do{try files.remove(stage)}catch{preserveStage();NSLog("Drift retained replaced-file backup at %@: %@",stage.path,error.localizedDescription)}
         }else{
             let moved=stage.path.withCString{src in url.path.withCString{dst in renamex_np(src,dst,UInt32(RENAME_EXCL))}}
             try check(moved==0,"The destination now exists or could not be written. Choose a new name.")

@@ -26,7 +26,13 @@ import DriftNative
             let output=root.appendingPathComponent(UUID().uuidString,isDirectory:true);try FileManager.default.createDirectory(at:output,withIntermediateDirectories:false)
             let resources=Bundle.main.resourceURL!,fixtures=resources.appendingPathComponent("Fixtures")
             let document=DriftDocument();NSDocumentController.shared.addDocument(document);document.makeWindowControllers();document.showWindows();NSApp.activate(ignoringOtherApps:true)
-            guard let editor=document.editor,let transport=document.transport,let window=document.windowControllers.first?.window else{throw NativeFailure.message("The native document window did not open.")}
+            if let error=document.initializationError{throw error}
+            guard let editor=document.editor else{throw NativeFailure.message("The native editor did not initialize.")}
+            guard let transport=document.transport else{throw NativeFailure.message("The native transport did not initialize.")}
+            guard let controller=document.windowControllers.first,let window=controller.window else{throw NativeFailure.message("NSDocument did not retain its native window controller.")}
+            try require(controller.document === document,"native window document ownership")
+            document.makeWindowControllers()
+            try require(document.windowControllers.count==1,"idempotent native window creation")
             try require(editor.project.canvas.width==2576 && editor.project.canvas.height==1080,"new document wide-deck default")
             try require(try ExactRatio(pair:"25.76:10.80")==ExactRatio(322,135),"decimal ratio")
             let names=["Still.png","Alpha.webp","Animation.webp","VP8.webm","VP9.webm","Video.mp4"]

@@ -28,6 +28,7 @@ enum RecoveryStore {
     nonisolated private let storage=DocumentStorage()
     private(set) var editor:EditorSession?
     private(set) var transport:Transport?
+    private(set) var initializationError:(any Error)?
     private var loading:(DriftProject,MediaWorkspace,Bool)?
     private var busySaving=false
     private let sound=PreviewSound()
@@ -70,6 +71,8 @@ enum RecoveryStore {
         loading=(project,workspace,false)
     }
     override func makeWindowControllers(){
+        guard windowControllers.isEmpty else{return}
+        initializationError=nil
         do{
             let value:(DriftProject,MediaWorkspace,Bool)
             if let loading{value=loading;self.loading=nil}else{value=(try DriftProject(creative:CreativeCatalog.load().defaults),try RecoveryStore.workspace(),true)}
@@ -84,7 +87,11 @@ enum RecoveryStore {
             }
             let controller=StudioWindowController(document:self,session:session,transport:transport);addWindowController(controller)
             if !value.2{updateChangeCount(.changeDone)}
-        }catch{presentError(error)}
+        }catch{
+            initializationError=error
+            NSLog("Drift could not open its document window: %@",error.localizedDescription)
+            if !CommandLine.arguments.contains("--native-self-test"){presentError(error)}
+        }
     }
     override func close(){sound.stop();transport?.pause();editor?.close(discardRecovery:true);super.close()}
     @objc func addMedia(_ sender:Any?){
@@ -106,7 +113,7 @@ final class StudioWindowController:NSWindowController {
     init(document:DriftDocument,session:EditorSession,transport:Transport){
         self.session=session;self.transport=transport
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:1360,height:850),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
-        super.init(window:window);self.document=document;window.title="Drift";window.minSize=NSSize(width:1100,height:680);window.center();window.tabbingMode = .disallowed
+        super.init(window:window);window.title="Drift";window.minSize=NSSize(width:1100,height:680);window.center();window.tabbingMode = .disallowed
         window.contentView=NSHostingView(rootView:StudioView(session:session,transport:transport,document:document))
         window.setFrameAutosaveName("Drift Native Studio")
     }
