@@ -26,10 +26,13 @@ jobs:
       - run: scripts/build-native-codecs.sh
       - run: scripts/build-native-archive.sh
       - name: Native document and media integration
+        env:
+          DRIFT_TIMING_DIAGNOSTICS: "1"
         run: |
           set -euo pipefail
           mkdir -p build/native-integration
           git rev-parse HEAD > build/native-integration/SOURCE_SHA.txt
+          git archive --format=zip --output=build/native-integration/native-source.zip HEAD -- macos/NativeCore scripts .github docs README.md CONTRIBUTING.md LICENSE NOTICE ASSET-LICENSE.md package.json package-lock.json
           sw_vers > build/native-integration/HOST.txt
           xcrun swift --version >> build/native-integration/HOST.txt
           xcrun swift test --package-path macos/NativeCore 2>&1 | tee build/native-integration/tests.txt

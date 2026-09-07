@@ -40,12 +40,17 @@ final class MovieIndex {
             guard CMSampleBufferGetNumSamples(buffer)>0 else{continue}
             let attachments=CMSampleBufferGetSampleAttachmentsArray(buffer,createIfNecessary:false) as? [[CFString:Any]]
             if (attachments?.first?[kCMSampleAttachmentKey_DoNotDisplay] as? Bool)==true{continue}
-            let time=CMSampleBufferGetPresentationTimeStamp(buffer).seconds,span=CMSampleBufferGetDuration(buffer).seconds
+            // Output timing incorporates container edits, trim and speed. Raw
+            // sample PTS may still include the encoder's B-frame preroll.
+            let time=CMSampleBufferGetOutputPresentationTimeStamp(buffer).seconds,span=CMSampleBufferGetOutputDuration(buffer).seconds
+            if ProcessInfo.processInfo.environment["DRIFT_TIMING_DIAGNOSTICS"]=="1",buffers<=8 {
+                NSLog("Drift timing index sample=%d count=%ld raw=%g output=%g duration=%g trackStart=%g trackEnd=%g",buffers,CMSampleBufferGetNumSamples(buffer),CMSampleBufferGetPresentationTimeStamp(buffer).seconds,time,span,selected.timeRange.start.seconds,CMTimeRangeGetEnd(selected.timeRange).seconds)
+            }
             let key=(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool) != true
             try check(time.isFinite,"Video contains an invalid presentation timestamp (sample count: \(CMSampleBufferGetNumSamples(buffer)); output time: \(CMSampleBufferGetOutputPresentationTimeStamp(buffer).seconds)).")
             entries.append((time,span.isFinite && span>0 ? span:0,key));try check(entries.count<=250_000,"The video contains too many indexed frames.")
         }
-        try check(reader.status == .completed,reader.error?.localizedDescription ?? "Video timing is incomplete.")
+        try check(reader.status == .completed,reader.error?.localizedDescription ?? "Video timing is incomplete (reader status: \(reader.status.rawValue), buffers: \(buffers), displayed frames: \(entries.count)).")
         entries.sort{$0.0<$1.0};try check(!entries.isEmpty,"The video has no frames.")
         let first=entries[0].0,last=entries.last!,trackEnd=CMTimeRangeGetEnd(selected.timeRange).seconds
         let lastDuration=last.1>0 ? last.1:entries.count>1 ? max(0.000001,last.0-entries[entries.count-2].0):max(0,trackEnd-last.0)
@@ -92,11 +97,11 @@ final class NativeMovieSource {
         lastRequested=stamp
         while current==nil || currentTime<stamp-1e-7{
             try cancel.check()
-            guard let sample=output?.copyNextSampleBuffer() else{throw reader?.error ?? NativeFailure.message("Video ended before the requested frame.")}
+            guard let sample=output?.copyNextSampleBuffer() else{throw reader?.error ?? NativeFailure.message("Video ended before the requested frame (requested: \(stamp), last: \(currentTime), reader status: \(reader?.status.rawValue ?? -1)).")}
             guard CMSampleBufferGetNumSamples(sample)>0 else{continue}
             let attachments=CMSampleBufferGetSampleAttachmentsArray(sample,createIfNecessary:false) as? [[CFString:Any]]
             if (attachments?.first?[kCMSampleAttachmentKey_DoNotDisplay] as? Bool)==true{continue}
-            let pts=CMSampleBufferGetPresentationTimeStamp(sample).seconds
+            let pts=CMSampleBufferGetOutputPresentationTimeStamp(sample).seconds
             try check(pts.isFinite && pts>=currentTime,"Video decoder returned invalid frame order.")
             current=sample;currentTime=pts;cachedImage=nil
         }
@@ -196,11 +201,11 @@ public enum MediaInspector {
 public final class MediaFrames {
     private enum Source{case web(WebSource),movie(NativeMovieSource)}
     private var sources:[String:Source]=[:],lru:[String]=[],stills:[String:(image:CIImage,cost:Int)]=[:],stillOrder:[String]=[],stillCost=0
-    public private(set) var frameToken=""
     public let cancellation:MediaCancellation
+    public private(set) var frameToken=""
     public init(cancellation:MediaCancellation=MediaCancellation()){self.cancellation=cancellation}
-    public func clear(){sources=[:];lru=[];stills=[:];stillOrder=[];stillCost=0}
-    public func image(original:Original,workspace:MediaWorkspace,playback:SourcePlayback,seconds:Double,maximumDimension:Int)throws->CIImage{
+    public func clear(){sources.removeAll();lru=[];stills.removeAll();stillOrder=[];stillCost=0}
+    public func image(original:Original,playback:SourcePlayback,seconds:Double,maximumDimension:Int,workspace:MediaWorkspace)throws->CIImage{
         try cancellation.check();let request=try playback.request(outputSeconds:seconds,original:original)
         let maxDimension=max(64,min(8192,maximumDimension)),key=original.id
         // Identity verification is cached by inode/size/mtime/ctime. A pixel
