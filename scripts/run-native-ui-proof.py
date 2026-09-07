@@ -27,7 +27,8 @@ spec = {
         "type": "bundle.ui-testing", "platform": "macOS", "deploymentTarget": "13.3",
         "sources": [str(repo / "macos/AcceptanceUI")],
         "info": {"path": "DriverInfo.plist", "properties": {
-            "DriftApplicationPath": str(app), "DriftSourceRevision": source, "DriftProofRunID": run_id
+            "DriftApplicationPath": str(app), "DriftSourceRevision": source, "DriftProofRunID": run_id,
+            "DriftProofRootPath": str(pathlib.Path.home() / "Library/Application Support/Drift Native Proof" / run_id)
         }}
     }},
     "schemes": {"DriftAcceptance": {

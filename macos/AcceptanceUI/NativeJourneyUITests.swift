@@ -20,7 +20,8 @@ final class NativeJourneyUITests:XCTestCase {
         let path=try XCTUnwrap(bundle.object(forInfoDictionaryKey:"DriftApplicationPath") as? String)
         let source=try XCTUnwrap(bundle.object(forInfoDictionaryKey:"DriftSourceRevision") as? String)
         let runID=try XCTUnwrap(bundle.object(forInfoDictionaryKey:"DriftProofRunID") as? String)
-        let root=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Drift Native Proof").appendingPathComponent(runID)
+        let root=URL(fileURLWithPath:try XCTUnwrap(bundle.object(forInfoDictionaryKey:"DriftProofRootPath") as? String),isDirectory:true)
+        print("DRIFT_UI_PROOF_ROOT \(root.path)")
         let app=XCUIApplication(url:URL(fileURLWithPath:path))
         app.launchArguments=["--native-self-test","--native-ui-driver","-AppleLanguages","(en)","-AppleLocale","en_US"]
         app.launchEnvironment=["DRIFT_PROOF_RUN_ID":runID]
