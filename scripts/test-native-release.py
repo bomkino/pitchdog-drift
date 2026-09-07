@@ -20,6 +20,7 @@ class FakeGitHub:
         self.release = copy.deepcopy(release)
         self.source = source
         self.calls = []
+        self.publication = None
         self.main = SOURCE
         self.upload_failure = False
     def releases(self, repo):
@@ -47,7 +48,9 @@ class FakeGitHub:
                                           'digest': 'sha256:' + publisher.freeze.digest(file)})
             return copy.deepcopy(self.release['assets'][-1])
         if path.endswith('/releases/79'):
-            if method == 'PATCH': self.release.update(payload)
+            if method == 'PATCH':
+                self.publication = copy.deepcopy(payload)
+                self.release.update(payload)
             return copy.deepcopy(self.release)
         if path.endswith('/releases/latest'):
             assert not self.release['draft']
@@ -79,6 +82,10 @@ class ReleaseTests(unittest.TestCase):
         api = FakeGitHub()
         result = self.publish(api)
         self.assertFalse(result['draft']); self.assertEqual(len(result['assets']), 4)
+        self.assertEqual(api.publication['tag_name'], 'v0.4.0')
+        self.assertEqual(api.publication['target_commitish'], SOURCE)
+        self.assertEqual(api.publication['body'], 'Native release.')
+        self.assertFalse(api.publication['prerelease'])
         before = len(api.calls)
         self.publish(api)
         self.assertTrue(all(method == 'GET' for method, _ in api.calls[before:]))

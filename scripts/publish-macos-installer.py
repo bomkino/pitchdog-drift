@@ -96,7 +96,11 @@ def publish(api, repo, source, tag, root, notes):
         require(set(present) == set(expected), 'Release upload incomplete.')
         require(api.request(f'repos/{repo}/branches/main')['commit']['sha'] == source, 'Main changed before publication.')
         require(tag_source(api, repo, tag) == source, 'Tag changed before publication.')
-        api.request(endpoint, 'PATCH', {'draft': False, 'make_latest': 'true'})
+        api.request(endpoint, 'PATCH', {
+            'tag_name': tag, 'target_commitish': source,
+            'name': f'Drift {tag} — Apple silicon Mac', 'body': notes,
+            'draft': False, 'prerelease': False, 'make_latest': 'true',
+        })
     release, present = read_assets()
     latest = api.request(f'repos/{repo}/releases/latest')
     require(not release['draft'] and not release['prerelease'] and latest['id'] == release_id, 'Current public release mismatch.')

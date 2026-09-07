@@ -91,7 +91,11 @@ public final class NativeRenderer {
         if let texture=textures[key]{textureOrder.removeAll{$0==key};textureOrder.append(key);return texture}
         let width=max(1,Int(ceil(image.extent.width))),height=max(1,Int(ceil(image.extent.height))),cost=width*height*8
         let texture=try self.texture(width,height)
-        context.render(image,to:texture,commandBuffer:nil,bounds:CGRect(x:0,y:0,width:width,height:height),colorSpace:linear)
+        // Core Image's origin is bottom-left. The authored source sampler and
+        // saved crop coordinates address top-left texture rows. Normalize once
+        // at upload; otherwise every still/video is vertically mirrored.
+        let topDown=image.transformed(by:CGAffineTransform(translationX:0,y:CGFloat(height)).scaledBy(x:1,y:-1))
+        context.render(topDown,to:texture,commandBuffer:nil,bounds:CGRect(x:0,y:0,width:width,height:height),colorSpace:linear)
         while textureBytes+cost>192*1024*1024,let oldest=textureOrder.first{textureOrder.removeFirst();if let removed=textures.removeValue(forKey:oldest){textureBytes-=removed.width*removed.height*8}}
         if cost<=192*1024*1024{textures[key]=texture;textureOrder.append(key);textureBytes+=cost};return texture
     }

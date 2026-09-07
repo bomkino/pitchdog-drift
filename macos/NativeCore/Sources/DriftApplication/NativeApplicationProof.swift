@@ -82,6 +82,26 @@ import DriftNative
             let plan=editor.snapshot.plan,closing=plan.schedule.cues.filter(\.closing)
             try require(closing.count==1 && closing[0].baseFrame==plan.base.baseFrames-1,"one non-wrapping global Closing")
             let renderer=try NativeRenderer()
+            // Asymmetric source pixels detect a mirrored texture even when
+            // alpha, source-loop equality and output dimensions all pass.
+            var upright=editor.project;upright.canvas=try CanvasSize(width:320,height:256)
+            upright.direction.mode = .once;upright.spotlights=[];upright.closing=nil;upright.transparent=true
+            for i in upright.slides.indices{upright.slides[i].included=i==0;upright.slides[i].inSequence=false}
+            var uprightPin=Pin(slideID:ids[0]);uprightPin.x=0.5;uprightPin.y=0.5;uprightPin.width=1;uprightPin.safeInset=0;uprightPin.radius=0;uprightPin.borderOpacity=0;uprightPin.shadowOpacity=0
+            upright.pin=uprightPin
+            func expectQuadrants(_ project:DriftProject,_ colours:[[Int]])throws{
+                let image=try renderer.image(renderer.render(RenderSnapshot(project:project,workspace:editor.workspace),frame:0)),pixels=try rgba(image)
+                for (index,point) in [(80,64),(240,64),(80,192),(240,192)].enumerated(){
+                    let offset=(point.1*320+point.0)*4
+                    try require((0..<3).allSatisfy{abs(Int(pixels[offset+$0])-colours[index][$0])<=2},"source orientation/crop quadrant \(index)")
+                }
+            }
+            try expectQuadrants(upright,[[255,0,0],[0,255,0],[0,0,255],[255,255,0]])
+            try NativeExport.writePNG(renderer.image(renderer.render(RenderSnapshot(project:upright,workspace:editor.workspace),frame:0)),to:output.appendingPathComponent("Upright-Original.png"))
+            upright.slides[0].crop.height=0.5
+            upright.pin?.fit = .fill
+            try expectQuadrants(upright,[[255,0,0],[0,255,0],[255,0,0],[0,255,0]])
+            assertions.append("Asymmetric original renders upright; top-half crop preserves the selected source rows")
             for cue in plan.schedule.cues{for frame in Set([max(0,cue.startFrame-1),cue.startFrame,cue.holdStartFrame,cue.endFrame-1]){
                 let surface=try renderer.render(editor.snapshot,frame:frame);try NativeExport.writePNG(renderer.image(surface),to:output.appendingPathComponent("cue-\(cue.id)-\(frame).png"))
             }}
