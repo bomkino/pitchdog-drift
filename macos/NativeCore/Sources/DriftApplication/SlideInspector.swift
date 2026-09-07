@@ -157,7 +157,7 @@ struct TimelineView:View {
                 Button{transport.nextCue(true)}label:{Image(systemName:"backward.end")}.help("Previous cue")
                 Button{transport.step(-1)}label:{Image(systemName:"backward.frame")}.help("Previous frame")
                 Button{transport.toggle()}label:{Image(systemName:transport.playing ? "pause.fill":"play.fill").frame(width:24)}.help("Play / Pause")
-                Button{transport.step(1)}label:{Image(systemName:"forward.frame")}.help("Next frame")
+                Button{transport.step(1)}label:{Image(systemName:"forward.frame")}.help("Next frame").accessibilityLabel("Next frame").accessibilityIdentifier("drift.next-frame")
                 Button{transport.nextCue(false)}label:{Image(systemName:"forward.end")}.help("Next cue")
                 Text(transport.label).monospacedDigit().frame(minWidth:104)
                 Spacer(minLength:0)

@@ -20,8 +20,6 @@ code_hash = re.search(r"^CDHash=([0-9a-f]+)$", signature, re.M).group(1)
 run_id = str(uuid.uuid4()).upper()
 work = repo / "build/native-ui-driver" / run_id
 work.mkdir(parents=True)
-exchange = work / "exchange"
-exchange.mkdir()
 evidence = repo / "build/native-app-evidence"
 evidence.mkdir(parents=True, exist_ok=True)
 spec = {
@@ -33,7 +31,6 @@ spec = {
         "sources": [str(repo / "macos/AcceptanceUI")],
         "info": {"path": "DriverInfo.plist", "properties": {
             "DriftApplicationPath": str(app), "DriftSourceRevision": source, "DriftProofRunID": run_id,
-            "DriftProofExchangePath": str(exchange),
             "DriftProofRootPath": str(pathlib.Path.home() / "Library/Application Support/Drift Native Proof" / run_id)
         }}
     }},
@@ -52,6 +49,10 @@ try:
     result = subprocess.run(command, check=False, timeout=720)
 except subprocess.TimeoutExpired:
     raise SystemExit("XCUITest exceeded its bounded acceptance deadline.")
+finally:
+    if result_path.exists():
+        subprocess.run(["xcrun", "xcresulttool", "export", "attachments", "--path", str(result_path),
+                        "--output-path", str(evidence / ("captures-" + run_id))], check=True)
 root = pathlib.Path.home() / "Library/Application Support/Drift Native Proof" / run_id
 result_file = root / "RESULT.json"
 if result_file.exists():
@@ -66,8 +67,5 @@ after = subprocess.run(["codesign", "-dv", "--verbose=4", str(app)], capture_out
 if re.search(r"^CDHash=([0-9a-f]+)$", after, re.M).group(1) != code_hash:
     raise SystemExit("The application changed during its UI proof.")
 value.update(codeDirectoryHash=code_hash, build=identity["CFBundleVersion"])
-import shutil
-for capture in exchange.glob("Appearance-*.png"):
-    shutil.copyfile(capture, evidence / capture.name)
 (evidence / "NativeJourneyReceipt.json").write_text(json.dumps(value, indent=2) + "\n")
 print("DRIFT_ARCHIVED_UI_PROOF_PASS " + source, flush=True)

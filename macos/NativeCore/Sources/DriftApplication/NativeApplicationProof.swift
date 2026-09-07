@@ -95,8 +95,6 @@ import DriftNative
             let appearanceProject=editor.project,appearanceFrame=transport.frame
             let appearancePixels=try rgba(renderer.image(renderer.render(editor.snapshot,frame:appearanceFrame)))
             let inheritedAppearance=window.appearance
-            guard let exchangePath=ProcessInfo.processInfo.environment["DRIFT_PROOF_EXCHANGE_PATH"],exchangePath.hasPrefix("/") else{throw NativeFailure.message("Appearance capture requires the external UI driver's exchange directory.")}
-            let exchange=URL(fileURLWithPath:exchangePath,isDirectory:true)
             var shellLevels:[CGFloat]=[]
             for (label,name) in [("Light",NSAppearance.Name.aqua),("Dark",NSAppearance.Name.darkAqua)]{
                 window.appearance=NSAppearance(named:name)
@@ -106,14 +104,19 @@ import DriftNative
                     shellLevels.append(NSColor.windowBackgroundColor.usingColorSpace(.deviceRGB)!.redComponent)
                 }
                 try await Task.sleep(nanoseconds:250_000_000)
-                let step:[String:String]=["choice":"appearance-\(label)","window":window.title]
-                try JSONSerialization.data(withJSONObject:step).write(to:root.appendingPathComponent("UI_STEP.json"),options:.atomic)
-                try await wait("external \(label) window capture"){
-                    guard let data=try? Data(contentsOf:exchange.appendingPathComponent("UI_ACK.json")),let ack=try? JSONSerialization.jsonObject(with:data) as? [String:String] else{return false}
-                    return ack["choice"]=="appearance-\(label)"
-                }
                 try require(editor.project==appearanceProject && transport.frame==appearanceFrame,"appearance preserves project and playback position")
                 try require(try rgba(renderer.image(renderer.render(editor.snapshot,frame:appearanceFrame)))==appearancePixels,"appearance preserves authored canvas pixels")
+                let step:[String:String]=["choice":"appearance-\(label)","window":window.title]
+                try JSONSerialization.data(withJSONObject:step).write(to:root.appendingPathComponent("UI_STEP.json"),options:.atomic)
+                // XCUITest retains the capture in its result bundle, then uses
+                // the real Next frame control to acknowledge it without writes
+                // outside the runner's container.
+                try await wait("external \(label) capture and Next frame"){transport.frame==appearanceFrame+1}
+                try require(editor.project==appearanceProject,"native frame stepping preserves document")
+                transport.seek(appearanceFrame)
+                try await wait("restore captured canvas frame"){
+                    window.contentView.flatMap({canvas(in:$0)})?.displayedFrame==appearanceFrame
+                }
             }
             window.appearance=inheritedAppearance
             try require(shellLevels.count==2 && shellLevels[0]>shellLevels[1]+0.3,"semantic shell colors respond to Light and Dark")
