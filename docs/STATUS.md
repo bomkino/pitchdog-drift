@@ -1,13 +1,20 @@
 # Drift — current state
 
-## Native application integration · 6 September 2026
+## Native continuation · 7 September 2026
 
-Working branch: `codex/drift-native-completion`. Main remains the earlier hybrid at `340b5f631c9147890bc775c86a71af315dd17929` until the new application passes essential document/output checks. This is the canonical status; a commit, successful component test, built app, and published release are separate states.
+- Repository: `bomkino/pitchdog-drift`; working branch: `codex/drift-native-completion`.
+- Reconciled starting head: `2218cd3a88f0b93935d4b109df36839cecb0e0f7`, tree `18248d6ea2323fca10bbc605a0f9db54f6f9ede4`.
+- Main: `340b5f631c9147890bc775c86a71af315dd17929` (earlier hybrid). No native release is accepted or published.
+- Active work: H01–H03 / T15, T17, T26, T36, T51. Five Swift private-file/directory masks now use explicit octal; `StagedBatch` has an explicit immutable initializer; the app archive is extracted, checked and used for the required packaged journey before upload.
+- Evidence: the read-only handover checker verified 539 files without mismatches. Local Swift parsing and permission-literal reproduction passed. The new ordinary-user filesystem regression and affected debug/release Mac gates must execute on this commit; source changes are `IMPLEMENTED_UNVERIFIED`, not application acceptance.
+- Previous exact-head results remain distinct: core run `34065358693` passed; debug integration `34065358645` failed at `StagedBatch`; application `34065358668` built successfully but failed at private proof-directory setup. No previous native installer was uploaded.
 
-The native candidate now contains an AppKit/NSDocument executable with SwiftUI media/inspector/timeline controls; file-backed original ownership and streamed ZIP64 projects; native VP8/VP9 WebM and still/animated WebP; a Metal compositor using build-time-translated Drift shader algorithms; exact wide-deck canvas and decimal slide ratios; independent Pin/Spotlight/global Closing; a reversible document journal; source audition; AVFoundation MP4, PNG and PNG-sequence output; and the existing licensed recorded sound sources. Presenter and old-format conversion are absent from the new model/runtime.
+Next action: inspect the new debug integration and archived-app journey, fix the first decisive failure, then finish the V3 document/media/creative/output acceptance checks. Do not replay the historical repair or restart the native app.
 
-The current execution step is the first integrated packaged native application build and synthetic media/output journey. These new application paths have not yet passed that gate. Earlier hosted-Mac component checks established the core model, codec decoding and shader compilation only. The first document/media build compiled its sources but exposed a PNG test-fixture creation failure; fixture setup is corrected without removing the project or output assertions.
+## Acceptance boundary
 
-The final accepted app must have no WebKit/JavaScript runtime dependency, preserve authored appearance and essential features, and publish the exact checked binary. Large-project capacity, colour/alpha, sound, cancellation, document lifecycle and actual output remain explicit acceptance work. Physical M2 mini 8 GB and M1 Pro validation are not claimed. The native deployment floor remains macOS 13.3 arm64.
+The existing native AppKit/NSDocument, SwiftUI, Metal, file-backed media, streamed ZIP64, VP8/VP9 WebM, still/animated WebP, exact 2576 × 1080 canvas, decimal ratios, Pin, Spotlight, global Closing, history, source audition, MP4/PNG output and licensed recorded sound are retained. Source presence is not proof of feature, colour/alpha, audio, project-safety or output acceptance.
 
-Scope is Drift only. Keep Pin, add Spotlight and Closing, remove Presenter, no legacy-project compatibility. Galileo is read-only reference. No private client media belongs in CI evidence. No production-ready claim follows from a component test. Preserve licensing, source history and user files; do not force-push main or replace immutable release assets.
+Physical M2 mini 8 GB, M1 Pro and the macOS 13.3 deployment floor are untested here. Available local validation is Linux x86_64 Swift parsing/core work; hosted arm64 Mac results must be recorded separately. No performance guarantee follows from compilation.
+
+Only Drift is a write target. Presenter and old-format conversion remain absent from the native model. Preserve source originals, licences, history, protections and unrelated work. Do not merge or publish while a known build, document-safety or output failure remains.

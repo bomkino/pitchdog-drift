@@ -76,7 +76,7 @@ public enum NativeExport {
         if format == .png{
             let surface=try renderer.render(snapshot,frame:stillFrame);try writePNG(renderer.image(surface),to:stage);try verifyPNG(stage,width:project.canvas.width,height:project.canvas.height)
         }else if folder{
-            try FileManager.default.createDirectory(at:stage,withIntermediateDirectories:false,attributes:[.posixPermissions:0700])
+            try FileManager.default.createDirectory(at:stage,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700])
             for offset in 0..<selected.count{
                 try cancellation.check()
                 try autoreleasepool{let surface=try renderer.render(snapshot,frame:selected.start+offset);try writePNG(renderer.image(surface),to:stage.appendingPathComponent(String(format:"frame-%06lld.png",offset)))}

@@ -22,7 +22,7 @@ import DriftNative
         let root=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Drift Native Proof",isDirectory:true)
         var assertions:[String]=[]
         do{
-            try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0700])
+            try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
             let output=root.appendingPathComponent(UUID().uuidString,isDirectory:true);try FileManager.default.createDirectory(at:output,withIntermediateDirectories:false)
             let resources=Bundle.main.resourceURL!,fixtures=resources.appendingPathComponent("Fixtures")
             let document=DriftDocument();NSDocumentController.shared.addDocument(document);document.makeWindowControllers();document.showWindows();NSApp.activate(ignoringOtherApps:true)

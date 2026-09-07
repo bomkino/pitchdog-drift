@@ -3,8 +3,19 @@ import Combine
 import DriftCore
 
 public struct ImportFailure:Identifiable,Sendable {public let id=UUID();public let name:String,reason:String}
-public struct StagedBatch:Identifiable,@unchecked Sendable {
-    public let id=UUID(),workspace:MediaWorkspace,originals:[Original],failures:[ImportFailure],ticket:EditTicket,replacementID:String?,expectedFingerprint:String?
+public struct StagedBatch:Identifiable,Sendable {
+    public let id:UUID
+    public let workspace:MediaWorkspace
+    public let originals:[Original]
+    public let failures:[ImportFailure]
+    public let ticket:EditTicket
+    public let replacementID:String?
+    public let expectedFingerprint:String?
+
+    public init(workspace:MediaWorkspace,originals:[Original],failures:[ImportFailure],ticket:EditTicket,replacementID:String?,expectedFingerprint:String?){
+        id=UUID();self.workspace=workspace;self.originals=originals;self.failures=failures
+        self.ticket=ticket;self.replacementID=replacementID;self.expectedFingerprint=expectedFingerprint
+    }
 }
 private struct ImportPrepared:Sendable {let workspace:MediaWorkspace,originals:[Original],failures:[ImportFailure]}
 public actor RecoveryWriter {

@@ -18,7 +18,7 @@ private final class DocumentStorage:@unchecked Sendable {
 enum RecoveryStore {
     static func directory()throws->URL{
         let base=try FileManager.default.url(for:.applicationSupportDirectory,in:.userDomainMask,appropriateFor:nil,create:true).appendingPathComponent("Drift/Native Workspaces",isDirectory:true)
-        try FileManager.default.createDirectory(at:base,withIntermediateDirectories:true,attributes:[.posixPermissions:0700]);return base
+        try FileManager.default.createDirectory(at:base,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700]);return base
     }
     static func workspace()throws->MediaWorkspace{try MediaWorkspace(root:directory().appendingPathComponent(UUID().uuidString,isDirectory:true))}
     static func recoveries()throws->[URL]{try FileManager.default.contentsOfDirectory(at:directory(),includingPropertiesForKeys:[.isDirectoryKey],options:.skipsHiddenFiles).filter{FileManager.default.fileExists(atPath:$0.appendingPathComponent("recovery.json").path)}}

@@ -2,9 +2,9 @@ name: Native Drift application
 on:
   push:
     branches: [codex/drift-native-completion, main]
-    paths: [macos/NativeCore/**, scripts/build-native-*.sh, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
+    paths: [macos/NativeCore/**, scripts/build-native-*.sh, scripts/package-native-app.sh, scripts/run-native-proof.py, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
   pull_request:
-    paths: [macos/NativeCore/**, scripts/build-native-*.sh, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
+    paths: [macos/NativeCore/**, scripts/build-native-*.sh, scripts/package-native-app.sh, scripts/run-native-proof.py, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
   workflow_dispatch:
 permissions:
   contents: read
@@ -36,10 +36,14 @@ jobs:
           git rev-parse HEAD > build/native-app-evidence/SOURCE_SHA.txt
           sw_vers > build/native-app-evidence/HOST.txt
           scripts/build-native-app.sh 2>&1 | tee build/native-app-evidence/build.txt
+      - name: Archive and verify the native bundle round trip
+        env:
+          DRIFT_SOURCE_REVISION: ${{ github.sha }}
+        run: bash scripts/package-native-app.sh
       - name: Exercise native document, Metal preview and actual output
         run: |
           set -euo pipefail
-          build/native/Drift.app/Contents/MacOS/Drift --native-self-test 2>&1 | tee build/native-app-evidence/runtime.txt
+          python3 scripts/run-native-proof.py build/native-roundtrip/Drift.app 2>&1 | tee build/native-app-evidence/runtime.txt
       - name: Collect synthetic evidence
         if: always()
         run: |
@@ -56,6 +60,9 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: drift-native-application-${{ github.sha }}
-          path: build/native/Drift.app
+          path: |
+            build/native/Drift-native-arm64.zip
+            build/native/Drift-native-arm64.zip.sha256
+            build/native/NativeArchiveReceipt.json
           retention-days: 14
           if-no-files-found: error

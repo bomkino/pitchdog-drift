@@ -29,7 +29,7 @@ public enum OwnedFiles {
         return FileHandle(fileDescriptor:fd,closeOnDealloc:true)
     }
     public static func create(_ url:URL)throws->FileHandle{
-        let fd=url.path.withCString{Darwin.open($0,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,mode_t(0600))}
+        let fd=url.path.withCString{Darwin.open($0,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,mode_t(0o600))}
         guard fd>=0 else{throw NativeFailure.message("Cannot create \(url.lastPathComponent): \(String(cString:strerror(errno))).")}
         return FileHandle(fileDescriptor:fd,closeOnDealloc:true)
     }
@@ -108,7 +108,7 @@ public final class MediaWorkspace:@unchecked Sendable {
     public init(root:URL?=nil,temporary:Bool=true)throws{
         self.root=root ?? FileManager.default.temporaryDirectory.appendingPathComponent("Drift-\(UUID().uuidString)",isDirectory:true)
         self.temporary=temporary;assets=self.root.appendingPathComponent("assets",isDirectory:true)
-        try FileManager.default.createDirectory(at:assets,withIntermediateDirectories:true,attributes:[.posixPermissions:0700])
+        try FileManager.default.createDirectory(at:assets,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
     }
     deinit{if temporary{try? FileManager.default.removeItem(at:root)}}
     public func url(_ original:Original)throws->URL{try original.validate();return root.appendingPathComponent(original.path)}
