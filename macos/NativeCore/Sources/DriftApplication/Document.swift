@@ -12,7 +12,7 @@ enum RecoveryStore {
     static func recoveries()throws->[URL]{try FileManager.default.contentsOfDirectory(at:directory(),includingPropertiesForKeys:[.isDirectoryKey],options:.skipsHiddenFiles).filter{FileManager.default.fileExists(atPath:$0.appendingPathComponent("recovery.json").path)}}
 }
 @objc(DriftNativeDocument) @MainActor final class DriftDocument:NSDocument {
-    static let typeName="dog.pitch.drift.native-document"
+    nonisolated static let typeName="dog.pitch.drift.native-document"
     nonisolated private let storage=DocumentStorage()
     nonisolated let writeProbe=NativeWriteProbe()
     private(set) var editor:EditorSession?
@@ -23,7 +23,11 @@ enum RecoveryStore {
     // NSDocumentController may initialize/read on its opening queue. No UI or
     // main-actor audio state is constructed until the document reaches a window.
     private lazy var sound=PreviewSound()
-    nonisolated override init(){super.init()}
+    override init(){super.init()}
+    func bindOpenedFile(_ url:URL?,type:String,modified:Date?,recovered:Bool){
+        fileURL=url;fileType=type;fileModificationDate=modified
+        if recovered,let value=loading{loading=(value.0,value.1,false)}
+    }
     nonisolated override var isDocumentEdited:Bool{storage.isDirty}
     // RecoveryWriter owns private autosave; only Save/Save As replaces the named file.
     nonisolated override class var autosavesInPlace:Bool{false}
