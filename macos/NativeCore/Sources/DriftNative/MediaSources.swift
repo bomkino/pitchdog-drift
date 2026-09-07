@@ -206,7 +206,19 @@ public final class MediaFrames {
     public init(cancellation:MediaCancellation=MediaCancellation()){self.cancellation=cancellation}
     public func clear(){sources.removeAll();lru=[];stills.removeAll();stillOrder=[];stillCost=0}
     public func image(original:Original,workspace:MediaWorkspace,playback:SourcePlayback,seconds:Double,maximumDimension:Int)throws->CIImage{
-        try cancellation.check();let request=try playback.request(outputSeconds:seconds,original:original)
+        try image(original:original,workspace:workspace,playback:playback,request:playback.request(outputSeconds:seconds,original:original),maximumDimension:maximumDimension)
+    }
+    /// Explicit interval-end requests are used by the source filmstrip. Never
+    /// approximate the last readable frame by subtracting a guessed frame rate.
+    public func image(original:Original,workspace:MediaWorkspace,playback:SourcePlayback,request:SourceRequest,maximumDimension:Int)throws->CIImage{
+        try cancellation.check();try playback.validate(original:original)
+        if original.kind != .image{
+            let end=playback.trimOutNanoseconds ?? original.durationNanoseconds
+            switch request{
+            case .time(let ns):guard ns>=playback.trimInNanoseconds,ns<end else{throw NativeFailure.message("Source preview time is outside its trim.")}
+            case .lastBefore(let ns):guard ns>playback.trimInNanoseconds,ns<=end else{throw NativeFailure.message("Source preview end is outside its trim.")}
+            }
+        }
         let maxDimension=max(64,min(8192,maximumDimension)),key=original.id
         // Identity verification is cached by inode/size/mtime/ctime. A pixel
         // cache hit must not hide a missing or changed owned original.

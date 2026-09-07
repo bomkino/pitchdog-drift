@@ -62,7 +62,7 @@ private final class HeldWrite:@unchecked Sendable {
                 var handled=false
                 try await NativeApplicationProof.wait("remote Save panel discard key equivalent",seconds:8){
                     guard document.windowForSheet?.attachedSheet === panel else{return decision.result != nil}
-                    if !handled{handled=panel.performKeyEquivalent(event)}
+                    if !handled{handled=panel.performKeyEquivalent(with:event)}
                     return handled || decision.result != nil
                 }
                 mark("close-remote-command-delete handled=\(handled)")

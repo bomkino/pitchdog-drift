@@ -43,6 +43,23 @@ import DriftNative
             try require(editor.project.slides.map{editor.project.assets[$0.assetID]!.name}==names,"preserved input order")
             let accepted=editor.project;editor.undo();try require(editor.project.slides.isEmpty,"single batch undo");editor.redo();try require(editor.project.slides==accepted.slides,"batch redo preserves identities")
             assertions.append("Native window; 2576x1080; exact decimal ratio; six-format batch; media Undo/Redo")
+            // Submit competing requests in one main-actor turn so the first
+            // decode is unavoidably in flight before the final scrub is queued.
+            let sourcePreview=SourceClipPreview(),animated=editor.project.assets[editor.project.slides[2].assetID]!
+            var sourceSettings=SourcePlayback();sourceSettings.loop=false
+            sourcePreview.request(animated,editor.workspace,playback:sourceSettings,seconds:0)
+            sourcePreview.request(animated,editor.workspace,playback:sourceSettings,seconds:0.2,discontinuity:true)
+            sourcePreview.request(animated,editor.workspace,playback:sourceSettings,seconds:0.6,discontinuity:true)
+            try await wait("source audition's latest scrub"){sourcePreview.publishedSeconds==0.6}
+            try require(sourcePreview.error==nil && sourcePreview.image != nil,"latest source audition decoded")
+            sourcePreview.request(animated,editor.workspace,playback:sourceSettings,seconds:0.1,discontinuity:true)
+            sourcePreview.stop()
+            let other=editor.project.assets[editor.project.slides[3].assetID]!
+            sourcePreview.request(other,editor.workspace,playback:sourceSettings,seconds:Double(other.durationNanoseconds)/1e9,last:true,discontinuity:true)
+            try await wait("source audition after close and replacement"){sourcePreview.publishedOriginalID==other.id && sourcePreview.publishedLast}
+            try require(sourcePreview.error==nil && sourcePreview.image != nil,"source audition's exact final interval decoded")
+            sourcePreview.stop()
+            assertions.append("Actual source audition coalesces scrubs, rejects closed-source publication, and decodes the exact final interval")
             let file=output.appendingPathComponent("Accepted.pitched");try await save(document,to:file)
             try require(!editor.dirty,"save clears accepted checkpoint")
             let reopened=try await Task.detached{try ProjectIO.read(file)}.value
