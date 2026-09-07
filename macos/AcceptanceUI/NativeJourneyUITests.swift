@@ -39,8 +39,11 @@ final class NativeJourneyUITests:XCTestCase {
                 let title=try XCTUnwrap(step["window"] as? String)
                 let sheet=app.windows[title].sheets.firstMatch
                 XCTAssertTrue(sheet.waitForExistence(timeout:15),"The real \(title) sheet must exist.")
-                let names=choice=="cancel" ? ["Cancel"]:["Don't Save","Don’t Save","Delete","Discard","Discard Changes"]
-                let control=sheet.buttons.matching(NSPredicate(format:"label IN %@ OR identifier IN %@",names,names)).firstMatch
+                // The captured macOS accessibility hierarchy exposes the action
+                // as an identifier; its visible text is a title, not a label.
+                // Use the observed action IDs instead of guessing translated text.
+                let identifier=choice=="cancel" ? "CancelButton":"DontSaveButton"
+                let control=sheet.buttons[identifier]
                 XCTAssertTrue(control.waitForExistence(timeout:15),"No real \(choice) button: \(sheet.debugDescription)")
                 XCTAssertTrue(control.isEnabled)
                 control.click()
