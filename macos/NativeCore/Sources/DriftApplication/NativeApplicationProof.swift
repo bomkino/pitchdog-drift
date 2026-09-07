@@ -50,6 +50,7 @@ import DriftNative
             editor.change("Unrelated World"){p in p.applyWorld(editor.catalog.worlds[3],catalog:editor.catalog)}
             try require(editor.project.canvas==CanvasSize.wideDeck,"World cannot resize canvas");editor.undo();try require(!editor.dirty,"Undo back to saved content")
             assertions.append("NSDocument save; new-format reopening; World/canvas ownership; undo-to-saved")
+            assertions += try await DocumentAcceptance.run(snapshot:editor.snapshot,output:output)
             let ids=editor.project.slides.map(\.id)
             editor.change("Role proof"){p in
                 p.canvas=try CanvasSize(width:320,height:256);p.direction.contentPaced=false;p.direction.bodyMilliseconds=1000;p.direction.entry.enabled=false;p.direction.exit.enabled=false;p.direction.mode = .repeatCount;p.direction.repeats=3
@@ -100,6 +101,7 @@ import DriftNative
             let soundSnapshot=try RenderSnapshot(project:audible,workspace:editor.workspace)
             _=try await NativeExport.run(snapshot:soundSnapshot,destination:output.appendingPathComponent("Recorded Sound.mp4"))
             assertions.append("Native AAC with retained recorded sound and rational movie timestamps")
+            assertions.append(try await AudioAcceptance.run(snapshot:soundSnapshot,url:output.appendingPathComponent("Recorded Sound.mp4"),output:output))
             let previous=output.appendingPathComponent("Cancel.mp4");try Data("keep existing".utf8).write(to:previous);let token=MediaCancellation();token.cancel()
             do{_=try await NativeExport.run(snapshot:soundSnapshot,destination:previous,cancellation:token);throw NativeFailure.message("Cancellation was ignored")}catch is CancellationError{}
             try require(try Data(contentsOf:previous)==Data("keep existing".utf8),"cancel keeps previous destination")

@@ -3,18 +3,6 @@ import SwiftUI
 import DriftCore
 import DriftNative
 
-/// A thread-safe immutable write snapshot. Swift/NSDocument is the only editor
-/// authority; no browser storage or independent JavaScript journal exists.
-private final class DocumentStorage:@unchecked Sendable {
-    private let lock=NSLock()
-    private var snapshot:RenderSnapshot?,ticket:EditTicket?,writing:(RenderSnapshot,EditTicket)?
-    func set(_ snapshot:RenderSnapshot,_ ticket:EditTicket){lock.lock();self.snapshot=snapshot;self.ticket=ticket;lock.unlock()}
-    func get()throws->(RenderSnapshot,EditTicket){lock.lock();defer{lock.unlock()};guard let snapshot,let ticket else{throw NativeFailure.message("The document is not loaded.")};return(snapshot,ticket)}
-    func begin()throws{lock.lock();defer{lock.unlock()};guard writing==nil,let snapshot,let ticket else{throw NativeFailure.message("A save is already in progress.")};writing=(snapshot,ticket)}
-    func writeSnapshot()throws->(RenderSnapshot,EditTicket){lock.lock();defer{lock.unlock()};if let writing{return writing};guard let snapshot,let ticket else{throw NativeFailure.message("The document is not loaded.")};return(snapshot,ticket)}
-    func accepts(_ ticket:EditTicket)throws{lock.lock();let accepted=self.ticket?.generation==ticket.generation && self.ticket?.projectID==ticket.projectID;lock.unlock();if !accepted{throw NativeFailure.message("The document changed identity during Save; the old write was not published.")}}
-    func finish()->(RenderSnapshot,EditTicket)?{lock.lock();defer{lock.unlock()};let result=writing;writing=nil;return result}
-}
 enum RecoveryStore {
     static func directory()throws->URL{
         let base=try FileManager.default.url(for:.applicationSupportDirectory,in:.userDomainMask,appropriateFor:nil,create:true).appendingPathComponent("Drift/Native Workspaces",isDirectory:true)
@@ -26,6 +14,7 @@ enum RecoveryStore {
 @objc(DriftNativeDocument) @MainActor final class DriftDocument:NSDocument {
     static let typeName="dog.pitch.drift.native-document"
     nonisolated private let storage=DocumentStorage()
+    nonisolated let writeProbe=NativeWriteProbe()
     private(set) var editor:EditorSession?
     private(set) var transport:Transport?
     private(set) var initializationError:(any Error)?
@@ -37,11 +26,13 @@ enum RecoveryStore {
     // RecoveryWriter owns private autosave; only Save/Save As replaces the named file.
     nonisolated override class var autosavesInPlace:Bool{false}
     override var autosavingFileType:String?{nil}
-    nonisolated override class func canConcurrentlyReadDocuments(ofType typeName:String)->Bool{false}
+    nonisolated override class func canConcurrentlyReadDocuments(ofType typeName:String)->Bool{true}
     nonisolated override func canAsynchronouslyWrite(to url:URL,ofType typeName:String,for saveOperation:NSDocument.SaveOperationType)->Bool{true}
     nonisolated override func read(from url:URL,ofType typeName:String)throws{
+        let read=try storage.beginRead()
         let (project,workspace)=try ProjectIO.read(url,workspace:RecoveryStore.workspace())
         let adopt:@MainActor ()throws->Void = {[self] in
+            try storage.finishRead(read)
             if let editor{try editor.load(project,workspace:workspace,saved:true);transport?.update(editor.snapshot.plan);storage.set(editor.snapshot,editor.ticket())}
             else{loading=(project,workspace,true)}
         }
@@ -50,7 +41,7 @@ enum RecoveryStore {
     nonisolated override func write(to url:URL,ofType typeName:String)throws{
         let (snapshot,ticket)=try storage.writeSnapshot()
         if !Thread.isMainThread{unblockUserInteraction()}
-        try ProjectIO.write(snapshot,to:url,beforePublish:{try self.storage.accepts(ticket)})
+        try ProjectIO.write(snapshot,to:url,beforePublish:{try self.writeProbe.inspect();try self.storage.accepts(ticket)})
     }
     override func save(to url:URL,ofType typeName:String,for saveOperation:NSDocument.SaveOperationType,completionHandler:@escaping ((any Error)?)->Void){
         guard !busySaving else{completionHandler(NativeFailure.message("Wait for the current save to finish."));return}
@@ -93,7 +84,7 @@ enum RecoveryStore {
             if !CommandLine.arguments.contains("--native-self-test"){presentError(error)}
         }
     }
-    override func close(){sound.stop();transport?.pause();editor?.close(discardRecovery:true);super.close()}
+    override func close(){storage.close();sound.stop();transport?.pause();editor?.close(discardRecovery:true);super.close()}
     @objc func addMedia(_ sender:Any?){
         guard let editor,!editor.importing,let window=windowControllers.first?.window else{return};let ticket=editor.ticket()
         let panel=NSOpenPanel();panel.title="Add media";panel.allowsMultipleSelection=true;panel.canChooseDirectories=false
