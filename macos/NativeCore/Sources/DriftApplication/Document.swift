@@ -20,12 +20,14 @@ enum RecoveryStore {
     private(set) var initializationError:(any Error)?
     private var loading:(DriftProject,MediaWorkspace,Bool)?
     private var busySaving=false
-    private let sound=PreviewSound()
-    override init(){super.init();fileType=Self.typeName}
-    override var isDocumentEdited:Bool{editor?.dirty ?? false}
+    // NSDocumentController may initialize/read on its opening queue. No UI or
+    // main-actor audio state is constructed until the document reaches a window.
+    private lazy var sound=PreviewSound()
+    nonisolated override init(){super.init()}
+    nonisolated override var isDocumentEdited:Bool{storage.isDirty}
     // RecoveryWriter owns private autosave; only Save/Save As replaces the named file.
     nonisolated override class var autosavesInPlace:Bool{false}
-    override var autosavingFileType:String?{nil}
+    nonisolated override var autosavingFileType:String?{nil}
     nonisolated override class func canConcurrentlyReadDocuments(ofType typeName:String)->Bool{true}
     nonisolated override func canAsynchronouslyWrite(to url:URL,ofType typeName:String,for saveOperation:NSDocument.SaveOperationType)->Bool{true}
     nonisolated override func read(from url:URL,ofType typeName:String)throws{
@@ -33,7 +35,7 @@ enum RecoveryStore {
         let (project,workspace)=try ProjectIO.read(url,workspace:RecoveryStore.workspace())
         let adopt:@MainActor ()throws->Void = {[self] in
             try storage.finishRead(read)
-            if let editor{try editor.load(project,workspace:workspace,saved:true);transport?.update(editor.snapshot.plan);storage.set(editor.snapshot,editor.ticket())}
+            if let editor{try editor.load(project,workspace:workspace,saved:true);transport?.update(editor.snapshot.plan);storage.set(editor.snapshot,editor.ticket(),dirty:editor.dirty)}
             else{loading=(project,workspace,true)}
         }
         if Thread.isMainThread{try MainActor.assumeIsolated(adopt)}else{try DispatchQueue.main.sync{try MainActor.assumeIsolated(adopt)}}
@@ -63,16 +65,17 @@ enum RecoveryStore {
     }
     override func makeWindowControllers(){
         guard windowControllers.isEmpty else{return}
+        if fileType==nil{fileType=Self.typeName}
         initializationError=nil
         do{
             let value:(DriftProject,MediaWorkspace,Bool)
             if let loading{value=loading;self.loading=nil}else{value=(try DriftProject(creative:CreativeCatalog.load().defaults),try RecoveryStore.workspace(),true)}
             let session=try EditorSession(project:value.0,workspace:value.1,saved:value.2),transport=Transport(plan:session.snapshot.plan)
-            self.editor=session;self.transport=transport;storage.set(session.snapshot,session.ticket())
+            self.editor=session;self.transport=transport;storage.set(session.snapshot,session.ticket(),dirty:session.dirty)
             sound.onError={[weak session] message in session?.issue="Sound: \(message)"}
             transport.didTick={[weak self,weak session,weak transport] _,_ in guard let self,let session,let transport else{return};self.sound.update(snapshot:session.snapshot,revision:session.revision,transport:transport)}
             session.didEdit={[weak self,weak session,weak transport] in guard let self,let session else{return}
-                self.storage.set(session.snapshot,session.ticket());transport?.update(session.snapshot.plan)
+                self.storage.set(session.snapshot,session.ticket(),dirty:session.dirty);transport?.update(session.snapshot.plan)
                 self.updateChangeCount(session.dirty ? .changeDone:.changeCleared)
                 self.windowControllers.forEach{$0.window?.isDocumentEdited=session.dirty}
             }

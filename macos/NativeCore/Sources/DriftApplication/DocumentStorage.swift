@@ -8,9 +8,10 @@ final class DocumentStorage:@unchecked Sendable {
     struct Read:Sendable {let token:UUID,expected:EditTicket?}
     private let lock=NSLock()
     private var snapshot:RenderSnapshot?,ticket:EditTicket?,writing:(RenderSnapshot,EditTicket)?
-    private var closed=false
+    private var closed=false,dirty=false
+    var isDirty:Bool{lock.lock();defer{lock.unlock()};return dirty && !closed}
     private var readToken:UUID?
-    func set(_ snapshot:RenderSnapshot,_ ticket:EditTicket){lock.lock();defer{lock.unlock()};guard !closed else{return};self.snapshot=snapshot;self.ticket=ticket}
+    func set(_ snapshot:RenderSnapshot,_ ticket:EditTicket,dirty:Bool){lock.lock();defer{lock.unlock()};guard !closed else{return};self.snapshot=snapshot;self.ticket=ticket;self.dirty=dirty}
     func get()throws->(RenderSnapshot,EditTicket){lock.lock();defer{lock.unlock()};guard !closed,let snapshot,let ticket else{throw NativeFailure.message("The document is not loaded.")};return(snapshot,ticket)}
     func begin()throws{lock.lock();defer{lock.unlock()};guard !closed,writing==nil,let snapshot,let ticket else{throw NativeFailure.message("A save is already in progress or the document is closed.")};writing=(snapshot,ticket)}
     func writeSnapshot()throws->(RenderSnapshot,EditTicket){lock.lock();defer{lock.unlock()};guard !closed else{throw NativeFailure.message("The document is closed.")};if let writing{return writing};guard let snapshot,let ticket else{throw NativeFailure.message("The document is not loaded.")};return(snapshot,ticket)}
