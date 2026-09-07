@@ -60,6 +60,9 @@ private final class HeldWrite:@unchecked Sendable {
     static func run(snapshot:RenderSnapshot,output:URL)async throws->[String]{
         let file=output.appendingPathComponent("Document-Acceptance.pitched")
         try await Task.detached{try ProjectIO.write(snapshot,to:file)}.value
+        var registeredAsLegacy=file
+        registeredAsLegacy.setTemporaryResourceValue("dog.pitch.pitched-project",forKey:.typeIdentifierKey)
+        try require(try NSDocumentController.shared.typeForContents(of:registeredAsLegacy)==DriftDocument.typeName,"native document routing survives a legacy LaunchServices type")
         mark("opening-with-document-controller")
         let document=try await open(file)
         defer{document.writeProbe.set(nil);document.close()}

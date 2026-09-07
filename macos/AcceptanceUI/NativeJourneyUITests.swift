@@ -49,6 +49,20 @@ final class NativeJourneyUITests:XCTestCase {
                 XCTAssertTrue(control.isEnabled)
                 control.click()
             }
+            for appearance in ["Light","Dark"]{
+                let choice="appearance-\(appearance)"
+                try awaitValue("\(appearance) appearance",timeout:180){
+                    self.json(root.appendingPathComponent("UI_STEP.json"))?["choice"] as? String==choice || self.json(root.appendingPathComponent("RESULT.json")) != nil
+                }
+                XCTAssertNil(json(root.appendingPathComponent("RESULT.json")),"Application failed before appearance capture")
+                let title=try XCTUnwrap(json(root.appendingPathComponent("UI_STEP.json"))?["window"] as? String)
+                let window=app.windows[title]
+                XCTAssertTrue(window.exists)
+                let screenshot=window.screenshot()
+                try screenshot.pngRepresentation.write(to:root.appendingPathComponent("Appearance-\(appearance).png"))
+                let attachment=XCTAttachment(screenshot:screenshot);attachment.name="Native \(appearance) appearance";attachment.lifetime = .keepAlways;add(attachment)
+                try JSONSerialization.data(withJSONObject:["choice":choice]).write(to:root.appendingPathComponent("UI_ACK.json"),options:.atomic)
+            }
             try awaitValue("native document/media/output result",timeout:480){self.json(root.appendingPathComponent("RESULT.json")) != nil}
             let result=try XCTUnwrap(json(root.appendingPathComponent("RESULT.json")))
             XCTAssertEqual(result["result"] as? String,"passed","\(result)")

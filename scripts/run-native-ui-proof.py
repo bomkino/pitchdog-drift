@@ -3,6 +3,7 @@
 import json
 import pathlib
 import plistlib
+import re
 import subprocess
 import sys
 import uuid
@@ -14,6 +15,8 @@ with (app / "Contents/Info.plist").open("rb") as stream:
 source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
 if identity.get("DriftSourceRevision") != source:
     raise SystemExit("The archived application does not match the checked-out source.")
+signature = subprocess.run(["codesign", "-dv", "--verbose=4", str(app)], capture_output=True, text=True, check=True).stderr
+code_hash = re.search(r"^CDHash=([0-9a-f]+)$", signature, re.M).group(1)
 run_id = str(uuid.uuid4()).upper()
 work = repo / "build/native-ui-driver" / run_id
 work.mkdir(parents=True)
@@ -55,4 +58,10 @@ else:
     value = {}
 if result.returncode or value.get("result") != "passed" or value.get("source") != source:
     raise SystemExit(result.returncode or 1)
+subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
+after = subprocess.run(["codesign", "-dv", "--verbose=4", str(app)], capture_output=True, text=True, check=True).stderr
+if re.search(r"^CDHash=([0-9a-f]+)$", after, re.M).group(1) != code_hash:
+    raise SystemExit("The application changed during its UI proof.")
+value.update(codeDirectoryHash=code_hash, build=identity["CFBundleVersion"])
+(evidence / "NativeJourneyReceipt.json").write_text(json.dumps(value, indent=2) + "\n")
 print("DRIFT_ARCHIVED_UI_PROOF_PASS " + source, flush=True)
