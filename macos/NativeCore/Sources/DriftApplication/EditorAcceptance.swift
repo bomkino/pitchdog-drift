@@ -42,6 +42,11 @@ import DriftNative
         try step("edit-undo-reorder")
         try await NativeApplicationProof.wait("real Undo of native drag"){editor.project.slides.map(\.id)==ids}
         try NativeApplicationProof.require(try editor.project.contentIdentity()==original.contentIdentity(),"reorder Undo preserves media and authored content")
+        try step("edit-redo-reorder")
+        try await NativeApplicationProof.wait("keyboard Redo restores native drag"){editor.project.slides[0].id==ids[1]}
+        try step("edit-undo-redo")
+        try await NativeApplicationProof.wait("keyboard Undo restores order again"){editor.project.slides.map(\.id)==ids}
+        try NativeApplicationProof.require(try editor.project.contentIdentity()==original.contentIdentity(),"menu and keyboard journal routing preserves the document")
 
         editor.change("Acceptance playback loop"){$0.direction.mode = .loop}
         let base=editor.project,baseIdentity=try base.contentIdentity(),history=editor.journal.past.count

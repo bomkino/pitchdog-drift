@@ -107,7 +107,7 @@ enum RecoveryStore {
         panel.beginSheetModal(for:window){[weak editor] response in guard response == .OK,let url=panel.url else{return};Task{@MainActor in editor?.importURLs([url],ticket:ticket,replacing:id,expectedFingerprint:locate ? source.sha256:nil)}}
     }
 }
-final class StudioWindowController:NSWindowController {
+final class StudioWindowController:NSWindowController,NSUserInterfaceValidations {
     let session:EditorSession,transport:Transport
     init(document:DriftDocument,session:EditorSession,transport:Transport){
         self.session=session;self.transport=transport
@@ -126,8 +126,24 @@ final class StudioWindowController:NSWindowController {
         }
     }
     required init?(coder:NSCoder){fatalError("Programmatic window")}
-    @objc func undo(_ sender:Any?){session.undo()}
-    @objc func redo(_ sender:Any?){session.redo()}
+    // NSWindow handles standard undo: before the controller and consults its
+    // empty UndoManager. Route document commands to the actual journal while
+    // leaving focused field-editor text edits with their native undo manager.
+    private var fieldUndo:UndoManager?{
+        guard let text=window?.firstResponder as? NSTextView,text.isFieldEditor else{return nil}
+        return text.undoManager
+    }
+    @objc func undoEdit(_ sender:Any?){
+        if let manager=fieldUndo{if manager.canUndo{manager.undo()}}else if session.journal.canUndo{session.undo()}
+    }
+    @objc func redoEdit(_ sender:Any?){
+        if let manager=fieldUndo{if manager.canRedo{manager.redo()}}else if session.journal.canRedo{session.redo()}
+    }
+    func validateUserInterfaceItem(_ item:any NSValidatedUserInterfaceItem)->Bool{
+        if item.action == #selector(undoEdit(_:)){return fieldUndo?.canUndo ?? session.journal.canUndo}
+        if item.action == #selector(redoEdit(_:)){return fieldUndo?.canRedo ?? session.journal.canRedo}
+        return true
+    }
     @objc func togglePlayback(_ sender:Any?){transport.toggle()}
     @objc func addMedia(_ sender:Any?){(document as? DriftDocument)?.addMedia(sender)}
 }
@@ -181,7 +197,7 @@ enum MediaTypes {
         let app=menu("Drift");item(app,"About Drift",#selector(NSApplication.orderFrontStandardAboutPanel(_:)));app.addItem(.separator());item(app,"Hide Drift",#selector(NSApplication.hide(_:)),"h");app.addItem(.separator());item(app,"Quit Drift",#selector(NSApplication.terminate(_:)),"q")
         let file=menu("File");item(file,"New",#selector(NSDocumentController.newDocument(_:)),"n");item(file,"Open…",#selector(NSDocumentController.openDocument(_:)),"o");let recent=NSMenu(title:"Open Recent"),recentItem=NSMenuItem(title:"Open Recent",action:nil,keyEquivalent:"");recentItem.submenu=recent;recent.delegate=self;file.addItem(recentItem)
         file.addItem(.separator());item(file,"Add Media…",#selector(StudioWindowController.addMedia(_:)),"i");item(file,"Save",#selector(NSDocument.save(_:)),"s");item(file,"Save As…",#selector(NSDocument.saveAs(_:)),"s",[.command,.shift]);item(file,"Revert to Saved…",#selector(NSDocument.revertToSaved(_:)));file.addItem(.separator());item(file,"Close",#selector(NSWindow.performClose(_:)),"w")
-        let edit=menu("Edit");item(edit,"Undo",Selector(("undo:")),"z");item(edit,"Redo",Selector(("redo:")),"z",[.command,.shift]);edit.addItem(.separator());item(edit,"Cut",#selector(NSText.cut(_:)),"x");item(edit,"Copy",#selector(NSText.copy(_:)),"c");item(edit,"Paste",#selector(NSText.paste(_:)),"v");item(edit,"Select All",#selector(NSText.selectAll(_:)),"a")
+        let edit=menu("Edit");item(edit,"Undo",#selector(StudioWindowController.undoEdit(_:)),"z");item(edit,"Redo",#selector(StudioWindowController.redoEdit(_:)),"z",[.command,.shift]);edit.addItem(.separator());item(edit,"Cut",#selector(NSText.cut(_:)),"x");item(edit,"Copy",#selector(NSText.copy(_:)),"c");item(edit,"Paste",#selector(NSText.paste(_:)),"v");item(edit,"Select All",#selector(NSText.selectAll(_:)),"a")
         let window=menu("Window");NSApp.windowsMenu=window;item(window,"Minimize",#selector(NSWindow.performMiniaturize(_:)),"m");item(window,"Zoom",#selector(NSWindow.performZoom(_:)));item(window,"Bring All to Front",#selector(NSApplication.arrangeInFront(_:)))
     }
 }

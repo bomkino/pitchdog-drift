@@ -66,7 +66,7 @@ final class NativeJourneyUITests:XCTestCase {
                 XCTAssertTrue(nextFrame.isEnabled)
                 nextFrame.click()
             }
-            for choice in ["edit-enter","edit-blur","edit-escape","edit-undo","edit-undo-enter","edit-reorder","edit-undo-reorder","look-start","look-original","look-preview","look-cancel","look-restart","look-seek","look-apply","look-undo"]{
+            for choice in ["edit-enter","edit-blur","edit-escape","edit-undo","edit-undo-enter","edit-reorder","edit-undo-reorder","edit-redo-reorder","edit-undo-redo","look-start","look-original","look-preview","look-cancel","look-restart","look-seek","look-apply","look-undo"]{
                 try awaitValue(choice){self.json(root.appendingPathComponent("UI_STEP.json"))?["choice"] as? String==choice || self.json(root.appendingPathComponent("RESULT.json")) != nil || app.state == .notRunning}
                 XCTAssertNil(json(root.appendingPathComponent("RESULT.json")),"Application failed before \(choice)")
                 let step=try XCTUnwrap(json(root.appendingPathComponent("UI_STEP.json")))
@@ -90,7 +90,11 @@ final class NativeJourneyUITests:XCTestCase {
                 case "edit-escape":
                     let field=window.textFields["Focal X"];replace(field,"0.9");field.typeKey(.escape,modifierFlags:[])
                     window.buttons["drift.next-frame"].click()
-                case "edit-undo","edit-undo-enter","edit-undo-reorder","look-undo":window.buttons["Undo"].click()
+                case "edit-undo","look-undo":window.buttons["Undo"].click()
+                case "edit-undo-enter","edit-undo-redo":app.typeKey("z",modifierFlags:.command)
+                case "edit-redo-reorder":app.typeKey("z",modifierFlags:[.command,.shift])
+                case "edit-undo-reorder":
+                    app.menuBars.menuBarItems["Edit"].click();app.menuItems["Undo"].click()
                 case "edit-reorder":
                     // The inspector repeats the selected filename. Scope to the
                     // sidebar so this drags the row, not selectable inspector text.
