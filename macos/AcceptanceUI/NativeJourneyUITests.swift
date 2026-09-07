@@ -66,6 +66,42 @@ final class NativeJourneyUITests:XCTestCase {
                 XCTAssertTrue(nextFrame.isEnabled)
                 nextFrame.click()
             }
+            for choice in ["edit-enter","edit-blur","edit-escape","edit-undo","edit-undo-enter","look-start","look-original","look-preview","look-cancel","look-restart","look-seek","look-apply","look-undo"]{
+                try awaitValue(choice){self.json(root.appendingPathComponent("UI_STEP.json"))?["choice"] as? String==choice || self.json(root.appendingPathComponent("RESULT.json")) != nil || app.state == .notRunning}
+                XCTAssertNil(json(root.appendingPathComponent("RESULT.json")),"Application failed before \(choice)")
+                let step=try XCTUnwrap(json(root.appendingPathComponent("UI_STEP.json")))
+                let window=app.windows[try XCTUnwrap(step["window"] as? String)]
+                func click(_ identifier:String)throws{
+                    let control=window.descendants(matching:.any).matching(identifier:identifier).firstMatch
+                    XCTAssertTrue(control.waitForExistence(timeout:10),"Missing \(identifier): \(window.debugDescription)")
+                    XCTAssertTrue(control.isHittable);control.click()
+                }
+                func replace(_ field:XCUIElement,_ text:String){
+                    XCTAssertTrue(field.waitForExistence(timeout:10));field.click();field.typeKey("a",modifierFlags:.command);field.typeText(text)
+                }
+                switch choice{
+                case "edit-enter":
+                    window.radioButtons["Slide"].click()
+                    let field=window.textFields["Focal X"];replace(field,"0.25");field.typeKey(.return,modifierFlags:[])
+                case "edit-blur":
+                    replace(window.textFields["Focal X"],"0.4")
+                    window.staticTexts[try XCTUnwrap(step["nextMedia"] as? String)].firstMatch.click()
+                case "edit-escape":
+                    let field=window.textFields["Focal X"];replace(field,"0.9");field.typeKey(.escape,modifierFlags:[])
+                    window.buttons["drift.next-frame"].click()
+                case "edit-undo","edit-undo-enter","look-undo":window.buttons["Undo"].click()
+                case "look-start","look-restart":
+                    if choice=="look-start"{window.radioButtons["Look"].click();try click("drift.look-audition")}
+                    try click("drift.world")
+                    app.menuItems[try XCTUnwrap(step["world"] as? String)].firstMatch.click()
+                case "look-original","look-preview":try click("drift.look-original")
+                case "look-cancel":window.buttons["Cancel"].click()
+                case "look-seek":
+                    let field=window.textFields["Frame"];replace(field,"7");field.typeKey(.return,modifierFlags:[])
+                case "look-apply":window.buttons["Apply Look"].click()
+                default:XCTFail("Unexpected editor proof step")
+                }
+            }
             try awaitValue("native document/media/output result",timeout:480){self.json(root.appendingPathComponent("RESULT.json")) != nil || app.state == .notRunning}
             let result=try XCTUnwrap(json(root.appendingPathComponent("RESULT.json")))
             XCTAssertEqual(result["result"] as? String,"passed","\(result)")

@@ -22,8 +22,8 @@ struct StudioView:View {
         VStack(spacing:0){
             HStack(spacing:14){
                 Button{document.addMedia(nil)}label:{Label("Add media",systemImage:"plus")}.disabled(session.importing)
-                Button{session.undo()}label:{Image(systemName:"arrow.uturn.backward")}.help("Undo").disabled(!session.journal.canUndo)
-                Button{session.redo()}label:{Image(systemName:"arrow.uturn.forward")}.help("Redo").disabled(!session.journal.canRedo)
+                Button{session.undo()}label:{Image(systemName:"arrow.uturn.backward")}.accessibilityLabel("Undo").help("Undo").disabled(!session.journal.canUndo)
+                Button{session.redo()}label:{Image(systemName:"arrow.uturn.forward")}.accessibilityLabel("Redo").help("Redo").disabled(!session.journal.canRedo)
                 Spacer()
                 Button("\(session.project.canvas.width) × \(session.project.canvas.height)"){canvasEditor=true}.monospacedDigit().help("Canvas dimensions")
                 Menu{
@@ -39,7 +39,7 @@ struct StudioView:View {
                     Text("LOOK AUDITION · \(audition.name)").font(.caption.weight(.semibold))
                     Text("Not saved").foregroundStyle(.secondary)
                     Spacer()
-                    Toggle("Original",isOn:Binding(get:{session.lookAudition?.showOriginal ?? false},set:{session.compareLookOriginal($0)})).toggleStyle(.switch)
+                    Toggle("Original",isOn:Binding(get:{session.lookAudition?.showOriginal ?? false},set:{session.compareLookOriginal($0)})).toggleStyle(.switch).accessibilityIdentifier("drift.look-original")
                     Button("Cancel"){session.cancelLookAudition()}
                     Button("Apply Look"){session.acceptLookAudition()}
                 }.padding(.horizontal,18).padding(.vertical,10)
@@ -174,7 +174,7 @@ struct NumberEdit:View {
     init(_ title:String,value:Double,mixed:Bool=false,integer:Bool=false,commit:@escaping(Double)->Void){self.title=title;self.value=value;self.mixed=mixed;self.integer=integer;self.commit=commit}
     private func formatted()->String{mixed ? "":integer ? String(Int64(value.rounded())):String(format:"%.5f",value).replacingOccurrences(of:"0+$",with:"",options:.regularExpression).replacingOccurrences(of:"\\.$",with:"",options:.regularExpression)}
     var body:some View{
-        HStack{Text(title).lineLimit(2);Spacer();TextField(mixed ? "Mixed":"",text:$text).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:96).focused($focus).foregroundStyle(invalid ? Color.red:Color.primary).help(invalid ? "Enter a finite number within the supported range.":title).onSubmit(finish)}
+        HStack{Text(title).lineLimit(2);Spacer();TextField(mixed ? "Mixed":"",text:$text).accessibilityLabel(title).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:96).focused($focus).foregroundStyle(invalid ? Color.red:Color.primary).help(invalid ? "Enter a finite number within the supported range.":title).onSubmit(finish)}
         .onAppear{text=formatted()}.onChange(of:value){_ in if !focus{text=formatted()}}
         .onChange(of:mixed){_ in if !focus{text=formatted()}}
         .onChange(of:focus){value in if value{capturedCommit=commit;cancelled=false}else{if !cancelled{finish()};capturedCommit=nil;cancelled=false}}
@@ -250,8 +250,8 @@ struct LookInspector:View {
     }
     var body:some View{
         Text("LOOK").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-        Toggle("Audition Look changes",isOn:$auditionChanges).onChange(of:auditionChanges){on in if !on{session.cancelLookAudition()}}
-        Picker("World",selection:Binding(get:{session.lookProject.worldID},set:{apply($0)})){ForEach(worlds){world in Text(world.label).tag(world.worldID)}}
+        Toggle("Audition Look changes",isOn:$auditionChanges).accessibilityIdentifier("drift.look-audition").onChange(of:auditionChanges){on in if !on{session.cancelLookAudition()}}
+        Picker("World",selection:Binding(get:{session.lookProject.worldID},set:{apply($0)})){ForEach(worlds){world in Text(world.label).tag(world.worldID)}}.accessibilityIdentifier("drift.world")
         Picker("Pressure",selection:Binding(get:{session.lookProject.worldPressure},set:{apply(nil,$0)})){Text("Restrained").tag("restrained");Text("Directed").tag("directed");Text("Fever").tag("fever")}
         Picker("Arrangement",selection:Binding(get:{session.lookProject.worldScene},set:{apply(nil,nil,$0)})){Text("Wide").tag(-1);Text("Portrait I").tag(0);Text("Portrait II").tag(1)}
         Button("Recut"){apply(nil,nil,nil,session.lookProject.worldRecut+1)}

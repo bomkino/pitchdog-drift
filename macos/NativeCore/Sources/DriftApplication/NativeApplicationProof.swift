@@ -142,6 +142,8 @@ import DriftNative
             window.appearance=inheritedAppearance
             try require(shellLevels.count==2 && shellLevels[0]>shellLevels[1]+0.3,"semantic shell colors respond to Light and Dark")
             assertions.append("Light and Dark native window captures; semantic controls adapt; document, playback position and rendered canvas unchanged")
+            assertions.append(try await EditorAcceptance.run(document:document,root:root))
+            assertions.append(try await EditorAcceptance.repeatPreview(document:document,output:output))
             transport.play();try await Task.sleep(nanoseconds:180_000_000);transport.pause();try require(transport.frame>2,"native playback advances")
             assertions.append("Native GPU canvas; latest seek; native play/pause")
             var simple=editor.project;simple.direction.mode = .once;simple.direction.contentPaced=false;simple.direction.bodyMilliseconds=1400;simple.spotlights=[];simple.closing=nil;simple.creative.lens.enabled=false;simple.creative.sound.exportEnabled=false;simple.creative.atmosphere.motion=0;simple.creative.atmosphere.grain=0;simple.creative.atmosphere.vignette=0
