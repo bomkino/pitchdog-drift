@@ -51,14 +51,37 @@ private final class HeldWrite:@unchecked Sendable {
         let decision=CloseDecision()
         document.canClose(withDelegate:decision,shouldClose:#selector(CloseDecision.document(_:shouldClose:contextInfo:)),contextInfo:nil)
         func choice()->NSButton?{
-            button(in:document.windowControllers.first?.window?.attachedSheet?.contentView){button in
-                let title=button.title.lowercased().replacingOccurrences(of:"’",with:"'")
+            // Use NSDocument's chosen sheet parent, not an assumed first
+            // controller. Include the sheet frame: AppKit may place controls
+            // outside contentView. Never search or click another document.
+            guard let sheet=document.windowForSheet?.attachedSheet else{return nil}
+            return button(in:sheet.contentView?.superview ?? sheet.contentView){button in
+                let title=button.title.trimmingCharacters(in:.whitespacesAndNewlines).lowercased().replacingOccurrences(of:"’",with:"'")
                 // Untitled AppKit documents label discard as Delete on some
                 // macOS versions. This is only the synthetic recovered document.
                 return cancel ? title=="cancel":["don't save","delete","discard","discard changes"].contains(title)
             }
         }
-        try await NativeApplicationProof.wait("real dirty-document close choice",seconds:8){choice() != nil || decision.result != nil}
+        do{
+            try await NativeApplicationProof.wait("real dirty-document close choice",seconds:8){choice() != nil || decision.result != nil}
+        }catch{
+            // Diagnose the actual synthetic dialog rather than guessing more
+            // localized button names or weakening the close assertion.
+            mark("close-state edited=\(document.isDocumentEdited) parent=\(document.windowForSheet?.windowNumber ?? -1) callback=\(String(describing:decision.result))")
+            func describe(_ view:NSView?,depth:Int=0){
+                guard let view,depth<20 else{return}
+                if let button=view as? NSButton{mark("close-button \(button.title.debugDescription) key=\(button.keyEquivalent.debugDescription) enabled=\(button.isEnabled) hidden=\(button.isHidden)")}
+                else if let text=view as? NSTextField{mark("close-text \(text.stringValue.debugDescription)")}
+                for child in view.subviews{describe(child,depth:depth+1)}
+            }
+            for window in NSApp.windows{
+                mark("close-window \(window.windowNumber) \(String(describing:type(of:window))) title=\(window.title.debugDescription) parent=\(window.sheetParent?.windowNumber ?? -1) visible=\(window.isVisible)")
+                // Only a sheet's synthetic prompt belongs in this diagnostic;
+                // never serialize the editor, original paths or document data.
+                if window.sheetParent != nil || window === NSApp.modalWindow{describe(window.contentView?.superview ?? window.contentView)}
+            }
+            throw error
+        }
         guard let chosen=choice() else{throw NativeFailure.message("The real close sheet did not expose the requested save decision (callback: \(String(describing:decision.result))).")}
         mark("close-choice-"+chosen.title)
         chosen.performClick(nil)
