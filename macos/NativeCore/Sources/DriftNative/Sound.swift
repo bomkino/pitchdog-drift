@@ -156,7 +156,10 @@ public final class SoundTrack:Sendable {
         guard playing,token==queueToken,let player,let format=AVAudioFormat(standardFormatWithSampleRate:48000,channels:2),let buffer=AVAudioPCMBuffer(pcmFormat:format,frameCapacity:2048) else{return}
         let values=track.samples(start:nextSample,count:2048);nextSample+=2048;buffer.frameLength=2048
         for i in 0..<2048{buffer.floatChannelData![0][i]=values[i*2];buffer.floatChannelData![1][i]=values[i*2+1]}
-        player.scheduleBuffer(buffer,completionCallbackType:.dataConsumed){[weak self] _ in
+        // Older AVFoundation SDKs do not annotate this escaping callback as
+        // Sendable. Explicitly prevent inherited MainActor isolation: the audio
+        // node calls it on its own queue, then we enqueue on the main actor.
+        player.scheduleBuffer(buffer,completionCallbackType:.dataConsumed){@Sendable [weak self] _ in
             Task{@MainActor in self?.enqueue(track:track,token:token)}
         }
     }

@@ -39,13 +39,15 @@ final class NativeBoundaryTests:XCTestCase {
         let wrong=workspace.root.appendingPathComponent("Pretend.webp");try Data(repeating:1,count:1024).write(to:wrong)
         XCTAssertThrowsError(try MediaInspector.stage(wrong,in:workspace,cancel:MediaCancellation()))
     }
-    @MainActor func testImportedSlidesHonorAuthoredCoverAndContainDefaults()throws{
+    @MainActor func testImportedSlidesHonorAuthoredCoverAndContainDefaults()async throws{
         for (setting,expected) in [("cover",Fit.fill),("contain",Fit.fit)]{
-            let work=try MediaWorkspace(),source=try Self.image(work),original=try MediaInspector.stage(source,in:work,cancel:MediaCancellation())
+            let work=try MediaWorkspace(),source=try Self.image(work)
             var project=try DriftProject(creative:CreativeCatalog.load().defaults);project.creative.card.defaultFit=setting
             let session=try EditorSession(project:project,workspace:MediaWorkspace(),saved:true)
-            session.pendingBatch=StagedBatch(workspace:work,originals:[original],failures:[],ticket:session.ticket(),replacementID:nil,expectedFingerprint:nil)
-            session.acceptBatch()
+            session.importURLs([source],ticket:session.ticket())
+            let deadline=ProcessInfo.processInfo.systemUptime+10
+            while session.importing && ProcessInfo.processInfo.systemUptime<deadline{try await Task.sleep(nanoseconds:20_000_000)}
+            XCTAssertFalse(session.importing);XCTAssertNil(session.pendingBatch)
             XCTAssertNil(session.issue);XCTAssertEqual(session.project.slides.first?.fit,expected)
             session.undo();XCTAssertTrue(session.project.slides.isEmpty)
         }
