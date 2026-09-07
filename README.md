@@ -1,61 +1,42 @@
 # Drift
 
-Drift is a local-first Mac directing instrument: turn pitch-deck images and video clips into authored moving-image sequences.
-
-**Mac only.** The maintained product is an Apple-Silicon-only `arm64` application. Intel Macs and Windows are unsupported; Linux and browser builds are not products. Browser tooling remains an internal renderer/test harness during the native migration.
+Drift turns pitch-deck images and silent video clips into authored moving-image sequences. It runs locally on Apple silicon Macs using AppKit, SwiftUI and Metal. The deployment floor is macOS 13.3.
 
 ## Install
 
-Download **Drift-0.3.0-macOS-arm64.dmg** from [Releases](https://github.com/bomkino/pitchdog-drift/releases/latest), drag Drift to Applications, and open it. This release is **ad-hoc signed and unnotarized**. When macOS blocks the first launch, use System Settings → Privacy & Security → Open Anyway after verifying the download source. Never disable system-wide Gatekeeper. Keep your previous app and a copy of your projects before upgrading.
+Use the [native release](https://github.com/bomkino/pitchdog-drift/releases/latest) only when it contains `Drift-0.4.0-macOS-arm64.dmg`, its `.sha256`, `MacReleaseReceipt.json`, and `Install-Drift.command`. Older source-only releases are not native installers. The receipt identifies the tested source, build, signing status and exact download bytes.
 
-`0.3.0` adds video slides, looping, source trim and speed, a source filmstrip/audition, media-aware undo, transactional project replacement, native Save-on-close, exact frame timecode, and one direct export form. Original files remain embedded in portable `.pitched` projects.
+Download `Install-Drift.command` from that release and run it with `bash` in Terminal. It downloads and verifies the matching installer before requesting normal Quit, respects cancelled Quit, stages the replacement on the destination volume, and retains the previous app for rollback. Use `--destination "$HOME/Applications"` for an existing writable user Applications folder. Do not use sudo. Projects and originals are preserved.
 
-The application still uses an AppKit window and native file/audio infrastructure around a WKWebView editor and Three.js renderer. It is **not yet** the planned NSDocument/Metal application. [Status](docs/STATUS.md) records the remaining boundaries. A source tag is not proof of a downloadable or validated Mac binary; use the matching release asset and its build receipt.
+Default builds are **ad-hoc signed and unnotarized**. For a verified trusted download blocked by macOS, use System Settings → Privacy & Security → Open Anyway. Do not disable Gatekeeper or strip quarantine. Developer ID and notarization have a separate required verification lane.
 
 ## Direct a sequence
 
-Add images or silent video slides. Arrange the deck, select a look, direct motion and timing, and export MP4, a PNG still, or numbered PNG frames. Optional presenter video retains its separate audio/timing and protected composition controls.
+Add media, arrange slides, choose a World and its pressure, then adjust Look, Motion or the selected Slide. Eight authored Worlds retain 72 variants, recorded sound, motion recipes and optical treatments. The new-document canvas is **2576 × 1080**; changing World or using Recut never changes those dimensions.
 
-Video slides loop by default. Turn **Loop video** off to hold the final frame instead. Their clock begins at master time zero; repeated cards referencing the same clip share that source clock. Source loops and whole-sequence seamless loops are separate. A source cut is not blended automatically, and a whole-master loop is only seamless when its authored timing and all media close together. Video slides are silent; their original audio bytes remain in the project but do not enter the mix. Use the presenter slot for voice. Pinning a moving video slide is not available in this release; image pins and the separate presenter are retained.
+Pin, Spotlight and Closing are independent assignments. Moving media can occupy each role. Source clips loop independently of deck repeats. A finite presentation has one Closing after all passes; Loop keeps the assignment but disables its use. Video-slide audio stays silent. Optional Drift sound uses the retained recorded palette.
 
-The file-backed native AAC backend accepts audio-bearing masters up to 300 seconds at 24, 25, or 30 fps. The 50/60 fps paths remain silent-only. The native encoder probe is required before accepting this increased duration boundary; it does not replace long-form mixed-output testing. Existing project limits remain 64 MiB per original, 80 MiB total originals, and a 96 MiB portable archive. A moving deck admits up to eight video sources with a combined decoded-frame budget of 33,177,600 pixels. These are conservative implementation limits, not measured physical-Mac performance guarantees.
+Export MP4, a PNG still or numbered PNG frames. PNG supports transparency; MP4 requires an explicit opaque result. Preview and export evaluate the same native frame plan.
 
-## Build and validate
+The interface follows macOS **Light, Dark or Auto** appearance. Artwork keeps its own colors. Native `.pitched` documents use a new ZIP64 format with unchanged original media; older web/hybrid projects are not migrated.
 
-On an Apple-silicon Mac with Xcode Command Line Tools and Node.js 22:
+## Build and verify
+
+Use an Apple silicon Mac with **full Xcode**, its selected developer directory, Node.js 22+, CMake, glslang, spirv-cross, FFmpeg and XcodeGen. These are build/test tools, not installed-app dependencies. Command Line Tools alone may lack Metal, XCTest or SwiftUI macro plugins.
 
 ```sh
 npm ci
+npm run check
+npm run test:mac
+python3 scripts/generate-native-fixtures.py
 npm run build:mac
-npm run verify:mac
+DRIFT_SOURCE_REVISION="$(git rev-parse HEAD)" bash scripts/package-native-app.sh
+npm run test:mac:app
 npm run package:mac
 ```
 
-The deployment floor remains macOS 13.3; the actual operating system tested by a particular build is recorded separately. Ad-hoc signed test DMGs are not notarized and are not represented as Gatekeeper-ready distribution. Developer ID distribution retains its separate signing and notarization gate.
+Packaging requires a clean committed checkout and the exact app's successful external UI-test receipt. It never rebuilds or re-signs the tested bundle. Required CI `verify` includes source contracts, full native integration, the real application journey and mounted installer verification.
 
-```sh
-npm run typecheck
-npm test
-npm run check:mac-source
-CI=1 npx playwright test e2e/video-slides.e2e.ts --project=production
-```
+See the [user guide](docs/MACOS_USER_GUIDE.md), [architecture](docs/ARCHITECTURE.md), [release procedure](docs/MACOS_RELEASE.md), [current state](docs/STATUS.md), and [changelog](CHANGELOG.md). Historical browser/hybrid sources remain reference and build-time creative inputs; they are not shipped runtimes or supported products.
 
-The last command is a browser engine regression check, not a packaged-app test. Its fixture is generated with FFmpeg; public CI uses synthetic material only.
-
-## Documentation
-
-- [Mac user guide](docs/MACOS_USER_GUIDE.md): editing, saving, video loops, and outputs.
-- [Architecture](docs/ARCHITECTURE.md): current ownership and native migration boundary.
-- [Status](docs/STATUS.md): the single current implementation/validation record.
-- [Mac packaging and release](docs/MACOS_RELEASE.md): signing and distribution.
-- [Changelog](CHANGELOG.md): versioned changes.
-
-Dated QA, programme, and V2 documents describe their own snapshots; they do not certify this version. Historical Linux tooling remains in the repository for provenance, outside active product support.
-
-## Authorship and licensing
-
-Copyright pitch.dog. Source is AGPL-3.0-or-later; see [LICENSE](LICENSE), [NOTICE](NOTICE), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and [ASSET-LICENSE.md](ASSET-LICENSE.md). Keep attribution and bundled dependency licence texts with distributions. FontBlind v13 and Phosphor icon credits remain in the legal inventory.
-
-## Local-first security boundary
-
-The signed network-client entitlement remains app-wide because of the packaged WebKit topology. WebKit outbound policy is blocked; remote downloads never receive destination authority. This is not containment against arbitrary WebKit or macOS compromise. Default diagnostics use text-only Actions evidence suitable for a public repository. Synthetic test-media artifacts are explicitly separate; never publish client material.
+Copyright pitch.dog. Source is AGPL-3.0-or-later. Keep [LICENSE](LICENSE), [NOTICE](NOTICE), [third-party notices](THIRD_PARTY_NOTICES.md), [asset licenses](ASSET-LICENSE.md), exact native dependency notices and recorded-sound provenance with distributions. No account, analytics, runtime downloads or cloud service is required.

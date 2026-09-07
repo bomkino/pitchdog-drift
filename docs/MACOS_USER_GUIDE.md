@@ -1,60 +1,45 @@
 # Drift for macOS — user guide
 
-Drift turns images and video slides into directed sequences. This guide describes the `0.3.0` Mac application. The interface is still hybrid; no account, cloud project, or browser product is required.
+The native app requires Apple silicon and macOS 13.3 or later. It follows macOS Light/Dark appearance automatically, including Auto changes. Canvas artwork and exported pixels keep their authored colors.
 
-## Install and open
+## Start and arrange
 
-Download **Drift-0.3.0-macOS-arm64.dmg** from the matching GitHub release. Drag `Drift.app` to Applications and open it. When macOS blocks an unnotarized app you trust, open System Settings → Privacy & Security → Open Anyway after the first launch attempt. Ad-hoc test downloads are unnotarized; they are not represented as Gatekeeper-ready. Do not disable system-wide security to install Drift. Keep the previous application and a copy of your `.pitched` files before upgrading.
+Choose **File → New**. The default canvas is **2576 × 1080**. Click the dimensions in the toolbar for exact dimensions or a ratio; `25.76:10.80` represents `322:135`. A World or Recut changes creative decisions, never canvas dimensions.
 
-The source’s deployment floor is macOS 13.3. Refer to the artifact’s receipt for the actual macOS version tested. Intel Macs, Windows, and Linux are outside this product.
+Use **Add media** or **File → Add Media…** to import images, static or animated WebP, opaque VP8/VP9 WebM, or supported native movie files. Original media is copied without transcoding. Unsupported or corrupt files produce a visible decision; a partial batch does not silently replace the deck. Use search and the media sidebar to select, duplicate, remove or reorder slides. Undo/Redo preserves media identities.
 
-## Add and arrange media
+## Direct
 
-Use Add slides or the File menu to select PNG, JPEG, WebP, AVIF, MP4, MOV, or WebM files. Codec support depends on the installed Mac runtime, not just the extension. Imported originals remain unchanged. Select a tile to adjust its fit and crop; reorder or remove it from Media. Undo/Redo includes media edits and original bytes.
+The inspector has **Look**, **Motion** and **Slide** tabs. Look offers the authored Worlds, pressure, arrangement, Recut and detailed materials, lighting, background, optics and sound. Keep selected creative groups when changing World. **Audition Look changes** previews a temporary choice; apply or cancel it before saving.
 
-A video slide starts at master time zero. **Loop video** repeats the selected source range; off holds its last frame. Source start/end trim and playback speed remain in the project. **Reset trim** restores the whole source without changing its speed. **Preview source clip** opens an on-demand filmstrip and silent audition; playing it pauses the master preview. Repeated cards share the same clip clock. Turning a clip into a seamless loop may still require an authored source edit; Drift does not manufacture a dissolve across its cut.
+Motion controls the path, cadence, entry/exit and finite repeats or Loop. Slide controls inclusion, layout and its source playback. Source trim, speed, loop and audition are independent of the presentation clock. With source looping disabled, playback holds the exact final interval. Video-slide audio is silent; stored originals retain their bytes.
 
-Video slides are silent. Their embedded source audio is preserved in the portable original, but is not mixed. Use the separate presenter video slot for voice. Moving video slides cannot themselves be pinned in this release. Images can be pinned, and the dedicated presenter retains protected/in-scene placement, layer order, fit, borders, shadows, and timing.
+**Pin** is a protected persistent card, including moving media. **Spotlight** inserts a timed feature and returns to the sequence. **Closing** appears once after all finite passes. These are separate assignments: a Pin can also appear in sequence, or be Pin-only. Loop temporarily disables Closing without forgetting it. A Closing-only document remains renderable.
 
-This build admits up to eight video slides and 33,177,600 combined decoded source pixels. Originals remain limited to 64 MiB per file and 80 MiB total. Very large or unsupported files produce an actionable error instead of silently recompressing the original.
+## Preview and appearance
 
-## Direct and preview
+Use Play/Pause, frame stepping, cue navigation, the timeline slider or the exact-frame field. Fit/zoom changes the workspace view, not output dimensions. Changing Light/Dark appearance changes native chrome, not the project or image treatment. Preview quality affects displayed resolution; export uses the requested canvas.
 
-Slides controls framing. Look controls worlds, backgrounds, surfaces, and optics. Motion controls paths, readable holds, cadence, tempo, transitions, and repeats. The stage stays dominant; explanatory and advanced material is expandable.
+## Save and recover
 
-Use Space for playback, arrow controls for output-frame steps, and the timeline for scrubbing. The clock reads minutes:seconds:frames at the selected output frame rate. Preview Reduce Motion does not silently change the authored export. A/B previews an earlier direction without saving it; it is unavailable for comparisons that change the media set.
+Use **File → Save** or **Command–S**. Use **File → Save As…** for another named copy. Open through **File → Open…**, Open Recent or **Command–O**. The native `.pitched` ZIP64 archive includes project settings and unchanged original media. This is a new format: legacy web/hybrid `.pitched` files are rejected rather than guessed or migrated.
 
-Presenter source trim is separate from mute. Its story start/end place the source in the sequence; muting does not alter its video timing.
+A save captures one immutable document state. Later edits remain dirty. Undoing to the saved state makes it clean. Save As preserves the old file. Revert to Saved is a deliberate replacement of edits with the saved content. Cancel Close or Cancel Quit keeps the document open.
 
-## Save, open, and recovery
-
-Use **File → Save Project** or **Command–S** to save the current document. Use **File → Save Project As…** to preserve another named copy. A successful native Save includes staged writing and readback verification. Edits made while saving remain dirty unless the exact saved content is restored by Undo.
-
-Open it through **File → Open Project…**, Finder, or Open With Drift. A candidate project is verified and staged beside the current project. The current recovery project stays intact until an atomic replacement commits all its media and manifest together. Failed native acceptance restores the prior file binding; failed cleanup is shown as recovery, not as saved work.
-
-Local recovery and the named `.pitched` file are different. The local copy protects completed autosaves; it does not mean the named file contains the latest edits. On close/quit, Save must succeed before Drift closes. Cancel keeps the document open. Don’t Save leaves the named file unchanged; a completed local recovery copy may remain. An unfinished import/export has its own operation warning.
-
-New video-slide projects require this app version or later. Older image-only V4/legacy projects retain compatibility. Before downgrading, retain an untouched project copy. Never resave a video-slide project in an older version that does not understand it.
+Private recovery snapshots do not overwrite named projects. Recovered work opens as dirty and untitled, requiring a new Save decision. Keep source media and backups until important deliverables have been verified.
 
 ## Export
 
-Open Export, choose MP4 or PNG sequence, then **Export…** and a destination. There is one export form; no step-by-step wizard. Use **Export PNG still** for a single frame. More export options changes the background and frame destination without mutating the project; Output details is an optional diagnostic summary.
+Click **Export…** to choose MP4, PNG still or PNG sequence, exact canvas, frame rate and range. PNG can retain alpha. MP4 cannot: choose an opaque background explicitly. A sequence writes its selected frame range into a destination directory; it does not overwrite unrelated files. Optional Drift sound is mixed from the bundled recorded palette. Source-video audio is not included.
 
-MP4 is opaque H.264. Transparent output uses PNG. PNG frames contain no audio; when the project includes audio, explicitly acknowledge the silent frame sequence. Invalid media, unsupported output, or unsafe destination replacement blocks export. Creative/reading-time recommendations are advisory.
+Export owns the captured document snapshot. Switching or editing another document does not redirect its output or completion receipt. Cancel preserves an existing destination. A completed export has passed decoded output checks; still review the visible result before delivering it.
 
-Native AAC accepts up to 300 seconds at 24/25/30 fps; 50/60 fps remains silent-only. This limit is backed by a native encoder test, not a claim that every five-minute mixed-media composition has been tested. Presenter audio is never dropped silently.
+## Install and update
 
-Cancel before final commit preserves the previous destination and removes only Drift-owned temporary output. Once atomic publication begins, the committed result is final. File → Reveal Last Saved File in Finder reveals the most recent committed file. A complete frame sequence contains numbered frames; failed cleanup is reported rather than hidden.
+Use `Install-Drift.command` from the verified native GitHub release. Run it with `bash` in Terminal; optional `--destination "$HOME/Applications"` selects an existing writable folder. It verifies the receipt, source, signature and DMG checksum before requesting Quit. A cancelled Quit aborts replacement. Your previous app remains in the printed rollback folder on the same volume. Projects and recovery files are untouched.
 
-## Shortcuts
+An interrupted installer preserves both apps and its recovery marker. If it reports an installation lock, inspect the named folder and confirm no installer is still running before retrying. Do not delete the previous app to resolve an error. No sudo or security-setting bypass is required by the script.
 
-- **Command–O:** Open `.pitched` project
-- **Command–S:** Save project
-- **Command–Shift–S:** Save Project As
-- **Command–Z / Command–Shift–Z:** Undo / Redo
-- **Space:** Play / pause outside text fields
-- **Left / Right:** Output-frame step with timeline focus
+Ad-hoc releases are unnotarized. For a trusted, verified download blocked at launch, use System Settings → Privacy & Security → Open Anyway. Never disable Gatekeeper. Read `MacReleaseReceipt.json` for the actual signing and tested-host status.
 
-## Known validation boundaries
-
-Physical M2 mini 8 GB and M1 Pro laptop testing, sleep/wake, external displays, actual process-crash recovery, colour-managed visual comparisons, and installation rollback remain separate from source/build tests. Keep original project copies. Report the app version, build number, source revision, operation, and error; do not upload private client decks to public issues or CI.
+Keyboard: **Command–N** New; **Command–O** Open; **Command–I** Add Media; **Command–S** Save; **Shift–Command–S** Save As; **Command–Z** Undo; **Shift–Command–Z** Redo; **Command–W** Close; **Command–Q** Quit. Text fields retain normal editing commands.

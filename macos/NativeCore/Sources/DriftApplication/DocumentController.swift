@@ -6,7 +6,7 @@ import DriftNative
 /// documents must nevertheless be initialized on the main actor. Split these
 /// boundaries rather than forcing an entire archive read onto the UI thread.
 @MainActor final class DriftDocumentController:NSDocumentController {
-    nonisolated override func typeForContents(of url:URL)throws->String{
+    override func typeForContents(of url:URL)throws->String{
         // Older Drift installations also register .pitched. Resolve our own
         // extension locally; ProjectIO still validates the native archive/schema
         // before accepting anything, including a legacy or corrupt document.

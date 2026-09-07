@@ -1,3 +1,5 @@
+> Historical browser/hybrid reference. For current native Drift use [architecture](ARCHITECTURE.md), [product contract](PRODUCT_CONTRACT.md), [release procedure](MACOS_RELEASE.md) and [status](STATUS.md).
+
 > Historical planning/snapshot material. The current Mac-only product and validation boundary is [docs/STATUS.md](STATUS.md). Do not use older completion tables as proof for 0.3.0.
 
 # Drift repository map

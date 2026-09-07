@@ -6,12 +6,12 @@ import DriftCore
 @testable import DriftNative
 
 final class NativeBoundaryTests:XCTestCase {
-    func image(_ workspace:MediaWorkspace)throws->URL{
+    static func image(_ workspace:MediaWorkspace)throws->URL{
         let file=workspace.root.appendingPathComponent("Synthetic.png")
         let bytes=try XCTUnwrap(Data(base64Encoded:"iVBORw0KGgoAAAANSUhEUgAAAUAAAAC0CAYAAADl5PURAAACxklEQVR42u3UQQ0AMAwDsUAcpDLPYFSV/DCEuzQZ2JLXwhoRYoAYIBggBggGiAGCAWKAYIAYIBggBggGiAGCAWKAYIAYIBggBggGiAGCAWKAYIAYIBggBogBihADxADBADFAMEAMEAwQAwQDxADBADFAMEAMEAwQAwQDxADBADFAMEAMEAwQAwQDxADBADFADFCIGCAGCAaIAYIBYoBggBggGCAGCAaIAYIBYoBggBggGCAGCAaIAYIBYoBggBggGCAGCAaIAWKAYIAYIBggBggGiAGCAWKAYIAYIBggBggGiAGCAWKAYIAYIBggBggGiAGCAWKAYIAYIBggBogBggFigGCAGCAYIAYIBogBggFigGCAGCAYIAYIBogBggFigGCAGCAYIAYIBogBggFigGCAGCAGCAaIAYIBYoBggBggGCAGCAaIAYIBYoBggBggGCAGCAaIAYIBYoBggBggGCAGCAaIAYIIMUAMEAwQAwQDxADBADFAMEAMEAwQAwQDxADBADFAMEAMEAwQAwQDxADBADFAMEAMEAwQA8QARYgBYoBggBggGCAGCAaIAYIBYoBggBggGCAGCAaIAYIBYoBggBggGCAGCAaIAYIBYoBggBggBihEDBADBAPEAMEAMUAwQAwQDBADBAPEAMEAMUAwQAwQDBADBAPEAMEAMUAwQAwQDBADBAPEADFAMEAMEAwQAwQDxADBADFAMEAMEAwQAwQDxADBADFAMEAMEAwQAwQDxADBADFAMEAMEAwQA8QAwQAxQDBADBAMEAMEA8QAwQAxQDBADBAMEAMEA8QAwQAxQDBADBAMEAMEA8QAwQAxQDBADBADBAPEAMEAMUAwQAwQDBADBAPEAMEAMUAwQAwQDBADBAPEAMEAMUAwQAwQDBADBAPEAEGEGCAGCAaIAYIBYoBggBggGCAGCAaIAYIBct8HN1KvhjORLf8AAAAASUVORK5CYII="));try bytes.write(to:file);return file
     }
     func testNativeOriginalProjectRoundTripAndIndependentCopies()throws{
-        let workspace=try MediaWorkspace(),source=try image(workspace),original=try MediaInspector.stage(source,in:workspace,cancel:MediaCancellation())
+        let workspace=try MediaWorkspace(),source=try Self.image(workspace),original=try MediaInspector.stage(source,in:workspace,cancel:MediaCancellation())
         var project=try DriftProject(creative:CreativeCatalog.load().defaults);project.assets[original.id]=original;project.slides=[Slide(assetID:original.id)]
         project.pin=Pin(slideID:project.slides[0].id);project.closing=Closing(slideID:project.slides[0].id)
         let snapshot=try RenderSnapshot(project:project,workspace:workspace),file=workspace.root.appendingPathComponent("Synthetic.pitched")
@@ -23,7 +23,7 @@ final class NativeBoundaryTests:XCTestCase {
         XCTAssertThrowsError(try ProjectIO.read(corrupt));XCTAssertEqual(try ProjectIO.read(file).0,project)
     }
     func testCancellationAndChangedDestinationNeverReplaceAcceptedBytes()throws{
-        let workspace=try MediaWorkspace(),source=try image(workspace),cancel=MediaCancellation();cancel.cancel()
+        let workspace=try MediaWorkspace(),source=try Self.image(workspace),cancel=MediaCancellation();cancel.cancel()
         XCTAssertThrowsError(try MediaInspector.stage(source,in:workspace,cancel:cancel))
         let destination=workspace.root.appendingPathComponent("Existing.png"),staged=workspace.root.appendingPathComponent("Stage.png")
         try Data("old".utf8).write(to:destination);let permission=try SafeDestination(destination)
@@ -32,7 +32,7 @@ final class NativeBoundaryTests:XCTestCase {
         let valid=try SafeDestination(destination);try valid.publish(staged);XCTAssertEqual(try String(contentsOf:destination,encoding:.utf8),"new")
     }
     func testGenericFileNamesAreClassifiedByContent()throws{
-        let workspace=try MediaWorkspace(),source=try image(workspace),unknown=workspace.root.appendingPathComponent("No extension")
+        let workspace=try MediaWorkspace(),source=try Self.image(workspace),unknown=workspace.root.appendingPathComponent("No extension")
         try FileManager.default.copyItem(at:source,to:unknown)
         let original=try MediaInspector.stage(unknown,in:workspace,cancel:MediaCancellation())
         XCTAssertEqual(original.subtype,"png");XCTAssertEqual(original.width,320);XCTAssertEqual(original.height,180)

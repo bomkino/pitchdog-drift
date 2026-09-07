@@ -1,5 +1,15 @@
 # Third-party notices
 
+## Current native application
+
+Native Drift 0.4.0 ships project-authored Swift/C/Metal code and these pinned static libraries: libwebp (including libsharpyuv) `4fa21912338357f89e4fd51cf2368325b59e9bd9`, libwebm `f2a982d748b80586ae53b89a2e6ebbc305848b8c`, libvpx `6df3ec34557879fff673706f4a1d9fbd0f3a6f0e`, and libarchive `27cbc7827172698143e440801fc0ba39ccb4f1f5`. Exact upstream LICENSE/COPYING, AUTHORS/PATENTS where provided, and SOURCE_SHA.txt are copied into `Contents/Resources/ThirdPartyNotices/`. The source/build scripts point to the corresponding immutable upstream commits.
+
+The native app uses system controls/fonts and Apple frameworks. It contains no JavaScript, WebAssembly, browser engine, bundled FFmpeg, Node.js or Homebrew runtime. Authored catalogs/shaders are translated at build time. The recorded Kenney sound files retain their unchanged bytes, CC0 license texts and original source manifest inside `Contents/Resources/Sound/`. Project LICENSE, NOTICE, ASSET-LICENSE.md, this inventory and TRADEMARKS.md are included in Resources.
+
+The sections below preserve source/reference and historical hybrid dependency context. Their browser/Mediabunny/font-runtime statements do not describe the native 0.4.0 bundle. Inspect the exact native artifact and its receipt when distributing it.
+
+## Historical source and hybrid inventory
+
 Drift’s source licence does not replace dependency licences. Exact JavaScript versions and transitive packages are locked in `package-lock.json`. A compiled artifact must also be evaluated against the code it actually contains; the browser bundle and standalone Mac bundle deliberately differ in their AAC implementation.
 
 ## Source dependencies

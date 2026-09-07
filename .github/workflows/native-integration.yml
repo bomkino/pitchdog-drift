@@ -1,10 +1,6 @@
 name: Native application integration
 on:
-  push:
-    branches: [codex/drift-native-completion, main]
-    paths: [macos/NativeCore/**, scripts/build-native-codecs.sh, scripts/build-native-archive.sh, scripts/generate-native-catalog.mjs, .github/workflows/native-integration.yml]
-  pull_request:
-    paths: [macos/NativeCore/**, scripts/build-native-codecs.sh, scripts/build-native-archive.sh, scripts/generate-native-catalog.mjs, .github/workflows/native-integration.yml]
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
@@ -28,6 +24,7 @@ jobs:
       - name: Native document and media integration
         env:
           DRIFT_TIMING_DIAGNOSTICS: "1"
+          DRIFT_LARGE_PROJECT: "1"
         run: |
           set -euo pipefail
           mkdir -p build/native-integration

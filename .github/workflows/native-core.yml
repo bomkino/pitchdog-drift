@@ -1,13 +1,7 @@
 name: Native directing core
 
 on:
-  push:
-    branches: [codex/drift-native-completion, main]
-    paths: [macos/NativeCore/**, scripts/generate-native-catalog.mjs, src/core/**, src/backgrounds.ts, package.json, package-lock.json, .github/workflows/native-core.yml]
-  pull_request:
-    paths: [macos/NativeCore/**, scripts/generate-native-catalog.mjs, src/core/**, src/backgrounds.ts, package.json, package-lock.json, .github/workflows/native-core.yml]
   workflow_dispatch:
-
 permissions:
   contents: read
 

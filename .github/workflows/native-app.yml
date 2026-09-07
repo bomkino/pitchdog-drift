@@ -1,10 +1,6 @@
 name: Native Drift application
 on:
-  push:
-    branches: [codex/drift-native-completion, main]
-    paths: [macos/NativeCore/**, macos/AcceptanceUI/**, scripts/run-native-ui-proof.py, scripts/build-native-*.sh, scripts/package-native-app.sh, scripts/run-native-proof.py, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
-  pull_request:
-    paths: [macos/NativeCore/**, macos/AcceptanceUI/**, scripts/run-native-ui-proof.py, scripts/build-native-*.sh, scripts/package-native-app.sh, scripts/run-native-proof.py, scripts/generate-native-*, src/core/**, src/backgrounds.ts, src/engine/shaders.ts, src/engine/lensShader.ts, src/sonic/**, .github/workflows/native-app.yml]
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,6 +18,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Exercise safe installer and immutable publisher boundaries
+        run: python3 scripts/test-native-release.py
       - name: Install build-only tools
         run: brew install glslang spirv-cross ffmpeg-full xcodegen
       - name: Generate synthetic originals
@@ -44,6 +42,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/run-native-ui-proof.py build/native-roundtrip/Drift.app 2>&1 | tee build/native-app-evidence/runtime.txt
+      - name: Freeze and mount-check the tested native DMG
+        run: bash scripts/package-macos-dmg.sh
       - name: Collect synthetic evidence
         if: always()
         run: |
@@ -65,4 +65,10 @@ jobs:
             build/native/Drift-native-arm64.zip.sha256
             build/native/NativeArchiveReceipt.json
           retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: drift-native-installer-${{ github.sha }}
+          path: build/native-release/
+          retention-days: 30
           if-no-files-found: error
