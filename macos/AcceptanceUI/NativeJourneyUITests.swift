@@ -41,8 +41,9 @@ final class NativeJourneyUITests:XCTestCase {
                 XCTAssertTrue(sheet.waitForExistence(timeout:15),"The real \(title) sheet must exist.")
                 // The captured macOS accessibility hierarchy exposes the action
                 // as an identifier; its visible text is a title, not a label.
-                // Use the observed action IDs instead of guessing translated text.
-                let identifier=choice=="cancel" ? "CancelButton":"DontSaveButton"
+                // Untitled recovery uses NSSavePanel; the named dirty document uses
+                // NSAlert. Both identifiers are from captured accessibility trees.
+                let identifier=choice=="cancel" ? "action-button-3":"DontSaveButton"
                 let control=sheet.buttons[identifier]
                 XCTAssertTrue(control.waitForExistence(timeout:15),"No real \(choice) button: \(sheet.debugDescription)")
                 XCTAssertTrue(control.isEnabled)
