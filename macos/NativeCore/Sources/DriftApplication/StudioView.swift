@@ -16,6 +16,7 @@ struct StudioView:View {
     @State private var showInspector=true
     @State private var search=""
     @State private var scope="Look"
+    @State private var lookPlayback:(Int64,Bool,UInt64)?
     @ObservedObject private var exports=ExportCenter.shared
     var body:some View {
         VStack(spacing:0){
@@ -30,9 +31,20 @@ struct StudioView:View {
                     ForEach([0.25,0.5,1.0,2.0],id:\.self){value in Button("\(Int(value*100))%"){transport.zoom=value}}
                 }label:{Text(transport.zoom==0 ? "Fit":"\(Int(transport.zoom*100))%")}.frame(width:70)
                 Button{showInspector.toggle()}label:{Image(systemName:"sidebar.right")}.help("Show inspector")
-                Button("Export…"){transport.pause();exportSheet=true}.keyboardShortcut("e",modifiers:[.command,.shift]).disabled(exports.busy || session.project.includedSlides.isEmpty)
+                Button("Export…"){transport.pause();exportSheet=true}.keyboardShortcut("e",modifiers:[.command,.shift]).disabled(exports.busy || session.project.includedSlides.isEmpty || session.lookAudition != nil)
             }.controlSize(.large).padding(.horizontal,18).padding(.vertical,12)
             Divider()
+            if let audition=session.lookAudition{
+                HStack(spacing:12){
+                    Text("LOOK AUDITION · \(audition.name)").font(.caption.weight(.semibold))
+                    Text("Not saved").foregroundStyle(.secondary)
+                    Spacer()
+                    Toggle("Original",isOn:Binding(get:{session.lookAudition?.showOriginal ?? false},set:{session.compareLookOriginal($0)})).toggleStyle(.switch)
+                    Button("Cancel"){session.cancelLookAudition()}
+                    Button("Apply Look"){session.acceptLookAudition()}
+                }.padding(.horizontal,18).padding(.vertical,10)
+                Divider()
+            }
             HSplitView{
                 library.frame(minWidth:200,idealWidth:240,maxWidth:320)
                 VStack(spacing:0){
@@ -57,6 +69,14 @@ struct StudioView:View {
                 Divider();HStack(alignment:.top){Image(systemName:"exclamationmark.triangle");Text(issue).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading);Button("Dismiss"){session.issue=nil}}.padding(12).foregroundStyle(.red)
             }
         }.background(Color(nsColor:.windowBackgroundColor)).font(.system(size:13))
+        .onChange(of:session.lookAudition?.id){id in
+            if id != nil,lookPlayback==nil{
+                lookPlayback=(transport.frame,transport.playing,transport.seekEpoch);transport.pause()
+            }else if id==nil,let saved=lookPlayback{
+                lookPlayback=nil
+                if transport.frame==saved.0,transport.seekEpoch==saved.2,saved.1{transport.play()}
+            }
+        }
         .sheet(isPresented:$canvasEditor){CanvasEditor(session:session)}
         .sheet(isPresented:$exportSheet){ExportOptions(session:session,transport:transport,documentName:document.displayName)}
         .sheet(item:$session.pendingBatch){batch in BatchReview(session:session,batch:batch)}
@@ -149,6 +169,7 @@ struct NumberEdit:View {
     @State private var text=""
     @State private var capturedCommit:((Double)->Void)?
     @State private var invalid=false
+    @State private var cancelled=false
     @FocusState private var focus:Bool
     init(_ title:String,value:Double,mixed:Bool=false,integer:Bool=false,commit:@escaping(Double)->Void){self.title=title;self.value=value;self.mixed=mixed;self.integer=integer;self.commit=commit}
     private func formatted()->String{mixed ? "":integer ? String(Int64(value.rounded())):String(format:"%.5f",value).replacingOccurrences(of:"0+$",with:"",options:.regularExpression).replacingOccurrences(of:"\\.$",with:"",options:.regularExpression)}
@@ -156,7 +177,8 @@ struct NumberEdit:View {
         HStack{Text(title).lineLimit(2);Spacer();TextField(mixed ? "Mixed":"",text:$text).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:96).focused($focus).foregroundStyle(invalid ? Color.red:Color.primary).help(invalid ? "Enter a finite number within the supported range.":title).onSubmit(finish)}
         .onAppear{text=formatted()}.onChange(of:value){_ in if !focus{text=formatted()}}
         .onChange(of:mixed){_ in if !focus{text=formatted()}}
-        .onChange(of:focus){value in if value{capturedCommit=commit}else{finish();capturedCommit=nil}}
+        .onChange(of:focus){value in if value{capturedCommit=commit;cancelled=false}else{if !cancelled{finish()};capturedCommit=nil;cancelled=false}}
+        .onExitCommand{cancelled=true;invalid=false;text=formatted();focus=false}
     }
     private func finish(){guard let number=Double(text),number.isFinite,abs(number)<=1_000_000_000 else{invalid=true;return};invalid=false;(capturedCommit ?? commit)(integer ? number.rounded():number)}
 }
@@ -172,7 +194,12 @@ struct JsonField:View {
             Picker(human(field.key),selection:Binding(get:{field.type=="Double" ? String((value as? NSNumber)?.doubleValue ?? 0):String(describing:value ?? "")},set:{text in
                 if field.type=="Double",let number=Double(text){update(number)}else{update(text)}
             })){ForEach(field.options.indices,id:\.self){i in Text(human(field.options[i].text)).tag(field.options[i].text)}}
-        }else if field.type=="Double"{NumberEdit(human(field.key),value:(value as? NSNumber)?.doubleValue ?? 0){update($0)}}
+        }else if field.type=="Double"{
+            let ids=slideIDs,ticket=session.ticket(targets:slideIDs ?? []),keys=path,label=human(field.key)
+            NumberEdit(label,value:(value as? NSNumber)?.doubleValue ?? 0){v in
+                session.changeJSON(label,path:keys,value:v,ticket:ticket,slideIDs:ids)
+            }
+        }
         else if field.type=="String",(value as? String)?.hasPrefix("#")==true{
             HStack{Text(human(field.key));Spacer();ColorPicker("",selection:Binding(get:{Color(hex:value as? String ?? "#000000")},set:{color in if let c=NSColor(color).usingColorSpace(.sRGB){update(String(format:"#%02x%02x%02x",Int((c.redComponent*255).rounded()),Int((c.greenComponent*255).rounded()),Int((c.blueComponent*255).rounded())))}}),supportsOpacity:false).labelsHidden()}
         }
@@ -196,26 +223,31 @@ struct CreativeGroup:View {
 }
 struct LookInspector:View {
     @ObservedObject var session:EditorSession
+    @State private var auditionChanges=false
     private var worlds:[WorldTemplate]{session.catalog.worlds.filter{$0.pressure=="restrained" && $0.scene == -1}}
     private func apply(_ world:String?=nil,_ pressure:String?=nil,_ scene:Int?=nil,_ recut:Int?=nil){
-        let p=session.project,world=world ?? p.worldID,pressure=pressure ?? p.worldPressure,scene=scene ?? p.worldScene
-        if let template=session.catalog.worlds.first(where:{$0.worldID==world && $0.pressure==pressure && $0.scene==scene}){session.change("World"){$0.applyWorld(template,catalog:session.catalog,recut:recut)}}
+        let p=session.lookProject,world=world ?? p.worldID,pressure=pressure ?? p.worldPressure,scene=scene ?? p.worldScene
+        if let template=session.catalog.worlds.first(where:{$0.worldID==world && $0.pressure==pressure && $0.scene==scene}){
+            if auditionChanges{session.auditionLook("World"){$0.applyWorld(template,catalog:session.catalog,recut:recut)}}
+            else{session.change("World"){$0.applyWorld(template,catalog:session.catalog,recut:recut)}}
+        }
     }
     var body:some View{
         Text("LOOK").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-        Picker("World",selection:Binding(get:{session.project.worldID},set:{apply($0)})){ForEach(worlds){world in Text(world.label).tag(world.worldID)}}
-        Picker("Pressure",selection:Binding(get:{session.project.worldPressure},set:{apply(nil,$0)})){Text("Restrained").tag("restrained");Text("Directed").tag("directed");Text("Fever").tag("fever")}
-        Picker("Arrangement",selection:Binding(get:{session.project.worldScene},set:{apply(nil,nil,$0)})){Text("Wide").tag(-1);Text("Portrait I").tag(0);Text("Portrait II").tag(1)}
-        Button("Recut"){apply(nil,nil,nil,session.project.worldRecut+1)}
+        Toggle("Audition Look changes",isOn:$auditionChanges).onChange(of:auditionChanges){on in if !on{session.cancelLookAudition()}}
+        Picker("World",selection:Binding(get:{session.lookProject.worldID},set:{apply($0)})){ForEach(worlds){world in Text(world.label).tag(world.worldID)}}
+        Picker("Pressure",selection:Binding(get:{session.lookProject.worldPressure},set:{apply(nil,$0)})){Text("Restrained").tag("restrained");Text("Directed").tag("directed");Text("Fever").tag("fever")}
+        Picker("Arrangement",selection:Binding(get:{session.lookProject.worldScene},set:{apply(nil,nil,$0)})){Text("Wide").tag(-1);Text("Portrait I").tag(0);Text("Portrait II").tag(1)}
+        Button("Recut"){apply(nil,nil,nil,session.lookProject.worldRecut+1)}
         DisclosureGroup("Keep when changing World"){
             ForEach(["motion","card","material","lighting","atmosphere","lens"],id:\.self){key in Toggle(human(key),isOn:Binding(get:{session.project.lockedDomains.contains(key)},set:{on in session.change("Lock \(key)"){p in p.lockedDomains.removeAll{$0==key};if on{p.lockedDomains.append(key)}}}))}
         }
         Divider()
-        RecipePicker(session:session,category:"material",title:"Material")
-        RecipePicker(session:session,category:"finish",title:"Finish")
-        RecipePicker(session:session,category:"lighting",title:"Lighting")
-        RecipePicker(session:session,category:"lens",title:"Optics")
-        Menu("Background studies") {ForEach(session.catalog.backgrounds){b in Button(b.name){session.change("Background"){$0.applyBackground(b,catalog:session.catalog)}}}}
+        RecipePicker(session:session,category:"material",title:"Material",auditionChanges:auditionChanges)
+        RecipePicker(session:session,category:"finish",title:"Finish",auditionChanges:auditionChanges)
+        RecipePicker(session:session,category:"lighting",title:"Lighting",auditionChanges:auditionChanges)
+        RecipePicker(session:session,category:"lens",title:"Optics",auditionChanges:auditionChanges)
+        Menu("Background studies") {ForEach(session.catalog.backgrounds){b in Button(b.name){if auditionChanges{session.auditionLook(b.name){$0.applyBackground(b,catalog:session.catalog)}}else{session.change("Background"){$0.applyBackground(b,catalog:session.catalog)}}}}}
         Toggle("Transparent canvas",isOn:Binding(get:{session.project.transparent},set:{v in session.change("Canvas transparency"){$0.transparent=v}}))
         ForEach([("Card","card","CardSettings"),("Material","material","MaterialSettings"),("Lighting","lighting","LightingSettings"),("Background","atmosphere","AtmosphereSettings"),("Optics","lens","LensSettings"),("Sound","sound","SoundSettings")],id:\.0){name,key,type in
             DisclosureGroup(name){CreativeGroup(session:session,type:type,path:["creative",key]).padding(.vertical,8)}
@@ -225,7 +257,17 @@ struct LookInspector:View {
 struct RecipePicker:View {
     @ObservedObject var session:EditorSession
     let category:String,title:String
-    var body:some View{Menu(title){ForEach(session.catalog.recipes.filter{$0.category==category}){recipe in Button(recipe.label){session.change(title){$0.applyRecipe(recipe)}}}}}
+    var auditionChanges=false
+    var body:some View{
+        Menu(title){
+            ForEach(session.catalog.recipes.filter{$0.category==category}){recipe in
+                Button(recipe.label){
+                    if auditionChanges{session.auditionLook(recipe.label){$0.applyRecipe(recipe)}}
+                    else{session.change(title){$0.applyRecipe(recipe)}}
+                }
+            }
+        }
+    }
 }
 struct MotionInspector:View {
     @ObservedObject var session:EditorSession
@@ -242,6 +284,7 @@ struct MotionInspector:View {
         if session.project.direction.contentPaced{NumberEdit("Seconds per slide",value:session.project.direction.secondsPerSlide){v in session.change("Reading pace"){$0.direction.secondsPerSlide=v}}}
         else{NumberEdit("Body duration, s",value:Double(session.project.direction.bodyMilliseconds)/1000){v in session.change("Body duration"){$0.direction.bodyMilliseconds=Int64((v*1000).rounded())}}}
         Text(String(format:"Sequence %.3f s · %lld frames",session.snapshot.plan.duration,session.snapshot.plan.schedule.totalFrames)).font(.caption).foregroundStyle(.secondary)
+        Text("Body timing excludes Spotlight and Closing. Their transitions and holds add time; the sequence duration above includes them.").font(.caption).foregroundStyle(.secondary)
         Picker("Playback",selection:Binding(get:{session.project.direction.mode.rawValue},set:{v in session.change("Playback mode"){$0.direction.mode=PlayMode(rawValue:v)!}})){Text("Once").tag("once");Text("Repeat count").tag("repeatCount");Text("Loop").tag("loop")}
         if session.project.direction.mode == .repeatCount{
             NumberEdit("Repeats",value:Double(session.project.direction.repeats),integer:true){v in session.change("Repeats"){$0.direction.repeats=Int(v)}}

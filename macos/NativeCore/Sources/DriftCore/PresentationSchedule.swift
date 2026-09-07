@@ -81,7 +81,7 @@ public struct PresentationSchedule: Sendable {
     public let totalFrames: Int64
     public let cues: [ScheduledCue]
     public init(rate: OutputRate, baseFrameCount: Int64, spotlights: [CueTiming],
-                closing: CueTiming? = nil, loop: Bool = false) throws {
+                closing: CueTiming? = nil, loop: Bool = false, closingOnly:Bool = false) throws {
         guard baseFrameCount >= 1, baseFrameCount <= 10_000_000, spotlights.count <= 512,
               Set(spotlights.map(\.id)).count == spotlights.count,
               spotlights.allSatisfy({ $0.baseFrame < baseFrameCount }),
@@ -89,6 +89,12 @@ public struct PresentationSchedule: Sendable {
             throw DriftCoreError.invalid("The base route or cue anchors are invalid.")
         }
         self.rate = rate; self.baseFrameCount = baseFrameCount
+        if closingOnly {
+            guard let closing,!loop,spotlights.isEmpty else{throw DriftCoreError.invalid("A Closing-only presentation cannot contain a hidden route or Spotlight.")}
+            let hold=try rate.frames(milliseconds:closing.holdMilliseconds)
+            self.cues=[ScheduledCue(id:closing.id,slideID:closing.slideID,baseFrame:0,startFrame:0,transitionFrames:0,holdFrames:hold,closing:true)]
+            self.totalFrames=hold;return
+        }
         var scheduled: [ScheduledCue] = [], inserted: Int64 = 0
         for cue in spotlights.sorted(by: { $0.baseFrame == $1.baseFrame ? $0.id < $1.id : $0.baseFrame < $1.baseFrame }) {
             let entry = max(2, try rate.frames(milliseconds: cue.transitionMilliseconds))

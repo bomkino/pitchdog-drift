@@ -15,6 +15,7 @@ struct SlideInspector:View {
     }
     var body:some View{
         if let first=selected.first{
+            let targets=Set(selected.map(\.id)),ticket=session.ticket(targets:targets)
             Text(selected.count==1 ? "SELECTED SLIDE":"\(selected.count) SELECTED SLIDES").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             if selected.count==1,let original=session.project.assets[first.assetID]{Text(original.name).font(.headline).textSelection(.enabled);Text("\(original.width) × \(original.height) · \(original.subtype.uppercased())").font(.caption).foregroundStyle(.secondary)}
             HStack{Toggle("Included",isOn:Binding(get:{selected.allSatisfy(\.included)},set:{v in edit("Include slides"){$0.included=v}}));if Set(selected.map(\.included)).count>1{Text("Mixed").foregroundStyle(.secondary)}}
@@ -37,8 +38,12 @@ struct SlideInspector:View {
                 Toggle("Play source",isOn:Binding(get:{selected.allSatisfy{$0.playback.plays}},set:{v in edit("Source playback"){$0.playback.plays=v}}))
                 Toggle("Loop source",isOn:Binding(get:{selected.allSatisfy{$0.playback.loop}},set:{v in edit("Source loop"){$0.playback.loop=v}}))
                 number("Speed",\.playback.rate,\.playback.rate)
-                NumberEdit("In, seconds",value:Double(first.playback.trimInNanoseconds)/1e9){v in edit("Source trim in"){$0.playback.trimInNanoseconds=Int64((v*1e9).rounded())}}
-                NumberEdit("Out, seconds",value:Double(first.playback.trimOutNanoseconds ?? session.project.assets[first.assetID]?.durationNanoseconds ?? 0)/1e9){v in edit("Source trim out"){$0.playback.trimOutNanoseconds=Int64((v*1e9).rounded())}}
+                NumberEdit("In, seconds",value:Double(first.playback.trimInNanoseconds)/1e9){v in
+                    session.change("Source trim in",ticket:ticket){p in for i in p.slides.indices where targets.contains(p.slides[i].id){p.slides[i].playback.trimInNanoseconds=Int64((v*1e9).rounded())}}
+                }
+                NumberEdit("Out, seconds",value:Double(first.playback.trimOutNanoseconds ?? session.project.assets[first.assetID]?.durationNanoseconds ?? 0)/1e9){v in
+                    session.change("Source trim out",ticket:ticket){p in for i in p.slides.indices where targets.contains(p.slides[i].id){p.slides[i].playback.trimOutNanoseconds=Int64((v*1e9).rounded())}}
+                }
                 Button("Reset trim"){edit("Reset trim"){$0.playback.trimInNanoseconds=0;$0.playback.trimOutNanoseconds=nil}}
                 if selected.count==1,let original=session.project.assets[first.assetID]{SourceClipView(original:original,workspace:session.workspace,playback:first.playback,transport:transport)}
             }
@@ -58,7 +63,12 @@ struct PinInspector:View {
     let pin:Pin
     @State private var ratio="2576:1080"
     private func change(_ label:String,_ edit:(inout Pin)->Void){session.change(label){p in guard var value=p.pin,value.slideID==pin.slideID else{return};edit(&value);p.pin=value}}
-    private func number(_ title:String,_ key:WritableKeyPath<Pin,Double>)->some View{NumberEdit(title,value:pin[keyPath:key]){v in change(title){$0[keyPath:key]=v}}}
+    private func number(_ title:String,_ key:WritableKeyPath<Pin,Double>)->some View{
+        let ticket=session.ticket(targets:[pin.slideID]),id=pin.slideID
+        return NumberEdit(title,value:pin[keyPath:key]){v in session.change(title,ticket:ticket){p in
+            guard p.pin?.slideID==id else{return};p.pin?[keyPath:key]=v
+        }}
+    }
     private func toggle(_ title:String,_ key:WritableKeyPath<Pin,Bool>)->some View{Toggle(title,isOn:Binding(get:{pin[keyPath:key]},set:{v in change(title){$0[keyPath:key]=v}}))}
     var body:some View{
         DisclosureGroup("Pin placement"){
@@ -150,9 +160,12 @@ struct TimelineView:View {
                 Button{transport.step(1)}label:{Image(systemName:"forward.frame")}.help("Next frame")
                 Button{transport.nextCue(false)}label:{Image(systemName:"forward.end")}.help("Next cue")
                 Text(transport.label).monospacedDigit().frame(minWidth:104)
-                Spacer()
+                Spacer(minLength:0)
+            }.controlSize(.large)
+            HStack(spacing:10){
                 TextField("Frame",text:$jump).textFieldStyle(.roundedBorder).frame(width:75).onSubmit{if let value=Int64(jump){transport.seek(value)}}.help("Jump to exact output frame")
-                Text("/ \(transport.totalFrames)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Text("/ \(transport.totalFrames)").font(.caption).foregroundStyle(.secondary).monospacedDigit().fixedSize()
+                Spacer(minLength:8)
                 Menu("Preview") {Button("Full quality"){transport.quality=1};Button("Balanced"){transport.quality=0.75};Button("Fast"){transport.quality=0.5}}
             }.controlSize(.large)
         }

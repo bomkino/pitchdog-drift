@@ -175,7 +175,9 @@ public final class NativeRenderer {
         // Prepare at the largest demand before drawing any occurrence.
         var demands=SourceResolutionDemand()
         for pose in value.cards where pose.opacity>0.00001{
-            demands.include(id:pose.slideID,width:pose.width,height:pose.height,scale:factor)
+            if let slide=slideMap[pose.slideID],let original=p.assets[slide.assetID]{
+                demands.include(pose:pose,original:original,canvas:p.canvas,scale:factor)
+            }
         }
         for (id,dimension) in demands.dimensions.sorted(by:{$0.key<$1.key}){
             guard let slide=slideMap[id] else{continue}

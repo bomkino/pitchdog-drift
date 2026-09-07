@@ -96,34 +96,78 @@ public final class SoundTrack:Sendable {
 }
 
 @MainActor public final class PreviewSound {
-    private var engine:AVAudioEngine?,player:AVAudioPlayerNode?,track:SoundTrack?,task:Task<Void,Never>?,generation=UUID(),playing=false,nextSample:Int64=0
-    private var currentID:UUID?,currentRevision:UInt64=0,epoch:UInt64=0
+    private var engine:AVAudioEngine?,player:AVAudioPlayerNode?,track:SoundTrack?
+    private var preparation:Task<SoundTrack,Error>?,completion:Task<Void,Never>?
+    private var buildToken=UUID(),queueToken=UUID(),playing=false,nextSample:Int64=0
+    private var identity:SoundRenderIdentity?,revision:UInt64?,epoch:UInt64=0
+    private var documentID:String?,previewEnabled=false
+    public private(set) var buildCount=0,playbackStarts=0
     public var onError:((String)->Void)?
     public init(){}
     public func update(snapshot:RenderSnapshot,revision:UInt64,transport:Transport){
-        let enabled=snapshot.project.creative.sound.previewEnabled
-        if currentID != UUID(uuidString:snapshot.project.id) || currentRevision != revision {
-            stop();currentID=UUID(uuidString:snapshot.project.id);currentRevision=revision;track=nil
-            guard enabled else{return};let id=UUID();generation=id
-            task=Task{[weak self] in
-                do{let value=try await Task.detached(priority:.utility){try SoundTrack(plan:snapshot.plan)}.value
-                    guard let self,self.generation==id,!Task.isCancelled else{return};self.track=value;self.update(snapshot:snapshot,revision:revision,transport:transport)
-                }catch{self?.onError?(error.localizedDescription)}
+        previewEnabled=snapshot.project.creative.sound.previewEnabled
+        if self.revision != revision || documentID != snapshot.project.id || identity==nil {
+            documentID=snapshot.project.id
+            let next=SoundRenderIdentity(snapshot.plan);self.revision=revision
+            if identity != next {
+                stopPlayback();buildToken=UUID();preparation?.cancel();completion?.cancel()
+                preparation=nil;completion=nil;track=nil;identity=next
             }
         }
-        guard enabled,transport.playing,let track else{if playing{player?.stop();playing=false};return}
+        guard previewEnabled else{stopPlayback();return}
+        guard transport.playing else{stopPlayback();return}
+        if track==nil {
+            guard preparation==nil else{return}
+            let token=buildToken,work=Task.detached(priority:.utility){try SoundTrack(plan:snapshot.plan)}
+            preparation=work;buildCount+=1
+            completion=Task{[weak self,weak transport] in
+                do{
+                    let value=try await work.value
+                    guard let self,self.buildToken==token,!Task.isCancelled,let transport else{return}
+                    self.track=value;self.preparation=nil;self.completion=nil
+                    self.startPreparedPlayback(transport)
+                }catch{
+                    guard let self,self.buildToken==token,!Task.isCancelled else{return}
+                    self.preparation=nil;self.completion=nil
+                    if !(error is CancellationError){self.onError?(error.localizedDescription)}
+                }
+            }
+            return
+        }
+        startPreparedPlayback(transport)
+    }
+    private func startPreparedPlayback(_ transport:Transport){
+        guard previewEnabled,transport.playing,let track else{return}
         if !playing || epoch != transport.seekEpoch {
-            do{if engine==nil{let e=AVAudioEngine(),p=AVAudioPlayerNode();e.attach(p);e.connect(p,to:e.mainMixerNode,format:AVAudioFormat(standardFormatWithSampleRate:48000,channels:2)!);try e.start();engine=e;player=p}
-                player?.stop();epoch=transport.seekEpoch;nextSample=Int64((transport.seconds*48000).rounded());playing=true
-                for _ in 0..<3{enqueue(track:track,token:generation)};player?.play()
-            }catch{playing=false;onError?(error.localizedDescription)}
+            do{
+                stopPlayback()
+                if engine==nil{
+                    let e=AVAudioEngine(),p=AVAudioPlayerNode();e.attach(p)
+                    e.connect(p,to:e.mainMixerNode,format:AVAudioFormat(standardFormatWithSampleRate:48000,channels:2)!)
+                    try e.start();engine=e;player=p
+                }
+                epoch=transport.seekEpoch;nextSample=Int64((transport.seconds*48000).rounded())
+                playing=true;playbackStarts+=1;let token=queueToken
+                for _ in 0..<3{enqueue(track:track,token:token)};player?.play()
+            }catch{stopPlayback();onError?(error.localizedDescription)}
         }
     }
     private func enqueue(track:SoundTrack,token:UUID){
-        guard playing,token==generation,let player,let format=AVAudioFormat(standardFormatWithSampleRate:48000,channels:2),let buffer=AVAudioPCMBuffer(pcmFormat:format,frameCapacity:2048) else{return}
+        guard playing,token==queueToken,let player,let format=AVAudioFormat(standardFormatWithSampleRate:48000,channels:2),let buffer=AVAudioPCMBuffer(pcmFormat:format,frameCapacity:2048) else{return}
         let values=track.samples(start:nextSample,count:2048);nextSample+=2048;buffer.frameLength=2048
         for i in 0..<2048{buffer.floatChannelData![0][i]=values[i*2];buffer.floatChannelData![1][i]=values[i*2+1]}
-        player.scheduleBuffer(buffer,completionCallbackType:.dataConsumed){[weak self] _ in Task{@MainActor in self?.enqueue(track:track,token:token)}}
+        player.scheduleBuffer(buffer,completionCallbackType:.dataConsumed){[weak self] _ in
+            Task{@MainActor in self?.enqueue(track:track,token:token)}
+        }
     }
-    public func stop(){generation=UUID();task?.cancel();task=nil;player?.stop();engine?.stop();player=nil;engine=nil;playing=false}
+    private func stopPlayback(){
+        // AVAudioPlayerNode.stop can complete old buffers after a subsequent
+        // Play. Rotate authority before stopping; those callbacks cannot enqueue.
+        if playing{queueToken=UUID();playing=false;player?.stop()}
+    }
+    public func stop(){
+        buildToken=UUID();queueToken=UUID();preparation?.cancel();completion?.cancel()
+        preparation=nil;completion=nil;playing=false;player?.stop();engine?.stop()
+        player=nil;engine=nil;track=nil;identity=nil;revision=nil;documentID=nil;previewEnabled=false
+    }
 }

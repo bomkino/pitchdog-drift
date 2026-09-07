@@ -17,6 +17,13 @@ public struct StagedBatch:Identifiable,Sendable {
         self.ticket=ticket;self.replacementID=replacementID;self.expectedFingerprint=expectedFingerprint
     }
 }
+public struct LookAudition:Identifiable,Sendable {
+    public let id:UUID,name:String,snapshot:RenderSnapshot,ticket:EditTicket
+    public var showOriginal:Bool
+    init(id:UUID,name:String,snapshot:RenderSnapshot,ticket:EditTicket){
+        self.id=id;self.name=name;self.snapshot=snapshot;self.ticket=ticket;showOriginal=false
+    }
+}
 private struct ImportPrepared:Sendable {let workspace:MediaWorkspace,originals:[Original],failures:[ImportFailure]}
 public actor RecoveryWriter {
     private var newest:[URL:UInt64]=[:]
@@ -32,6 +39,13 @@ public actor RecoveryWriter {
     /// Identity of this open document, not its portable project or file copy.
     public let id=UUID()
     @Published public private(set) var revision:UInt64=0
+    @Published public private(set) var presentationRevision:UInt64=0
+    @Published public private(set) var lookAudition:LookAudition?
+    public var lookProject:DriftProject{lookAudition?.snapshot.project ?? project}
+    public var displaySnapshot:RenderSnapshot{
+        guard let lookAudition,!lookAudition.showOriginal else{return snapshot}
+        return lookAudition.snapshot
+    }
     @Published public var selection=Set<String>()
     @Published public var issue:String?
     @Published public private(set) var importing=false
@@ -52,11 +66,29 @@ public actor RecoveryWriter {
     }
     public func ticket(targets:Set<String>=[])->EditTicket{journal.ticket(targets:targets)}
     public func accepts(_ ticket:EditTicket)->Bool{!closed && journal.accepts(ticket)}
+    public func auditionLook(_ name:String,_ edit:(inout DriftProject)throws->Void){
+        guard !closed else{return}
+        do{
+            var next=lookProject;try edit(&next)
+            let value=try RenderSnapshot(project:next,workspace:workspace)
+            lookAudition=LookAudition(id:lookAudition?.id ?? UUID(),name:name,snapshot:value,ticket:lookAudition?.ticket ?? ticket())
+            presentationRevision &+= 1
+        }catch{issue=error.localizedDescription}
+    }
+    public func compareLookOriginal(_ show:Bool){guard lookAudition != nil else{return};lookAudition?.showOriginal=show;presentationRevision &+= 1}
+    public func cancelLookAudition(){guard lookAudition != nil else{return};lookAudition=nil;presentationRevision &+= 1}
+    public func acceptLookAudition(){
+        guard let audition=lookAudition else{return}
+        guard accepts(audition.ticket),audition.ticket.revision==journal.revision else{cancelLookAudition();issue="The document changed during the Look audition. Newer work was kept.";return}
+        cancelLookAudition();change("Apply Look",ticket:audition.ticket){$0=audition.snapshot.project}
+    }
     private func refresh()throws{
+        cancelLookAudition();presentationRevision &+= 1
         snapshot=try RenderSnapshot(project:journal.project,workspace:workspace);revision=journal.revision;jsonRevision=nil;jsonSnapshot=nil;selection.formIntersection(Set(project.slides.map(\.id)));didEdit?();scheduleRecovery()
     }
     public func change(_ name:String,ticket:EditTicket?=nil,_ edit:(inout DriftProject)throws->Void){
         guard !closed else{return}
+        cancelLookAudition()
         do{let before=journal
             if try journal.apply(name,ticket:ticket,edit){do{try refresh()}catch{journal=before;throw error}}
         }catch{issue=error.localizedDescription}
@@ -68,7 +100,7 @@ public actor RecoveryWriter {
     public func redo(){do{try journal.redo();try refresh()}catch{issue=error.localizedDescription}}
     public func saved(_ project:DriftProject,ticket:EditTicket){guard accepts(ticket) else{return};do{try journal.didSave(project,ticket:ticket);revision=journal.revision;didEdit?();scheduleRecovery()}catch{issue=error.localizedDescription}}
     public func load(_ value:DriftProject,workspace:MediaWorkspace,saved:Bool)throws{
-        cancelImport();recoveryTask?.cancel();let next=try RenderSnapshot(project:value,workspace:workspace)
+        cancelLookAudition();presentationRevision &+= 1;cancelImport();recoveryTask?.cancel();let next=try RenderSnapshot(project:value,workspace:workspace)
         try journal.load(value,saved:saved);self.workspace=workspace;snapshot=next;jsonRevision=nil;jsonSnapshot=nil;selection=[];revision=journal.revision;didEdit?();scheduleRecovery()
     }
     private func scheduleRecovery(){
@@ -118,7 +150,7 @@ public actor RecoveryWriter {
             }
             let used=Set(next.slides.map(\.assetID));next.assets=next.assets.filter{used.contains($0.key)}
         }else{
-            for original in batch.originals{if next.assets[original.id]==nil{next.assets[original.id]=original};next.slides.append(Slide(assetID:original.id))}
+            for original in batch.originals{if next.assets[original.id]==nil{next.assets[original.id]=original};var slide=Slide(assetID:original.id);slide.fit=Fit(rawValue:next.creative.card.defaultFit) ?? .fit;next.slides.append(slide)}
         }
         try next.validate();_=try FramePlan(project:next);return next
     }
@@ -168,7 +200,7 @@ public actor RecoveryWriter {
         for id in ids{p.spotlights.removeAll{$0.slideID==id};if enabled{var cue=Spotlight(slideID:id);if p.pin?.slideID==id && p.pin?.pinOnly==true{cue.target = .pin};p.spotlights.append(cue)}}
     }}
     public func setClosing(_ id:String?){change("Closing"){$0.closing=id.map{Closing(slideID:$0)}}}
-    public func close(discardRecovery:Bool){closed=true;cancelImport();recoveryTask?.cancel();didEdit=nil
+    public func close(discardRecovery:Bool){cancelLookAudition();closed=true;cancelImport();recoveryTask?.cancel();didEdit=nil
         if discardRecovery{let writer=recovery,workspace=workspace;Task{try? await writer.finish(workspace)}}
     }
 }
@@ -192,6 +224,7 @@ public extension EditorSession {
                 for i in slides.indices where ids.contains(slides[i]["id"] as? String ?? ""){assigning(&slides[i],path[...])};root["slides"]=slides
             }else{assigning(&root,path[...])}
             p=try DriftProject.decode(JSONSerialization.data(withJSONObject:root,options:.sortedKeys))
+            if slideIDs==nil,path.starts(with:["creative","lighting"]),path.last != "presetId"{p.creative.lighting.presetId="custom"}
         }
     }
 }

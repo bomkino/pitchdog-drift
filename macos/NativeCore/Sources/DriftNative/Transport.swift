@@ -42,11 +42,21 @@ import DriftCore
     public func pause(){timer?.invalidate();timer=nil;playing=false;didTick?(frame,false)}
     private func tick(){
         var next=anchorFrame+Int64(floor(max(0,ProcessInfo.processInfo.systemUptime-anchorTime)*fps))
-        if let audition,next>=audition.end{self.audition=nil;pause();frame=audition.frame;seekEpoch &+= 1;if audition.playing{play()};return}
+        if let audition,next>=audition.end{restore(audition);return}
         if next>=totalFrames{if plan.project.direction.mode == .loop{next%=totalFrames;anchorFrame=next;anchorTime=ProcessInfo.processInfo.systemUptime;seekEpoch &+= 1}else{next=totalFrames-1;pause()}}
         if next != frame{frame=next;didTick?(frame,playing)}
     }
-    public func previewCue(_ id:String){guard let cue=plan.schedule.cues.first(where:{$0.id==id}) else{return};let previous=frame,wasPlaying=playing;pause();frame=cue.startFrame;seekEpoch &+= 1;audition=Audition(frame:previous,playing:wasPlaying,end:cue.endFrame,epoch:seekEpoch);play()}
-    public func cancelAudition(){guard let old=audition else{return};audition=nil;pause();frame=old.frame;seekEpoch &+= 1;if old.playing{play()}}
+    public func previewCue(_ id:String){
+        guard let cue=plan.schedule.cues.first(where:{$0.id==id}) else{return}
+        let previous=audition?.frame ?? frame,wasPlaying=audition?.playing ?? playing
+        pause();frame=cue.startFrame;seekEpoch &+= 1
+        audition=Audition(frame:previous,playing:wasPlaying,end:cue.endFrame,epoch:seekEpoch)
+        didTick?(frame,false);play()
+    }
+    private func restore(_ old:Audition){
+        audition=nil;pause();frame=min(totalFrames-1,old.frame);seekEpoch &+= 1
+        didTick?(frame,false);if old.playing{play()}
+    }
+    public func cancelAudition(){guard let old=audition else{return};restore(old)}
     public func nextCue(_ backwards:Bool){let times=plan.schedule.cues.map(\.holdStartFrame);guard !times.isEmpty else{return};seek(backwards ? times.last(where:{$0<frame}) ?? times.last!:times.first(where:{$0>frame}) ?? times.first!)}
 }

@@ -50,6 +50,7 @@ enum RecoveryStore {
         try ProjectIO.write(snapshot,to:url,beforePublish:{try self.writeProbe.inspect();try self.storage.accepts(ticket)})
     }
     override func save(to url:URL,ofType typeName:String,for saveOperation:NSDocument.SaveOperationType,completionHandler:@escaping ((any Error)?)->Void){
+        guard editor?.lookAudition==nil else{completionHandler(NativeFailure.message("Apply or cancel the Look audition before saving."));return}
         guard !busySaving else{completionHandler(NativeFailure.message("Wait for the current save to finish."));return}
         do{editor?.endGesture();try storage.begin();busySaving=true}catch{completionHandler(error);return}
         super.save(to:url,ofType:typeName,for:saveOperation){[weak self] error in

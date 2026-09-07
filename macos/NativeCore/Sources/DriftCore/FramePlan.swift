@@ -40,6 +40,15 @@ public struct BaseTimeline:Sendable {
         try project.validate();self.project=project
         sourceCount=project.movingSlides.count
         let d=project.direction
+        let visiblePin=project.pin.map{pin in project.slides.contains{$0.id==pin.slideID && $0.included}} ?? false
+        let visibleClosing=project.closing.map{cue in project.slides.contains{$0.id==cue.slideID && $0.included}} ?? false
+        if sourceCount==0 && !visiblePin && visibleClosing && d.mode != .loop {
+            let one=project.output.rate.seconds(frame:1)
+            bodySeconds=one;duration=one;baseFrames=1;bodyCount=1
+            passes=[PassKnot(index:0,start:0,end:one,startVelocity:0,endVelocity:0)]
+            segments=[BaseSegment(phase:.body,start:0,end:one,bodyIndex:0)]
+            return
+        }
         let passCount=d.groups.reduce(0){$0+$1.passes}*d.sequenceRepeats
         try require(passCount<=10000,"Reduce pass groups: a sequence supports at most 10,000 passes.")
         var weights:[Double]=[]
@@ -104,7 +113,12 @@ public struct BaseTimeline:Sendable {
         }
         let s=segment(at:t),p=bounded((t-s.start)/(s.end-s.start),0,1)
         let clock=s.phase == .entry ? 0:s.phase == .exit ? 1:p
-        let envelope=tempo(clock),bodyTime=envelope.distance*bodySeconds
+        let authored=AuthoredMotion.profile(clock,performance:project.creative.motion.performance,character:project.creative.motion.character,
+            seamless:project.direction.mode == .loop || project.creative.motion.seamless.enabled)
+        let timed=tempo(authored.distance)
+        let envelope=Travel(distance:timed.distance,velocity:timed.velocity*authored.velocity,
+            acceleration:timed.acceleration*authored.velocity*authored.velocity+timed.velocity*authored.acceleration)
+        let bodyTime=envelope.distance*bodySeconds
         var lo=0,hi=passes.count-1
         while lo<hi {let m=(lo+hi)/2;if bodyTime<passes[m].end{hi=m}else{lo=m+1}}
         let pass=passes[lo].sample(bodyTime),sign=project.creative.motion.transport.direction
@@ -172,7 +186,9 @@ public struct FramePlan:Sendable {
         if let c=project.closing,byID[c.slideID]?.included==true {
             closing=try CueTiming(id:"closing",slideID:c.slideID,baseFrame:base.baseFrames-1,holdMilliseconds:c.holdMilliseconds,transitionMilliseconds:c.transitionMilliseconds)
         }else{closing=nil}
-        schedule=try PresentationSchedule(rate:project.output.rate,baseFrameCount:base.baseFrames,spotlights:cues,closing:closing,loop:project.direction.mode == .loop)
+        let visiblePin=project.pin.map{pin in project.slides.contains{$0.id==pin.slideID && $0.included}} ?? false
+        schedule=try PresentationSchedule(rate:project.output.rate,baseFrameCount:base.baseFrames,spotlights:cues,closing:closing,loop:project.direction.mode == .loop,
+            closingOnly:moving.isEmpty && !visiblePin && closing != nil && project.direction.mode != .loop)
     }
     public var duration:Double{schedule.rate.seconds(frame:schedule.totalFrames)}
     private func cadence(_ raw:Travel)->Travel {
@@ -194,7 +210,7 @@ public struct FramePlan:Sendable {
         switch sample.segment.phase{case .body:return LayerSample();case .entry:transition=project.direction.entry;entering=true;case .exit:transition=project.direction.exit;entering=false}
         let timing=index==nil ? transition.background:transition.slides
         let order=index.map{transition.reverse ? max(0,moving.count-1-$0):$0} ?? 0
-        let stagger=index==nil || project.direction.reduceAuthoredMotion ? 0:transition.stagger*Double(order)/Double(max(1,moving.count-1))
+        let stagger=index==nil || project.direction.reduceAuthoredMotion ? 0:transition.stagger*(1-bounded(project.creative.motion.performance.overlap,0,1))*Double(order)/Double(max(1,moving.count-1))
         let local=bounded((sample.progress-timing.lead-stagger)/timing.span,0,1)
         let progress:Double
         switch transition.curve{case "ease-out":progress=1-pow(1-local,3);case "ease-in-out":progress=local<0.5 ? 4*local*local*local:1-pow(-2*local+2,3)/2;default:progress=local}

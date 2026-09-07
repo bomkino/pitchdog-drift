@@ -34,6 +34,7 @@ struct NativeCanvas:NSViewRepresentable {
     private var pan=CGPoint.zero,lastZoom=0.0
     private var requested:PreviewRequest?
     private var mouseStart:CGPoint?,pinStart:Pin?,focalStart:(Double,Double)?,gesture=false
+    private var gestureTicket:EditTicket?,gestureTargets=Set<String>()
     private var pressure:DispatchSourceMemoryPressure?
     private var suspended=false
     override var acceptsFirstResponder:Bool{true}
@@ -83,12 +84,12 @@ struct NativeCanvas:NSViewRepresentable {
         guard !suspended,let session,let transport,bounds.width>1,bounds.height>1 else{return}
         if window != nil && window?.occlusionState.contains(.visible)==false && transport.playing{return}
         if lastZoom != transport.zoom{pan = .zero;lastZoom=transport.zoom;ticket=UUID()}
-        let p=session.project,fit=min(bounds.width/Double(p.canvas.width),bounds.height/Double(p.canvas.height)),backing=window?.backingScaleFactor ?? 1
+        let p=session.displaySnapshot.project,fit=min(bounds.width/Double(p.canvas.width),bounds.height/Double(p.canvas.height)),backing=window?.backingScaleFactor ?? 1
         let scale=transport.zoom==0 ? fit*backing*transport.quality:transport.zoom
         let dimension=max(64,min(8192,Int(ceil(Double(max(p.canvas.width,p.canvas.height))*min(1,scale)/128))*128))
-        let identity="\(p.id)/\(session.revision)/\(transport.seekEpoch)/\(dimension)"
+        let identity="\(p.id)/\(session.presentationRevision)/\(transport.seekEpoch)/\(dimension)"
         if identity != lastIdentity{ticket=UUID();lastIdentity=identity;requested=nil}
-        let value=PreviewRequest(snapshot:session.snapshot,frame:transport.frame,revision:session.revision,seek:transport.seekEpoch,dimension:dimension)
+        let value=PreviewRequest(snapshot:session.displaySnapshot,frame:min(transport.frame,session.displaySnapshot.plan.schedule.totalFrames-1),revision:session.presentationRevision,seek:transport.seekEpoch,dimension:dimension)
         if requested?.frame==value.frame && requested?.revision==value.revision && requested?.seek==value.seek && requested?.dimension==value.dimension && requested?.snapshot.project.id==p.id{needsDisplay=true;return}
         requested=value;pending=value;renderNext()
     }
@@ -142,17 +143,17 @@ struct NativeCanvas:NSViewRepresentable {
         guard contentRect.contains(point),let pose=hit(point),let session else{return}
         let extend=event.modifierFlags.contains(.command)||event.modifierFlags.contains(.shift)
         if extend{if session.selection.contains(pose.slideID){session.selection.remove(pose.slideID)}else{session.selection.insert(pose.slideID)}}else{session.selection=[pose.slideID]}
-        transport?.pause();mouseStart=point
+        transport?.pause();mouseStart=point;gestureTargets=session.selection;gestureTicket=session.ticket(targets:gestureTargets)
         if pose.pinned{pinStart=session.project.pin;session.beginGesture("Move Pin");gesture=true}
         else if event.modifierFlags.contains(.option),let slide=session.project.slides.first(where:{$0.id==pose.slideID}){focalStart=(slide.focalX,slide.focalY);session.beginGesture("Frame media");gesture=true}
     }
     override func mouseDragged(with event:NSEvent){
         guard let start=mouseStart,let session else{return};let point=convert(event.locationInWindow,from:nil),rect=contentRect
         let dx=(point.x-start.x)/max(1,rect.width),dy=(point.y-start.y)/max(1,rect.height)
-        if let pin=pinStart{session.change("Move Pin"){p in guard p.pin?.slideID==pin.slideID else{return};p.pin?.x=bounded(pin.x+dx,0,1);p.pin?.y=bounded(pin.y+dy,0,1)}}
-        else if let focal=focalStart{let ids=session.selection;session.change("Frame media"){p in for i in p.slides.indices where ids.contains(p.slides[i].id){p.slides[i].focalX=bounded(focal.0-dx,0,1);p.slides[i].focalY=bounded(focal.1-dy,0,1)}}}
+        if let pin=pinStart{session.change("Move Pin",ticket:gestureTicket){p in guard p.pin?.slideID==pin.slideID else{return};p.pin?.x=bounded(pin.x+dx,0,1);p.pin?.y=bounded(pin.y+dy,0,1)}}
+        else if let focal=focalStart{let ids=gestureTargets;session.change("Frame media",ticket:gestureTicket){p in for i in p.slides.indices where ids.contains(p.slides[i].id){p.slides[i].focalX=bounded(focal.0-dx,0,1);p.slides[i].focalY=bounded(focal.1-dy,0,1)}}}
     }
-    override func mouseUp(with event:NSEvent){if gesture{session?.endGesture()};gesture=false;mouseStart=nil;pinStart=nil;focalStart=nil}
+    override func mouseUp(with event:NSEvent){if gesture{session?.endGesture()};gesture=false;mouseStart=nil;pinStart=nil;focalStart=nil;gestureTicket=nil;gestureTargets=[]}
     override func scrollWheel(with event:NSEvent){
         guard (transport?.zoom ?? 0)>0 else{super.scrollWheel(with:event);return};let rect=contentRect
         pan.x=bounded(pan.x+event.scrollingDeltaX,-max(0,(rect.width-bounds.width)/2),max(0,(rect.width-bounds.width)/2))
