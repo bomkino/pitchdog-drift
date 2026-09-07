@@ -12,7 +12,8 @@ final class FinalNativeBoundaryTests:XCTestCase {
         return p
     }
     @MainActor func testLookAuditionIsRenderOnlyAndApplyIsOneUndoableEdit()async throws{
-        let p=try project(),session=try EditorSession(project:p,workspace:MediaWorkspace(),saved:true)
+        var p=try project();p.createdAt="2000-01-01T00:00:00Z";p.modifiedAt=p.createdAt
+        let session=try EditorSession(project:p,workspace:MediaWorkspace(),saved:true)
         session.auditionLook("Grain"){$0.creative.atmosphere.grain+=0.1}
         XCTAssertEqual(session.project,p);XCTAssertEqual(session.snapshot.project,p);XCTAssertFalse(session.dirty)
         XCTAssertNotEqual(session.displaySnapshot.project,p)
@@ -21,7 +22,8 @@ final class FinalNativeBoundaryTests:XCTestCase {
         session.cancelLookAudition();XCTAssertFalse(session.journal.canUndo);XCTAssertEqual(session.displaySnapshot.project,p)
         session.auditionLook("World"){$0.applyWorld(session.catalog.worlds[9],catalog:session.catalog)}
         let accepted=session.lookProject;session.acceptLookAudition()
-        XCTAssertEqual(session.project,accepted);XCTAssertNil(session.lookAudition)
+        XCTAssertEqual(try session.project.contentIdentity(),try accepted.contentIdentity());XCTAssertNil(session.lookAudition)
+        XCTAssertNotEqual(session.project.modifiedAt,accepted.modifiedAt,"Committing the audition updates its modification timestamp.")
         session.undo();XCTAssertEqual(session.project,p);XCTAssertFalse(session.dirty)
         session.auditionLook("Older"){$0.creative.atmosphere.grain+=0.1}
         session.change("Newer"){$0.seed+=1};session.acceptLookAudition()
