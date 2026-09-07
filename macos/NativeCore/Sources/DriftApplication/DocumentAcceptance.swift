@@ -50,13 +50,17 @@ private final class HeldWrite:@unchecked Sendable {
     private static func closeDecision(_ document:DriftDocument,cancel:Bool)async throws->Bool{
         let decision=CloseDecision()
         document.canClose(withDelegate:decision,shouldClose:#selector(CloseDecision.document(_:shouldClose:contextInfo:)),contextInfo:nil)
-        try await NativeApplicationProof.wait("real dirty-document close choice",seconds:8){document.windowControllers.first?.window?.attachedSheet != nil || decision.result != nil}
-        let sheet=document.windowControllers.first?.window?.attachedSheet
-        let chosen=button(in:sheet?.contentView){button in
-            let title=button.title.lowercased().replacingOccurrences(of:"’",with:"'")
-            return cancel ? title=="cancel":title=="don't save"
+        func choice()->NSButton?{
+            button(in:document.windowControllers.first?.window?.attachedSheet?.contentView){button in
+                let title=button.title.lowercased().replacingOccurrences(of:"’",with:"'")
+                // Untitled AppKit documents label discard as Delete on some
+                // macOS versions. This is only the synthetic recovered document.
+                return cancel ? title=="cancel":["don't save","delete","discard","discard changes"].contains(title)
+            }
         }
-        guard let chosen else{throw NativeFailure.message("The real close sheet did not expose the requested save decision.")}
+        try await NativeApplicationProof.wait("real dirty-document close choice",seconds:8){choice() != nil || decision.result != nil}
+        guard let chosen=choice() else{throw NativeFailure.message("The real close sheet did not expose the requested save decision (callback: \(String(describing:decision.result))).")}
+        mark("close-choice-"+chosen.title)
         chosen.performClick(nil)
         try await NativeApplicationProof.wait("real close decision callback",seconds:8){decision.result != nil}
         return decision.result!
