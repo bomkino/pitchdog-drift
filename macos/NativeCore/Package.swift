@@ -3,6 +3,7 @@ import PackageDescription
 import Foundation
 let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 let sdk=ProcessInfo.processInfo.environment["DRIFT_CODEC_SDK"] ?? root.appendingPathComponent("build/native-codecs").path
+var dependencies:[Package.Dependency]=[]
 var targets:[Target]=[
     .target(name:"DriftCore",resources:[.process("Resources")]),
     .testTarget(name:"DriftCoreTests",dependencies:["DriftCore"])
@@ -17,9 +18,15 @@ targets += [
     .testTarget(name:"DriftNativeTests",dependencies:["DriftNative","DriftCore"])
 ]
 if ProcessInfo.processInfo.environment["DRIFT_BUILD_APP"] == "1" {
-    targets += [.executableTarget(name:"DriftApplication",dependencies:["DriftNative","DriftCore"],linkerSettings:[.linkedFramework("AppKit"),.linkedFramework("SwiftUI")])]
+    var applicationDependencies:[Target.Dependency]=["DriftNative","DriftCore"]
+    // Explicit second-consumer development pilot. Core-only graphs never resolve UI.
+    if let path=ProcessInfo.processInfo.environment["PITCHDOG_STUDIO_UI_PATH"], !path.isEmpty {
+        dependencies.append(.package(name:"PitchdogStudioUI",path:path))
+        applicationDependencies.append(.product(name:"PitchdogStudioUI",package:"PitchdogStudioUI"))
+    }
+    targets += [.executableTarget(name:"DriftApplication",dependencies:applicationDependencies,linkerSettings:[.linkedFramework("AppKit"),.linkedFramework("SwiftUI")])]
     products += [.executable(name:"Drift",targets:["DriftApplication"])]
 }
 }
 #endif
-let package=Package(name:"DriftCore",platforms:[.macOS("13.3")],products:products,targets:targets,cxxLanguageStandard:.cxx17)
+let package=Package(name:"DriftCore",platforms:[.macOS("13.3")],products:products,dependencies:dependencies,targets:targets,cxxLanguageStandard:.cxx17)

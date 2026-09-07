@@ -1,0 +1,95 @@
+name: Native studio UI pilot
+on:
+  push:
+    branches: [codex/native-studio-ui-v2]
+    paths: ['macos/NativeCore/**', 'macos/AcceptanceUI/**', 'scripts/**', '.github/workflows/studio-ui-pilot.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: studio-ui-pilot-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pilot:
+    runs-on: macos-15
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: drift
+    env:
+      PITCHDOG_STUDIO_UI_PATH: ${{ github.workspace }}/studio-ui/native/Packages/PitchdogStudioUI
+      DRIFT_ALLOW_STUDIO_UI_PILOT: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: drift
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: bomkino/galileo-gallery
+          ref: 9039721a96b6725c390059e42b0ec4fd4841b043
+          path: studio-ui
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: drift/package-lock.json
+      - run: npm ci
+      - name: Record both exact sources and test the distribution guard
+        run: |
+          set -euo pipefail
+          mkdir -p build/studio-ui-evidence
+          git rev-parse HEAD > build/studio-ui-evidence/SOURCE_SHA.txt
+          git -C ../studio-ui rev-parse HEAD > build/studio-ui-evidence/COMPONENT_SHA.txt
+          sw_vers > build/studio-ui-evidence/HOST.txt
+          xcrun swift --version >> build/studio-ui-evidence/HOST.txt
+          python3 scripts/test-studio-ui-distribution.py
+          DRIFT_CORE_ONLY=1 DRIFT_BUILD_APP=1 xcrun swift package --package-path macos/NativeCore dump-package > build/studio-ui-evidence/core-package.json
+          python3 -c 'import json; assert not json.load(open("build/studio-ui-evidence/core-package.json"))["dependencies"]'
+      - name: Install existing build-only tools
+        run: brew install glslang spirv-cross ffmpeg-full xcodegen
+      - name: Generate synthetic originals
+        run: python3 scripts/generate-native-fixtures.py
+      - name: Test the exact shared components
+        run: |
+          set -euo pipefail
+          xcrun swift test --package-path "$PITCHDOG_STUDIO_UI_PATH" 2>&1 | tee build/studio-ui-evidence/component-tests.txt
+      - name: Build the actual second-consumer application
+        env:
+          DRIFT_BUILD_NUMBER: ${{ github.run_number }}
+          DRIFT_SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          scripts/build-native-app.sh 2>&1 | tee build/studio-ui-evidence/build.txt
+          cp build/native/Drift.app/Contents/Resources/BuildIdentity.json build/studio-ui-evidence/
+          python3 -c 'import json; b=json.load(open("build/studio-ui-evidence/BuildIdentity.json")); assert b["studioUI"]["mode"] == "pilot"; assert b["studioUI"]["revision"] == open("build/studio-ui-evidence/COMPONENT_SHA.txt").read().strip()'
+          if python3 scripts/verify-studio-ui-distribution.py build/native/Drift.app/Contents/Resources/BuildIdentity.json > build/studio-ui-evidence/distribution-block.txt 2>&1; then
+            echo 'The pilot incorrectly passed the distribution gate.' >&2; exit 1
+          fi
+      - name: Preserve native model and media contracts
+        run: |
+          set -euo pipefail
+          xcrun swift test --package-path macos/NativeCore 2>&1 | tee build/studio-ui-evidence/native-tests.txt
+      - name: Exercise the real pilot without publishing or installing it
+        run: |
+          set -euo pipefail
+          python3 scripts/run-native-ui-proof.py build/native/Drift.app 2>&1 | tee build/studio-ui-evidence/runtime.txt
+      - name: Collect synthetic evidence and generated source inputs
+        if: always()
+        run: |
+          mkdir -p build/studio-ui-evidence/generated
+          SOURCE="$HOME/Library/Application Support/Drift Native Proof"
+          if [[ -d "$SOURCE" ]]; then ditto "$SOURCE" build/studio-ui-evidence/outputs; fi
+          if [[ -d build/native-app-evidence ]]; then ditto build/native-app-evidence build/studio-ui-evidence/application-proof; fi
+          if [[ -d macos/NativeCore/Sources/DriftCore/Resources ]]; then ditto macos/NativeCore/Sources/DriftCore/Resources build/studio-ui-evidence/generated/Resources; fi
+          if [[ -f macos/NativeCore/Sources/DriftCore/GeneratedCreativeValues.swift ]]; then cp macos/NativeCore/Sources/DriftCore/GeneratedCreativeValues.swift build/studio-ui-evidence/generated/; fi
+          git archive --format=zip HEAD macos/NativeCore macos/AcceptanceUI scripts .github docs README.md LICENSE > build/studio-ui-evidence/reviewed-source.zip
+          git -C ../studio-ui archive --format=zip HEAD native/Packages/PitchdogStudioUI LICENSE > build/studio-ui-evidence/component-source.zip
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: drift-studio-ui-pilot-${{ github.sha }}
+          path: drift/build/studio-ui-evidence/
+          retention-days: 14
+          if-no-files-found: error

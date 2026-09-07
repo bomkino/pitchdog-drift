@@ -15,6 +15,7 @@ struct StudioView:View {
     @State private var exportSheet=false
     @State private var showInspector=true
     @State private var search=""
+    @FocusState private var searchFocused:Bool
     @State private var scope="Look"
     @State private var lookPlayback:(Int64,Bool,UInt64)?
     @ObservedObject private var exports=ExportCenter.shared
@@ -46,12 +47,12 @@ struct StudioView:View {
                 Divider()
             }
             HSplitView{
-                library.frame(minWidth:200,idealWidth:240,maxWidth:320)
+                library.frame(minWidth:200,idealWidth:240,maxWidth:320).modifier(DriftSurface(role:.panel))
                 VStack(spacing:0){
-                    NativeCanvas(session:session,transport:transport).padding(22).background(Color(nsColor:.underPageBackgroundColor))
+                    NativeCanvas(session:session,transport:transport).padding(22).modifier(DriftSurface(role:.surround))
                     Divider();TimelineView(session:session,transport:transport).padding(14)
                 }.frame(minWidth:400,maxWidth:.infinity,maxHeight:.infinity)
-                if showInspector{inspector.frame(minWidth:290,idealWidth:320,maxWidth:400)}
+                if showInspector{inspector.frame(minWidth:290,idealWidth:320,maxWidth:400).modifier(DriftSurface(role:.panel))}
             }
             if session.importing{
                 Divider();HStack{ProgressView().controlSize(.small);Text(session.importStatus);Spacer();Button("Cancel import"){session.cancelImport()}}.padding(12)
@@ -68,7 +69,7 @@ struct StudioView:View {
             if let issue=session.issue{
                 Divider();HStack(alignment:.top){Image(systemName:"exclamationmark.triangle");Text(issue).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading);Button("Dismiss"){session.issue=nil}}.padding(12).foregroundStyle(.red)
             }
-        }.background(Color(nsColor:.windowBackgroundColor)).font(.system(size:13))
+        }.modifier(DriftSurface(role:.window)).font(.system(size:13))
         .onChange(of:session.lookAudition?.id){id in
             if id != nil,lookPlayback==nil{
                 lookPlayback=(transport.frame,transport.playing,transport.seekEpoch);transport.pause()
@@ -81,12 +82,13 @@ struct StudioView:View {
         .sheet(isPresented:$exportSheet){ExportOptions(session:session,transport:transport,documentName:document.displayName)}
         .sheet(item:$session.pendingBatch){batch in BatchReview(session:session,batch:batch)}
         .onDrop(of:["public.file-url"],isTargeted:nil,perform:drop)
+        .modifier(DriftChrome())
     }
     private var library:some View {
         let visible=session.project.slides.filter{slide in search.isEmpty || session.project.assets[slide.assetID]?.name.localizedCaseInsensitiveContains(search)==true}
         return VStack(alignment:.leading,spacing:8){
             HStack{Text("MEDIA").font(.caption.weight(.semibold));Spacer();Text("\(session.project.slides.count)").foregroundStyle(.secondary)}.padding(.horizontal,14).padding(.top,16)
-            TextField("Find media",text:$search).textFieldStyle(.roundedBorder).padding(.horizontal,12)
+            TextField("Find media",text:$search).textFieldStyle(DriftFieldStyle(focused:searchFocused)).focused($searchFocused).padding(.horizontal,12)
             List(selection:$session.selection){
                 ForEach(visible){slide in
                     if let original=session.project.assets[slide.assetID]{
@@ -114,7 +116,7 @@ struct StudioView:View {
                     if destination==visible.count{session.reorder(indices,to:session.project.slides.count)}
                     else if let target=session.project.slides.firstIndex(where:{$0.id==visible[destination].id}){session.reorder(indices,to:target)}
                 }
-            }.listStyle(.sidebar).accessibilityIdentifier("drift.media-list")
+            }.listStyle(.sidebar).modifier(DriftListSurface()).accessibilityIdentifier("drift.media-list")
             HStack{
                 Button{session.duplicateSelection()}label:{Image(systemName:"plus.square.on.square")}.help("Duplicate selection")
                 Button{moveSelection(-1)}label:{Image(systemName:"arrow.up")}.help("Move selection up")
@@ -153,7 +155,7 @@ struct StudioView:View {
     }
     private var inspector:some View {
         VStack(spacing:0){
-            Picker("Inspector",selection:$scope){Text("Look").tag("Look");Text("Motion").tag("Motion");Text("Slide").tag("Slide")}.pickerStyle(.segmented).padding(14)
+            DriftInspectorTabs(selection:$scope).padding(14)
             ScrollView{
                 VStack(alignment:.leading,spacing:18){
                     if scope=="Look"{LookInspector(session:session)}
@@ -176,7 +178,7 @@ struct NumberEdit:View {
     init(_ title:String,value:Double,mixed:Bool=false,integer:Bool=false,commit:@escaping(Double)->Void){self.title=title;self.value=value;self.mixed=mixed;self.integer=integer;self.commit=commit}
     private func formatted()->String{mixed ? "":integer ? String(Int64(value.rounded())):String(format:"%.5f",value).replacingOccurrences(of:"0+$",with:"",options:.regularExpression).replacingOccurrences(of:"\\.$",with:"",options:.regularExpression)}
     var body:some View{
-        HStack{Text(title).lineLimit(2);Spacer();TextField(mixed ? "Mixed":"",text:$text).accessibilityLabel(title).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:96).focused($focus).foregroundStyle(invalid ? Color.red:Color.primary).help(invalid ? "Enter a finite number within the supported range.":title).onSubmit(finish)}
+        HStack{Text(title).lineLimit(2);Spacer();TextField(mixed ? "Mixed":"",text:$text).accessibilityLabel(title).multilineTextAlignment(.trailing).textFieldStyle(DriftFieldStyle(focused:focus,invalid:invalid)).frame(width:96).focused($focus).foregroundStyle(invalid ? Color.red:Color.primary).help(invalid ? "Enter a finite number within the supported range.":title).onSubmit(finish)}
         // Selection and focus notifications can arrive in the same update.
         // Preserve the captured draft until its original-target commit finishes.
         .onAppear{text=formatted()}.onChange(of:value){_ in if capturedCommit==nil{text=formatted()}}
@@ -255,7 +257,7 @@ struct LookInspector:View {
     var body:some View{
         Text("LOOK").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         Toggle("Audition Look changes",isOn:$auditionChanges).accessibilityIdentifier("drift.look-audition").onChange(of:auditionChanges){on in if !on{session.cancelLookAudition()}}
-        Picker("World",selection:Binding(get:{session.lookProject.worldID},set:{apply($0)})){ForEach(worlds){world in Text(world.label).tag(world.worldID)}}.accessibilityIdentifier("drift.world")
+        DriftChoicePicker(title:"World",selection:Binding(get:{session.lookProject.worldID},set:{apply($0)}),displayValue:worlds.first(where:{$0.worldID==session.lookProject.worldID})?.label ?? session.lookProject.worldID){ForEach(worlds){world in Text(world.label).tag(world.worldID)}}.accessibilityIdentifier("drift.world")
         Picker("Pressure",selection:Binding(get:{session.lookProject.worldPressure},set:{apply(nil,$0)})){Text("Restrained").tag("restrained");Text("Directed").tag("directed");Text("Fever").tag("fever")}
         Picker("Arrangement",selection:Binding(get:{session.lookProject.worldScene},set:{apply(nil,nil,$0)})){Text("Wide").tag(-1);Text("Portrait I").tag(0);Text("Portrait II").tag(1)}
         Button("Recut"){apply(nil,nil,nil,session.lookProject.worldRecut+1)}
