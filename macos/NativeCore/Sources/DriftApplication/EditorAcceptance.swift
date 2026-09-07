@@ -23,7 +23,8 @@ import DriftNative
         try await NativeApplicationProof.wait("real numeric Enter"){editor.project.slides[0].focalX==0.25}
         try NativeApplicationProof.require(editor.journal.past.count==initial+1,"Enter creates one authored edit")
         try step("edit-blur",["nextMedia":editor.project.assets[editor.project.slides[1].assetID]!.name])
-        try await NativeApplicationProof.wait("numeric blur onto another selection"){editor.selection==[ids[1]] && editor.project.slides[0].focalX==0.4}
+        do{try await NativeApplicationProof.wait("numeric blur onto another selection"){editor.selection==[ids[1]] && editor.project.slides[0].focalX==0.4}}
+        catch{throw NativeFailure.message("Numeric selection/blur failed: selected=\(editor.selection.sorted()), targets=\(Array(ids.prefix(2))), focalX=\(editor.project.slides.prefix(2).map(\.focalX)), issue=\(editor.issue ?? "none")")}
         try NativeApplicationProof.require(editor.project.slides[1].focalX==original.slides[1].focalX,"blur retains its focused target")
         let beforeEscape=try editor.project.contentIdentity(),epoch=transport.seekEpoch
         try step("edit-escape")

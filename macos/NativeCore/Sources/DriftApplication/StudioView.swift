@@ -175,9 +175,11 @@ struct NumberEdit:View {
     private func formatted()->String{mixed ? "":integer ? String(Int64(value.rounded())):String(format:"%.5f",value).replacingOccurrences(of:"0+$",with:"",options:.regularExpression).replacingOccurrences(of:"\\.$",with:"",options:.regularExpression)}
     var body:some View{
         HStack{Text(title).lineLimit(2);Spacer();TextField(mixed ? "Mixed":"",text:$text).accessibilityLabel(title).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:96).focused($focus).foregroundStyle(invalid ? Color.red:Color.primary).help(invalid ? "Enter a finite number within the supported range.":title).onSubmit(finish)}
-        .onAppear{text=formatted()}.onChange(of:value){_ in if !focus{text=formatted()}}
-        .onChange(of:mixed){_ in if !focus{text=formatted()}}
-        .onChange(of:focus){value in if value{capturedCommit=commit;cancelled=false}else{if !cancelled{finish()};capturedCommit=nil;cancelled=false}}
+        // Selection and focus notifications can arrive in the same update.
+        // Preserve the captured draft until its original-target commit finishes.
+        .onAppear{text=formatted()}.onChange(of:value){_ in if capturedCommit==nil{text=formatted()}}
+        .onChange(of:mixed){_ in if capturedCommit==nil{text=formatted()}}
+        .onChange(of:focus){value in if value{capturedCommit=commit;cancelled=false}else{if !cancelled{finish()};capturedCommit=nil;cancelled=false;text=formatted()}}
         .onExitCommand{cancelled=true;invalid=false;text=formatted();focus=false}
     }
     private func finish(){guard let number=Double(text),number.isFinite,abs(number)<=1_000_000_000 else{invalid=true;return};invalid=false;(capturedCommit ?? commit)(integer ? number.rounded():number)}
