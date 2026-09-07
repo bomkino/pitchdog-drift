@@ -112,9 +112,18 @@ final class StudioWindowController:NSWindowController {
     init(document:DriftDocument,session:EditorSession,transport:Transport){
         self.session=session;self.transport=transport
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:1360,height:850),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
-        super.init(window:window);window.title="Drift";window.minSize=NSSize(width:1100,height:680);window.center();window.tabbingMode = .disallowed
+        super.init(window:window);window.title="Drift";window.minSize=NSSize(width:960,height:680);window.center();window.tabbingMode = .disallowed
         window.contentView=NSHostingView(rootView:StudioView(session:session,transport:transport,document:document))
         window.setFrameAutosaveName("Drift Native Studio")
+        // Initial and restored frames must fit the current display, including
+        // its menu bar/Dock. A large saved window must not hide Export or Slide.
+        if let visible=window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame{
+            var frame=window.frame
+            frame.size.width=min(frame.width,visible.width);frame.size.height=min(frame.height,visible.height)
+            frame.origin.x=max(visible.minX,min(frame.minX,visible.maxX-frame.width))
+            frame.origin.y=max(visible.minY,min(frame.minY,visible.maxY-frame.height))
+            window.setFrame(frame,display:false)
+        }
     }
     required init?(coder:NSCoder){fatalError("Programmatic window")}
     @objc func undo(_ sender:Any?){session.undo()}

@@ -58,6 +58,7 @@ final class NativeJourneyUITests:XCTestCase {
                 let title=try XCTUnwrap(json(root.appendingPathComponent("UI_STEP.json"))?["window"] as? String)
                 let window=app.windows[title]
                 XCTAssertTrue(window.exists)
+                XCTAssertTrue(window.buttons["Export…"].isHittable,"Export must remain on screen")
                 let screenshot=window.screenshot()
                 let attachment=XCTAttachment(screenshot:screenshot);attachment.name="Native \(appearance) appearance";attachment.lifetime = .keepAlways;add(attachment)
                 let nextFrame=window.buttons["drift.next-frame"]

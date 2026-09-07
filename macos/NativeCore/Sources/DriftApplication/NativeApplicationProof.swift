@@ -32,6 +32,7 @@ import DriftNative
             guard let editor=document.editor else{throw NativeFailure.message("The native editor did not initialize.")}
             guard let transport=document.transport else{throw NativeFailure.message("The native transport did not initialize.")}
             guard let controller=document.windowControllers.first,let window=controller.window else{throw NativeFailure.message("NSDocument did not retain its native window controller.")}
+            try require(window.screen?.visibleFrame.contains(window.frame)==true,"document window fits the current display")
             try require(controller.document === document,"native window document ownership")
             document.makeWindowControllers()
             try require(document.windowControllers.count==1,"idempotent native window creation")
