@@ -1,11 +1,8 @@
 import Foundation
 
-public enum DriftCoreError: Error, LocalizedError, Equatable, Sendable {
+public enum DriftCoreError: Error, Equatable, Sendable {
     case invalid(String)
     case overflow
-    public var errorDescription:String?{
-        switch self{case .invalid(let message):return message;case .overflow:return "This value exceeds Drift's exact arithmetic limits."}
-    }
 }
 
 func checkedAdd(_ a: Int64, _ b: Int64) throws -> Int64 {
