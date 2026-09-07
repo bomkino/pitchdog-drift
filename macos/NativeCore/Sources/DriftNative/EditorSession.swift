@@ -150,7 +150,7 @@ public actor RecoveryWriter {
             }
             let used=Set(next.slides.map(\.assetID));next.assets=next.assets.filter{used.contains($0.key)}
         }else{
-            for original in batch.originals{if next.assets[original.id]==nil{next.assets[original.id]=original};var slide=Slide(assetID:original.id);slide.fit=Fit(rawValue:next.creative.card.defaultFit) ?? .fit;next.slides.append(slide)}
+            for original in batch.originals{if next.assets[original.id]==nil{next.assets[original.id]=original};var slide=Slide(assetID:original.id);slide.fit=next.creative.card.defaultFit=="cover" ? .fill:.fit;next.slides.append(slide)}
         }
         try next.validate();_=try FramePlan(project:next);return next
     }

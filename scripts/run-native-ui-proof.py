@@ -6,6 +6,8 @@ import plistlib
 import re
 import subprocess
 import sys
+import shutil
+import time
 import uuid
 
 repo = pathlib.Path(__file__).resolve().parent.parent
@@ -45,11 +47,18 @@ result_path = evidence / ("NativeJourney-" + run_id + ".xcresult")
 command = ["xcodebuild", "test", "-project", str(work / "DriftAcceptance.xcodeproj"),
            "-scheme", "DriftAcceptance", "-destination", "platform=macOS", "-derivedDataPath", str(work / "DerivedData"),
            "-resultBundlePath", str(result_path), "-parallel-testing-enabled", "NO"]
+started = time.time()
 try:
     result = subprocess.run(command, check=False, timeout=720)
 except subprocess.TimeoutExpired:
     raise SystemExit("XCUITest exceeded its bounded acceptance deadline.")
 finally:
+    crash_root = pathlib.Path.home() / "Library/Logs/DiagnosticReports"
+    for report in crash_root.glob("Drift*.ips"):
+        if report.stat().st_mtime >= started:
+            shutil.copyfile(report, evidence / report.name)
+    with (evidence / "Audio-Devices.json").open("w") as stream:
+        subprocess.run(["system_profiler", "SPAudioDataType", "-json"], stdout=stream, check=True)
     if result_path.exists():
         subprocess.run(["xcrun", "xcresulttool", "export", "attachments", "--path", str(result_path),
                         "--output-path", str(evidence / ("captures-" + run_id))], check=True)

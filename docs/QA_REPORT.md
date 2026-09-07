@@ -1,4 +1,6 @@
-# QA receipt
+# Historical browser QA receipt
+
+This August browser receipt is retained as historical evidence. Current native acceptance is described in [MACOS_QA.md](MACOS_QA.md) and its observed state in [STATUS.md](STATUS.md).
 
 Checked on 20 August 2026 in desktop Google Chrome 151 on macOS. This receipt separates source checks, browser behavior, decoded media, and limits; none substitutes for the others.
 

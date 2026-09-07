@@ -39,4 +39,15 @@ final class NativeBoundaryTests:XCTestCase {
         let wrong=workspace.root.appendingPathComponent("Pretend.webp");try Data(repeating:1,count:1024).write(to:wrong)
         XCTAssertThrowsError(try MediaInspector.stage(wrong,in:workspace,cancel:MediaCancellation()))
     }
+    @MainActor func testImportedSlidesHonorAuthoredCoverAndContainDefaults()throws{
+        for (setting,expected) in [("cover",Fit.fill),("contain",Fit.fit)]{
+            let work=try MediaWorkspace(),source=try Self.image(work),original=try MediaInspector.stage(source,in:work,cancel:MediaCancellation())
+            var project=try DriftProject(creative:CreativeCatalog.load().defaults);project.creative.card.defaultFit=setting
+            let session=try EditorSession(project:project,workspace:MediaWorkspace(),saved:true)
+            session.pendingBatch=StagedBatch(workspace:work,originals:[original],failures:[],ticket:session.ticket(),replacementID:nil,expectedFingerprint:nil)
+            session.acceptBatch()
+            XCTAssertNil(session.issue);XCTAssertEqual(session.project.slides.first?.fit,expected)
+            session.undo();XCTAssertTrue(session.project.slides.isEmpty)
+        }
+    }
 }

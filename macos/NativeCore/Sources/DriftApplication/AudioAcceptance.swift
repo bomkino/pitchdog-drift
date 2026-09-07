@@ -5,6 +5,9 @@ import DriftNative
 
 @MainActor enum AudioAcceptance {
     static func previewLifecycle(snapshot:RenderSnapshot,output:URL)async throws->String{
+        func phase(_ name:String)throws{
+            try JSONSerialization.data(withJSONObject:["phase":name]).write(to:output.appendingPathComponent("Preview-Audio-Progress.json"),options:.atomic)
+        }
         var project=snapshot.project;project.creative.sound.previewEnabled=true
         var current=try RenderSnapshot(project:project,workspace:snapshot.workspace),revision:UInt64=0
         let transport=Transport(plan:current.plan),preview=PreviewSound()
@@ -12,11 +15,11 @@ import DriftNative
         preview.onError={issue=$0}
         transport.didTick={_,_ in preview.update(snapshot:current,revision:revision,transport:transport)}
         defer{transport.pause();preview.stop();transport.didTick=nil}
-        transport.seek(3);transport.play()
+        try phase("initial playback");transport.seek(3);transport.play()
         try await NativeApplicationProof.wait("actual recorded-sound preview starts"){preview.playbackStarts==1 || issue != nil}
         try NativeApplicationProof.require(issue==nil,"preview audio: \(issue ?? "")")
         try NativeApplicationProof.require(preview.buildCount==1,"one initial soundtrack build")
-        let inspected=transport.frame
+        try phase("Look edits during playback");let inspected=transport.frame
         for step in 0..<8{
             project.creative.atmosphere.grain=Double(step)/20
             current=try RenderSnapshot(project:project,workspace:snapshot.workspace);revision+=1
@@ -24,13 +27,13 @@ import DriftNative
             try await Task.sleep(nanoseconds:20_000_000)
         }
         try NativeApplicationProof.require(transport.playing && transport.frame>inspected && preview.buildCount==1 && preview.playbackStarts==1,"Look edits preserve the running soundtrack and clock")
-        transport.pause();try await Task.sleep(nanoseconds:150_000_000)
+        try phase("pause");transport.pause();try await Task.sleep(nanoseconds:150_000_000)
         try NativeApplicationProof.require(preview.playbackStarts==1,"late audio callbacks cannot restart paused playback")
-        transport.play()
+        try phase("resume");transport.play()
         try await NativeApplicationProof.wait("resume uses prepared recorded sound"){preview.playbackStarts==2 || issue != nil}
-        transport.seek(12);transport.play()
+        try phase("seek");transport.seek(12);transport.play()
         try await NativeApplicationProof.wait("seek starts one current sound queue"){preview.playbackStarts==3 || issue != nil}
-        transport.pause();preview.stop();let starts=preview.playbackStarts
+        try phase("stop");transport.pause();preview.stop();let starts=preview.playbackStarts
         try await Task.sleep(nanoseconds:150_000_000)
         try NativeApplicationProof.require(issue==nil && preview.playbackStarts==starts && preview.buildCount==1,"closed preview cannot publish or rebuild stale sound")
         let metrics:[String:Any]=["soundtrackBuilds":preview.buildCount,"playbackStarts":starts,"lookEdits":8,"result":"passed"]

@@ -211,9 +211,25 @@ private extension Color {
 struct CreativeGroup:View {
     @ObservedObject var session:EditorSession
     let type:String,path:[String]
+    // Preserve catalog metadata in portable projects without offering controls
+    // for fields that neither the retained renderer nor native evaluator uses.
+    // Recipes, World/Recut and explicit sequence timing own their real effects.
+    private var catalogOnly:Set<String>{
+        switch type{
+        case "MotionSettingsTransport":return ["slidesPerSecond"]
+        case "MotionSettingsCadence":return ["cutId"]
+        case "MotionSettingsPerformance":return ["id"]
+        case "MaterialSettingsFinish":return ["id","registration","localSoftness","localSmear"]
+        case "LightingSettings":return ["space","heroProtection","backgroundSpill","spillFocus","gobo","goboStrength","breath"]
+        case "AtmosphereSettings":return ["paletteId","treatment","presence","recut"]
+        case "LensSettings":return ["characterId"]
+        case "SoundSettings":return ["interfaceLevel","source"]
+        default:return []
+        }
+    }
     var body:some View{
         if let definition=session.catalog.fields.first(where:{$0.name==type}){
-            ForEach(definition.fields,id:\.key){field in
+            ForEach(definition.fields.filter{!catalogOnly.contains($0.key)},id:\.key){field in
                 if session.catalog.fields.contains(where:{$0.name==field.type}){
                     DisclosureGroup(human(field.key)){AnyView(CreativeGroup(session:session,type:field.type,path:path+[field.key]).padding(.vertical,6))}
                 }else{JsonField(session:session,field:field,path:path+[field.key])}

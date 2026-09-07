@@ -65,7 +65,7 @@ final class NativeJourneyUITests:XCTestCase {
                 XCTAssertTrue(nextFrame.isEnabled)
                 nextFrame.click()
             }
-            try awaitValue("native document/media/output result",timeout:480){self.json(root.appendingPathComponent("RESULT.json")) != nil}
+            try awaitValue("native document/media/output result",timeout:480){self.json(root.appendingPathComponent("RESULT.json")) != nil || app.state == .notRunning}
             let result=try XCTUnwrap(json(root.appendingPathComponent("RESULT.json")))
             XCTAssertEqual(result["result"] as? String,"passed","\(result)")
             XCTAssertEqual(result["source"] as? String,source)
