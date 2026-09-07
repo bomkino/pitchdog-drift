@@ -2,16 +2,18 @@
 
 ## Native continuation · 7 September 2026
 
-- Repository: `bomkino/pitchdog-drift`; branch: `codex/drift-native-completion`.
-- Last tested head: `622dd8b3ecd1a9589b653a87451d424998c0024a`, descended from handover head `2218cd3a88f0b93935d4b109df36839cecb0e0f7`. Main remains the earlier hybrid `340b5f631c9147890bc775c86a71af315dd17929`; no accepted native release exists.
-- **Passed on that exact head:** debug integration run `34079905010`, job `101613089924`, all 15 tests including ordinary-user private-directory traversal, file permissions and project byte round trips. Hosted macOS 15.7.9 arm64, Xcode 16.4. Artifact `10003390758`.
-- **Separately passed:** native release build and archive round-trip verification in run `34079905016`, job `101613090233`. The extracted app then failed before import: “The native document window did not open.” No app artifact was published. Independently downloaded evidence artifact `10003394305` matches SHA-256 `ef8e26c3dac0e51ef5999b6dc80efbde851aefb6ac6d80365307d1c9e922c85d`.
-- **Current changes, not yet accepted:** leave window attachment to `NSDocument.addWindowController`, make repeated window creation idempotent and expose initialization errors in the packaged journey; preserve displaced destinations across all post-swap exceptions, with six fault-injection regressions; correct packaged copyright to the repository’s existing AGPL-3.0-or-later licence.
+Repository `bomkino/pitchdog-drift`; working branch `codex/drift-native-completion`. Last tested head: `39a541d0dcf2e61d3d8dca047d0355ef20033de1`. Main remains the earlier hybrid `340b5f631c9147890bc775c86a71af315dd17929`. No accepted native release or installer exists.
 
-Next action: execute both Mac gates on this commit, inspect the first decisive packaged-app failure, and complete V3 document/media/creative/output acceptance. Do not replay the historical repair or restart the native implementation.
+**Verified at 39a541d:** debug integration run `34080601224`, job `101615012508`: 21 tests passed, including six destination-swap fault-injection cases and private owner-only directory/file regressions. Downloaded artifact `10003584362` matches SHA-256 `10f8ad844e5281593eb27a15088ba5d4350f13ace095862db32b54c75282dfa7`. Hosted macOS 15.7.9 arm64 / Xcode 16.4; these are component tests, not complete application acceptance.
 
-## Acceptance boundary
+**Packaged application:** run `34080601230`, job `101615012542`, built and passed archive extraction/signature/resource checks. Native document/window ownership now passed. Mixed-media import then failed at `Video.mp4: Video contains an invalid presentation timestamp.` Downloaded evidence `10003638907` matches SHA-256 `4327d9f09ab1332b53e3c99f919f4f1e25655c21dfb28f8970c5d43c2e906140`. No installer was uploaded or published.
 
-The native AppKit/NSDocument, SwiftUI, Metal, file-backed originals, streamed ZIP64, VP8/VP9 WebM, still/animated WebP, exact 2576 × 1080 canvas, decimal ratios, Pin, Spotlight, global Closing, history, audition, MP4/PNG outputs and licensed recorded sound remain the implementation. Source presence, compilation, archive integrity and the 15 component tests are not full product acceptance.
+**Current changes awaiting Mac gates:** distinguish zero-sample/decode-only markers from presentation frames while rejecting invalid real-frame timing; reuse immutable decoded WebP/video frames; binary-index positive WebP/WebM hold intervals; prepare each slide at its largest visible occurrence; verify owned media before cache hits and account exact still-cache cost; preserve actionable core errors. Added synthetic B-frame, zero-duration WebP, repeated-hold copy-count and representation-demand regressions. Local Swift parsing passed. These changes are not product acceptance.
 
-Physical M2 mini 8 GB, M1 Pro and the macOS 13.3 deployment floor remain untested. Hosted Mac evidence is recorded separately from Linux parsing. No measured performance guarantee is claimed. Do not merge or publish while a known build, document-safety or output failure remains. Preserve history, licences, source originals and unrelated work; only Drift is a write target.
+Next action: run the affected debug and archived-app gates on this commit, fix the first decisive failure, then complete V3 document/media/creative/output acceptance. Continue existing native work; do not replay the historical repair.
+
+## Remaining acceptance boundary
+
+Actual document Save/Save As/edit-during-save/close/recovery journeys, full media timing/alpha/colour/output pixels and sound decoding, authored creative consumers, global media resource coordination, stable source audition/transport, documentation/build cleanup and an exact-main release remain subject to verification. Source presence, compilation and archive checks alone do not establish them.
+
+Physical M2 mini 8 GB, M1 Pro and the macOS 13.3 deployment floor remain untested. No physical-device performance guarantee is claimed. Keep native-only architecture, 2576 × 1080, exact ratios, all approved creative systems, Pin + Spotlight + global Closing, original media and useful history. Do not merge or publish with a known build, project-safety or output failure. Only Drift is a write target.

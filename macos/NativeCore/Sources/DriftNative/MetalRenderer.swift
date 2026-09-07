@@ -171,9 +171,15 @@ public final class NativeRenderer {
         let scene=try texture(width,height),result=try texture(width,height),uniforms=baseUniforms(snapshot,value,width:width,height:height)
         var prepared:[String:any MTLTexture]=[:]
         let slideMap=Dictionary(uniqueKeysWithValues:p.slides.map{($0.id,$0)})
+        // One slide may appear at several scales (sequence, Pin, Spotlight).
+        // Prepare at the largest demand before drawing any occurrence.
+        var demands=SourceResolutionDemand()
         for pose in value.cards where pose.opacity>0.00001{
-            guard let slide=slideMap[pose.slideID] else{continue}
-            if prepared[slide.id]==nil{prepared[slide.id]=try sourceTexture(slide:slide,snapshot:snapshot,seconds:value.outputSeconds,dimension:max(64,Int(ceil(max(pose.width,pose.height)*factor*1.25))))}
+            demands.include(id:pose.slideID,width:pose.width,height:pose.height,scale:factor)
+        }
+        for (id,dimension) in demands.dimensions.sorted(by:{$0.key<$1.key}){
+            guard let slide=slideMap[id] else{continue}
+            prepared[id]=try sourceTexture(slide:slide,snapshot:snapshot,seconds:value.outputSeconds,dimension:dimension)
         }
         try sources.cancellation.check();guard let command=queue.makeCommandBuffer() else{throw NativeFailure.message("The GPU command could not start.")}
         let protected=value.cards.filter{$0.protected},unprotected=value.cards.filter{!$0.protected}

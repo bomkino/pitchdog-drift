@@ -74,6 +74,10 @@ struct DriftCodec {
     std::unique_ptr<mkvparser::Segment> segment;
     const mkvparser::VideoTrack *track=nullptr;
     std::vector<Packet> packets;std::vector<uint8_t> encoded,pixels;
+    // Positive presentation intervals only; disposal/blending frames with zero
+    // duration still decode, but cannot be chosen as a displayed hold frame.
+    struct WebPInterval {double start,end;};
+    std::vector<WebPInterval> webp_intervals;
     vpx_codec_ctx_t vpx{};bool vpx_live=false;
     size_t next_packet=0;int webp_frame=0;
     double current_start=-1,current_end=-1;
@@ -94,7 +98,7 @@ struct DriftCodec {
         }
         if(info.animated){
             WebPIterator it{};if(!WebPDemuxGetFrame(demux,1,&it))fail("WebP has no readable frames.");
-            int64_t ms=0;do{check();if(it.duration<0){WebPDemuxReleaseIterator(&it);fail("Invalid WebP frame duration.");}ms+=it.duration;if(ms>86400000){WebPDemuxReleaseIterator(&it);fail("WebP duration exceeds one day.");}}while(WebPDemuxNextFrame(&it));WebPDemuxReleaseIterator(&it);
+            int64_t ms=0;do{check();if(it.duration<0){WebPDemuxReleaseIterator(&it);fail("Invalid WebP frame duration.");}const int64_t before=ms;ms+=it.duration;if(ms>86400000){WebPDemuxReleaseIterator(&it);fail("WebP duration exceeds one day.");}if(ms>before)webp_intervals.push_back({static_cast<double>(before)/1000,static_cast<double>(ms)/1000});}while(WebPDemuxNextFrame(&it));WebPDemuxReleaseIterator(&it);
             if(ms<=0)fail("Animated WebP has no positive presentation duration.");info.duration=static_cast<double>(ms)/1000;
             WebPAnimDecoderOptions options{};if(!WebPAnimDecoderOptionsInit(&options))fail("WebP decoder ABI mismatch.");options.color_mode=MODE_RGBA;options.use_threads=0;
             animation=WebPAnimDecoderNew(&data,&options);if(!animation)fail("WebP animation decoder could not start.");
@@ -176,8 +180,9 @@ struct DriftCodec {
         if(info.codec==1&&!info.animated){if(!webp_pixels){webp_pixels=WebPDecodeRGBA(file.map(),static_cast<size_t>(file.size),&info.width,&info.height);webp_static_owned=true;if(!webp_pixels)fail("WebP pixels could not be decoded.");}return DriftCodecFrame{webp_pixels,info.width,info.height,info.width*4,0,0};}
         if(info.codec==1){
             double target=time;
-            if(final){WebPIterator it{};if(!WebPDemuxGetFrame(demux,1,&it))fail("WebP frame table is unavailable.");double at=0;bool found=false;
-                do{double next=at+static_cast<double>(it.duration)/1000;if(at<end&&next>start){target=at;found=true;}at=next;}while(WebPDemuxNextFrame(&it));WebPDemuxReleaseIterator(&it);if(!found)fail("No WebP frame intersects the trim.");}
+            if(final){auto it=std::lower_bound(webp_intervals.begin(),webp_intervals.end(),end,[](const WebPInterval &p,double value){return p.start<value;});
+                if(it==webp_intervals.begin())fail("No WebP frame intersects the trim.");--it;
+                if(it->end<=start)fail("No WebP frame intersects the trim.");target=it->start;}
             if(target<current_start){WebPAnimDecoderReset(animation);current_start=current_end=-1;webp_frame=0;}
             while(current_end<=target){check();int timestamp=0;double before=webp_frame?current_end:0;
                 if(!WebPAnimDecoderHasMoreFrames(animation)||!WebPAnimDecoderGetNext(animation,&webp_pixels,&timestamp))fail("WebP animation ended before the requested frame.");
@@ -187,7 +192,9 @@ struct DriftCodec {
             return DriftCodecFrame{webp_pixels,info.width,info.height,info.width*4,current_start,current_end-current_start};
         }
         size_t wanted=0;
-        if(final){bool found=false;for(size_t i=0;i<packets.size();i++){if(packets[i].pts<end&&packets[i].end>start){wanted=i;found=true;}}if(!found)fail("No WebM frame intersects the trim.");}
+        if(final){auto it=std::lower_bound(packets.begin(),packets.end(),end,[](const Packet&p,double value){return p.pts<value;});
+            if(it==packets.begin())fail("No WebM frame intersects the trim.");--it;
+            if(it->end<=start)fail("No WebM frame intersects the trim.");wanted=static_cast<size_t>(it-packets.begin());}
         else{auto it=std::upper_bound(packets.begin(),packets.end(),time,[](double v,const Packet&p){return v<p.pts;});if(it==packets.begin())wanted=0;else wanted=static_cast<size_t>((it-packets.begin())-1);
             if(time<packets[wanted].pts-1e-8||time>=packets[wanted].end)fail("No WebM frame covers the requested source time.");}
         const double target=packets[wanted].pts;

@@ -30,12 +30,19 @@ final class MovieIndex {
         output.alwaysCopiesSampleData=false;try check(reader.canAdd(output),"The video timing index could not be read.");reader.add(output)
         try check(reader.startReading(),reader.error?.localizedDescription ?? "Video indexing could not start.")
         defer{reader.cancelReading()}
-        var entries:[(Double,Double,Bool)]=[]
+        var entries:[(Double,Double,Bool)]=[],buffers=0
         while let buffer=output.copyNextSampleBuffer(){
-            try cancel.check();let time=CMSampleBufferGetPresentationTimeStamp(buffer).seconds,span=CMSampleBufferGetDuration(buffer).seconds
+            try cancel.check();buffers+=1
+            try check(buffers<=500_000,"The video contains too many sample buffers.")
+            // AVAssetReader can emit marker buffers with no media samples. They
+            // are not frames and may have invalid PTS. Decode-only preroll is
+            // likewise not an authored presentation frame.
+            guard CMSampleBufferGetNumSamples(buffer)>0 else{continue}
             let attachments=CMSampleBufferGetSampleAttachmentsArray(buffer,createIfNecessary:false) as? [[CFString:Any]]
+            if (attachments?.first?[kCMSampleAttachmentKey_DoNotDisplay] as? Bool)==true{continue}
+            let time=CMSampleBufferGetPresentationTimeStamp(buffer).seconds,span=CMSampleBufferGetDuration(buffer).seconds
             let key=(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool) != true
-            try check(time.isFinite,"Video contains an invalid presentation timestamp.")
+            try check(time.isFinite,"Video contains an invalid presentation timestamp (sample count: \(CMSampleBufferGetNumSamples(buffer)); output time: \(CMSampleBufferGetOutputPresentationTimeStamp(buffer).seconds)).")
             entries.append((time,span.isFinite && span>0 ? span:0,key));try check(entries.count<=250_000,"The video contains too many indexed frames.")
         }
         try check(reader.status == .completed,reader.error?.localizedDescription ?? "Video timing is incomplete.")
@@ -62,11 +69,12 @@ final class MovieIndex {
 final class NativeMovieSource {
     let index:MovieIndex,cancel:MediaCancellation
     private var reader:AVAssetReader?,output:AVAssetReaderTrackOutput?,current:CMSampleBuffer?
+    private var cachedImage:CIImage?
     var currentTime = -Double.infinity,lastRequested = -Double.infinity
     init(url:URL,cancel:MediaCancellation)throws{self.cancel=cancel;index=try MovieIndex(url:url,cancel:cancel)}
     deinit{reader?.cancelReading()}
     private func start(at target:Int)throws{
-        reader?.cancelReading();reader=nil;output=nil;current=nil;currentTime = -Double.infinity
+        reader?.cancelReading();reader=nil;output=nil;current=nil;cachedImage=nil;currentTime = -Double.infinity
         var key=target
         while key>0 && !index.samples[key].key{key-=1}
         let read=try AVAssetReader(asset:index.asset),out=AVAssetReaderTrackOutput(track:index.track,outputSettings:[kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA,kCVPixelBufferIOSurfacePropertiesKey as String:[:]])
@@ -85,14 +93,18 @@ final class NativeMovieSource {
         while current==nil || currentTime<stamp-1e-7{
             try cancel.check()
             guard let sample=output?.copyNextSampleBuffer() else{throw reader?.error ?? NativeFailure.message("Video ended before the requested frame.")}
+            guard CMSampleBufferGetNumSamples(sample)>0 else{continue}
+            let attachments=CMSampleBufferGetSampleAttachmentsArray(sample,createIfNecessary:false) as? [[CFString:Any]]
+            if (attachments?.first?[kCMSampleAttachmentKey_DoNotDisplay] as? Bool)==true{continue}
             let pts=CMSampleBufferGetPresentationTimeStamp(sample).seconds
             try check(pts.isFinite && pts>=currentTime,"Video decoder returned invalid frame order.")
-            current=sample;currentTime=pts
+            current=sample;currentTime=pts;cachedImage=nil
         }
         try check(abs(currentTime-stamp)<0.002,"The decoder did not return the requested source frame.")
+        if let cachedImage{return cachedImage}
         guard let pixel=CMSampleBufferGetImageBuffer(current!) else{throw NativeFailure.message("The decoded video frame has no pixels.")}
         let image=CIImage(cvPixelBuffer:pixel).transformed(by:index.transform),r=image.extent
-        return image.transformed(by:CGAffineTransform(translationX:-r.minX,y:-r.minY))
+        let normalized=image.transformed(by:CGAffineTransform(translationX:-r.minX,y:-r.minY));cachedImage=normalized;return normalized
     }
 }
 final class WebSource {
@@ -100,6 +112,8 @@ final class WebSource {
     let info:DriftCodecInfo
     let colour:CGColorSpace
     private(set) var timestamp=0.0
+    private var cachedImage:CIImage?,cachedTimestamp:Double?,cachedDuration=0.0
+    private(set) var pixelCopies=0
     init(url:URL,cancel:MediaCancellation)throws{
         self.cancel=cancel;var error=[CChar](repeating:0,count:1024)
         guard let p=url.path.withCString({drift_codec_open_cancellable($0,cancel.pointer,&error,error.count)}) else{try cancel.check();throw NativeFailure.message(String(cString:error))}
@@ -117,10 +131,14 @@ final class WebSource {
         let start=origin+Double(playback.trimInNanoseconds)/1e9,end=playback.trimOutNanoseconds.map{origin+Double($0)/1e9} ?? info.duration
         guard drift_codec_read(pointer,time,final,start,end,&frame,&error,error.count)==1 else{try cancel.check();throw NativeFailure.message(String(cString:error))}
         timestamp=frame.timestamp
+        // The codec owns a mutable compositing buffer. Keep one immutable copy
+        // per returned frame interval, not one full-source copy per output tick.
+        if cachedTimestamp==frame.timestamp,cachedDuration==frame.duration,let cachedImage{return cachedImage}
         guard let rgba=frame.rgba else{throw NativeFailure.message("Web media returned an empty frame.")}
         let data=Data(bytes:rgba,count:Int(frame.stride)*Int(frame.height))
         guard let provider=CGDataProvider(data:data as CFData),let image=CGImage(width:Int(frame.width),height:Int(frame.height),bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:Int(frame.stride),space:colour,bitmapInfo:CGBitmapInfo(rawValue:CGImageAlphaInfo.last.rawValue),provider:provider,decode:nil,shouldInterpolate:true,intent:.relativeColorimetric) else{throw NativeFailure.message("The Web media frame could not be represented.")}
-        return CIImage(cgImage:image)
+        let result=CIImage(cgImage:image);cachedImage=result;cachedTimestamp=frame.timestamp;cachedDuration=frame.duration;pixelCopies+=1
+        return result
     }
 }
 
@@ -177,7 +195,7 @@ public enum MediaInspector {
 /// still representation cache. Originals and undo snapshots never occupy these caches.
 public final class MediaFrames {
     private enum Source{case web(WebSource),movie(NativeMovieSource)}
-    private var sources:[String:Source]=[:],lru:[String]=[],stills:[String:CIImage]=[:],stillOrder:[String]=[],stillCost=0
+    private var sources:[String:Source]=[:],lru:[String]=[],stills:[String:(image:CIImage,cost:Int)]=[:],stillOrder:[String]=[],stillCost=0
     public private(set) var frameToken=""
     public let cancellation:MediaCancellation
     public init(cancellation:MediaCancellation=MediaCancellation()){self.cancellation=cancellation}
@@ -185,19 +203,20 @@ public final class MediaFrames {
     public func image(original:Original,workspace:MediaWorkspace,playback:SourcePlayback,seconds:Double,maximumDimension:Int)throws->CIImage{
         try cancellation.check();let request=try playback.request(outputSeconds:seconds,original:original)
         let maxDimension=max(64,min(8192,maximumDimension)),key=original.id
+        // Identity verification is cached by inode/size/mtime/ctime. A pixel
+        // cache hit must not hide a missing or changed owned original.
+        try workspace.verify(original)
         if !["webm","webp"].contains(original.subtype) && original.kind == .image {
             let cacheKey="\(key)/\(maxDimension)"
             frameToken=cacheKey
-            if let result=stills[cacheKey]{return result}
-            try workspace.verify(original)
+            if let result=stills[cacheKey]{stillOrder.removeAll{$0==cacheKey};stillOrder.append(cacheKey);return result.image}
             guard let source=CGImageSourceCreateWithURL(try workspace.url(original) as CFURL,[kCGImageSourceShouldCache:false] as CFDictionary),let thumb=CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:maxDimension,kCGImageSourceShouldCacheImmediately:true] as CFDictionary) else{throw NativeFailure.message("\(original.name) could not be decoded.")}
             let image=CIImage(cgImage:thumb),cost=thumb.bytesPerRow*thumb.height
-            while stillCost+cost>96*1024*1024,let oldest=stillOrder.first{stillOrder.removeFirst();if let evicted=stills.removeValue(forKey:oldest){stillCost-=Int(evicted.extent.width*evicted.extent.height)*4}}
-            if cost<=96*1024*1024{stills[cacheKey]=image;stillOrder.append(cacheKey);stillCost+=cost};return image
+            while stillCost+cost>96*1024*1024,let oldest=stillOrder.first{stillOrder.removeFirst();if let evicted=stills.removeValue(forKey:oldest){stillCost-=evicted.cost}}
+            if cost<=96*1024*1024{stills[cacheKey]=(image,cost);stillOrder.append(cacheKey);stillCost+=cost};return image
         }
         var source=sources[key]
         if source==nil{
-            try workspace.verify(original)
             while lru.count>=4{sources.removeValue(forKey:lru.removeFirst())}
             let url=try workspace.url(original)
             source=["webm","webp"].contains(original.subtype) ? .web(try WebSource(url:url,cancel:cancellation)):.movie(try NativeMovieSource(url:url,cancel:cancellation))
