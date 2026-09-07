@@ -51,7 +51,10 @@ public enum ProjectIO {
             let output=try workspace.map{try OwnedFiles.create($0.url(original))}
             defer{try? output?.close()}
             var read:Int64=0,hash=SHA256()
-            while true{try Task.checkCancellation();let chunk=try archive.read(maximum:1024*1024);if chunk.isEmpty{break};read+=Int64(chunk.count);try check(read<=size,"An archive entry expanded beyond its declared size.");hash.update(data:chunk);try output?.write(contentsOf:chunk)}
+            while try autoreleasepool(invoking:{
+                try Task.checkCancellation();let chunk=try archive.read(maximum:1024*1024);if chunk.isEmpty{return false}
+                read+=Int64(chunk.count);try check(read<=size,"An archive entry expanded beyond its declared size.");hash.update(data:chunk);try output?.write(contentsOf:chunk);return true
+            }){}
             try check(read==size && hex(hash.finalize())==original.sha256,"\(original.name) failed original-media verification.")
             try output?.synchronize();try output?.close()
         }
@@ -72,7 +75,10 @@ public enum ProjectIO {
             let source=try snapshot.workspace.url(original),before=try FileIdentity.read(source),input=try OwnedFiles.openRead(source)
             defer{try? input.close()};try writer.begin(original.path,size:original.byteLength)
             var total:Int64=0,hash=SHA256()
-            while true{try Task.checkCancellation();let chunk=try input.read(upToCount:1024*1024) ?? Data();if chunk.isEmpty{break};total+=Int64(chunk.count);try check(total<=original.byteLength,"An original changed during Save.");hash.update(data:chunk);try writer.write(chunk)}
+            while try autoreleasepool(invoking:{
+                try Task.checkCancellation();let chunk=try input.read(upToCount:1024*1024) ?? Data();if chunk.isEmpty{return false}
+                total+=Int64(chunk.count);try check(total<=original.byteLength,"An original changed during Save.");hash.update(data:chunk);try writer.write(chunk);return true
+            }){}
             try check(total==original.byteLength && hex(hash.finalize())==original.sha256 && (try FileIdentity.read(source))==before,"An original changed during Save. The previous project is intact.")
         }
         try writer.finish()

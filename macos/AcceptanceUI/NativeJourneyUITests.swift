@@ -21,10 +21,11 @@ final class NativeJourneyUITests:XCTestCase {
         let source=try XCTUnwrap(bundle.object(forInfoDictionaryKey:"DriftSourceRevision") as? String)
         let runID=try XCTUnwrap(bundle.object(forInfoDictionaryKey:"DriftProofRunID") as? String)
         let root=URL(fileURLWithPath:try XCTUnwrap(bundle.object(forInfoDictionaryKey:"DriftProofRootPath") as? String),isDirectory:true)
+        let exchange=URL(fileURLWithPath:try XCTUnwrap(bundle.object(forInfoDictionaryKey:"DriftProofExchangePath") as? String),isDirectory:true)
         print("DRIFT_UI_PROOF_ROOT \(root.path)")
         let app=XCUIApplication(url:URL(fileURLWithPath:path))
         app.launchArguments=["--native-self-test","--native-ui-driver","-AppleLanguages","(en)","-AppleLocale","en_US"]
-        app.launchEnvironment=["DRIFT_PROOF_RUN_ID":runID]
+        app.launchEnvironment=["DRIFT_PROOF_RUN_ID":runID,"DRIFT_PROOF_EXCHANGE_PATH":exchange.path]
         app.launch()
         defer{if app.state != .notRunning{app.terminate()}}
         do{
@@ -59,9 +60,9 @@ final class NativeJourneyUITests:XCTestCase {
                 let window=app.windows[title]
                 XCTAssertTrue(window.exists)
                 let screenshot=window.screenshot()
-                try screenshot.pngRepresentation.write(to:root.appendingPathComponent("Appearance-\(appearance).png"))
+                try screenshot.pngRepresentation.write(to:exchange.appendingPathComponent("Appearance-\(appearance).png"))
                 let attachment=XCTAttachment(screenshot:screenshot);attachment.name="Native \(appearance) appearance";attachment.lifetime = .keepAlways;add(attachment)
-                try JSONSerialization.data(withJSONObject:["choice":choice]).write(to:root.appendingPathComponent("UI_ACK.json"),options:.atomic)
+                try JSONSerialization.data(withJSONObject:["choice":choice]).write(to:exchange.appendingPathComponent("UI_ACK.json"),options:.atomic)
             }
             try awaitValue("native document/media/output result",timeout:480){self.json(root.appendingPathComponent("RESULT.json")) != nil}
             let result=try XCTUnwrap(json(root.appendingPathComponent("RESULT.json")))

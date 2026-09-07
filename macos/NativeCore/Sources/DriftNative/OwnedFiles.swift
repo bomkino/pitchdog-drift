@@ -37,7 +37,12 @@ public enum OwnedFiles {
         guard let before=try FileIdentity.read(url) else{throw NativeFailure.message("\(url.lastPathComponent) is missing.")}
         try check(before.size>0 && before.size<=maximum,"\(url.lastPathComponent) exceeds the supported size.")
         let input=try openRead(url);defer{try? input.close()};var hash=SHA256(),read:Int64=0
-        while true{try cancel();let chunk=try input.read(upToCount:1024*1024) ?? Data();if chunk.isEmpty{break};read+=Int64(chunk.count);try check(read<=maximum,"The source grew beyond its budget.");hash.update(data:chunk)}
+        // FileHandle/Data may bridge through autoreleased Foundation buffers.
+        // Drain each chunk on long-running workers, not at the end of an import.
+        while try autoreleasepool(invoking:{
+            try cancel();let chunk=try input.read(upToCount:1024*1024) ?? Data();if chunk.isEmpty{return false}
+            read+=Int64(chunk.count);try check(read<=maximum,"The source grew beyond its budget.");hash.update(data:chunk);return true
+        }){}
         try check(read==before.size && (try FileIdentity.read(url))==before,"\(url.lastPathComponent) changed while it was read.")
         return hex(hash.finalize())
     }
@@ -49,7 +54,10 @@ public enum OwnedFiles {
         let input=try openRead(source),output=try create(destination);var success=false
         defer{try? input.close();try? output.close();if !success{try? FileManager.default.removeItem(at:destination)}}
         var hash=SHA256(),copied:Int64=0
-        while true{try cancel();let chunk=try input.read(upToCount:1024*1024) ?? Data();if chunk.isEmpty{break};copied+=Int64(chunk.count);try check(copied<=maximum,"The source grew beyond its budget.");hash.update(data:chunk);try output.write(contentsOf:chunk)}
+        while try autoreleasepool(invoking:{
+            try cancel();let chunk=try input.read(upToCount:1024*1024) ?? Data();if chunk.isEmpty{return false}
+            copied+=Int64(chunk.count);try check(copied<=maximum,"The source grew beyond its budget.");hash.update(data:chunk);try output.write(contentsOf:chunk);return true
+        }){}
         try output.synchronize();try check(copied==before.size && (try FileIdentity.read(source))==before,"\(source.lastPathComponent) changed during import.")
         success=true;return(hex(hash.finalize()),copied)
     }

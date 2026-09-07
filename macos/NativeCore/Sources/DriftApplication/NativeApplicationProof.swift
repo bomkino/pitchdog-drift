@@ -95,6 +95,8 @@ import DriftNative
             let appearanceProject=editor.project,appearanceFrame=transport.frame
             let appearancePixels=try rgba(renderer.image(renderer.render(editor.snapshot,frame:appearanceFrame)))
             let inheritedAppearance=window.appearance
+            guard let exchangePath=ProcessInfo.processInfo.environment["DRIFT_PROOF_EXCHANGE_PATH"],exchangePath.hasPrefix("/") else{throw NativeFailure.message("Appearance capture requires the external UI driver's exchange directory.")}
+            let exchange=URL(fileURLWithPath:exchangePath,isDirectory:true)
             var shellLevels:[CGFloat]=[]
             for (label,name) in [("Light",NSAppearance.Name.aqua),("Dark",NSAppearance.Name.darkAqua)]{
                 window.appearance=NSAppearance(named:name)
@@ -107,7 +109,7 @@ import DriftNative
                 let step:[String:String]=["choice":"appearance-\(label)","window":window.title]
                 try JSONSerialization.data(withJSONObject:step).write(to:root.appendingPathComponent("UI_STEP.json"),options:.atomic)
                 try await wait("external \(label) window capture"){
-                    guard let data=try? Data(contentsOf:root.appendingPathComponent("UI_ACK.json")),let ack=try? JSONSerialization.jsonObject(with:data) as? [String:String] else{return false}
+                    guard let data=try? Data(contentsOf:exchange.appendingPathComponent("UI_ACK.json")),let ack=try? JSONSerialization.jsonObject(with:data) as? [String:String] else{return false}
                     return ack["choice"]=="appearance-\(label)"
                 }
                 try require(editor.project==appearanceProject && transport.frame==appearanceFrame,"appearance preserves project and playback position")
@@ -145,6 +147,7 @@ import DriftNative
             assertions.append("2576x1080 real PNG; static WebP alpha; native PNG sequence range")
             var audible=editor.project;audible.output.format = .mp4;audible.direction.mode = .once;audible.direction.contentPaced=false;audible.direction.bodyMilliseconds=1200;audible.creative.sound.exportEnabled=true;audible.creative.sound.masterLevel=0.3;audible.creative.sound.motionLevel=0.3;audible.closing=nil;audible.spotlights=[];audible.pin=nil
             let soundSnapshot=try RenderSnapshot(project:audible,workspace:editor.workspace)
+            assertions.append(try await AudioAcceptance.previewLifecycle(snapshot:soundSnapshot,output:output))
             _=try await NativeExport.run(snapshot:soundSnapshot,destination:output.appendingPathComponent("Recorded Sound.mp4"))
             assertions.append("Native AAC with retained recorded sound and rational movie timestamps")
             assertions.append(try await AudioAcceptance.run(snapshot:soundSnapshot,url:output.appendingPathComponent("Recorded Sound.mp4"),output:output))
