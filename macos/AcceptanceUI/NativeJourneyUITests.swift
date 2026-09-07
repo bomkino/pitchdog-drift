@@ -93,7 +93,9 @@ final class NativeJourneyUITests:XCTestCase {
                 case "edit-reorder":
                     let source=window.staticTexts[try XCTUnwrap(step["sourceMedia"] as? String)].firstMatch
                     let target=window.staticTexts[try XCTUnwrap(step["targetMedia"] as? String)].firstMatch
-                    source.press(forDuration:1,thenDragTo:target)
+                    let start=source.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
+                    let before=target.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0)).withOffset(CGVector(dx:0,dy:-5))
+                    start.press(forDuration:1,thenDragTo:before)
                 case "look-start","look-restart":
                     if choice=="look-start"{window.radioButtons["Look"].click();try click("drift.look-audition")}
                     try click("drift.world")

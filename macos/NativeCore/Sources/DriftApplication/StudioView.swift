@@ -83,11 +83,12 @@ struct StudioView:View {
         .onDrop(of:["public.file-url"],isTargeted:nil,perform:drop)
     }
     private var library:some View {
-        VStack(alignment:.leading,spacing:8){
+        let visible=session.project.slides.filter{slide in search.isEmpty || session.project.assets[slide.assetID]?.name.localizedCaseInsensitiveContains(search)==true}
+        return VStack(alignment:.leading,spacing:8){
             HStack{Text("MEDIA").font(.caption.weight(.semibold));Spacer();Text("\(session.project.slides.count)").foregroundStyle(.secondary)}.padding(.horizontal,14).padding(.top,16)
             TextField("Find media",text:$search).textFieldStyle(.roundedBorder).padding(.horizontal,12)
             List(selection:$session.selection){
-                ForEach(session.project.slides.filter{slide in search.isEmpty || session.project.assets[slide.assetID]?.name.localizedCaseInsensitiveContains(search)==true}){slide in
+                ForEach(visible){slide in
                     if let original=session.project.assets[slide.assetID]{
                         HStack(spacing:8){
                             Poster(original:original,workspace:session.workspace).frame(width:64,height:42)
@@ -103,10 +104,15 @@ struct StudioView:View {
                             }
                         }.opacity(slide.included ? 1:0.5).padding(.vertical,5).tag(slide.id)
                         .contextMenu{slideMenu(slide,original)}
-                        .itemProvider{NSItemProvider(object:slide.id as NSString)}
-                        .onDrop(of:["public.utf8-plain-text"],isTargeted:nil){providers in reorder(providers,before:slide.id)}
                         .accessibilityLabel("\(original.name)\(slide.included ? "":", excluded")")
                     }
+                }.onMove{offsets,destination in
+                    guard offsets.allSatisfy({visible.indices.contains($0)}),(0...visible.count).contains(destination) else{return}
+                    let ids=Set(offsets.map{visible[$0].id})
+                    let indices=IndexSet(session.project.slides.indices.filter{ids.contains(session.project.slides[$0].id)})
+                    guard indices.count==ids.count else{return}
+                    if destination==visible.count{session.reorder(indices,to:session.project.slides.count)}
+                    else if let target=session.project.slides.firstIndex(where:{$0.id==visible[destination].id}){session.reorder(indices,to:target)}
                 }
             }.listStyle(.sidebar)
             HStack{
@@ -131,10 +137,6 @@ struct StudioView:View {
         if direction<0{for index in p.slides.indices.dropFirst() where ids.contains(p.slides[index].id) && !ids.contains(p.slides[index-1].id){p.slides.swapAt(index,index-1)}}
         else if p.slides.count>1{for index in (0..<(p.slides.count-1)).reversed() where ids.contains(p.slides[index].id) && !ids.contains(p.slides[index+1].id){p.slides.swapAt(index,index+1)}}
     }}
-    private func reorder(_ providers:[NSItemProvider],before target:String)->Bool{
-        guard let provider=providers.first else{return false};let ticket=session.ticket(targets:[target])
-        _=provider.loadObject(ofClass:NSString.self){object,_ in guard let id=object as? String else{return};Task{@MainActor in guard session.accepts(ticket),let from=session.project.slides.firstIndex(where:{$0.id==id}),let to=session.project.slides.firstIndex(where:{$0.id==target}) else{return};session.reorder(IndexSet(integer:from),to:to)}};return true
-    }
     private func drop(_ providers:[NSItemProvider])->Bool{
         let files=providers.filter{$0.hasItemConformingToTypeIdentifier("public.file-url")};guard !files.isEmpty,!session.importing else{return false}
         let ticket=session.ticket()
