@@ -114,7 +114,7 @@ struct StudioView:View {
                     if destination==visible.count{session.reorder(indices,to:session.project.slides.count)}
                     else if let target=session.project.slides.firstIndex(where:{$0.id==visible[destination].id}){session.reorder(indices,to:target)}
                 }
-            }.listStyle(.sidebar)
+            }.listStyle(.sidebar).accessibilityIdentifier("drift.media-list")
             HStack{
                 Button{session.duplicateSelection()}label:{Image(systemName:"plus.square.on.square")}.help("Duplicate selection")
                 Button{moveSelection(-1)}label:{Image(systemName:"arrow.up")}.help("Move selection up")

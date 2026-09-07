@@ -71,6 +71,7 @@ final class NativeJourneyUITests:XCTestCase {
                 XCTAssertNil(json(root.appendingPathComponent("RESULT.json")),"Application failed before \(choice)")
                 let step=try XCTUnwrap(json(root.appendingPathComponent("UI_STEP.json")))
                 let window=app.windows[try XCTUnwrap(step["window"] as? String)]
+                let media=window.descendants(matching:.any).matching(identifier:"drift.media-list").firstMatch
                 func click(_ identifier:String)throws{
                     let control=window.descendants(matching:.any).matching(identifier:identifier).firstMatch
                     XCTAssertTrue(control.waitForExistence(timeout:10),"Missing \(identifier): \(window.debugDescription)")
@@ -85,14 +86,17 @@ final class NativeJourneyUITests:XCTestCase {
                     let field=window.textFields["Focal X"];replace(field,"0.25");field.typeKey(.return,modifierFlags:[])
                 case "edit-blur":
                     replace(window.textFields["Focal X"],"0.4")
-                    window.staticTexts[try XCTUnwrap(step["nextMedia"] as? String)].firstMatch.click()
+                    media.staticTexts[try XCTUnwrap(step["nextMedia"] as? String)].firstMatch.click()
                 case "edit-escape":
                     let field=window.textFields["Focal X"];replace(field,"0.9");field.typeKey(.escape,modifierFlags:[])
                     window.buttons["drift.next-frame"].click()
                 case "edit-undo","edit-undo-enter","edit-undo-reorder","look-undo":window.buttons["Undo"].click()
                 case "edit-reorder":
-                    let source=window.staticTexts[try XCTUnwrap(step["sourceMedia"] as? String)].firstMatch
-                    let target=window.staticTexts[try XCTUnwrap(step["targetMedia"] as? String)].firstMatch
+                    // The inspector repeats the selected filename. Scope to the
+                    // sidebar so this drags the row, not selectable inspector text.
+                    XCTAssertTrue(media.waitForExistence(timeout:10))
+                    let source=media.staticTexts[try XCTUnwrap(step["sourceMedia"] as? String)].firstMatch
+                    let target=media.staticTexts[try XCTUnwrap(step["targetMedia"] as? String)].firstMatch
                     let start=source.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
                     let before=target.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0)).withOffset(CGVector(dx:0,dy:-5))
                     start.press(forDuration:1,thenDragTo:before)
