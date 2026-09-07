@@ -18,7 +18,21 @@ import DriftCore
     public var duration:Double{plan.schedule.rate.seconds(frame:totalFrames)}
     public var fps:Double{Double(plan.schedule.rate.numerator)/Double(plan.schedule.rate.denominator)}
     public var label:String{let f=max(0,frame),whole=Int(plan.schedule.rate.seconds(frame:f));return String(format:"%02d:%02d:%02d:%02d",whole/3600,(whole/60)%60,whole%60,Int(floor((plan.schedule.rate.seconds(frame:f)-Double(whole))*fps+1e-7)))}
-    public func update(_ value:FramePlan){let oldSeconds=seconds,wasPlaying=playing;pause();audition=nil;plan=value;frame=min(totalFrames-1,max(0,Int64(floor(oldSeconds*fps))));seekEpoch &+= 1;if wasPlaying{play()}}
+    public func update(_ value:FramePlan){
+        let now=ProcessInfo.processInfo.systemUptime
+        let oldSeconds=playing ? max(seconds,plan.schedule.rate.seconds(frame:anchorFrame)+max(0,now-anchorTime)):seconds
+        let identityChanged=value.project.id != plan.project.id
+        let timelineChanged=identityChanged || value.schedule.rate != plan.schedule.rate || value.schedule.baseFrameCount != plan.schedule.baseFrameCount || value.schedule.totalFrames != plan.schedule.totalFrames || value.schedule.cues != plan.schedule.cues
+        if identityChanged{pause()}
+        plan=value
+        if timelineChanged{
+            audition=nil;frame=identityChanged ? 0:min(totalFrames-1,max(0,Int64(floor(oldSeconds*fps+1e-9))))
+            anchorFrame=frame;anchorTime=now;seekEpoch &+= 1
+        }
+        // Appearance edits replace the render plan, not the playback clock.
+        // In particular, do not reset a fractional frame during slider drags.
+        didTick?(frame,playing)
+    }
     public func seek(_ value:Int64){pause();audition=nil;frame=min(totalFrames-1,max(0,value));seekEpoch &+= 1;didTick?(frame,false)}
     public func step(_ delta:Int64){seek(frame+delta)}
     public func toggle(){playing ? pause():play()}

@@ -205,7 +205,7 @@ public final class MediaFrames {
     public private(set) var frameToken=""
     public init(cancellation:MediaCancellation=MediaCancellation()){self.cancellation=cancellation}
     public func clear(){sources.removeAll();lru=[];stills.removeAll();stillOrder=[];stillCost=0}
-    public func image(original:Original,playback:SourcePlayback,seconds:Double,maximumDimension:Int,workspace:MediaWorkspace)throws->CIImage{
+    public func image(original:Original,workspace:MediaWorkspace,playback:SourcePlayback,seconds:Double,maximumDimension:Int)throws->CIImage{
         try cancellation.check();let request=try playback.request(outputSeconds:seconds,original:original)
         let maxDimension=max(64,min(8192,maximumDimension)),key=original.id
         // Identity verification is cached by inode/size/mtime/ctime. A pixel
