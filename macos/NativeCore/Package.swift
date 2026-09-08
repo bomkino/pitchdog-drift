@@ -19,11 +19,15 @@ targets += [
 ]
 if ProcessInfo.processInfo.environment["DRIFT_BUILD_APP"] == "1" {
     var applicationDependencies:[Target.Dependency]=["DriftNative","DriftCore"]
-    // Explicit second-consumer development pilot. Core-only graphs never resolve UI.
+    // Core-only graphs never resolve UI. Local overrides remain development pilots.
+    var studioPackageIdentity="pitchdog-studio-ui"
     if let path=ProcessInfo.processInfo.environment["PITCHDOG_STUDIO_UI_PATH"], !path.isEmpty {
         dependencies.append(.package(name:"PitchdogStudioUI",path:path))
-        applicationDependencies.append(.product(name:"PitchdogStudioUI",package:"PitchdogStudioUI"))
+        studioPackageIdentity="PitchdogStudioUI"
+    } else {
+        dependencies.append(.package(url:"https://github.com/bomkino/pitchdog-studio-ui.git",revision:"8f296630180ea4dbc77fe65a9c86e88a5b9bb9c0"))
     }
+    applicationDependencies.append(.product(name:"PitchdogStudioUI",package:studioPackageIdentity))
     targets += [.executableTarget(name:"DriftApplication",dependencies:applicationDependencies,linkerSettings:[.linkedFramework("AppKit"),.linkedFramework("SwiftUI")])]
     products += [.executable(name:"Drift",targets:["DriftApplication"])]
 }

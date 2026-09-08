@@ -17,7 +17,7 @@ jobs:
       run:
         working-directory: drift
     env:
-      PITCHDOG_STUDIO_UI_PATH: ${{ github.workspace }}/studio-ui/native/Packages/PitchdogStudioUI
+      PITCHDOG_STUDIO_UI_PATH: ${{ github.workspace }}/studio-ui
       DRIFT_ALLOW_STUDIO_UI_PILOT: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -26,8 +26,8 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: bomkino/galileo-gallery
-          ref: b946f486dcea597fdcc939ec7d6b39d66809c9b3
+          repository: bomkino/pitchdog-studio-ui
+          ref: 8f296630180ea4dbc77fe65a9c86e88a5b9bb9c0
           path: studio-ui
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -85,7 +85,7 @@ jobs:
           if [[ -d macos/NativeCore/Sources/DriftCore/Resources ]]; then ditto macos/NativeCore/Sources/DriftCore/Resources build/studio-ui-evidence/generated/Resources; fi
           if [[ -f macos/NativeCore/Sources/DriftCore/GeneratedCreativeValues.swift ]]; then cp macos/NativeCore/Sources/DriftCore/GeneratedCreativeValues.swift build/studio-ui-evidence/generated/; fi
           git archive --format=zip HEAD macos/NativeCore macos/AcceptanceUI macos/Resources scripts .github docs README.md LICENSE > build/studio-ui-evidence/reviewed-source.zip
-          git -C ../studio-ui archive --format=zip HEAD native/Packages/PitchdogStudioUI LICENSE > build/studio-ui-evidence/component-source.zip
+          git -C ../studio-ui archive --format=zip HEAD Package.swift Sources Tests README.md LICENSE > build/studio-ui-evidence/component-source.zip
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

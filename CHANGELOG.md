@@ -2,6 +2,16 @@
 
 Notable user-visible and maintainer-facing changes will be recorded here. Drift is pre-1.0, and a changelog entry is not by itself evidence of a tag, GitHub Release, binary publication, or approval.
 
+## [0.5.0] — 2026-09-08
+
+**Native studio UI prerelease.** Drift's existing panels, Look/Motion/Slide modes, selectors, fields and export sheets now use the shared native studio controls. The interface retains macOS Light/Dark appearance and the existing pitch.dog typography pin. Rendering, media/audio behavior, document history and app-owned state remain unchanged.
+
+Normal application builds consume [PitchdogStudioUI](https://github.com/bomkino/pitchdog-studio-ui) at immutable revision `8f296630180ea4dbc77fe65a9c86e88a5b9bb9c0`. The package is resource-free; the app owns fonts and their provenance. Local package overrides remain engineering pilots and cannot be packaged for distribution.
+
+This is an **ad-hoc signed, unnotarized candidate** for Apple silicon / macOS 13.3+. Exact-source native tests, the archived application journey and mounted-DMG checks are required by CI. Human visual approval, VoiceOver, minimum-OS and broader physical hardware acceptance remain open; this release does not replace the latest stable release. Legacy hybrid projects are not migrated. Source-video audio remains silent.
+
+To install this candidate deliberately, download all four release assets into one folder, then run `bash Install-Drift.command --release-directory "$PWD"` from that folder. Running the installer without that option selects the latest stable release. The installer preserves project files and keeps the previous app for rollback.
+
 ## [0.4.0] — 2026-09-07
 
 Native Apple-silicon Drift: AppKit/NSDocument, SwiftUI controls and Metal rendering; no shipped web runtime. Requires macOS 13.3 or later. Retains eight authored Worlds, 72 variants, creative recipes and recorded sound. New documents use 2576 × 1080. The interface follows macOS Light/Dark appearance without changing artwork.
@@ -47,7 +57,7 @@ The Apple-silicon DMG is built and verified in macOS CI, then published from tha
 
 ## Unreleased
 
-Changes intended for the release after `v0.2.1` belong here.
+Changes intended for the next release belong here.
 
 ## [0.2.1] - 2026-08-30
 

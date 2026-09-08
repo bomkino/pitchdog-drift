@@ -19,6 +19,13 @@ class DistributionGuardTests(unittest.TestCase):
             with self.subTest(mode=mode), self.assertRaises(ValueError):
                 module.verify({"studioUI": {"mode": mode, "revision": "a" * 40}})
 
+    def test_canonical_requires_exact_repository_and_application_pin(self):
+        studio = {"mode": "canonical", "repository": "https://github.com/bomkino/pitchdog-studio-ui.git", "revision": "8f296630180ea4dbc77fe65a9c86e88a5b9bb9c0"}
+        module.verify({"studioUI": studio})
+        for field, value in [("repository", "https://example.invalid/ui.git"), ("revision", "a" * 40), ("revision", None)]:
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                module.verify({"studioUI": dict(studio, **{field: value})})
+
     def test_malformed_and_contradictory_identity_is_rejected(self):
         for value in [None, [], "system", {"studioUI": None}, {"studioUI": "system"}, {"studioUI": {}}, {"studioUI": {"mode": "system", "revision": "a" * 40}}]:
             with self.subTest(value=value), self.assertRaises(ValueError):

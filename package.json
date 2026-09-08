@@ -1,7 +1,7 @@
 {
   "name": "pitchdog-drift",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "An Apple-silicon Mac directing instrument for image and video slides.",
   "keywords": [
     "creative-tools",
