@@ -10,7 +10,7 @@ Normal application builds consume [PitchdogStudioUI](https://github.com/bomkino/
 
 This is an **ad-hoc signed, unnotarized candidate** for Apple silicon / macOS 13.3+. Exact-source native tests, the archived application journey and mounted-DMG checks are required by CI. Human visual approval, VoiceOver, minimum-OS and broader physical hardware acceptance remain open; this release does not replace the latest stable release. Legacy hybrid projects are not migrated. Source-video audio remains silent.
 
-To install this candidate deliberately, download all four release assets into one folder, then run `bash Install-Drift.command --release-directory "$PWD"` from that folder. Running the installer without that option selects the latest stable release. The installer preserves project files and keeps the previous app for rollback.
+To install this candidate deliberately, download all four release assets into one folder, then run `bash Install-Drift.command --release-directory .` from that folder. Running the installer without that option selects the latest stable release. The installer preserves project files and keeps the previous app for rollback.
 
 ## [0.4.0] — 2026-09-07
 
