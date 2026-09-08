@@ -112,7 +112,9 @@ final class NativeJourneyUITests:XCTestCase {
                     let target=media.staticTexts[try XCTUnwrap(step["targetMedia"] as? String)].firstMatch
                     let start=source.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
                     let before=target.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0)).withOffset(CGVector(dx:0,dy:-5))
-                    start.press(forDuration:1,thenDragTo:before)
+                    // Allow the native list to establish its insertion target
+                    // before mouse-up; an immediate 162 ms drop can be missed.
+                    start.press(forDuration:1,thenDragTo:before,withVelocity:.slow,thenHoldForDuration:0.5)
                 case "look-start","look-restart":
                     if choice=="look-start"{try selectInspector("Look",in:window);try click("drift.look-audition")}
                     try click("drift.world")
