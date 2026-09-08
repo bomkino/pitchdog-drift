@@ -5,4 +5,5 @@ let app=NSApplication.shared
 let delegate=ApplicationDelegate()
 app.delegate=delegate
 app.setActivationPolicy(.regular)
-app.run()
+do { try DriftType.load(); app.run() }
+catch { app.presentError(error) }

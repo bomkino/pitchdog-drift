@@ -14,6 +14,15 @@ final class NativeJourneyUITests:XCTestCase {
             XCTFail("Timed out: \(description)");throw NSError(domain:"DriftAcceptance",code:1,userInfo:[NSLocalizedDescriptionKey:description])
         }
     }
+    @MainActor private func selectInspector(_ title:String,in window:XCUIElement)throws {
+        let radio=window.radioButtons[title]
+        if radio.exists { radio.click();return }
+        let button=window.buttons[title]
+        XCTAssertEqual(window.buttons.matching(identifier:title).count,1,"Inspector choice must be unambiguous")
+        XCTAssertTrue(button.waitForExistence(timeout:3),"Missing inspector choice \(title)")
+        button.click()
+    }
+
     @MainActor func testArchivedNativeJourney()throws{
         continueAfterFailure=false
         let bundle=Bundle(for:Self.self)
@@ -82,7 +91,7 @@ final class NativeJourneyUITests:XCTestCase {
                 }
                 switch choice{
                 case "edit-enter":
-                    window.radioButtons["Slide"].click()
+                    try selectInspector("Slide",in:window)
                     let field=window.textFields["Focal X"];replace(field,"0.25");field.typeKey(.return,modifierFlags:[])
                 case "edit-blur":
                     replace(window.textFields["Focal X"],"0.4")
@@ -103,9 +112,11 @@ final class NativeJourneyUITests:XCTestCase {
                     let target=media.staticTexts[try XCTUnwrap(step["targetMedia"] as? String)].firstMatch
                     let start=source.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
                     let before=target.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0)).withOffset(CGVector(dx:0,dy:-5))
-                    start.press(forDuration:1,thenDragTo:before)
+                    // Allow the native list to establish its insertion target
+                    // before mouse-up; an immediate 162 ms drop can be missed.
+                    start.press(forDuration:1,thenDragTo:before,withVelocity:.slow,thenHoldForDuration:0.5)
                 case "look-start","look-restart":
-                    if choice=="look-start"{window.radioButtons["Look"].click();try click("drift.look-audition")}
+                    if choice=="look-start"{try selectInspector("Look",in:window);try click("drift.look-audition")}
                     try click("drift.world")
                     app.menuItems[try XCTUnwrap(step["world"] as? String)].firstMatch.click()
                 case "look-original","look-preview":try click("drift.look-original")

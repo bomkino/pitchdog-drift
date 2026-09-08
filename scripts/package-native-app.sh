@@ -8,6 +8,7 @@ APP="$ROOT/build/native/Drift.app"
 ARCHIVE="$ROOT/build/native/Drift-native-arm64.zip"
 ROUNDTRIP="$ROOT/build/native-roundtrip"
 test -x "$APP/Contents/MacOS/Drift"
+python3 scripts/verify-studio-ui-distribution.py "$APP/Contents/Resources/BuildIdentity.json"
 codesign --verify --deep --strict "$APP"
 # This is generated build staging, never an installed application or user project.
 rm -rf "$ROUNDTRIP"

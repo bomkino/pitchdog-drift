@@ -48,7 +48,7 @@ def tag_source(api, repo, tag):
     raise ValueError('Tag nesting exceeds the release contract.')
 
 
-def publish(api, repo, source, tag, root, notes):
+def publish(api, repo, source, tag, root, notes, prerelease=False):
     root = Path(root)
     record = freeze.verify(root, source)
     require(tag == 'v' + record['version'], 'Tag/version mismatch.')
@@ -69,7 +69,7 @@ def publish(api, repo, source, tag, root, notes):
         require(tag_source(api, repo, tag) == source, 'New tag did not resolve to the accepted source.')
     if release is None:
         release = api.request(f'repos/{repo}/releases', 'POST', {
-            'tag_name': tag, 'target_commitish': source, 'draft': True, 'prerelease': False,
+            'tag_name': tag, 'target_commitish': source, 'draft': True, 'prerelease': prerelease,
             'name': f'Drift {tag} — Apple silicon Mac', 'body': notes,
         })
     release_id = release['id']
@@ -88,6 +88,7 @@ def publish(api, repo, source, tag, root, notes):
     release, present = read_assets()
     if not release['draft']:
         require(set(present) == set(expected), 'Published release is incomplete; never mutate public bytes.')
+        require(release['prerelease'] == prerelease, 'Published release channel mismatch; never promote implicitly.')
     else:
         for path in files:
             if path.name not in present:
@@ -99,16 +100,19 @@ def publish(api, repo, source, tag, root, notes):
         api.request(endpoint, 'PATCH', {
             'tag_name': tag, 'target_commitish': source,
             'name': f'Drift {tag} — Apple silicon Mac', 'body': notes,
-            'draft': False, 'prerelease': False, 'make_latest': 'true',
+            'draft': False, 'prerelease': prerelease, 'make_latest': 'false' if prerelease else 'true',
         })
     release, present = read_assets()
-    latest = api.request(f'repos/{repo}/releases/latest')
-    require(not release['draft'] and not release['prerelease'] and latest['id'] == release_id, 'Current public release mismatch.')
+    require(not release['draft'] and release['prerelease'] == prerelease, 'Public release channel mismatch.')
+    if not prerelease:
+        latest = api.request(f'repos/{repo}/releases/latest')
+        require(latest['id'] == release_id, 'Current public release mismatch.')
     require(set(present) == set(expected) and tag_source(api, repo, tag) == source, 'Published identity mismatch.')
     return release
 
 
 if __name__ == '__main__':
     release = publish(GitHub(), os.environ['GITHUB_REPOSITORY'], os.environ['RELEASE_SHA'], os.environ['TAG'],
-                      os.environ['ARTIFACT_DIR'], Path(os.environ['NOTES_PATH']).read_text())
+                      os.environ['ARTIFACT_DIR'], Path(os.environ['NOTES_PATH']).read_text(),
+                      prerelease=os.environ.get('RELEASE_PRERELEASE', 'false') == 'true')
     print(f'Published verified native installer: {release["html_url"]} (release {release["id"]})')

@@ -90,6 +90,7 @@ def freeze(root, app, proof):
         'sourceRevision': source, 'sourceTree': command('git', 'rev-parse', 'HEAD^{tree}'),
         'bundleIdentifier': info['CFBundleIdentifier'], 'architecture': 'arm64', 'minimumMacOS': '13.3',
         'signing': signing, 'notarized': notarized, 'codeDirectoryHash': cdhash.group(1),
+        'studioUI': identity.get('studioUI', {'mode': 'system'}),
         'testHardware': {key: hardware.get(key) for key in ('machine_model', 'chip_type', 'physical_memory')},
         'testedOS': command('sw_vers', '-productVersion'), 'workflowRun': os.environ.get('GITHUB_RUN_ID'),
         'hardwareLimits': ['macOS 13.3 not exercised', 'Physical M2/M1 Pro, battery, sleep/wake and external display acceptance not exercised by this hosted journey'],

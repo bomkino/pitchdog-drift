@@ -10,6 +10,11 @@ on:
         description: Successful push-to-main CI run ID containing the frozen installer
         required: true
         type: string
+      prerelease:
+        description: Publish a candidate without changing the latest stable release
+        required: true
+        default: true
+        type: boolean
 permissions:
   actions: read
   contents: write
@@ -23,6 +28,7 @@ jobs:
     env:
       RELEASE_SHA: ${{ inputs.source_commit }}
       BUILD_RUN: ${{ inputs.build_run }}
+      RELEASE_PRERELEASE: ${{ inputs.prerelease }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Require trusted main dispatch

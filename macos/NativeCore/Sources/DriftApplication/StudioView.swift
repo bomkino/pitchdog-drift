@@ -15,6 +15,7 @@ struct StudioView:View {
     @State private var exportSheet=false
     @State private var showInspector=true
     @State private var search=""
+    @FocusState private var searchFocused:Bool
     @State private var scope="Look"
     @State private var lookPlayback:(Int64,Bool,UInt64)?
     @ObservedObject private var exports=ExportCenter.shared
@@ -36,7 +37,7 @@ struct StudioView:View {
             Divider()
             if let audition=session.lookAudition{
                 HStack(spacing:12){
-                    Text("LOOK AUDITION · \(audition.name)").font(.caption.weight(.semibold))
+                    Text("LOOK AUDITION · \(audition.name)").driftType(.label)
                     Text("Not saved").foregroundStyle(.secondary)
                     Spacer()
                     Toggle("Original",isOn:Binding(get:{session.lookAudition?.showOriginal ?? false},set:{session.compareLookOriginal($0)})).toggleStyle(.switch).accessibilityIdentifier("drift.look-original")
@@ -46,12 +47,12 @@ struct StudioView:View {
                 Divider()
             }
             HSplitView{
-                library.frame(minWidth:200,idealWidth:240,maxWidth:320)
+                library.frame(minWidth:200,idealWidth:240,maxWidth:320).modifier(DriftSurface(role:.panel))
                 VStack(spacing:0){
-                    NativeCanvas(session:session,transport:transport).padding(22).background(Color(nsColor:.underPageBackgroundColor))
+                    NativeCanvas(session:session,transport:transport).padding(22).modifier(DriftSurface(role:.surround))
                     Divider();TimelineView(session:session,transport:transport).padding(14)
                 }.frame(minWidth:400,maxWidth:.infinity,maxHeight:.infinity)
-                if showInspector{inspector.frame(minWidth:290,idealWidth:320,maxWidth:400)}
+                if showInspector{inspector.frame(minWidth:290,idealWidth:320,maxWidth:400).modifier(DriftSurface(role:.panel))}
             }
             if session.importing{
                 Divider();HStack{ProgressView().controlSize(.small);Text(session.importStatus);Spacer();Button("Cancel import"){session.cancelImport()}}.padding(12)
@@ -68,7 +69,7 @@ struct StudioView:View {
             if let issue=session.issue{
                 Divider();HStack(alignment:.top){Image(systemName:"exclamationmark.triangle");Text(issue).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading);Button("Dismiss"){session.issue=nil}}.padding(12).foregroundStyle(.red)
             }
-        }.background(Color(nsColor:.windowBackgroundColor)).font(.system(size:13))
+        }.modifier(DriftSurface(role:.window)).driftType(.bodyCompact)
         .onChange(of:session.lookAudition?.id){id in
             if id != nil,lookPlayback==nil{
                 lookPlayback=(transport.frame,transport.playing,transport.seekEpoch);transport.pause()
@@ -77,30 +78,31 @@ struct StudioView:View {
                 if transport.frame==saved.0,transport.seekEpoch==saved.2,saved.1{transport.play()}
             }
         }
-        .sheet(isPresented:$canvasEditor){CanvasEditor(session:session)}
-        .sheet(isPresented:$exportSheet){ExportOptions(session:session,transport:transport,documentName:document.displayName)}
-        .sheet(item:$session.pendingBatch){batch in BatchReview(session:session,batch:batch)}
+        .sheet(isPresented:$canvasEditor){CanvasEditor(session:session).modifier(DriftChrome())}
+        .sheet(isPresented:$exportSheet){ExportOptions(session:session,transport:transport,documentName:document.displayName).modifier(DriftChrome())}
+        .sheet(item:$session.pendingBatch){batch in BatchReview(session:session,batch:batch).modifier(DriftChrome())}
         .onDrop(of:["public.file-url"],isTargeted:nil,perform:drop)
+        .modifier(DriftChrome())
     }
     private var library:some View {
         let visible=session.project.slides.filter{slide in search.isEmpty || session.project.assets[slide.assetID]?.name.localizedCaseInsensitiveContains(search)==true}
         return VStack(alignment:.leading,spacing:8){
-            HStack{Text("MEDIA").font(.caption.weight(.semibold));Spacer();Text("\(session.project.slides.count)").foregroundStyle(.secondary)}.padding(.horizontal,14).padding(.top,16)
-            TextField("Find media",text:$search).textFieldStyle(.roundedBorder).padding(.horizontal,12)
+            HStack{Text("MEDIA").driftType(.label);Spacer();Text("\(session.project.slides.count)").foregroundStyle(.secondary)}.padding(.horizontal,14).padding(.top,16)
+            TextField("Find media",text:$search).textFieldStyle(DriftFieldStyle(focused:searchFocused)).focused($searchFocused).padding(.horizontal,12)
             List(selection:$session.selection){
                 ForEach(visible){slide in
                     if let original=session.project.assets[slide.assetID]{
                         HStack(spacing:8){
                             Poster(original:original,workspace:session.workspace).frame(width:64,height:42)
                             VStack(alignment:.leading,spacing:4){
-                                Text(original.name).lineLimit(2).font(.system(size:12,weight:.medium))
+                                Text(original.name).lineLimit(2).driftType(.code)
                                 HStack(spacing:5){
                                     if !slide.included{Text("Excluded")}
                                     if session.project.pin?.slideID==slide.id{Image(systemName:"pin.fill").help("Pin")}
                                     if session.project.spotlights.contains(where:{$0.slideID==slide.id}){Image(systemName:"viewfinder").help("Spotlight")}
                                     if session.project.closing?.slideID==slide.id{Image(systemName:"flag.checkered").help("Closing")}
                                     if original.kind != .image{Text(String(format:"%.1f s",Double(original.durationNanoseconds)/1e9))}
-                                }.font(.caption2).foregroundStyle(.secondary)
+                                }.driftType(.caption).foregroundStyle(.secondary)
                             }
                         }.opacity(slide.included ? 1:0.5).padding(.vertical,5).tag(slide.id)
                         .contextMenu{slideMenu(slide,original)}
@@ -114,7 +116,7 @@ struct StudioView:View {
                     if destination==visible.count{session.reorder(indices,to:session.project.slides.count)}
                     else if let target=session.project.slides.firstIndex(where:{$0.id==visible[destination].id}){session.reorder(indices,to:target)}
                 }
-            }.listStyle(.sidebar).accessibilityIdentifier("drift.media-list")
+            }.listStyle(.sidebar).modifier(DriftListSurface()).accessibilityIdentifier("drift.media-list")
             HStack{
                 Button{session.duplicateSelection()}label:{Image(systemName:"plus.square.on.square")}.help("Duplicate selection")
                 Button{moveSelection(-1)}label:{Image(systemName:"arrow.up")}.help("Move selection up")
@@ -153,7 +155,7 @@ struct StudioView:View {
     }
     private var inspector:some View {
         VStack(spacing:0){
-            Picker("Inspector",selection:$scope){Text("Look").tag("Look");Text("Motion").tag("Motion");Text("Slide").tag("Slide")}.pickerStyle(.segmented).padding(14)
+            DriftInspectorTabs(selection:$scope).padding(14)
             ScrollView{
                 VStack(alignment:.leading,spacing:18){
                     if scope=="Look"{LookInspector(session:session)}
@@ -176,7 +178,7 @@ struct NumberEdit:View {
     init(_ title:String,value:Double,mixed:Bool=false,integer:Bool=false,commit:@escaping(Double)->Void){self.title=title;self.value=value;self.mixed=mixed;self.integer=integer;self.commit=commit}
     private func formatted()->String{mixed ? "":integer ? String(Int64(value.rounded())):String(format:"%.5f",value).replacingOccurrences(of:"0+$",with:"",options:.regularExpression).replacingOccurrences(of:"\\.$",with:"",options:.regularExpression)}
     var body:some View{
-        HStack{Text(title).lineLimit(2);Spacer();TextField(mixed ? "Mixed":"",text:$text).accessibilityLabel(title).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:96).focused($focus).foregroundStyle(invalid ? Color.red:Color.primary).help(invalid ? "Enter a finite number within the supported range.":title).onSubmit(finish)}
+        HStack{Text(title).lineLimit(2);Spacer();TextField(mixed ? "Mixed":"",text:$text).accessibilityLabel(title).multilineTextAlignment(.trailing).textFieldStyle(DriftFieldStyle(focused:focus,invalid:invalid)).frame(width:96).focused($focus).foregroundStyle(invalid ? Color.red:Color.primary).help(invalid ? "Enter a finite number within the supported range.":title).onSubmit(finish)}
         // Selection and focus notifications can arrive in the same update.
         // Preserve the captured draft until its original-target commit finishes.
         .onAppear{text=formatted()}.onChange(of:value){_ in if capturedCommit==nil{text=formatted()}}
@@ -195,9 +197,9 @@ struct JsonField:View {
     var body:some View {
         if field.type=="Bool"{Toggle(human(field.key),isOn:Binding(get:{value as? Bool ?? false},set:{ newValue in update(newValue) }))}
         else if !field.options.isEmpty{
-            Picker(human(field.key),selection:Binding(get:{field.type=="Double" ? String((value as? NSNumber)?.doubleValue ?? 0):String(describing:value ?? "")},set:{text in
+            DriftChoicePicker(title:human(field.key),selection:Binding(get:{field.type=="Double" ? String((value as? NSNumber)?.doubleValue ?? 0):String(describing:value ?? "")},set:{text in
                 if field.type=="Double",let number=Double(text){update(number)}else{update(text)}
-            })){ForEach(field.options.indices,id:\.self){i in Text(human(field.options[i].text)).tag(field.options[i].text)}}
+            }),displayValue:human(field.type=="Double" ? String((value as? NSNumber)?.doubleValue ?? 0):String(describing:value ?? ""))){ForEach(field.options.indices,id:\.self){i in Text(human(field.options[i].text)).tag(field.options[i].text)}}
         }else if field.type=="Double"{
             let ids=slideIDs,ticket=session.ticket(targets:slideIDs ?? []),keys=path,label=human(field.key)
             NumberEdit(label,value:(value as? NSNumber)?.doubleValue ?? 0){v in
@@ -253,11 +255,11 @@ struct LookInspector:View {
         }
     }
     var body:some View{
-        Text("LOOK").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        Text("LOOK").driftType(.label).foregroundStyle(.secondary)
         Toggle("Audition Look changes",isOn:$auditionChanges).accessibilityIdentifier("drift.look-audition").onChange(of:auditionChanges){on in if !on{session.cancelLookAudition()}}
-        Picker("World",selection:Binding(get:{session.lookProject.worldID},set:{apply($0)})){ForEach(worlds){world in Text(world.label).tag(world.worldID)}}.accessibilityIdentifier("drift.world")
-        Picker("Pressure",selection:Binding(get:{session.lookProject.worldPressure},set:{apply(nil,$0)})){Text("Restrained").tag("restrained");Text("Directed").tag("directed");Text("Fever").tag("fever")}
-        Picker("Arrangement",selection:Binding(get:{session.lookProject.worldScene},set:{apply(nil,nil,$0)})){Text("Wide").tag(-1);Text("Portrait I").tag(0);Text("Portrait II").tag(1)}
+        DriftChoicePicker(title:"World",selection:Binding(get:{session.lookProject.worldID},set:{apply($0)}),displayValue:worlds.first(where:{$0.worldID==session.lookProject.worldID})?.label ?? session.lookProject.worldID){ForEach(worlds){world in Text(world.label).tag(world.worldID)}}.accessibilityIdentifier("drift.world")
+        DriftChoicePicker(title:"Pressure",selection:Binding(get:{session.lookProject.worldPressure},set:{apply(nil,$0)}),displayValue:human(session.lookProject.worldPressure)){Text("Restrained").tag("restrained");Text("Directed").tag("directed");Text("Fever").tag("fever")}
+        DriftChoicePicker(title:"Arrangement",selection:Binding(get:{session.lookProject.worldScene},set:{apply(nil,nil,$0)}),displayValue:[-1:"Wide",0:"Portrait I",1:"Portrait II"][session.lookProject.worldScene] ?? "Wide"){Text("Wide").tag(-1);Text("Portrait I").tag(0);Text("Portrait II").tag(1)}
         Button("Recut"){apply(nil,nil,nil,session.lookProject.worldRecut+1)}
         DisclosureGroup("Keep when changing World"){
             ForEach(["motion","card","material","lighting","atmosphere","lens"],id:\.self){key in Toggle(human(key),isOn:Binding(get:{session.project.lockedDomains.contains(key)},set:{on in session.change("Lock \(key)"){p in p.lockedDomains.removeAll{$0==key};if on{p.lockedDomains.append(key)}}}))}
@@ -292,23 +294,23 @@ struct RecipePicker:View {
 struct MotionInspector:View {
     @ObservedObject var session:EditorSession
     var body:some View{
-        Text("DIRECT").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-        Picker("Axis",selection:Binding(get:{session.project.creative.motion.transport.axis},set:{axis in session.change("Axis"){$0.creative.motion.transport.axis=axis}})){Text("Horizontal").tag("horizontal");Text("Vertical").tag("vertical")}
+        Text("DIRECT").driftType(.label).foregroundStyle(.secondary)
+        DriftChoicePicker(title:"Axis",selection:Binding(get:{session.project.creative.motion.transport.axis},set:{axis in session.change("Axis"){$0.creative.motion.transport.axis=axis}}),displayValue:human(session.project.creative.motion.transport.axis)){Text("Horizontal").tag("horizontal");Text("Vertical").tag("vertical")}
         Toggle("Reverse",isOn:Binding(get:{session.project.creative.motion.transport.direction<0},set:{v in session.change("Direction"){$0.creative.motion.transport.direction=v ? -1:1}}))
         RecipePicker(session:session,category:"path",title:"Path")
-        Picker("Movement",selection:Binding(get:{session.project.direction.grammar.rawValue},set:{v in session.change("Movement"){$0.direction.grammar=MovementGrammar(rawValue:v)!}})){Text("Continuous glide").tag("continuousGlide");Text("Readable holds").tag("readableHolds");Text("Handcrafted").tag("handcrafted")}
+        DriftChoicePicker(title:"Movement",selection:Binding(get:{session.project.direction.grammar.rawValue},set:{v in session.change("Movement"){$0.direction.grammar=MovementGrammar(rawValue:v)!}}),displayValue:human(session.project.direction.grammar.rawValue)){Text("Continuous glide").tag("continuousGlide");Text("Readable holds").tag("readableHolds");Text("Handcrafted").tag("handcrafted")}
         RecipePicker(session:session,category:"cadence",title:"Cadence")
         RecipePicker(session:session,category:"performance",title:"Performance")
         RecipePicker(session:session,category:"character",title:"Interaction character")
         Toggle("Reading-paced duration",isOn:Binding(get:{session.project.direction.contentPaced},set:{v in session.change("Duration mode"){$0.direction.contentPaced=v}}))
         if session.project.direction.contentPaced{NumberEdit("Seconds per slide",value:session.project.direction.secondsPerSlide){v in session.change("Reading pace"){$0.direction.secondsPerSlide=v}}}
         else{NumberEdit("Body duration, s",value:Double(session.project.direction.bodyMilliseconds)/1000){v in session.change("Body duration"){$0.direction.bodyMilliseconds=Int64((v*1000).rounded())}}}
-        Text(String(format:"Sequence %.3f s · %lld frames",session.snapshot.plan.duration,session.snapshot.plan.schedule.totalFrames)).font(.caption).foregroundStyle(.secondary)
-        Text("Body timing excludes Spotlight and Closing. Their transitions and holds add time; the sequence duration above includes them.").font(.caption).foregroundStyle(.secondary)
-        Picker("Playback",selection:Binding(get:{session.project.direction.mode.rawValue},set:{v in session.change("Playback mode"){$0.direction.mode=PlayMode(rawValue:v)!}})){Text("Once").tag("once");Text("Repeat count").tag("repeatCount");Text("Loop").tag("loop")}
+        Text(String(format:"Sequence %.3f s · %lld frames",session.snapshot.plan.duration,session.snapshot.plan.schedule.totalFrames)).driftType(.caption).foregroundStyle(.secondary)
+        Text("Body timing excludes Spotlight and Closing. Their transitions and holds add time; the sequence duration above includes them.").driftType(.caption).foregroundStyle(.secondary)
+        DriftChoicePicker(title:"Playback",selection:Binding(get:{session.project.direction.mode.rawValue},set:{v in session.change("Playback mode"){$0.direction.mode=PlayMode(rawValue:v)!}}),displayValue:["once":"Once","repeatCount":"Repeat count","loop":"Loop"][session.project.direction.mode.rawValue] ?? "Once"){Text("Once").tag("once");Text("Repeat count").tag("repeatCount");Text("Loop").tag("loop")}
         if session.project.direction.mode == .repeatCount{
             NumberEdit("Repeats",value:Double(session.project.direction.repeats),integer:true){v in session.change("Repeats"){$0.direction.repeats=Int(v)}}
-            Picker("Repeat",selection:Binding(get:{session.project.direction.repeatScope.rawValue},set:{v in session.change("Repeat scope"){$0.direction.repeatScope=RepeatScope(rawValue:v)!}})){Text("Body").tag("body");Text("Full scene").tag("fullScene")}
+            DriftChoicePicker(title:"Repeat",selection:Binding(get:{session.project.direction.repeatScope.rawValue},set:{v in session.change("Repeat scope"){$0.direction.repeatScope=RepeatScope(rawValue:v)!}}),displayValue:["body":"Body","fullScene":"Full scene"][session.project.direction.repeatScope.rawValue] ?? "Body"){Text("Body").tag("body");Text("Full scene").tag("fullScene")}
         }
         DisclosureGroup("Pass groups"){
             ForEach(session.project.direction.groups){group in
@@ -343,15 +345,15 @@ struct TransitionEditor:View {
         DisclosureGroup(entry ? "Entry":"Exit"){
             Toggle("Enabled",isOn:Binding(get:{value.enabled},set:{v in change{$0.enabled=v}}))
             NumberEdit("Duration, s",value:Double(value.milliseconds)/1000){v in change{$0.milliseconds=Int64((v*1000).rounded())}}
-            Picker("Treatment",selection:Binding(get:{value.treatment},set:{v in change{$0.treatment=v}})){ForEach(["fade","lift","projector","contact-cut"],id:\.self){Text(human($0)).tag($0)}}
-            Picker("Curve",selection:Binding(get:{value.curve},set:{v in change{$0.curve=v}})){ForEach(["linear","ease-out","ease-in-out"],id:\.self){Text(human($0)).tag($0)}}
+            DriftChoicePicker(title:"Treatment",selection:Binding(get:{value.treatment},set:{v in change{$0.treatment=v}}),displayValue:human(value.treatment)){ForEach(["fade","lift","projector","contact-cut"],id:\.self){Text(human($0)).tag($0)}}
+            DriftChoicePicker(title:"Curve",selection:Binding(get:{value.curve},set:{v in change{$0.curve=v}}),displayValue:human(value.curve)){ForEach(["linear","ease-out","ease-in-out"],id:\.self){Text(human($0)).tag($0)}}
             NumberEdit("Stagger",value:value.stagger){v in change{$0.stagger=v}}
             Toggle("Reverse stagger",isOn:Binding(get:{value.reverse},set:{v in change{$0.reverse=v}}))
             NumberEdit("Background lead",value:value.background.lead){v in change{$0.background.lead=v}}
             NumberEdit("Background span",value:value.background.span){v in change{$0.background.span=v}}
             NumberEdit("Slides lead",value:value.slides.lead){v in change{$0.slides.lead=v}}
             NumberEdit("Slides span",value:value.slides.span){v in change{$0.slides.span=v}}
-            if !entry,session.project.closing != nil{Text("Closing replaces the final exit.").font(.caption).foregroundStyle(.secondary)}
+            if !entry,session.project.closing != nil{Text("Closing replaces the final exit.").driftType(.caption).foregroundStyle(.secondary)}
         }
     }
 }

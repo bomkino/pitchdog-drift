@@ -19,7 +19,9 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Exercise safe installer and immutable publisher boundaries
-        run: python3 scripts/test-native-release.py
+        run: |
+          python3 scripts/test-native-release.py
+          python3 scripts/test-studio-ui-distribution.py
       - name: Install build-only tools
         run: brew install glslang spirv-cross ffmpeg-full xcodegen
       - name: Generate synthetic originals
@@ -34,6 +36,8 @@ jobs:
           git rev-parse HEAD > build/native-app-evidence/SOURCE_SHA.txt
           sw_vers > build/native-app-evidence/HOST.txt
           scripts/build-native-app.sh 2>&1 | tee build/native-app-evidence/build.txt
+          python3 scripts/verify-studio-ui-distribution.py build/native/Drift.app/Contents/Resources/BuildIdentity.json
+          python3 -c 'import json; b=json.load(open("build/native/Drift.app/Contents/Resources/BuildIdentity.json")); assert b["studioUI"]["mode"] == "canonical"'
       - name: Archive and verify the native bundle round trip
         env:
           DRIFT_SOURCE_REVISION: ${{ github.sha }}

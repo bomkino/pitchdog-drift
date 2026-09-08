@@ -1,0 +1,14 @@
+{
+  "originHash" : "f7491132e8f1d9b8af966ae3d9df57a05fa6073fbb2458575fce27389220fc2e",
+  "pins" : [
+    {
+      "identity" : "pitchdog-studio-ui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bomkino/pitchdog-studio-ui.git",
+      "state" : {
+        "revision" : "8f296630180ea4dbc77fe65a9c86e88a5b9bb9c0"
+      }
+    }
+  ],
+  "version" : 3
+}

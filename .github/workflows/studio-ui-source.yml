@@ -1,0 +1,30 @@
+name: Native studio UI review source
+on:
+  push:
+    branches: ['codex/native-studio-ui-v2']
+  pull_request:
+    paths: ['macos/NativeCore/**', '.github/workflows/studio-ui-source.yml']
+permissions:
+  contents: read
+concurrency:
+  group: studio-ui-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Preserve the exact reviewed source and tree
+        run: |
+          set -euo pipefail
+          mkdir -p studio-ui-evidence
+          git rev-parse HEAD > studio-ui-evidence/source.txt
+          git ls-tree -r HEAD > studio-ui-evidence/tree.txt
+          git archive --format=zip HEAD > studio-ui-evidence/reviewed-source.zip
+          sha256sum studio-ui-evidence/reviewed-source.zip > studio-ui-evidence/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v6
+        with:
+          name: studio-ui-source-${{ github.sha }}
+          path: studio-ui-evidence
+          retention-days: 14

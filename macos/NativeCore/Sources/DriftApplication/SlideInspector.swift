@@ -16,25 +16,25 @@ struct SlideInspector:View {
     var body:some View{
         if let first=selected.first{
             let targets=Set(selected.map(\.id)),ticket=session.ticket(targets:targets)
-            Text(selected.count==1 ? "SELECTED SLIDE":"\(selected.count) SELECTED SLIDES").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            if selected.count==1,let original=session.project.assets[first.assetID]{Text(original.name).font(.headline).textSelection(.enabled);Text("\(original.width) × \(original.height) · \(original.subtype.uppercased())").font(.caption).foregroundStyle(.secondary)}
+            Text(selected.count==1 ? "SELECTED SLIDE":"\(selected.count) SELECTED SLIDES").driftType(.label).foregroundStyle(.secondary)
+            if selected.count==1,let original=session.project.assets[first.assetID]{Text(original.name).driftType(.panelTitle).textSelection(.enabled);Text("\(original.width) × \(original.height) · \(original.subtype.uppercased())").driftType(.caption).foregroundStyle(.secondary)}
             HStack{Toggle("Included",isOn:Binding(get:{selected.allSatisfy(\.included)},set:{v in edit("Include slides"){$0.included=v}}));if Set(selected.map(\.included)).count>1{Text("Mixed").foregroundStyle(.secondary)}}
             Toggle("In moving sequence",isOn:Binding(get:{selected.allSatisfy(\.inSequence)},set:{v in edit("Sequence membership"){$0.inSequence=v}}))
-            Picker("Slide frame",selection:Binding(get:{Set(selected.map{ $0.framePolicy.rawValue }).count==1 ? first.framePolicy.rawValue:"mixed"},set:{v in
+            DriftChoicePicker(title:"Slide frame",selection:Binding(get:{Set(selected.map{ $0.framePolicy.rawValue }).count==1 ? first.framePolicy.rawValue:"mixed"},set:{v in
                 guard let policy=FramePolicy(rawValue:v) else{return};edit("Slide frame"){$0.framePolicy=policy;if policy == .ratio{$0.aspect = .some(session.project.canvas.ratio)}}
-            })){Text("Match canvas").tag("matchCanvas");Text("Source").tag("source");Text("Custom").tag("ratio");if Set(selected.map{$0.framePolicy.rawValue}).count>1{Text("Mixed").tag("mixed")}}
+            }),displayValue:Set(selected.map{$0.framePolicy}).count>1 ? "Mixed":(["matchCanvas":"Match canvas","source":"Source","ratio":"Custom"][first.framePolicy.rawValue] ?? "Source")){Text("Match canvas").tag("matchCanvas");Text("Source").tag("source");Text("Custom").tag("ratio");if Set(selected.map{$0.framePolicy.rawValue}).count>1{Text("Mixed").tag("mixed")}}
             if first.framePolicy == .ratio{
-                HStack{TextField("Width : height",text:$ratio).textFieldStyle(.roundedBorder).onSubmit(applyRatio);Button("Set",action:applyRatio)}
-                Text("Exact ratio: \(first.aspect?.numerator ?? 1):\(first.aspect?.denominator ?? 1)").font(.caption).foregroundStyle(.secondary)
+                HStack{TextField("Width : height",text:$ratio).textFieldStyle(DriftFieldStyle()).onSubmit(applyRatio);Button("Set",action:applyRatio)}
+                Text("Exact ratio: \(first.aspect?.numerator ?? 1):\(first.aspect?.denominator ?? 1)").driftType(.caption).foregroundStyle(.secondary)
             }
-            Picker("Content",selection:Binding(get:{Set(selected.map{$0.fit.rawValue}).count==1 ? first.fit.rawValue:"mixed"},set:{v in if let fit=Fit(rawValue:v){edit("Fit media"){$0.fit=fit}}})){Text("Fit").tag("fit");Text("Fill").tag("fill");if Set(selected.map{$0.fit.rawValue}).count>1{Text("Mixed").tag("mixed")}}
+            DriftChoicePicker(title:"Content",selection:Binding(get:{Set(selected.map{$0.fit.rawValue}).count==1 ? first.fit.rawValue:"mixed"},set:{v in if let fit=Fit(rawValue:v){edit("Fit media"){$0.fit=fit}}}),displayValue:Set(selected.map{$0.fit}).count>1 ? "Mixed":(first.fit.rawValue=="fill" ? "Fill":"Fit")){Text("Fit").tag("fit");Text("Fill").tag("fill");if Set(selected.map{$0.fit.rawValue}).count>1{Text("Mixed").tag("mixed")}}
             number("Focal X",\.focalX,\.focalX);number("Focal Y",\.focalY,\.focalY);number("Size offset",\.scaleOffset,\.scaleOffset)
             DisclosureGroup("Crop"){
                 number("X",\.crop.x,\.crop.x);number("Y",\.crop.y,\.crop.y);number("Width",\.crop.width,\.crop.width);number("Height",\.crop.height,\.crop.height)
                 Button("Reset framing"){edit("Reset framing"){$0.crop=Crop();$0.focalX=0.5;$0.focalY=0.5;$0.scaleOffset=0}}
             }
             if selected.contains(where:{session.project.assets[$0.assetID]?.kind != .image}){
-                Divider();Text("SOURCE PLAYBACK").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Divider();Text("SOURCE PLAYBACK").driftType(.label).foregroundStyle(.secondary)
                 Toggle("Play source",isOn:Binding(get:{selected.allSatisfy{$0.playback.plays}},set:{v in edit("Source playback"){$0.playback.plays=v}}))
                 Toggle("Loop source",isOn:Binding(get:{selected.allSatisfy{$0.playback.loop}},set:{v in edit("Source loop"){$0.playback.loop=v}}))
                 number("Speed",\.playback.rate,\.playback.rate)
@@ -47,7 +47,7 @@ struct SlideInspector:View {
                 Button("Reset trim"){edit("Reset trim"){$0.playback.trimInNanoseconds=0;$0.playback.trimOutNanoseconds=nil}}
                 if selected.count==1,let original=session.project.assets[first.assetID]{SourceClipView(original:original,workspace:session.workspace,playback:first.playback,transport:transport)}
             }
-            Divider();Text("PRESENTATION").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Divider();Text("PRESENTATION").driftType(.label).foregroundStyle(.secondary)
             if selected.count==1{Toggle("Pin",isOn:Binding(get:{session.project.pin?.slideID==first.id},set:{v in session.setPin(v ? first.id:nil)}))}
             Toggle("Spotlight",isOn:Binding(get:{selected.allSatisfy{slide in session.project.spotlights.contains{$0.slideID==slide.id}}},set:{v in session.setSpotlight(Set(selected.map(\.id)),enabled:v)}))
             if selected.count==1{Toggle("Closing",isOn:Binding(get:{session.project.closing?.slideID==first.id},set:{v in session.setClosing(v ? first.id:nil)}))}
@@ -74,9 +74,9 @@ struct PinInspector:View {
         DisclosureGroup("Pin placement"){
             toggle("Pin only",\.pinOnly)
             number("X",\.x);number("Y",\.y);number("Width",\.width)
-            Picker("Frame",selection:Binding(get:{pin.framePolicy.rawValue},set:{v in change("Pin frame"){$0.framePolicy=FramePolicy(rawValue:v)!;if v=="ratio"{$0.aspect=session.project.canvas.ratio}}})){Text("Source").tag("source");Text("Canvas").tag("matchCanvas");Text("Custom").tag("ratio")}
+            DriftChoicePicker(title:"Frame",selection:Binding(get:{pin.framePolicy.rawValue},set:{v in change("Pin frame"){$0.framePolicy=FramePolicy(rawValue:v)!;if v=="ratio"{$0.aspect=session.project.canvas.ratio}}}),displayValue:["source":"Source","matchCanvas":"Canvas","ratio":"Custom"][pin.framePolicy.rawValue] ?? "Source"){Text("Source").tag("source");Text("Canvas").tag("matchCanvas");Text("Custom").tag("ratio")}
             if pin.framePolicy == .ratio{HStack{TextField("Exact ratio",text:$ratio);Button("Set"){do{let value=try ExactRatio(pair:ratio);change("Pin ratio"){$0.aspect=value}}catch{session.issue=error.localizedDescription}}}}
-            Picker("Content",selection:Binding(get:{pin.fit.rawValue},set:{v in change("Pin fit"){$0.fit=Fit(rawValue:v)!}})){Text("Fit").tag("fit");Text("Fill").tag("fill")}
+            DriftChoicePicker(title:"Content",selection:Binding(get:{pin.fit.rawValue},set:{v in change("Pin fit"){$0.fit=Fit(rawValue:v)!}}),displayValue:pin.fit.rawValue=="fill" ? "Fill":"Fit"){Text("Fit").tag("fit");Text("Fill").tag("fill")}
             number("Focal X",\.focalX);number("Focal Y",\.focalY);number("Safe inset",\.safeInset)
             NumberEdit("Start, base seconds",value:Double(pin.startBaseMilliseconds)/1000){v in change("Pin start"){$0.startBaseMilliseconds=Int64((v*1000).rounded())}}
             NumberEdit("End, base seconds",value:Double(pin.endBaseMilliseconds ?? Int64((session.snapshot.plan.base.duration*1000).rounded()))/1000){v in change("Pin end"){$0.endBaseMilliseconds=Int64((v*1000).rounded())}}
@@ -89,7 +89,7 @@ struct PinInspector:View {
             hex("Matte colour",\.matteColor);number("Matte opacity",\.matteOpacity)
         }
     }
-    private func hex(_ label:String,_ key:WritableKeyPath<Pin,String>)->some View{TextField(label,text:Binding(get:{pin[keyPath:key]},set:{value in if (try? RGBA.validateHex(value)) != nil{change(label){$0[keyPath:key]=value}}})).textFieldStyle(.roundedBorder)}
+    private func hex(_ label:String,_ key:WritableKeyPath<Pin,String>)->some View{TextField(label,text:Binding(get:{pin[keyPath:key]},set:{value in if (try? RGBA.validateHex(value)) != nil{change(label){$0[keyPath:key]=value}}})).textFieldStyle(DriftFieldStyle())}
 }
 struct CueInspector:View {
     @ObservedObject var session:EditorSession
@@ -108,11 +108,11 @@ struct CueInspector:View {
             NumberEdit("Hold, seconds",value:Double(hold)/1000){change("hold",$0)}
             NumberEdit("Transition, seconds",value:Double(transition)/1000){change("transition",$0)}
             NumberEdit("Size",value:size){change("size",$0)}
-            if closing && session.project.direction.mode == .loop{Text("Closing is inactive in Loop mode.").font(.caption).foregroundStyle(.secondary)}
+            if closing && session.project.direction.mode == .loop{Text("Closing is inactive in Loop mode.").driftType(.caption).foregroundStyle(.secondary)}
             else{Button(closing ? "Preview Closing":"Preview Spotlight"){transport.previewCue(cueID)}}
             if !closing,let cue=session.project.spotlights.first(where:{$0.id==cueID}){
                 if session.project.pin?.slideID==slideID,session.project.pin?.pinOnly==false{
-                    Picker("Target",selection:Binding(get:{cue.target.rawValue},set:{v in session.change("Spotlight target"){p in if let i=p.spotlights.firstIndex(where:{$0.id==cueID}){p.spotlights[i].target=CueTarget(rawValue:v)!}}})){Text("Travelling slide").tag("movingVisit");Text("Pin").tag("pin")}
+                    DriftChoicePicker(title:"Target",selection:Binding(get:{cue.target.rawValue},set:{v in session.change("Spotlight target"){p in if let i=p.spotlights.firstIndex(where:{$0.id==cueID}){p.spotlights[i].target=CueTarget(rawValue:v)!}}}),displayValue:cue.target.rawValue=="pin" ? "Pin":"Travelling slide"){Text("Travelling slide").tag("movingVisit");Text("Pin").tag("pin")}
                 }
                 Button("Anchor at playhead"){let base=(try? session.snapshot.plan.schedule.sample(frame:transport.frame).baseFrame) ?? 0;session.change("Spotlight anchor"){p in if let i=p.spotlights.firstIndex(where:{$0.id==cueID}){p.spotlights[i].baseAnchorFrame=base}}}
                 Button("Use first readable visit"){session.change("Spotlight anchor"){p in if let i=p.spotlights.firstIndex(where:{$0.id==cueID}){p.spotlights[i].baseAnchorFrame=nil}}}
@@ -126,9 +126,9 @@ struct CanvasEditor:View {
     @State private var pair=""
     @State private var error:String?
     var body:some View{
-        VStack(alignment:.leading,spacing:18){Text("Canvas").font(.title2.weight(.semibold))
+        VStack(alignment:.leading,spacing:18){Text("Canvas").driftType(.sectionTitle)
             HStack{ForEach([("Wide deck","2576 × 1080"),("16:9","1920 × 1080"),("Portrait","1080 × 1920"),("Square","1080 × 1080")],id:\.0){name,value in Button(name){pair=value}}}
-            TextField("Width × height, pixels",text:$pair).font(.title3.monospacedDigit()).textFieldStyle(.roundedBorder).onSubmit(apply)
+            TextField("Width × height, pixels",text:$pair).driftType(.input).textFieldStyle(DriftFieldStyle()).onSubmit(apply)
             Text("These are output pixels. Preview zoom and World changes do not alter them.").foregroundStyle(.secondary)
             if let error{Text(error).foregroundStyle(.red)}
             HStack{Spacer();Button("Cancel"){dismiss()}.keyboardShortcut(.cancelAction);Button("Apply",action:apply).keyboardShortcut(.defaultAction)}
@@ -163,8 +163,8 @@ struct TimelineView:View {
                 Spacer(minLength:0)
             }.controlSize(.large)
             HStack(spacing:10){
-                TextField("Frame",text:$jump).textFieldStyle(.roundedBorder).frame(width:75).onSubmit{if let value=Int64(jump){transport.seek(value)}}.help("Jump to exact output frame")
-                Text("/ \(transport.totalFrames)").font(.caption).foregroundStyle(.secondary).monospacedDigit().fixedSize()
+                TextField("Frame",text:$jump).textFieldStyle(DriftFieldStyle()).frame(width:75).onSubmit{if let value=Int64(jump){transport.seek(value)}}.help("Jump to exact output frame")
+                Text("/ \(transport.totalFrames)").driftType(.caption).foregroundStyle(.secondary).monospacedDigit().fixedSize()
                 Spacer(minLength:8)
                 Menu("Preview") {Button("Full quality"){transport.quality=1};Button("Balanced"){transport.quality=0.75};Button("Fast"){transport.quality=0.5}}
             }.controlSize(.large)
@@ -175,7 +175,7 @@ struct BatchReview:View {
     @ObservedObject var session:EditorSession
     let batch:StagedBatch
     var body:some View{VStack(alignment:.leading,spacing:16){
-        Text("Some media could not be added").font(.title2.weight(.semibold))
+        Text("Some media could not be added").driftType(.sectionTitle)
         ScrollView{ForEach(batch.failures){failure in VStack(alignment:.leading){Text(failure.name).fontWeight(.medium);Text(failure.reason).foregroundStyle(.secondary)}.padding(.vertical,6).frame(maxWidth:.infinity,alignment:.leading)}}.frame(maxHeight:300)
         HStack{Text("\(batch.originals.count) valid files");Spacer();Button("Cancel"){session.cancelImport()}.keyboardShortcut(.cancelAction);Button("Add valid items"){session.acceptBatch()}.disabled(batch.originals.isEmpty).keyboardShortcut(.defaultAction)}
     }.padding(24).frame(width:560)}

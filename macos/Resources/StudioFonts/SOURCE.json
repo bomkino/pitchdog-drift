@@ -1,0 +1,186 @@
+{
+  "repository": "bomkino/pitchdog-type-system",
+  "commit": "786b4a2b671182319320f922b8de8f927ea3a002",
+  "version": "13.0.0",
+  "state": "existing consumer pin; production-candidate upstream; no migration",
+  "nativeSizing": "Canonical UI role minimum rem bound at 16 points per rem; preserve user text scale. Native pointer compact controls use 40 point minimum.",
+  "files": [
+    {
+      "outputPath": "02-NATIVE-VARIABLE/pd-body-roman.ttf",
+      "sourcePath": "01-PUBLIC-FONTS/LAB/pd-body/native/pd-body-roman.ttf",
+      "bytes": 549368,
+      "sha256": "99806fcae8dba5155d58da9a86fc8d6ee141a48806eca70ef111e1632030d2f2",
+      "audience": "native",
+      "family": "PD Body",
+      "format": "ttf",
+      "variable": true,
+      "axes": [
+        "wght 100\u2013900",
+        "roman"
+      ]
+    },
+    {
+      "outputPath": "02-NATIVE-VARIABLE/pd-head.ttf",
+      "sourcePath": "01-PUBLIC-FONTS/LAB/pd-head/native/pd-head.ttf",
+      "bytes": 936368,
+      "sha256": "6edc10d6e1bab8ac85bcfc2510a92791c6face6f8341f5d7c6ccfea937b20a11",
+      "audience": "native",
+      "family": "PD Head",
+      "format": "ttf",
+      "variable": true,
+      "axes": [
+        "wght 265\u2013900",
+        "ital 0\u20131"
+      ]
+    },
+    {
+      "outputPath": "02-NATIVE-VARIABLE/pd-eyebrow-full.ttf",
+      "sourcePath": "01-PUBLIC-FONTS/LAB/pd-eyebrow/native/pd-eyebrow-variable-web.ttf",
+      "bytes": 4588864,
+      "sha256": "11c9c55327c30d7a3cab97abba6927828dfc43392ba149f23efeba60a3aff4e3",
+      "audience": "native",
+      "family": "PD Eyebrow",
+      "format": "ttf",
+      "variable": true,
+      "axes": [
+        "wght 100\u2013900",
+        "wdth 87.5\u2013100",
+        "ital 0/1",
+        "477-codepoint full master"
+      ]
+    }
+  ],
+  "roles": {
+    "ui.display": {
+      "family": "head",
+      "weight": 500,
+      "ital": 0,
+      "size": "clamp(2.375rem, 1.86rem + 1.6vi, 3.75rem)",
+      "lineHeight": 0.98,
+      "tracking": "-0.026em",
+      "use": "Onboarding, empty-state and celebratory display only"
+    },
+    "ui.pageTitle": {
+      "family": "body",
+      "weight": 700,
+      "style": "normal",
+      "size": "clamp(1.75rem, 1.55rem + .62vi, 2.25rem)",
+      "lineHeight": 1.08,
+      "tracking": "-0.021em",
+      "use": "Primary title of an application view"
+    },
+    "ui.sectionTitle": {
+      "family": "body",
+      "weight": 600,
+      "style": "normal",
+      "size": "clamp(1.3125rem, 1.22rem + .29vi, 1.5625rem)",
+      "lineHeight": 1.16,
+      "tracking": "-0.013em",
+      "use": "Major region within a view"
+    },
+    "ui.panelTitle": {
+      "family": "body",
+      "weight": 600,
+      "style": "normal",
+      "size": "clamp(1.0625rem, 1.025rem + .12vi, 1.1875rem)",
+      "lineHeight": 1.2,
+      "tracking": "-0.008em",
+      "use": "Cards, dialogs, toasts and panels"
+    },
+    "ui.body": {
+      "family": "body",
+      "weight": 400,
+      "style": "normal",
+      "size": "clamp(1rem, .981rem + .06vi, 1.0625rem)",
+      "lineHeight": 1.48,
+      "tracking": "0em",
+      "use": "Default interface copy"
+    },
+    "ui.bodyCompact": {
+      "family": "body",
+      "weight": 400,
+      "style": "normal",
+      "size": "clamp(.9375rem, .919rem + .055vi, 1rem)",
+      "lineHeight": 1.42,
+      "tracking": ".001em",
+      "use": "Dense tables, lists and secondary interface copy"
+    },
+    "ui.label": {
+      "family": "body",
+      "weight": 600,
+      "style": "normal",
+      "size": "clamp(.875rem, .856rem + .055vi, .9375rem)",
+      "lineHeight": 1.22,
+      "tracking": ".006em",
+      "use": "Form labels and compact headings"
+    },
+    "ui.action": {
+      "family": "body",
+      "weight": 600,
+      "style": "normal",
+      "size": "clamp(.9375rem, .919rem + .055vi, 1rem)",
+      "lineHeight": 1.1,
+      "tracking": "-.002em",
+      "use": "Buttons, tabs and primary navigation"
+    },
+    "ui.input": {
+      "family": "body",
+      "weight": 400,
+      "style": "normal",
+      "size": "clamp(1rem, .981rem + .06vi, 1.0625rem)",
+      "lineHeight": 1.25,
+      "tracking": "0em",
+      "use": "Input values, selections and editable fields"
+    },
+    "ui.caption": {
+      "family": "body",
+      "weight": 400,
+      "style": "normal",
+      "size": "clamp(.8125rem, .794rem + .055vi, .875rem)",
+      "lineHeight": 1.38,
+      "tracking": ".004em",
+      "use": "Help, timestamps and non-essential supporting copy"
+    },
+    "ui.badge": {
+      "family": "eyebrow",
+      "weight": 600,
+      "width": 87.5,
+      "ital": 0,
+      "size": "clamp(.6875rem, .669rem + .055vi, .75rem)",
+      "lineHeight": 1.0,
+      "tracking": ".055em",
+      "use": "Short status and category badges"
+    },
+    "ui.metadata": {
+      "family": "eyebrow",
+      "weight": 500,
+      "width": 87.5,
+      "ital": 0,
+      "size": "clamp(.75rem, .731rem + .055vi, .8125rem)",
+      "lineHeight": 1.25,
+      "tracking": ".04em",
+      "use": "Versions, dates, dimensions and file facts"
+    },
+    "ui.data": {
+      "family": "eyebrow",
+      "weight": 500,
+      "width": 87.5,
+      "ital": 0,
+      "size": "clamp(.8125rem, .794rem + .055vi, .875rem)",
+      "lineHeight": 1.25,
+      "tracking": ".006em",
+      "numeric": "tabular-nums lining-nums slashed-zero",
+      "use": "Aligned numbers, prices, counts and durations"
+    },
+    "ui.code": {
+      "family": "eyebrow",
+      "weight": 400,
+      "width": 87.5,
+      "ital": 0,
+      "size": "clamp(.8125rem, .794rem + .055vi, .875rem)",
+      "lineHeight": 1.45,
+      "tracking": "0em",
+      "use": "Literal filenames, code and machine identifiers"
+    }
+  }
+}

@@ -4,9 +4,11 @@ Drift turns pitch-deck images and silent video clips into authored moving-image 
 
 ## Install
 
-Use the [native release](https://github.com/bomkino/pitchdog-drift/releases/latest) only when it contains `Drift-0.4.0-macOS-arm64.dmg`, its `.sha256`, `MacReleaseReceipt.json`, and `Install-Drift.command`. Older source-only releases are not native installers. The receipt identifies the tested source, build, signing status and exact download bytes.
+Use the [latest stable native release](https://github.com/bomkino/pitchdog-drift/releases/latest). It must contain a matching `Drift-VERSION-macOS-arm64.dmg`, its `.sha256`, `MacReleaseReceipt.json`, and `Install-Drift.command`. Older source-only releases are not native installers. The receipt identifies the tested source, build, signing status and exact download bytes.
 
 Download `Install-Drift.command` from that release and run it with `bash` in Terminal. It downloads and verifies the matching installer before requesting normal Quit, respects cancelled Quit, stages the replacement on the destination volume, and retains the previous app for rollback. Use `--destination "$HOME/Applications"` for an existing writable user Applications folder. Do not use sudo. Projects and originals are preserved.
+
+For the 0.5.0 studio UI candidate, use the [prerelease listing](https://github.com/bomkino/pitchdog-drift/releases) and follow its explicit release-directory installation instructions. Running the installer without that option selects the stable release.
 
 Default builds are **ad-hoc signed and unnotarized**. For a verified trusted download blocked by macOS, use System Settings → Privacy & Security → Open Anyway. Do not disable Gatekeeper or strip quarantine. Developer ID and notarization have a separate required verification lane.
 

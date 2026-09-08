@@ -95,6 +95,16 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(api.release['draft'])
         self.publish(api)
         self.assertEqual(sum(method == 'POST' and path.endswith('/releases') for method, path in api.calls), 1)
+    def test_prerelease_retains_stable_latest_and_cannot_promote_on_retry(self):
+        api = FakeGitHub()
+        result = publisher.publish(api, 'bomkino/pitchdog-drift', SOURCE, 'v0.4.0', self.root, 'Candidate.', prerelease=True)
+        self.assertTrue(result['prerelease'])
+        self.assertEqual(api.publication['make_latest'], 'false')
+        self.assertFalse(any(path.endswith('/releases/latest') for _, path in api.calls))
+        before = len(api.calls)
+        with self.assertRaisesRegex(ValueError, 'channel mismatch'):
+            self.publish(api)
+        self.assertTrue(all(method == 'GET' for method, _ in api.calls[before:]))
     def test_existing_tag_is_never_moved(self):
         api = FakeGitHub(source='d'*40)
         with self.assertRaisesRegex(ValueError, 'Never move'): self.publish(api)
