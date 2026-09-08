@@ -23,7 +23,7 @@ struct DriftChrome: ViewModifier {
     #endif
     func body(content: Content) -> some View {
         #if canImport(PitchdogStudioUI)
-        content.studioTheme(theme).buttonStyle(StudioButtonStyle())
+        content.studioTheme(theme).buttonStyle(StudioButtonStyle()).studioType(.bodyCompact).studioTypography(DriftType.typography)
             .onReceive(NotificationCenter.default.publisher(for: NSColor.systemColorsDidChangeNotification)) { _ in colorRevision += 1 }
         #else
         content
@@ -88,6 +88,45 @@ struct DriftListSurface: ViewModifier {
         content.scrollContentBackground(.hidden)
         #else
         content
+        #endif
+    }
+}
+
+#if canImport(PitchdogStudioUI)
+typealias DriftTextRole = StudioTextRole
+#else
+enum DriftTextRole { case display, pageTitle, sectionTitle, panelTitle, body, bodyCompact, label, action, input, caption, badge, metadata, data, code }
+#endif
+extension View {
+    @ViewBuilder func driftType(_ role: DriftTextRole) -> some View {
+        #if canImport(PitchdogStudioUI)
+        self.studioType(role)
+        #else
+        self.font(role.systemFont)
+        #endif
+    }
+}
+#if !canImport(PitchdogStudioUI)
+private extension DriftTextRole {
+    var systemFont: Font {
+        switch self {
+        case .display, .pageTitle, .sectionTitle: return .title2.weight(.semibold)
+        case .panelTitle: return .headline
+        case .label, .badge: return .caption.weight(.semibold)
+        case .caption, .metadata, .data, .code: return .caption
+        default: return .system(size: 13)
+        }
+    }
+}
+#endif
+@MainActor enum DriftType {
+    #if canImport(PitchdogStudioUI)
+    private(set) static var typography = StudioTypography.systemFallback
+    #endif
+    static func load() throws {
+        #if canImport(PitchdogStudioUI)
+        guard let resources = Bundle.main.resourceURL else { throw CocoaError(.fileReadNoSuchFile) }
+        typography = try StudioTypography(fontDirectory: resources.appendingPathComponent("StudioFonts"))
         #endif
     }
 }

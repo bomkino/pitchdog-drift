@@ -37,7 +37,7 @@ struct StudioView:View {
             Divider()
             if let audition=session.lookAudition{
                 HStack(spacing:12){
-                    Text("LOOK AUDITION · \(audition.name)").font(.caption.weight(.semibold))
+                    Text("LOOK AUDITION · \(audition.name)").driftType(.label)
                     Text("Not saved").foregroundStyle(.secondary)
                     Spacer()
                     Toggle("Original",isOn:Binding(get:{session.lookAudition?.showOriginal ?? false},set:{session.compareLookOriginal($0)})).toggleStyle(.switch).accessibilityIdentifier("drift.look-original")
@@ -69,7 +69,7 @@ struct StudioView:View {
             if let issue=session.issue{
                 Divider();HStack(alignment:.top){Image(systemName:"exclamationmark.triangle");Text(issue).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading);Button("Dismiss"){session.issue=nil}}.padding(12).foregroundStyle(.red)
             }
-        }.modifier(DriftSurface(role:.window)).font(.system(size:13))
+        }.modifier(DriftSurface(role:.window)).driftType(.bodyCompact)
         .onChange(of:session.lookAudition?.id){id in
             if id != nil,lookPlayback==nil{
                 lookPlayback=(transport.frame,transport.playing,transport.seekEpoch);transport.pause()
@@ -87,7 +87,7 @@ struct StudioView:View {
     private var library:some View {
         let visible=session.project.slides.filter{slide in search.isEmpty || session.project.assets[slide.assetID]?.name.localizedCaseInsensitiveContains(search)==true}
         return VStack(alignment:.leading,spacing:8){
-            HStack{Text("MEDIA").font(.caption.weight(.semibold));Spacer();Text("\(session.project.slides.count)").foregroundStyle(.secondary)}.padding(.horizontal,14).padding(.top,16)
+            HStack{Text("MEDIA").driftType(.label);Spacer();Text("\(session.project.slides.count)").foregroundStyle(.secondary)}.padding(.horizontal,14).padding(.top,16)
             TextField("Find media",text:$search).textFieldStyle(DriftFieldStyle(focused:searchFocused)).focused($searchFocused).padding(.horizontal,12)
             List(selection:$session.selection){
                 ForEach(visible){slide in
@@ -95,14 +95,14 @@ struct StudioView:View {
                         HStack(spacing:8){
                             Poster(original:original,workspace:session.workspace).frame(width:64,height:42)
                             VStack(alignment:.leading,spacing:4){
-                                Text(original.name).lineLimit(2).font(.system(size:12,weight:.medium))
+                                Text(original.name).lineLimit(2).driftType(.code)
                                 HStack(spacing:5){
                                     if !slide.included{Text("Excluded")}
                                     if session.project.pin?.slideID==slide.id{Image(systemName:"pin.fill").help("Pin")}
                                     if session.project.spotlights.contains(where:{$0.slideID==slide.id}){Image(systemName:"viewfinder").help("Spotlight")}
                                     if session.project.closing?.slideID==slide.id{Image(systemName:"flag.checkered").help("Closing")}
                                     if original.kind != .image{Text(String(format:"%.1f s",Double(original.durationNanoseconds)/1e9))}
-                                }.font(.caption2).foregroundStyle(.secondary)
+                                }.driftType(.caption).foregroundStyle(.secondary)
                             }
                         }.opacity(slide.included ? 1:0.5).padding(.vertical,5).tag(slide.id)
                         .contextMenu{slideMenu(slide,original)}
@@ -255,7 +255,7 @@ struct LookInspector:View {
         }
     }
     var body:some View{
-        Text("LOOK").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        Text("LOOK").driftType(.label).foregroundStyle(.secondary)
         Toggle("Audition Look changes",isOn:$auditionChanges).accessibilityIdentifier("drift.look-audition").onChange(of:auditionChanges){on in if !on{session.cancelLookAudition()}}
         DriftChoicePicker(title:"World",selection:Binding(get:{session.lookProject.worldID},set:{apply($0)}),displayValue:worlds.first(where:{$0.worldID==session.lookProject.worldID})?.label ?? session.lookProject.worldID){ForEach(worlds){world in Text(world.label).tag(world.worldID)}}.accessibilityIdentifier("drift.world")
         Picker("Pressure",selection:Binding(get:{session.lookProject.worldPressure},set:{apply(nil,$0)})){Text("Restrained").tag("restrained");Text("Directed").tag("directed");Text("Fever").tag("fever")}
@@ -294,7 +294,7 @@ struct RecipePicker:View {
 struct MotionInspector:View {
     @ObservedObject var session:EditorSession
     var body:some View{
-        Text("DIRECT").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        Text("DIRECT").driftType(.label).foregroundStyle(.secondary)
         Picker("Axis",selection:Binding(get:{session.project.creative.motion.transport.axis},set:{axis in session.change("Axis"){$0.creative.motion.transport.axis=axis}})){Text("Horizontal").tag("horizontal");Text("Vertical").tag("vertical")}
         Toggle("Reverse",isOn:Binding(get:{session.project.creative.motion.transport.direction<0},set:{v in session.change("Direction"){$0.creative.motion.transport.direction=v ? -1:1}}))
         RecipePicker(session:session,category:"path",title:"Path")
@@ -305,8 +305,8 @@ struct MotionInspector:View {
         Toggle("Reading-paced duration",isOn:Binding(get:{session.project.direction.contentPaced},set:{v in session.change("Duration mode"){$0.direction.contentPaced=v}}))
         if session.project.direction.contentPaced{NumberEdit("Seconds per slide",value:session.project.direction.secondsPerSlide){v in session.change("Reading pace"){$0.direction.secondsPerSlide=v}}}
         else{NumberEdit("Body duration, s",value:Double(session.project.direction.bodyMilliseconds)/1000){v in session.change("Body duration"){$0.direction.bodyMilliseconds=Int64((v*1000).rounded())}}}
-        Text(String(format:"Sequence %.3f s · %lld frames",session.snapshot.plan.duration,session.snapshot.plan.schedule.totalFrames)).font(.caption).foregroundStyle(.secondary)
-        Text("Body timing excludes Spotlight and Closing. Their transitions and holds add time; the sequence duration above includes them.").font(.caption).foregroundStyle(.secondary)
+        Text(String(format:"Sequence %.3f s · %lld frames",session.snapshot.plan.duration,session.snapshot.plan.schedule.totalFrames)).driftType(.caption).foregroundStyle(.secondary)
+        Text("Body timing excludes Spotlight and Closing. Their transitions and holds add time; the sequence duration above includes them.").driftType(.caption).foregroundStyle(.secondary)
         Picker("Playback",selection:Binding(get:{session.project.direction.mode.rawValue},set:{v in session.change("Playback mode"){$0.direction.mode=PlayMode(rawValue:v)!}})){Text("Once").tag("once");Text("Repeat count").tag("repeatCount");Text("Loop").tag("loop")}
         if session.project.direction.mode == .repeatCount{
             NumberEdit("Repeats",value:Double(session.project.direction.repeats),integer:true){v in session.change("Repeats"){$0.direction.repeats=Int(v)}}
@@ -353,7 +353,7 @@ struct TransitionEditor:View {
             NumberEdit("Background span",value:value.background.span){v in change{$0.background.span=v}}
             NumberEdit("Slides lead",value:value.slides.lead){v in change{$0.slides.lead=v}}
             NumberEdit("Slides span",value:value.slides.span){v in change{$0.slides.span=v}}
-            if !entry,session.project.closing != nil{Text("Closing replaces the final exit.").font(.caption).foregroundStyle(.secondary)}
+            if !entry,session.project.closing != nil{Text("Closing replaces the final exit.").driftType(.caption).foregroundStyle(.secondary)}
         }
     }
 }

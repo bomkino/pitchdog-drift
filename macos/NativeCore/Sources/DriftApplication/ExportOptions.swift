@@ -35,7 +35,7 @@ struct ExportOptions:View {
     }
     var body:some View{
         VStack(alignment:.leading,spacing:18){
-            Text("Export").font(.title2.weight(.semibold))
+            Text("Export").driftType(.sectionTitle)
             Form{
                 Picker("Format",selection:$format){Text("MP4 · H.264").tag(OutputFormat.mp4);Text("PNG · Current frame").tag(OutputFormat.png);Text("PNG sequence").tag(OutputFormat.pngSequence)}
                 if format != .png{

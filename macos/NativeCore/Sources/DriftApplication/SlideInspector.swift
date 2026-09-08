@@ -16,8 +16,8 @@ struct SlideInspector:View {
     var body:some View{
         if let first=selected.first{
             let targets=Set(selected.map(\.id)),ticket=session.ticket(targets:targets)
-            Text(selected.count==1 ? "SELECTED SLIDE":"\(selected.count) SELECTED SLIDES").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            if selected.count==1,let original=session.project.assets[first.assetID]{Text(original.name).font(.headline).textSelection(.enabled);Text("\(original.width) × \(original.height) · \(original.subtype.uppercased())").font(.caption).foregroundStyle(.secondary)}
+            Text(selected.count==1 ? "SELECTED SLIDE":"\(selected.count) SELECTED SLIDES").driftType(.label).foregroundStyle(.secondary)
+            if selected.count==1,let original=session.project.assets[first.assetID]{Text(original.name).driftType(.panelTitle).textSelection(.enabled);Text("\(original.width) × \(original.height) · \(original.subtype.uppercased())").driftType(.caption).foregroundStyle(.secondary)}
             HStack{Toggle("Included",isOn:Binding(get:{selected.allSatisfy(\.included)},set:{v in edit("Include slides"){$0.included=v}}));if Set(selected.map(\.included)).count>1{Text("Mixed").foregroundStyle(.secondary)}}
             Toggle("In moving sequence",isOn:Binding(get:{selected.allSatisfy(\.inSequence)},set:{v in edit("Sequence membership"){$0.inSequence=v}}))
             Picker("Slide frame",selection:Binding(get:{Set(selected.map{ $0.framePolicy.rawValue }).count==1 ? first.framePolicy.rawValue:"mixed"},set:{v in
@@ -25,7 +25,7 @@ struct SlideInspector:View {
             })){Text("Match canvas").tag("matchCanvas");Text("Source").tag("source");Text("Custom").tag("ratio");if Set(selected.map{$0.framePolicy.rawValue}).count>1{Text("Mixed").tag("mixed")}}
             if first.framePolicy == .ratio{
                 HStack{TextField("Width : height",text:$ratio).textFieldStyle(.roundedBorder).onSubmit(applyRatio);Button("Set",action:applyRatio)}
-                Text("Exact ratio: \(first.aspect?.numerator ?? 1):\(first.aspect?.denominator ?? 1)").font(.caption).foregroundStyle(.secondary)
+                Text("Exact ratio: \(first.aspect?.numerator ?? 1):\(first.aspect?.denominator ?? 1)").driftType(.caption).foregroundStyle(.secondary)
             }
             Picker("Content",selection:Binding(get:{Set(selected.map{$0.fit.rawValue}).count==1 ? first.fit.rawValue:"mixed"},set:{v in if let fit=Fit(rawValue:v){edit("Fit media"){$0.fit=fit}}})){Text("Fit").tag("fit");Text("Fill").tag("fill");if Set(selected.map{$0.fit.rawValue}).count>1{Text("Mixed").tag("mixed")}}
             number("Focal X",\.focalX,\.focalX);number("Focal Y",\.focalY,\.focalY);number("Size offset",\.scaleOffset,\.scaleOffset)
@@ -34,7 +34,7 @@ struct SlideInspector:View {
                 Button("Reset framing"){edit("Reset framing"){$0.crop=Crop();$0.focalX=0.5;$0.focalY=0.5;$0.scaleOffset=0}}
             }
             if selected.contains(where:{session.project.assets[$0.assetID]?.kind != .image}){
-                Divider();Text("SOURCE PLAYBACK").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Divider();Text("SOURCE PLAYBACK").driftType(.label).foregroundStyle(.secondary)
                 Toggle("Play source",isOn:Binding(get:{selected.allSatisfy{$0.playback.plays}},set:{v in edit("Source playback"){$0.playback.plays=v}}))
                 Toggle("Loop source",isOn:Binding(get:{selected.allSatisfy{$0.playback.loop}},set:{v in edit("Source loop"){$0.playback.loop=v}}))
                 number("Speed",\.playback.rate,\.playback.rate)
@@ -47,7 +47,7 @@ struct SlideInspector:View {
                 Button("Reset trim"){edit("Reset trim"){$0.playback.trimInNanoseconds=0;$0.playback.trimOutNanoseconds=nil}}
                 if selected.count==1,let original=session.project.assets[first.assetID]{SourceClipView(original:original,workspace:session.workspace,playback:first.playback,transport:transport)}
             }
-            Divider();Text("PRESENTATION").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Divider();Text("PRESENTATION").driftType(.label).foregroundStyle(.secondary)
             if selected.count==1{Toggle("Pin",isOn:Binding(get:{session.project.pin?.slideID==first.id},set:{v in session.setPin(v ? first.id:nil)}))}
             Toggle("Spotlight",isOn:Binding(get:{selected.allSatisfy{slide in session.project.spotlights.contains{$0.slideID==slide.id}}},set:{v in session.setSpotlight(Set(selected.map(\.id)),enabled:v)}))
             if selected.count==1{Toggle("Closing",isOn:Binding(get:{session.project.closing?.slideID==first.id},set:{v in session.setClosing(v ? first.id:nil)}))}
@@ -108,7 +108,7 @@ struct CueInspector:View {
             NumberEdit("Hold, seconds",value:Double(hold)/1000){change("hold",$0)}
             NumberEdit("Transition, seconds",value:Double(transition)/1000){change("transition",$0)}
             NumberEdit("Size",value:size){change("size",$0)}
-            if closing && session.project.direction.mode == .loop{Text("Closing is inactive in Loop mode.").font(.caption).foregroundStyle(.secondary)}
+            if closing && session.project.direction.mode == .loop{Text("Closing is inactive in Loop mode.").driftType(.caption).foregroundStyle(.secondary)}
             else{Button(closing ? "Preview Closing":"Preview Spotlight"){transport.previewCue(cueID)}}
             if !closing,let cue=session.project.spotlights.first(where:{$0.id==cueID}){
                 if session.project.pin?.slideID==slideID,session.project.pin?.pinOnly==false{
@@ -126,9 +126,9 @@ struct CanvasEditor:View {
     @State private var pair=""
     @State private var error:String?
     var body:some View{
-        VStack(alignment:.leading,spacing:18){Text("Canvas").font(.title2.weight(.semibold))
+        VStack(alignment:.leading,spacing:18){Text("Canvas").driftType(.sectionTitle)
             HStack{ForEach([("Wide deck","2576 × 1080"),("16:9","1920 × 1080"),("Portrait","1080 × 1920"),("Square","1080 × 1080")],id:\.0){name,value in Button(name){pair=value}}}
-            TextField("Width × height, pixels",text:$pair).font(.title3.monospacedDigit()).textFieldStyle(.roundedBorder).onSubmit(apply)
+            TextField("Width × height, pixels",text:$pair).driftType(.input).textFieldStyle(.roundedBorder).onSubmit(apply)
             Text("These are output pixels. Preview zoom and World changes do not alter them.").foregroundStyle(.secondary)
             if let error{Text(error).foregroundStyle(.red)}
             HStack{Spacer();Button("Cancel"){dismiss()}.keyboardShortcut(.cancelAction);Button("Apply",action:apply).keyboardShortcut(.defaultAction)}
@@ -164,7 +164,7 @@ struct TimelineView:View {
             }.controlSize(.large)
             HStack(spacing:10){
                 TextField("Frame",text:$jump).textFieldStyle(.roundedBorder).frame(width:75).onSubmit{if let value=Int64(jump){transport.seek(value)}}.help("Jump to exact output frame")
-                Text("/ \(transport.totalFrames)").font(.caption).foregroundStyle(.secondary).monospacedDigit().fixedSize()
+                Text("/ \(transport.totalFrames)").driftType(.caption).foregroundStyle(.secondary).monospacedDigit().fixedSize()
                 Spacer(minLength:8)
                 Menu("Preview") {Button("Full quality"){transport.quality=1};Button("Balanced"){transport.quality=0.75};Button("Fast"){transport.quality=0.5}}
             }.controlSize(.large)
@@ -175,7 +175,7 @@ struct BatchReview:View {
     @ObservedObject var session:EditorSession
     let batch:StagedBatch
     var body:some View{VStack(alignment:.leading,spacing:16){
-        Text("Some media could not be added").font(.title2.weight(.semibold))
+        Text("Some media could not be added").driftType(.sectionTitle)
         ScrollView{ForEach(batch.failures){failure in VStack(alignment:.leading){Text(failure.name).fontWeight(.medium);Text(failure.reason).foregroundStyle(.secondary)}.padding(.vertical,6).frame(maxWidth:.infinity,alignment:.leading)}}.frame(maxHeight:300)
         HStack{Text("\(batch.originals.count) valid files");Spacer();Button("Cancel"){session.cancelImport()}.keyboardShortcut(.cancelAction);Button("Add valid items"){session.acceptBatch()}.disabled(batch.originals.isEmpty).keyboardShortcut(.defaultAction)}
     }.padding(24).frame(width:560)}

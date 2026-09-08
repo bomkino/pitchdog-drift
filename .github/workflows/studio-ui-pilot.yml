@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: bomkino/galileo-gallery
-          ref: ac70858e11743ac40bbd7911e4010af2aa8e2527
+          ref: 407ae8b4aa3871878dfd9939e33294c741cd2c14
           path: studio-ui
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -84,7 +84,7 @@ jobs:
           if [[ -d build/native-app-evidence ]]; then ditto build/native-app-evidence build/studio-ui-evidence/application-proof; fi
           if [[ -d macos/NativeCore/Sources/DriftCore/Resources ]]; then ditto macos/NativeCore/Sources/DriftCore/Resources build/studio-ui-evidence/generated/Resources; fi
           if [[ -f macos/NativeCore/Sources/DriftCore/GeneratedCreativeValues.swift ]]; then cp macos/NativeCore/Sources/DriftCore/GeneratedCreativeValues.swift build/studio-ui-evidence/generated/; fi
-          git archive --format=zip HEAD macos/NativeCore macos/AcceptanceUI scripts .github docs README.md LICENSE > build/studio-ui-evidence/reviewed-source.zip
+          git archive --format=zip HEAD macos/NativeCore macos/AcceptanceUI macos/Resources scripts .github docs README.md LICENSE > build/studio-ui-evidence/reviewed-source.zip
           git -C ../studio-ui archive --format=zip HEAD native/Packages/PitchdogStudioUI LICENSE > build/studio-ui-evidence/component-source.zip
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()

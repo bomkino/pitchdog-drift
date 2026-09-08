@@ -21,3 +21,11 @@ Human visual approval, physical hardware, minimum macOS and assistive-technology
 remain required. Shared package canonicalisation and exact published-version pinning must
 replace this override before a visual-overhaul release. Do not call the pilot complete
 because it compiles. Galileo's still-frame/schema work is not imported into Drift.
+
+## 2026-09-08 continuation
+
+The successful checkpoint remains run 34148708000, Drift 30689aaa6ae711e92bce53a11b102aeddbc7fc8a with component ac70858e11743ac40bbd7911e4010af2aa8e2527. Raw evidence is preserved locally before expiry. That success is not claimed for the new typography candidate.
+
+The next guarded pilot pins Galileo 407ae8b4aa3871878dfd9939e33294c741cd2c14 for richer near-black surfaces and canonical pitch.dog UI typography. Both apps preserve the existing type-system v13.0.0 pin 786b4a2b671182319320f922b8de8f927ea3a002. Three app-owned native variable TTF files and all 14 semantic roles have verified upstream provenance in macos/Resources/StudioFonts/SOURCE.json. The common package remains resource-free; fonts resolve once from exact files, avoiding the Eyebrow installed-name collision. Existing pilot distribution guards, audio, rendering, media, undo and app-owned state remain intact.
+
+Local SDK15.4 / Swift6.4 arm64 app build passes with two build jobs on the M2/8 GB host. Font-file checks pass. Actual typography geometry and full repeated pilot acceptance are pending; ordinary system-only builds still preserve the optional-pilot boundary. Neither this candidate nor the type-system's upstream production-candidate status is a stable release claim.

@@ -108,14 +108,14 @@ struct SourceClipView:View {
                         request(discontinuity:true)
                     }
                     Slider(value:Binding(get:{elapsed},set:{playing=false;elapsed=$0;request(discontinuity:true)}),in:0...max(0.001,clipDuration))
-                    Text(String(format:"%.2f s",elapsed)).font(.caption.monospacedDigit())
+                    Text(String(format:"%.2f s",elapsed)).driftType(.data)
                 }
                 HStack(spacing:3){ForEach(0..<5,id:\.self){i in
                     Button{playing=false;elapsed=clipDuration*Double(i)/4;request(discontinuity:true)}label:{
                         Poster(original:original,workspace:workspace,seconds:clipDuration*Double(i)/4,playback:inspection,last:i==4).frame(height:35)
                     }.buttonStyle(.plain).help("Preview source position \(i+1)")
                 }}
-                if let error=preview.error{Text(error).foregroundStyle(.red).font(.caption)}
+                if let error=preview.error{Text(error).foregroundStyle(.red).driftType(.caption)}
             }.padding(.vertical,8)
         }.onChange(of:expanded){open in if open{begin()}else{finish()}}
         .onChange(of:playback){_ in playing=false;elapsed=0;preview.stop();request(discontinuity:true)}

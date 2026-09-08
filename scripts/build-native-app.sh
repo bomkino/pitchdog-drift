@@ -31,6 +31,8 @@ APP="$ROOT/build/native/Drift.app"
 rm -rf "$APP";mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/Drift" "$APP/Contents/MacOS/Drift"
 cp build/native-shaders/Drift.metallib build/native-shaders/ShaderSchema.json "$APP/Contents/Resources/"
+python3 scripts/verify-native-studio-fonts.py macos/Resources/StudioFonts
+ditto macos/Resources/StudioFonts "$APP/Contents/Resources/StudioFonts"
 cp macos/NativeCore/Sources/DriftCore/Resources/CreativeCatalog.json "$APP/Contents/Resources/"
 ditto build/native-sound "$APP/Contents/Resources/Sound"
 ditto build/native-codecs/licenses "$APP/Contents/Resources/ThirdPartyNotices"
