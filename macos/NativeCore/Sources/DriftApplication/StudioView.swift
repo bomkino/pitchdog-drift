@@ -78,9 +78,9 @@ struct StudioView:View {
                 if transport.frame==saved.0,transport.seekEpoch==saved.2,saved.1{transport.play()}
             }
         }
-        .sheet(isPresented:$canvasEditor){CanvasEditor(session:session)}
-        .sheet(isPresented:$exportSheet){ExportOptions(session:session,transport:transport,documentName:document.displayName)}
-        .sheet(item:$session.pendingBatch){batch in BatchReview(session:session,batch:batch)}
+        .sheet(isPresented:$canvasEditor){CanvasEditor(session:session).modifier(DriftChrome())}
+        .sheet(isPresented:$exportSheet){ExportOptions(session:session,transport:transport,documentName:document.displayName).modifier(DriftChrome())}
+        .sheet(item:$session.pendingBatch){batch in BatchReview(session:session,batch:batch).modifier(DriftChrome())}
         .onDrop(of:["public.file-url"],isTargeted:nil,perform:drop)
         .modifier(DriftChrome())
     }
