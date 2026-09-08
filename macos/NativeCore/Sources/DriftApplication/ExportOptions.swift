@@ -37,12 +37,12 @@ struct ExportOptions:View {
         VStack(alignment:.leading,spacing:18){
             Text("Export").driftType(.sectionTitle)
             Form{
-                Picker("Format",selection:$format){Text("MP4 · H.264").tag(OutputFormat.mp4);Text("PNG · Current frame").tag(OutputFormat.png);Text("PNG sequence").tag(OutputFormat.pngSequence)}
+                DriftChoicePicker(title:"Format",selection:$format,displayValue:format == .mp4 ? "MP4 · H.264":format == .png ? "PNG · Current frame":"PNG sequence"){Text("MP4 · H.264").tag(OutputFormat.mp4);Text("PNG · Current frame").tag(OutputFormat.png);Text("PNG sequence").tag(OutputFormat.pngSequence)}
                 if format != .png{
-                    Picker("Frame rate",selection:$rate){ForEach(frameRates,id:\.self){r in Text(String(format:"%.3g fps",Double(r.numerator)/Double(r.denominator))).tag(r)}}
-                    Picker("Range",selection:$mode){Text("Whole sequence").tag("all");Text("Spotlight / Closing").tag("cue");Text("Custom").tag("custom")}
+                    DriftChoicePicker(title:"Frame rate",selection:$rate,displayValue:String(format:"%.3g fps",Double(rate.numerator)/Double(rate.denominator))){ForEach(frameRates,id:\.self){r in Text(String(format:"%.3g fps",Double(r.numerator)/Double(r.denominator))).tag(r)}}
+                    DriftChoicePicker(title:"Range",selection:$mode,displayValue:["all":"Whole sequence","cue":"Spotlight / Closing","custom":"Custom"][mode] ?? "Whole sequence"){Text("Whole sequence").tag("all");Text("Spotlight / Closing").tag("cue");Text("Custom").tag("custom")}
                     if mode=="cue"{
-                        Picker("Cue",selection:$cueID){
+                        DriftChoicePicker(title:"Cue",selection:$cueID,displayValue:session.snapshot.plan.schedule.cues.first(where:{$0.id==cueID}).map{cueName($0)} ?? "Choose a cue"){
                             Text("Choose a cue").tag("")
                             ForEach(session.snapshot.plan.schedule.cues,id:\.id){cue in Text(cueName(cue)).tag(cue.id)}
                         }

@@ -23,7 +23,7 @@ struct DriftChrome: ViewModifier {
     #endif
     func body(content: Content) -> some View {
         #if canImport(PitchdogStudioUI)
-        content.studioTheme(theme).buttonStyle(StudioButtonStyle()).studioType(.bodyCompact).studioTypography(DriftType.typography)
+        content.studioTheme(theme).buttonStyle(StudioButtonStyle()).textFieldStyle(DriftFieldStyle()).studioType(.bodyCompact).studioTypography(DriftType.typography)
             .onReceive(NotificationCenter.default.publisher(for: NSColor.systemColorsDidChangeNotification)) { _ in colorRevision += 1 }
         #else
         content
