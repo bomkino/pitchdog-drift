@@ -1,0 +1,35 @@
+name: Portrait hotfix workspace
+on:
+  push:
+    branches: [fix/portrait-slide-geometry]
+    paths: [.github/workflows/hotfix-workspace.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Capture tracked text sources only
+        run: |
+          python3 - <<'PY'
+          import subprocess, zipfile
+          from pathlib import Path
+          with zipfile.ZipFile('hotfix-source.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for name in subprocess.check_output(['git','ls-files','-z']).decode().split('\0'):
+                  if not name: continue
+                  p=Path(name)
+                  if p.is_symlink() or not p.is_file(): continue
+                  try: p.read_text(encoding='utf-8')
+                  except (UnicodeDecodeError, OSError): continue
+                  z.write(p,name)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: portrait-hotfix-source
+          path: hotfix-source.zip
+          retention-days: 1
+          if-no-files-found: error
