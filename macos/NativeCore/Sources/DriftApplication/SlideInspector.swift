@@ -21,10 +21,11 @@ struct SlideInspector:View {
             HStack{Toggle("Included",isOn:Binding(get:{selected.allSatisfy(\.included)},set:{v in edit("Include slides"){$0.included=v}}));if Set(selected.map(\.included)).count>1{Text("Mixed").foregroundStyle(.secondary)}}
             Toggle("In moving sequence",isOn:Binding(get:{selected.allSatisfy(\.inSequence)},set:{v in edit("Sequence membership"){$0.inSequence=v}}))
             DriftChoicePicker(title:"Slide frame",selection:Binding(get:{Set(selected.map{ $0.framePolicy.rawValue }).count==1 ? first.framePolicy.rawValue:"mixed"},set:{v in
-                guard let policy=FramePolicy(rawValue:v) else{return};edit("Slide frame"){$0.framePolicy=policy;if policy == .ratio{$0.aspect = .some(session.project.canvas.ratio)}}
-            }),displayValue:Set(selected.map{$0.framePolicy}).count>1 ? "Mixed":(["matchCanvas":"Match canvas","source":"Source","ratio":"Custom"][first.framePolicy.rawValue] ?? "Source")){Text("Match canvas").tag("matchCanvas");Text("Source").tag("source");Text("Custom").tag("ratio");if Set(selected.map{$0.framePolicy.rawValue}).count>1{Text("Mixed").tag("mixed")}}
+                guard let policy=FramePolicy(rawValue:v) else{return};edit("Slide frame"){$0.framePolicy=policy;if policy == .ratio && $0.aspect==nil{$0.aspect=CanvasSize.wideDeck.ratio}}
+            }),displayValue:Set(selected.map{$0.framePolicy}).count>1 ? "Mixed":(["matchCanvas":"Match canvas","source":"Source","ratio":"Custom"][first.framePolicy.rawValue] ?? "Source")){Text("Match canvas").tag("matchCanvas");Text("Source").tag("source");Text("Custom").tag("ratio");if Set(selected.map{$0.framePolicy.rawValue}).count>1{Text("Mixed").tag("mixed")}}.accessibilityIdentifier("drift.slide-frame")
             if first.framePolicy == .ratio{
-                HStack{TextField("Width : height",text:$ratio).textFieldStyle(DriftFieldStyle()).onSubmit(applyRatio);Button("Set",action:applyRatio)}
+                HStack{TextField("Width : height",text:$ratio).textFieldStyle(DriftFieldStyle()).onSubmit(applyRatio).accessibilityIdentifier("drift.slide-ratio");Button("Set",action:applyRatio).accessibilityIdentifier("drift.set-slide-ratio")}
+                    .onAppear{syncRatio()}.onChange(of:first.id){_ in syncRatio()}.onChange(of:first.aspect){_ in syncRatio()}
                 Text("Exact ratio: \(first.aspect?.numerator ?? 1):\(first.aspect?.denominator ?? 1)").driftType(.caption).foregroundStyle(.secondary)
             }
             DriftChoicePicker(title:"Content",selection:Binding(get:{Set(selected.map{$0.fit.rawValue}).count==1 ? first.fit.rawValue:"mixed"},set:{v in if let fit=Fit(rawValue:v){edit("Fit media"){$0.fit=fit}}}),displayValue:Set(selected.map{$0.fit}).count>1 ? "Mixed":(first.fit.rawValue=="fill" ? "Fill":"Fit")){Text("Fit").tag("fit");Text("Fill").tag("fill");if Set(selected.map{$0.fit.rawValue}).count>1{Text("Mixed").tag("mixed")}}
@@ -56,6 +57,7 @@ struct SlideInspector:View {
             if selected.count==1,session.project.closing?.slideID==first.id{CueInspector(session:session,transport:transport,slideID:first.id,closing:true,cueID:"closing")}
         }else{Text("Select a slide to frame its media and direct its presentation.").foregroundStyle(.secondary)}
     }
+    private func syncRatio(){if let value=selected.first?.aspect{ratio=value==CanvasSize.wideDeck.ratio ? "2576:1080":"\(value.numerator):\(value.denominator)"}}
     private func applyRatio(){do{let value=try ExactRatio(pair:ratio);edit("Exact slide ratio"){$0.framePolicy = .ratio;$0.aspect=value}}catch{session.issue=error.localizedDescription}}
 }
 struct PinInspector:View {
@@ -74,7 +76,7 @@ struct PinInspector:View {
         DisclosureGroup("Pin placement"){
             toggle("Pin only",\.pinOnly)
             number("X",\.x);number("Y",\.y);number("Width",\.width)
-            DriftChoicePicker(title:"Frame",selection:Binding(get:{pin.framePolicy.rawValue},set:{v in change("Pin frame"){$0.framePolicy=FramePolicy(rawValue:v)!;if v=="ratio"{$0.aspect=session.project.canvas.ratio}}}),displayValue:["source":"Source","matchCanvas":"Canvas","ratio":"Custom"][pin.framePolicy.rawValue] ?? "Source"){Text("Source").tag("source");Text("Canvas").tag("matchCanvas");Text("Custom").tag("ratio")}
+            DriftChoicePicker(title:"Frame",selection:Binding(get:{pin.framePolicy.rawValue},set:{v in guard let policy=FramePolicy(rawValue:v) else{return};let fallback=session.project.canvas.ratio;change("Pin frame"){$0.framePolicy=policy;if policy == .ratio && $0.aspect==nil{$0.aspect=fallback}}}),displayValue:["source":"Source","matchCanvas":"Canvas","ratio":"Custom"][pin.framePolicy.rawValue] ?? "Source"){Text("Source").tag("source");Text("Canvas").tag("matchCanvas");Text("Custom").tag("ratio")}
             if pin.framePolicy == .ratio{HStack{TextField("Exact ratio",text:$ratio);Button("Set"){do{let value=try ExactRatio(pair:ratio);change("Pin ratio"){$0.aspect=value}}catch{session.issue=error.localizedDescription}}}}
             DriftChoicePicker(title:"Content",selection:Binding(get:{pin.fit.rawValue},set:{v in change("Pin fit"){$0.fit=Fit(rawValue:v)!}}),displayValue:pin.fit.rawValue=="fill" ? "Fill":"Fit"){Text("Fit").tag("fit");Text("Fill").tag("fill")}
             number("Focal X",\.focalX);number("Focal Y",\.focalY);number("Safe inset",\.safeInset)
@@ -128,15 +130,19 @@ struct CanvasEditor:View {
     var body:some View{
         VStack(alignment:.leading,spacing:18){Text("Canvas").driftType(.sectionTitle)
             HStack{ForEach([("Wide deck","2576 × 1080"),("16:9","1920 × 1080"),("Portrait","1080 × 1920"),("Square","1080 × 1080")],id:\.0){name,value in Button(name){pair=value}}}
-            TextField("Width × height, pixels",text:$pair).driftType(.input).textFieldStyle(DriftFieldStyle()).onSubmit(apply)
-            Text("These are output pixels. Preview zoom and World changes do not alter them.").foregroundStyle(.secondary)
+            TextField("Width × height, pixels",text:$pair).driftType(.input).textFieldStyle(DriftFieldStyle()).onSubmit(apply).accessibilityIdentifier("drift.canvas-pixels")
+            Text("Output pixels only. Slide frames keep their own dimensions; change them in Slide → Slide frame.").foregroundStyle(.secondary)
+            Button("Use Instagram train"){
+                session.change("Instagram train"){$0.useInstagramTrain()};dismiss()
+            }.accessibilityIdentifier("drift.instagram-train")
+            Text("Sets 1080 × 1920 output, all slide frames to 2576 × 1080, and a close straight vertical path. One Undo restores the previous setup. Media, crops and roles are kept.").driftType(.caption).foregroundStyle(.secondary)
             if let error{Text(error).foregroundStyle(.red)}
-            HStack{Spacer();Button("Cancel"){dismiss()}.keyboardShortcut(.cancelAction);Button("Apply",action:apply).keyboardShortcut(.defaultAction)}
+            HStack{Spacer();Button("Cancel"){dismiss()}.keyboardShortcut(.cancelAction);Button("Apply",action:apply).keyboardShortcut(.defaultAction).accessibilityIdentifier("drift.apply-canvas")}
         }.padding(24).frame(width:520).onAppear{pair="\(session.project.canvas.width) × \(session.project.canvas.height)"}
     }
     private func apply(){do{
         let parts=pair.components(separatedBy:CharacterSet(charactersIn:"xX×:"));guard parts.count==2,let w=Int(parts[0].trimmingCharacters(in:.whitespaces)),let h=Int(parts[1].trimmingCharacters(in:.whitespaces)) else{throw NativeFailure.message("Enter whole output pixels, such as 2576 × 1080. Decimal ratios belong to Slide frame.")}
-        let value=try CanvasSize(width:w,height:h);session.change("Canvas dimensions"){p in p.canvas=value;p.creative.card.aspectWidth=Double(w)/100;p.creative.card.aspectHeight=Double(h)/100};dismiss()
+        let value=try CanvasSize(width:w,height:h);session.change("Canvas dimensions"){$0.canvas=value};dismiss()
     }catch{self.error=error.localizedDescription}}
 }
 struct TimelineView:View {

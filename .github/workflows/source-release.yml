@@ -1,5 +1,9 @@
 name: Publish verified native installer
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       source_commit:
@@ -23,12 +27,19 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
+    # User-authorized hotfix only. All other releases still need explicit dispatch.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       contains(github.event.workflow_run.head_commit.message, '[release-0.5.1]'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      RELEASE_SHA: ${{ inputs.source_commit }}
-      BUILD_RUN: ${{ inputs.build_run }}
-      RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || inputs.source_commit }}
+      BUILD_RUN: ${{ github.event.workflow_run.id || inputs.build_run }}
+      RELEASE_PRERELEASE: ${{ github.event_name == 'workflow_run' && 'false' || format('{0}', inputs.prerelease) }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Require trusted main dispatch
@@ -42,7 +53,11 @@ jobs:
           test "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)" = "$RELEASE_SHA"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ inputs.source_commit }}
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+      - name: Restrict automatic publication to the approved hotfix version
+        if: github.event_name == 'workflow_run'
+        run: python3 -c 'import json; assert json.load(open("package.json"))["version"] == "0.5.1"'
       - name: Verify exact successful CI authority
         run: |
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" > "$RUNNER_TEMP/run.json"

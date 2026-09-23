@@ -146,8 +146,10 @@ public struct Slide: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var assetID: String
     public var included=true,inSequence=true
-    public var framePolicy:FramePolicy = .matchCanvas
-    public var aspect:ExactRatio?=nil
+    // New slides are wide deck compartments, independent of output pixels.
+    // Codable retains the explicit policy and ratio in existing documents.
+    public var framePolicy:FramePolicy = .ratio
+    public var aspect:ExactRatio?=CanvasSize.wideDeck.ratio
     public var fit:Fit = .fit
     public var crop=Crop()
     public var focalX=0.5,focalY=0.5,scaleOffset=0.0
@@ -159,6 +161,7 @@ public struct Slide: Codable, Equatable, Sendable, Identifiable {
     public func validate(original: Original) throws {
         try require(identity(id) && assetID==original.id,"Invalid slide identity or media reference.")
         try require(framePolicy != .ratio || aspect != nil,"Custom framing needs an exact ratio.")
+        if framePolicy == .ratio,let aspect{try number(aspect.value,0.0001...10000,"Slide aspect ratio")}
         try crop.validate();try number(focalX,0...1,"Focal X");try number(focalY,0...1,"Focal Y");try number(scaleOffset,-0.75...0.75,"Slide scale")
         try playback.validate(original:original)
     }
@@ -187,6 +190,7 @@ public struct Pin: Codable, Equatable, Sendable {
         try number(shadowOffsetX,-500...500,"Pin shadow X");try number(shadowOffsetY,-500...500,"Pin shadow Y")
         try require(startBaseMilliseconds>=0 && (endBaseMilliseconds==nil || endBaseMilliseconds!>startBaseMilliseconds),"Pin end must follow its start.")
         try require(framePolicy != .ratio || aspect != nil,"Custom Pin framing needs a ratio.")
+        if framePolicy == .ratio,let aspect{try number(aspect.value,0.0001...10000,"Pin aspect ratio")}
         try RGBA.validateHex(borderColor);try RGBA.validateHex(matteColor)
     }
 }
@@ -277,7 +281,7 @@ public struct DriftProject:Codable,Equatable,Sendable {
     public var id:String,name:String
     public var createdAt:String,modifiedAt:String
     public var seed:Int64=17
-    public var canvas=CanvasSize.wideDeck
+    public var canvas=CanvasSize.portrait
     public var transparent=false
     public var assets:[String:Original]=[:]
     public var slides:[Slide]=[]
@@ -323,6 +327,17 @@ public struct DriftProject:Codable,Equatable,Sendable {
         let value=try JSONDecoder().decode(Self.self,from:data);try value.validate();return value
     }
     public func contentIdentity()throws->Data{var copy=self;copy.createdAt="";copy.modifiedAt="";copy.lockedDomains.sort();return try copy.encoded()}
+    /// Explicit, undoable conversion for existing documents; never an on-open migration.
+    public mutating func useInstagramTrain(){
+        canvas = .portrait
+        creative.card.aspectWidth=25.76;creative.card.aspectHeight=10.8
+        creative.motion.transport.axis="vertical"
+        creative.motion.path.id="straight";creative.motion.path.gap=0.06
+        creative.motion.path.curvature=0;creative.motion.path.depth=0
+        creative.motion.path.banking=0;creative.motion.path.focusScale=0
+        creative.motion.performance.imperfection=0
+        for i in slides.indices{slides[i].framePolicy = .ratio;slides[i].aspect=CanvasSize.wideDeck.ratio}
+    }
     public mutating func removeSlides(_ ids:Set<String>){
         slides.removeAll{ids.contains($0.id)}
         if let p=pin,ids.contains(p.slideID){pin=nil}
@@ -365,6 +380,9 @@ public extension DriftProject {
     mutating func applyWorld(_ template:WorldTemplate,catalog:CreativeCatalog,recut:Int?=nil){
         let locks=Set(lockedDomains);var values=template.values
         values.card.aspectWidth=creative.card.aspectWidth;values.card.aspectHeight=creative.card.aspectHeight;values.card.defaultFit=creative.card.defaultFit
+        // A Look/Recut must not rotate or reverse the user's directed sequence.
+        values.motion.transport.axis=creative.motion.transport.axis
+        values.motion.transport.direction=creative.motion.transport.direction
         let take=recut ?? worldRecut
         values.motion.performance.take=1+Double((seed+Int64(take)*17)%999)
         values.atmosphere.recut=Double(take)

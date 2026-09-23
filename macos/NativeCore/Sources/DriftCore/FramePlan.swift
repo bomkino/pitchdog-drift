@@ -168,9 +168,11 @@ public struct FramePlan:Sendable {
     public let project:DriftProject,base:BaseTimeline,schedule:PresentationSchedule
     public let moving:[Slide]
     private let byID:[String:Slide]
+    private let slideTrack:SlideTrackLayout
     public init(project:DriftProject)throws {
         self.project=project;try project.validate();base=try BaseTimeline(project:project);moving=project.movingSlides
         byID=Dictionary(uniqueKeysWithValues:project.slides.map{($0.id,$0)})
+        slideTrack=SlideTrackLayout(project:project,slides:moving)
         var cues:[CueTiming]=[]
         for c in project.spotlights {
             guard let slide=byID[c.slideID],slide.included else{continue}
@@ -249,17 +251,21 @@ public struct FramePlan:Sendable {
         return pose
     }
     public func movingPoses(baseSeconds:Double,interaction:Double=0)->[CardPose] {
-        guard !moving.isEmpty else{return []}
+        guard !moving.isEmpty,baseSeconds.isFinite,interaction.isFinite else{return []}
         let sample=base.sample(seconds:baseSeconds),track=cadence(sample.travel),distance=track.distance+interaction
         let c=project.creative,w=Double(project.canvas.width),h=Double(project.canvas.height),vertical=c.motion.transport.axis=="vertical"
-        let width=w*bounded(c.card.scale,0.1,1.6),height=width/(c.card.aspectWidth/max(0.01,c.card.aspectHeight))
-        let stride=(vertical ? height:width)*(1+bounded(c.motion.path.gap,0,2.5)),axis=vertical ? h:w,cross=vertical ? w:h,radius=axis/2+stride
-        let minimum=Int(ceil(axis/max(1,stride)))+5,count=max(moving.count,Int(ceil(Double(minimum)/Double(moving.count)))*moving.count),length=Double(count)*stride
+        let width=w*bounded(c.card.scale,0.1,1.6)
+        let axis=vertical ? h:w,cross=vertical ? w:h,radius=axis/2+slideTrack.maximumExtent
+        // At most 24 cards are drawn; retain a bounded two-window candidate set.
+        let repetitions=max(1,(48+moving.count-1)/moving.count)
+        let count=moving.count*repetitions,length=Double(repetitions)*slideTrack.cycleLength
+        let displacement=slideTrack.displacement(visits:distance,repetitions:repetitions)
         var cards:[CardPose]=[]
         for slot in 0..<count {
-            let primary=positiveModulo(Double(slot)*stride-distance*stride+length/2,length)-length/2
-            if abs(primary)>radius+stride*1.25{continue}
-            let i=slot%moving.count,slide=moving[i],n=bounded(primary/max(1,radius),-1.4,1.4),a=abs(n),pt=point(n),step=0.0015
+            let i=slot%moving.count,slide=moving[i],height=slideTrack.heights[i]
+            let primary=positiveModulo(slideTrack.position(slot:slot)-displacement+length/2,length)-length/2
+            if abs(primary)>radius+slideTrack.extents[i]*1.25{continue}
+            let n=bounded(primary/max(1,radius),-1.4,1.4),a=abs(n),pt=point(n),step=0.0015
             let before=point(n-step),after=point(n+step),prior=point(n-step*2),next=point(n+step*2)
             let dc=(after.0-before.0)/(step*2),dz=(after.1-before.1)/(step*2),len=sqrt(radius*radius+dc*dc+dz*dz)
             let tangent=(radius/len,dc/len,dz/len)
@@ -277,11 +283,10 @@ public struct FramePlan:Sendable {
             let focus=1-bounded(a,0,1),depthScale=bounded(1+(pt.1+organicZ)/max(1,radius)*0.34,0.62,1.08)
             let scale=bounded(depthScale*(1+c.motion.path.focusScale*focus)*(1+slide.scaleOffset),0.24,1.6)
             let t=layer(sample,index:i,travel:height*0.055)
-            let ratio=slide.aspectRatio(canvas:project.canvas,original:project.assets[slide.assetID]!)
-            var pose=styled(slide,slot:slot,index:i,width:width*scale*t.scale,height:width/ratio*scale*t.scale)
+            var pose=styled(slide,slot:slot,index:i,width:width*scale*t.scale,height:height*scale*t.scale)
             pose.x=vertical ? pt.0+organicCross:primary;pose.y=(vertical ? -primary:pt.0+organicCross)-t.translateY;pose.z=pt.1+organicZ
             pose.rotationX=vertical ? bounded(pitch,-combined,combined):0;pose.rotationY=vertical ? 0:bounded(-pitch,-combined,combined);pose.rotationZ=bounded(rz,-combined,combined)
-            let extent=(vertical ? height:width)*scale,intersection=max(0,min(axis/2,primary+extent/2)-max(-axis/2,primary-extent/2))
+            let extent=vertical ? pose.height:pose.width,intersection=max(0,min(axis/2,primary+extent/2)-max(-axis/2,primary-extent/2))
             let reveal=smooth3((bounded(intersection/max(1e-9,extent),0,1)-0.1)/(0.325-0.1))
             pose.opacity=bounded(1-c.motion.path.edgeFade*pow(a,1.6),0.08,1)*reveal*t.opacity
             pose.pathBend=bounded(bend+abs(tangent.2)*0.46+abs(tangent.1)*0.22,0,1);pose.focus=focus

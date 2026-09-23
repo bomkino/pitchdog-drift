@@ -75,7 +75,7 @@ final class NativeJourneyUITests:XCTestCase {
                 XCTAssertTrue(nextFrame.isEnabled)
                 nextFrame.click()
             }
-            for choice in ["edit-enter","edit-blur","edit-escape","edit-undo","edit-undo-enter","edit-reorder","edit-undo-reorder","edit-redo-reorder","edit-undo-redo","look-start","look-original","look-preview","look-cancel","look-restart","look-seek","look-apply","look-undo"]{
+            for choice in ["edit-enter","edit-blur","edit-escape","edit-undo","edit-undo-enter","edit-reorder","edit-undo-reorder","edit-redo-reorder","edit-undo-redo","look-start","look-original","look-preview","look-cancel","look-restart","look-seek","look-apply","look-undo","geometry-custom","geometry-ratio","geometry-invalid","geometry-canvas","geometry-canvas-undo","geometry-canvas-redo","geometry-train","geometry-train-undo"]{
                 try awaitValue(choice){self.json(root.appendingPathComponent("UI_STEP.json"))?["choice"] as? String==choice || self.json(root.appendingPathComponent("RESULT.json")) != nil || app.state == .notRunning}
                 XCTAssertNil(json(root.appendingPathComponent("RESULT.json")),"Application failed before \(choice)")
                 let step=try XCTUnwrap(json(root.appendingPathComponent("UI_STEP.json")))
@@ -124,6 +124,25 @@ final class NativeJourneyUITests:XCTestCase {
                 case "look-seek":
                     let field=window.textFields["Frame"];replace(field,"7");field.typeKey(.return,modifierFlags:[])
                 case "look-apply":window.buttons["Apply Look"].click()
+                case "geometry-custom":
+                    try selectInspector("Slide",in:window);try click("drift.slide-frame")
+                    let item=app.menuItems["Custom"].firstMatch
+                    XCTAssertTrue(item.waitForExistence(timeout:10));item.click()
+                case "geometry-ratio","geometry-invalid":
+                    let field=window.textFields["drift.slide-ratio"]
+                    replace(field,choice=="geometry-ratio" ? "16:9":"0:1920")
+                    try click("drift.set-slide-ratio")
+                case "geometry-canvas":
+                    try click("drift.canvas-size")
+                    replace(window.textFields["drift.canvas-pixels"],"720 × 1280")
+                    try click("drift.apply-canvas")
+                case "geometry-canvas-undo":window.buttons["Undo"].click()
+                case "geometry-canvas-redo":app.typeKey("z",modifierFlags:[.command,.shift])
+                case "geometry-train":
+                    try click("drift.canvas-size");try click("drift.instagram-train")
+                case "geometry-train-undo":
+                    let shot=XCTAttachment(screenshot:window.screenshot());shot.name="Portrait output with wide vertical train";shot.lifetime = .keepAlways;add(shot)
+                    window.buttons["Undo"].click()
                 default:XCTFail("Unexpected editor proof step")
                 }
             }

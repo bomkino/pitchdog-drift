@@ -8,13 +8,11 @@ Use the [latest stable native release](https://github.com/bomkino/pitchdog-drift
 
 Download `Install-Drift.command` from that release and run it with `bash` in Terminal. It downloads and verifies the matching installer before requesting normal Quit, respects cancelled Quit, stages the replacement on the destination volume, and retains the previous app for rollback. Use `--destination "$HOME/Applications"` for an existing writable user Applications folder. Do not use sudo. Projects and originals are preserved.
 
-For the 0.5.0 studio UI candidate, use the [prerelease listing](https://github.com/bomkino/pitchdog-drift/releases) and follow its explicit release-directory installation instructions. Running the installer without that option selects the stable release.
-
 Default builds are **ad-hoc signed and unnotarized**. For a verified trusted download blocked by macOS, use System Settings → Privacy & Security → Open Anyway. Do not disable Gatekeeper or strip quarantine. Developer ID and notarization have a separate required verification lane.
 
 ## Direct a sequence
 
-Add media, arrange slides, choose a World and its pressure, then adjust Look, Motion or the selected Slide. Eight authored Worlds retain 72 variants, recorded sound, motion recipes and optical treatments. The new-document canvas is **2576 × 1080**; changing World or using Recut never changes those dimensions.
+Add media, arrange slides, choose a World and its pressure, then adjust Look, Motion or the selected Slide. Eight authored Worlds retain 72 variants, recorded sound, motion recipes and optical treatments. New documents use a **1080 × 1920 (9:16) output**, independent **2576 × 1080 slide frames**, and a close **vertical** train. Changing output size preserves explicit slide ratios and frame policies; **Match canvas** deliberately follows the output aspect. World and Recut keep the output size and motion axis. For an existing document, click the output dimensions and choose **Use Instagram train**; one Undo restores its previous setup.
 
 Pin, Spotlight and Closing are independent assignments. Moving media can occupy each role. Source clips loop independently of deck repeats. A finite presentation has one Closing after all passes; Loop keeps the assignment but disables its use. Video-slide audio stays silent. Optional Drift sound uses the retained recorded palette.
 
