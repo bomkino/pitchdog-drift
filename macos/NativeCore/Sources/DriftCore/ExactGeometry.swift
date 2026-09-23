@@ -80,6 +80,7 @@ public struct CanvasSize: Equatable, Codable, Sendable {
     public let width: Int
     public let height: Int
     public static let wideDeck = try! CanvasSize(width: 2576, height: 1080)
+    public static let instagramPortrait = try! CanvasSize(width: 1080, height: 1920)
 
     public init(width: Int, height: Int) throws {
         guard (256...8192).contains(width), (256...8192).contains(height),

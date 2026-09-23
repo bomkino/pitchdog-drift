@@ -4,7 +4,9 @@ The native app requires Apple silicon and macOS 13.3 or later. It follows macOS 
 
 ## Start and arrange
 
-Choose **File → New**. The default canvas is **2576 × 1080**. Click the dimensions in the toolbar for exact dimensions or a ratio; `25.76:10.80` represents `322:135`. A World or Recut changes creative decisions, never canvas dimensions.
+Choose **File → New**. The output frame defaults to **1080 × 1920 (9:16)** and motion starts **Vertical**. Imported slide frames default independently to **2576 × 1080**. Click the toolbar dimensions to change output pixels. In the **Slide** tab, Custom changes the slide ratio: `2576:1080` and `25.76:10.80` both represent `322:135`. A World or Recut never changes output dimensions. Existing documents retain their saved settings.
+
+In **Motion → Path and surface response → Path**, Gap controls spacing relative to the actual adjacent slides, not the output frame. New documents start at `0.04`; use `0` for touching edges on a straight, unscaled path. Curvature, focus scaling and perspective can change the visible projected gap.
 
 Use **Add media** or **File → Add Media…** to import images, static or animated WebP, opaque VP8/VP9 WebM, or supported native movie files. Original media is copied without transcoding. Unsupported or corrupt files produce a visible decision; a partial batch does not silently replace the deck. Use search and the media sidebar to select, duplicate, remove or reorder slides. Undo/Redo preserves media identities.
 

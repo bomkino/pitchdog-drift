@@ -65,7 +65,7 @@ try{
   const v=Object.fromEntries(['motion','card','material','lighting','atmosphere','lens','sound'].map(k=>[k,structuredClone(p[k])]));
   delete v.lens.presenterTreatment;delete v.sound.underVoice;return v;
  };
- const baseline=fresh();baseline.card.aspectWidth=25.76;baseline.card.aspectHeight=10.8;baseline.card.defaultFit='contain';
+ const baseline=fresh();baseline.card.aspectWidth=25.76;baseline.card.aspectHeight=10.8;baseline.card.defaultFit='contain';baseline.motion.transport.axis='vertical';baseline.motion.path.gap=0.04;
  const worlds=[];
  for(const world of authored.AUTHORED_WORLDS)for(const pressure of ['restrained','directed','fever'])for(const scene of [-1,0,1]){
   const p=fresh();authored.applyAuthoredWorld(p,world.id,pressure,scene<0?'16:9':'9:16',Math.max(0,scene),0);

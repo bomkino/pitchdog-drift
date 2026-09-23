@@ -146,8 +146,8 @@ public struct Slide: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var assetID: String
     public var included=true,inSequence=true
-    public var framePolicy:FramePolicy = .matchCanvas
-    public var aspect:ExactRatio?=nil
+    public var framePolicy:FramePolicy = .ratio
+    public var aspect:ExactRatio?=CanvasSize.wideDeck.ratio
     public var fit:Fit = .fit
     public var crop=Crop()
     public var focalX=0.5,focalY=0.5,scaleOffset=0.0
@@ -277,7 +277,7 @@ public struct DriftProject:Codable,Equatable,Sendable {
     public var id:String,name:String
     public var createdAt:String,modifiedAt:String
     public var seed:Int64=17
-    public var canvas=CanvasSize.wideDeck
+    public var canvas=CanvasSize.instagramPortrait
     public var transparent=false
     public var assets:[String:Original]=[:]
     public var slides:[Slide]=[]
@@ -287,7 +287,7 @@ public struct DriftProject:Codable,Equatable,Sendable {
     public var creative:CreativeValues
     public var direction=Direction()
     public var output=Output()
-    public var worldID="editorial-drift",worldPressure="restrained",worldScene = -1,worldRecut=0
+    public var worldID="editorial-drift",worldPressure="restrained",worldScene = 0,worldRecut=0
     public var lockedDomains:[String]=[]
     public init(name:String="Untitled",creative:CreativeValues) throws {
         id=UUID().uuidString;self.name=name;createdAt=ISO8601DateFormatter().string(from:Date());modifiedAt=createdAt;self.creative=creative;try validate()

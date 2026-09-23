@@ -36,7 +36,7 @@ import DriftNative
             try require(controller.document === document,"native window document ownership")
             document.makeWindowControllers()
             try require(document.windowControllers.count==1,"idempotent native window creation")
-            try require(editor.project.canvas.width==2576 && editor.project.canvas.height==1080,"new document wide-deck default")
+            try require(editor.project.canvas == .instagramPortrait && editor.project.creative.motion.transport.axis=="vertical","new document portrait output and vertical motion")
             try require(try ExactRatio(pair:"25.76:10.80")==ExactRatio(322,135),"decimal ratio")
             let names=["Still.png","Alpha.webp","Animation.webp","VP8.webm","VP9.webm","Video.mp4"]
             editor.importURLs(names.map{fixtures.appendingPathComponent($0)},ticket:editor.ticket())
@@ -45,7 +45,17 @@ import DriftNative
             try require(editor.project.slides.count==names.count,"batch order/count")
             try require(editor.project.slides.map{editor.project.assets[$0.assetID]!.name}==names,"preserved input order")
             let accepted=editor.project;editor.undo();try require(editor.project.slides.isEmpty,"single batch undo");editor.redo();try require(editor.project.slides==accepted.slides,"batch redo preserves identities")
-            assertions.append("Native window; 2576x1080; exact decimal ratio; six-format batch; media Undo/Redo")
+            try require(editor.project.slides.allSatisfy{$0.framePolicy == .ratio && $0.aspect == CanvasSize.wideDeck.ratio},"imported slides keep the independent 2576x1080 frame")
+            // Exercise the same read-during-edit callback as Custom in the
+            // slide inspector. Mutating the stored journal used to trap here.
+            editor.change("Custom frame crash regression"){p in
+                for i in p.slides.indices{p.slides[i].framePolicy = .ratio;p.slides[i].aspect=editor.project.canvas.ratio}
+            }
+            try require(editor.issue==nil && editor.project.slides.allSatisfy{$0.aspect == CanvasSize.instagramPortrait.ratio},"custom frame callback commits without overlapping access")
+            editor.undo();try require(editor.project==accepted,"custom frame undo restores exact original project")
+            editor.redo();try require(editor.project.slides.allSatisfy{$0.aspect == CanvasSize.instagramPortrait.ratio},"custom frame redo")
+            editor.undo();try require(editor.project==accepted,"custom frame final restore")
+            assertions.append("Native window; 1080x1920 output; 2576x1080 slides; vertical motion; custom-frame edit/Undo/Redo; six-format batch")
             // Submit competing requests in one main-actor turn so the first
             // decode is unavoidably in flight before the final scrub is queued.
             let sourcePreview=SourceClipPreview(),animated=editor.project.assets[editor.project.slides[2].assetID]!
@@ -68,7 +78,7 @@ import DriftNative
             let reopened=try await Task.detached{try ProjectIO.read(file)}.value
             try require(reopened.0==editor.project,"portable original/media round trip")
             editor.change("Unrelated World"){p in p.applyWorld(editor.catalog.worlds[3],catalog:editor.catalog)}
-            try require(editor.project.canvas==CanvasSize.wideDeck,"World cannot resize canvas");editor.undo();try require(!editor.dirty,"Undo back to saved content")
+            try require(editor.project.canvas==CanvasSize.instagramPortrait,"World cannot resize canvas");editor.undo();try require(!editor.dirty,"Undo back to saved content")
             assertions.append("NSDocument save; new-format reopening; World/canvas ownership; undo-to-saved")
             assertions += try await DocumentAcceptance.run(snapshot:editor.snapshot,output:output)
             assertions.append(try await ExportAcceptance.run(snapshot:editor.snapshot,output:output))

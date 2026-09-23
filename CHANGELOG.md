@@ -2,6 +2,25 @@
 
 Notable user-visible and maintainer-facing changes will be recorded here. Drift is pre-1.0, and a changelog entry is not by itself evidence of a tag, GitHub Release, binary publication, or approval.
 
+## [0.5.1] — 2026-09-23
+
+### Fixed
+
+- Custom slide and Pin sizing no longer reads the stored document journal while it is being mutated. Edits are staged as a value transaction; validation, Undo/Redo and rollback remain intact.
+- Vertical spacing, entry offsets and visibility use each slide's actual frame rather than a shared card or output aspect ratio. Mixed-size slides use adjacent edge extents, including the repeat seam; geometry rebuilds after sizing edits.
+- Extremely thin custom ratios have bounded virtual-copy counts. Invalid preview interaction values are rejected before integer conversion.
+
+### Defaults
+
+- New output frames: **1080 × 1920 (9:16)**.
+- New slide frames: **2576 × 1080**, independent of output dimensions.
+- Motion: **Vertical**, with the portrait World arrangement and a compact `0.04` gap. A zero gap joins edges on a straight, unscaled path; authored depth and focus effects retain their visual behavior.
+- Existing projects retain their saved dimensions, framing and direction. No automatic project migration or media modification.
+
+Core regressions cover defaults, World recuts, exact sizing, mixed ratios, scale offsets, reverse travel, cycle seams and bounded edge cases. The packaged-app journey additionally exercises the original custom-frame crash callback and Undo/Redo. Exact-source macOS integration, application and installer checks remain required for publication.
+
+Distribution remains **ad-hoc signed and unnotarized** for Apple silicon / macOS 13.3+. Physical hardware, minimum-OS and VoiceOver acceptance are not claimed by this hotfix. The release receipt identifies the actual tested build and download bytes.
+
 ## [0.5.0] — 2026-09-08
 
 **Native studio UI prerelease.** Drift's existing panels, Look/Motion/Slide modes, selectors, fields and export sheets now use the shared native studio controls. The interface retains macOS Light/Dark appearance and the existing pitch.dog typography pin. Rendering, media/audio behavior, document history and app-owned state remain unchanged.

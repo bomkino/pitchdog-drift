@@ -90,7 +90,14 @@ public actor RecoveryWriter {
         guard !closed else{return}
         cancelLookAudition()
         do{let before=journal
-            if try journal.apply(name,ticket:ticket,edit){do{try refresh()}catch{journal=before;throw error}}
+            // A callback may read session.project (for example Custom frame).
+            // Mutating the stored journal during that read traps Swift's
+            // exclusive-access runtime. Stage the transaction in a value copy.
+            var next=journal
+            if try next.apply(name,ticket:ticket,edit){
+                journal=next
+                do{try refresh()}catch{journal=before;throw error}
+            }
         }catch{issue=error.localizedDescription}
     }
     public func beginGesture(_ name:String){do{try journal.beginGesture(name)}catch{issue=error.localizedDescription}}
