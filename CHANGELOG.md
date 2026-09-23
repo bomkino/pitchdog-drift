@@ -2,6 +2,18 @@
 
 Notable user-visible and maintainer-facing changes will be recorded here. Drift is pre-1.0, and a changelog entry is not by itself evidence of a tag, GitHub Release, binary publication, or approval.
 
+## [0.5.1] — 2026-09-23
+
+**Portrait train hotfix — stable native release.** New documents use a **1080 × 1920 (9:16) output**, independent **2576 × 1080 slide frames**, and a close, straight **vertical** path. The default gap is six percent of adjacent slide size; zero makes unrotated flat slide edges meet.
+
+Fixes the custom-frame crash caused by overlapping Swift access to the document journal. Native edit transactions now evaluate a separate candidate, preserving validation, Save, Undo/Redo and recovery. Invalid and extreme ratios report an error without replacing accepted state. Custom framing no longer resets to the output ratio.
+
+The motion evaluator now derives spacing, loop seams, reveal and culling from the actual per-slide frame geometry, including mixed source/custom sizes and per-slide size offsets. Output resizing no longer rewrites slide geometry. World and Recut retain the directed axis and direction. Preview and export share the corrected frame plan; its layout is cached per snapshot and drawn instances remain bounded.
+
+Existing saved dimensions are preserved, not silently migrated. Open the output-size dialog and choose **Use Instagram train** to set portrait output, all slide frames to 2576 × 1080 and a close vertical path in one undoable edit. Originals, crops, Pin, Spotlight and Closing assignments are kept. The 0.5.0 native studio interface remains included.
+
+Publication requires the complete native integration, real archived-app UI journey (including Custom/Set/invalid ratio/output resize/train/Undo), and mounted-DMG checks for the exact current main commit. Assets are published from those tested bytes without rebuilding. This is **ad-hoc signed and unnotarized**, for Apple silicon / macOS 13.3+. Hosted tests do not certify physical M1 Pro/M2, minimum-OS, VoiceOver, battery, sleep/wake or external-display acceptance. Source-video audio remains silent; legacy hybrid projects are not migrated.
+
 ## [0.5.0] — 2026-09-08
 
 **Native studio UI prerelease.** Drift's existing panels, Look/Motion/Slide modes, selectors, fields and export sheets now use the shared native studio controls. The interface retains macOS Light/Dark appearance and the existing pitch.dog typography pin. Rendering, media/audio behavior, document history and app-owned state remain unchanged.

@@ -4,7 +4,13 @@ The native app requires Apple silicon and macOS 13.3 or later. It follows macOS 
 
 ## Start and arrange
 
-Choose **File → New**. The default canvas is **2576 × 1080**. Click the dimensions in the toolbar for exact dimensions or a ratio; `25.76:10.80` represents `322:135`. A World or Recut changes creative decisions, never canvas dimensions.
+Choose **File → New**. The output is **1080 × 1920 (9:16)**, each new slide frame is **2576 × 1080**, and motion runs **vertically** with close spacing. These are independent: the output is the Instagram frame, and the wide slides travel through it.
+
+Click the output dimensions in the toolbar to enter **integer output pixels**. To change a slide frame, select one or more slides and use **Slide → Slide frame → Custom**, enter `2576:1080` or an exact decimal ratio such as `25.76:10.80`, then press **Set**. Both represent `322:135`. **Source** uses each original's aspect; **Match canvas** deliberately uses the output aspect. Output resizing does not rewrite these choices. World and Recut preserve output dimensions and motion direction.
+
+For an existing project, open the output-size dialog and choose **Use Instagram train**. This explicitly sets portrait output, all slide frames to 2576 × 1080 and a close straight vertical path; one Undo restores the entire previous setup. Media originals, crops and presentation roles stay intact. Nothing is silently converted on opening a saved document.
+
+In **Motion → Path**, Gap is proportional to the adjacent slides' actual dimensions. The train default is `0.06`; `0` makes edges touch on a flat, unrotated path. Depth, focus enlargement, banking and other authored optical treatments can change the visible projected separation.
 
 Use **Add media** or **File → Add Media…** to import images, static or animated WebP, opaque VP8/VP9 WebM, or supported native movie files. Original media is copied without transcoding. Unsupported or corrupt files produce a visible decision; a partial batch does not silently replace the deck. Use search and the media sidebar to select, duplicate, remove or reorder slides. Undo/Redo preserves media identities.
 

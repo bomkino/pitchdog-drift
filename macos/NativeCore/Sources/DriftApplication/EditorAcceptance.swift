@@ -79,7 +79,40 @@ import DriftNative
         try await NativeApplicationProof.wait("one real Undo of Apply Look"){editor.journal.past.count==history}
         try NativeApplicationProof.require(try editor.project.contentIdentity()==baseIdentity,"one Undo restores the complete prior Look")
         try NativeApplicationProof.require(editor.issue==nil,"focused editor operations complete without an issue")
-        return "Real focused Enter/blur/Escape and native list drag retain selection ownership and single Undo; Look A/B, Cancel/resume and Apply/Undo preserve accepted content and newer user seeks"
+        editor.selection=[ids[0]]
+        editor.change("Legacy framing fixture"){$0.slides[0].framePolicy = .matchCanvas;$0.slides[0].aspect=nil}
+        try step("geometry-custom")
+        try await NativeApplicationProof.wait("real Custom slide frame selection"){
+            editor.project.slides[0].framePolicy == .ratio && editor.project.slides[0].aspect==CanvasSize.wideDeck.ratio
+        }
+        try step("geometry-ratio")
+        let custom=try ExactRatio(16,9)
+        try await NativeApplicationProof.wait("real custom ratio Set"){editor.project.slides[0].aspect==custom}
+        try step("geometry-invalid")
+        try await NativeApplicationProof.wait("invalid ratio is reported without closing app"){editor.issue != nil}
+        try NativeApplicationProof.require(editor.project.slides[0].aspect==custom,"invalid ratio preserves accepted dimensions")
+        editor.issue=nil
+        let slideFrames=editor.project.slides,card=editor.project.creative.card
+        try step("geometry-canvas")
+        let resized=try CanvasSize(width:720,height:1280)
+        try await NativeApplicationProof.wait("real output-only canvas resize"){editor.project.canvas==resized}
+        try NativeApplicationProof.require(editor.project.slides==slideFrames && editor.project.creative.card==card,"output size does not mutate slide frames or cached creative aspect")
+        let beforeTrain=try editor.project.contentIdentity()
+        try step("geometry-train")
+        try await NativeApplicationProof.wait("real Instagram train preset"){
+            editor.project.canvas == .portrait && editor.project.slides.allSatisfy{$0.aspect==CanvasSize.wideDeck.ratio}
+        }
+        try NativeApplicationProof.require(editor.project.creative.motion.transport.axis=="vertical" && editor.project.creative.motion.path.gap==0.06,"train uses close vertical geometry")
+        let poses=editor.snapshot.plan.movingPoses(baseSeconds:0)
+        if let a=poses.first(where:{$0.slot==0}),let b=poses.first(where:{$0.slot==1}){
+            try NativeApplicationProof.require(abs(abs(a.y-b.y)-(a.height+b.height)*0.53)<0.0001,"actual document plan has six-percent edge gap")
+        }else{throw NativeFailure.message("Train preview did not produce adjacent frames.")}
+        try step("geometry-train-undo")
+        try await NativeApplicationProof.wait("one real Undo of Instagram train"){
+            (try? editor.project.contentIdentity())==beforeTrain
+        }
+        try NativeApplicationProof.require(editor.issue==nil,"custom dimensions and output edits remain usable")
+        return "Real Custom frame selection, ratio Set, invalid-input rejection, independent output resizing and Instagram train/Undo; focused Enter/blur/Escape and native list drag retain selection ownership and single Undo; Look A/B, Cancel/resume and Apply/Undo preserve accepted content and newer user seeks"
     }
 
     static func repeatPreview(document:DriftDocument,output:URL)async throws->String{

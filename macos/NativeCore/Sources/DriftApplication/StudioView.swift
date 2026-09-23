@@ -26,7 +26,7 @@ struct StudioView:View {
                 Button{session.undo()}label:{Image(systemName:"arrow.uturn.backward")}.accessibilityLabel("Undo").help("Undo").disabled(!session.journal.canUndo)
                 Button{session.redo()}label:{Image(systemName:"arrow.uturn.forward")}.accessibilityLabel("Redo").help("Redo").disabled(!session.journal.canRedo)
                 Spacer()
-                Button("\(session.project.canvas.width) × \(session.project.canvas.height)"){canvasEditor=true}.monospacedDigit().help("Canvas dimensions")
+                Button("\(session.project.canvas.width) × \(session.project.canvas.height)"){canvasEditor=true}.monospacedDigit().help("Canvas dimensions").accessibilityIdentifier("drift.canvas-size")
                 Menu{
                     Button("Fit"){transport.zoom=0}
                     ForEach([0.25,0.5,1.0,2.0],id:\.self){value in Button("\(Int(value*100))%"){transport.zoom=value}}
@@ -222,6 +222,7 @@ struct CreativeGroup:View {
     // Recipes, World/Recut and explicit sequence timing own their real effects.
     private var catalogOnly:Set<String>{
         switch type{
+        case "CardSettings":return ["aspectWidth","aspectHeight"]
         case "MotionSettingsTransport":return ["slidesPerSecond"]
         case "MotionSettingsCadence":return ["cutId"]
         case "MotionSettingsPerformance":return ["id"]

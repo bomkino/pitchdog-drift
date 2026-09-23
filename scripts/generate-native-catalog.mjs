@@ -66,6 +66,10 @@ try{
   delete v.lens.presenterTreatment;delete v.sound.underVoice;return v;
  };
  const baseline=fresh();baseline.card.aspectWidth=25.76;baseline.card.aspectHeight=10.8;baseline.card.defaultFit='contain';
+ // Native social-video defaults: wide slides in a portrait output, close vertical train.
+ baseline.motion.transport.axis='vertical';
+ Object.assign(baseline.motion.path,{id:'straight',gap:0.06,curvature:0,depth:0,banking:0,focusScale:0});
+ baseline.motion.performance.imperfection=0;
  const worlds=[];
  for(const world of authored.AUTHORED_WORLDS)for(const pressure of ['restrained','directed','fever'])for(const scene of [-1,0,1]){
   const p=fresh();authored.applyAuthoredWorld(p,world.id,pressure,scene<0?'16:9':'9:16',Math.max(0,scene),0);

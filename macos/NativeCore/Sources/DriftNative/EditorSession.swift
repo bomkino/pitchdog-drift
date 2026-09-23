@@ -89,8 +89,15 @@ public actor RecoveryWriter {
     public func change(_ name:String,ticket:EditTicket?=nil,_ edit:(inout DriftProject)throws->Void){
         guard !closed else{return}
         cancelLookAudition()
-        do{let before=journal
-            if try journal.apply(name,ticket:ticket,edit){do{try refresh()}catch{journal=before;throw error}}
+        do{
+            // UI edits may read session.project while mutating the candidate.
+            // Never hold an inout borrow of self.journal across their closure:
+            // Swift otherwise terminates the app for overlapping access.
+            var candidate=journal
+            if try candidate.apply(name,ticket:ticket,edit){
+                let before=journal;journal=candidate
+                do{try refresh()}catch{journal=before;throw error}
+            }
         }catch{issue=error.localizedDescription}
     }
     public func beginGesture(_ name:String){do{try journal.beginGesture(name)}catch{issue=error.localizedDescription}}
