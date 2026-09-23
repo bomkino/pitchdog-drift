@@ -142,7 +142,7 @@ struct CanvasEditor:View {
     }
     private func apply(){do{
         let parts=pair.components(separatedBy:CharacterSet(charactersIn:"xX×:"));guard parts.count==2,let w=Int(parts[0].trimmingCharacters(in:.whitespaces)),let h=Int(parts[1].trimmingCharacters(in:.whitespaces)) else{throw NativeFailure.message("Enter whole output pixels, such as 2576 × 1080. Decimal ratios belong to Slide frame.")}
-        let value=try CanvasSize(width:w,height:h);session.change("Canvas dimensions"){p in p.canvas=value;p.creative.card.aspectWidth=Double(w)/100;p.creative.card.aspectHeight=Double(h)/100};dismiss()
+        let value=try CanvasSize(width:w,height:h);session.change("Canvas dimensions"){$0.canvas=value};dismiss()
     }catch{self.error=error.localizedDescription}}
 }
 struct TimelineView:View {

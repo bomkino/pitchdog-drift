@@ -4,7 +4,7 @@ Notable user-visible and maintainer-facing changes will be recorded here. Drift 
 
 ## [0.5.1] — 2026-09-23
 
-**Portrait train hotfix — stable native release.** New documents use a **1080 × 1920 (9:16) output**, independent **2576 × 1080 slide frames**, and a close, straight **vertical** path. The default gap is six percent of adjacent slide size; zero makes unrotated flat slide edges meet.
+**Portrait train hotfix — intended stable release after exact-main acceptance.** New documents use a **1080 × 1920 (9:16) output**, independent **2576 × 1080 slide frames**, and a close, straight **vertical** path. The default gap is six percent of adjacent slide size; zero makes unrotated flat slide edges meet.
 
 Fixes the custom-frame crash caused by overlapping Swift access to the document journal. Native edit transactions now evaluate a separate candidate, preserving validation, Save, Undo/Redo and recovery. Invalid and extreme ratios report an error without replacing accepted state. Custom framing no longer resets to the output ratio.
 

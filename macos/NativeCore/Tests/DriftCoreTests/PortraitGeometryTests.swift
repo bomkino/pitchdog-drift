@@ -50,6 +50,35 @@ final class PortraitGeometryTests:XCTestCase {
         let changed=try XCTUnwrap(edited.first{$0.slot==0}),next=try XCTUnwrap(edited.first{$0.slot==1})
         XCTAssertEqual(abs(changed.y-next.y),(changed.height+next.height)/2*1.06,accuracy:1e-8)
     }
+    // Cover every visible neighbour across the cycle seam and reverse travel.
+    func testEveryVisibleMixedFrameMeetsItsNeighbourAcrossReverseTravel()throws {
+        for axis in ["vertical","horizontal"] {
+            var p=try fixture();p.creative.motion.transport.axis=axis;p.creative.motion.path.gap=0
+            p.slides[1].aspect=try ExactRatio(1,1);p.slides[1].scaleOffset=0.25
+            p.slides[2].framePolicy = .source;p.slides[2].scaleOffset = -0.2
+            let plan=try FramePlan(project:p)
+            for distance in [0.0,0.25,1.0,-0.5,2.75] {
+                let coordinates=plan.movingPoses(baseSeconds:0,interaction:distance).map {
+                    (axis=="vertical" ? -$0.y:$0.x,axis=="vertical" ? $0.height:$0.width)
+                }.sorted{$0.0<$1.0}
+                XCTAssertGreaterThan(coordinates.count,2)
+                for pair in zip(coordinates,coordinates.dropFirst()) {
+                    XCTAssertEqual(pair.1.0-pair.0.0,(pair.0.1+pair.1.1)/2,accuracy:1e-7)
+                }
+            }
+        }
+    }
+    func testOneSlideRepeatHasIdenticalGeometryInBothDirections()throws {
+        var p=try fixture();p.slides=Array(p.slides.prefix(1))
+        let plan=try FramePlan(project:p)
+        let baseline=plan.movingPoses(baseSeconds:0,interaction:0).map(\.y).sorted()
+        XCTAssertFalse(baseline.isEmpty)
+        for distance in [-1.0,1.0] {
+            let repeated=plan.movingPoses(baseSeconds:0,interaction:distance).map(\.y).sorted()
+            XCTAssertEqual(baseline.count,repeated.count)
+            for (a,b) in zip(baseline,repeated){XCTAssertEqual(a,b,accuracy:1e-8)}
+        }
+    }
     func testCyclicAndReverseMixedTrackAreContinuous()throws {
         var p=try fixture();for i in p.slides.indices{p.slides[i].framePolicy = .source}
         let t=SlideTrackLayout(project:p,slides:p.slides),epsilon=1e-7,cycles=16

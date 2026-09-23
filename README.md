@@ -12,7 +12,7 @@ Default builds are **ad-hoc signed and unnotarized**. For a verified trusted dow
 
 ## Direct a sequence
 
-Add media, arrange slides, choose a World and its pressure, then adjust Look, Motion or the selected Slide. Eight authored Worlds retain 72 variants, recorded sound, motion recipes and optical treatments. New documents use a **1080 × 1920 (9:16) output**, independent **2576 × 1080 slide frames**, and a close **vertical** train. Changing output size never changes slide frames. World and Recut keep the output size and motion axis. For an existing document, click the output dimensions and choose **Use Instagram train**; one Undo restores its previous setup.
+Add media, arrange slides, choose a World and its pressure, then adjust Look, Motion or the selected Slide. Eight authored Worlds retain 72 variants, recorded sound, motion recipes and optical treatments. New documents use a **1080 × 1920 (9:16) output**, independent **2576 × 1080 slide frames**, and a close **vertical** train. Changing output size preserves explicit slide ratios and frame policies; **Match canvas** deliberately follows the output aspect. World and Recut keep the output size and motion axis. For an existing document, click the output dimensions and choose **Use Instagram train**; one Undo restores its previous setup.
 
 Pin, Spotlight and Closing are independent assignments. Moving media can occupy each role. Source clips loop independently of deck repeats. A finite presentation has one Closing after all passes; Loop keeps the assignment but disables its use. Video-slide audio stays silent. Optional Drift sound uses the retained recorded palette.
 

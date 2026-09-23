@@ -75,7 +75,7 @@ final class NativeJourneyUITests:XCTestCase {
                 XCTAssertTrue(nextFrame.isEnabled)
                 nextFrame.click()
             }
-            for choice in ["edit-enter","edit-blur","edit-escape","edit-undo","edit-undo-enter","edit-reorder","edit-undo-reorder","edit-redo-reorder","edit-undo-redo","look-start","look-original","look-preview","look-cancel","look-restart","look-seek","look-apply","look-undo","geometry-custom","geometry-ratio","geometry-invalid","geometry-canvas","geometry-train","geometry-train-undo"]{
+            for choice in ["edit-enter","edit-blur","edit-escape","edit-undo","edit-undo-enter","edit-reorder","edit-undo-reorder","edit-redo-reorder","edit-undo-redo","look-start","look-original","look-preview","look-cancel","look-restart","look-seek","look-apply","look-undo","geometry-custom","geometry-ratio","geometry-invalid","geometry-canvas","geometry-canvas-undo","geometry-canvas-redo","geometry-train","geometry-train-undo"]{
                 try awaitValue(choice){self.json(root.appendingPathComponent("UI_STEP.json"))?["choice"] as? String==choice || self.json(root.appendingPathComponent("RESULT.json")) != nil || app.state == .notRunning}
                 XCTAssertNil(json(root.appendingPathComponent("RESULT.json")),"Application failed before \(choice)")
                 let step=try XCTUnwrap(json(root.appendingPathComponent("UI_STEP.json")))
@@ -136,6 +136,8 @@ final class NativeJourneyUITests:XCTestCase {
                     try click("drift.canvas-size")
                     replace(window.textFields["drift.canvas-pixels"],"720 × 1280")
                     try click("drift.apply-canvas")
+                case "geometry-canvas-undo":window.buttons["Undo"].click()
+                case "geometry-canvas-redo":app.typeKey("z",modifierFlags:[.command,.shift])
                 case "geometry-train":
                     try click("drift.canvas-size");try click("drift.instagram-train")
                 case "geometry-train-undo":
