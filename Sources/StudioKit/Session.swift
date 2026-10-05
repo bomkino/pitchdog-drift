@@ -189,6 +189,8 @@ public final class StudioSession: StageSource {
     public var selection: UUID?
     public var textures: [UUID: MediaTexture] = [:]
     public var thumbnails: [UUID: CGImage] = [:]
+    /// Each item's own palette, from its thumbnail, for a backdrop that follows the work.
+    @ObservationIgnored private var itemPalettes: [UUID: Palette] = [:]
     public var importing = 0
     public var showExport = false {
         didSet { if showExport { endPreview() } }
@@ -389,8 +391,10 @@ public final class StudioSession: StageSource {
         for (i, item) in p.items.enumerated() where item.kind == .video {
             if let d = item.duration, d > 0 { videos[i] = VideoClip(url: document.media.url(for: item.file), duration: d) }
         }
-        return Composition(scene: config.entry(p.scene).make(p), context: ctx, textures: textures, backdrop: p.backdrop, look: p.look,
-                           backdropLoop: 14, videos: videos, overlay: title ? titleOverlay(p) : nil)
+        var comp = Composition(scene: config.entry(p.scene).make(p), context: ctx, textures: textures, backdrop: p.backdrop, look: p.look,
+                               backdropLoop: 14, videos: videos, overlay: title ? titleOverlay(p) : nil)
+        comp.itemPalettes = p.items.map { itemPalettes[$0.id] }
+        return comp
     }
 
     /// `p` with blank cards in place of media, to show a look before anything is added.
@@ -664,7 +668,10 @@ public final class StudioSession: StageSource {
                             self.document.project = p
                         }
                     }
-                    if let thumb { self.thumbnails[id] = thumb }
+                    if let thumb {
+                        self.thumbnails[id] = thumb
+                        if let p = Palette.extract(from: [thumb], name: "") { self.itemPalettes[id] = p }
+                    }
                     self.version += 1
                     self.clock.duration = self.stageLoopDuration
                     if self.importing == 0 { LaunchProbe.mark("media-ready", finish: true) }
@@ -858,5 +865,20 @@ public final class StudioSession: StageSource {
         }
         beatCache = (key, merged)
         return merged
+    }
+
+    /// Moves the playhead to the next or previous moment, wrapping round the
+    /// loop, and holds it there.
+    public func jumpToMoment(_ direction: Int) {
+        let marks = beats
+        guard !marks.isEmpty else { return }
+        let now = wrap(clock.time, clock.duration)
+        let near = 0.5 / Double(max(fps, 1))
+        let target = direction > 0
+            ? marks.first(where: { $0 > now + near }) ?? marks[0]
+            : marks.last(where: { $0 < now - near }) ?? marks[marks.count - 1]
+        clock.playing = false
+        clock.time = target
+        touch()
     }
 }

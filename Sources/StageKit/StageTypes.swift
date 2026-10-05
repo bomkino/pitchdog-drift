@@ -34,6 +34,8 @@ public struct CardPose: Sendable {
     public var curl: Float = 0
     /// Travelling fold amplitude, 0…1.
     public var fold: Float = 0
+    /// Phase of the travelling folds. Advance it by whole turns over a loop
+    /// (2π times an integer), or the folds jump where the loop joins.
     public var foldPhase: Float = 0
     /// Corner radius as a fraction of the shorter side.
     public var corner: Float = 0.045
@@ -53,6 +55,16 @@ public struct CardPose: Sendable {
     public var solid: Bool = false
     /// Horizontal reveal, 0…1: only the part left of this fraction is drawn (wipes).
     public var reveal: Float = 1
+    /// The part of a parent card this card shows, as (u0, v0, u1, v1) in the
+    /// parent's 0…1 coordinates (v down). A card cut into bands or strips draws
+    /// each piece as its own card with the slice it covers: the media mapping,
+    /// rounded corners and shadow stay those of the whole card.
+    public var crop: SIMD4<Float> = SIMD4(0, 0, 1, 1)
+    /// A loose thread of a card (core 0…1, amount 0…1, side shade, core glint):
+    /// with amount above 0 the band narrows towards its core with soft edges,
+    /// across its shorter side. Zero amount draws it whole, so bands that tile
+    /// a card stay gapless until they come apart.
+    public var band: SIMD4<Float> = SIMD4(1, 0, 0, 0)
     /// Stacking group. Higher layers draw over lower ones regardless of depth, so a
     /// scene can decide who passes in front. Change it only while the card overlaps
     /// nothing, or the change shows as a pop.
@@ -114,6 +126,10 @@ public struct StageFrame: Sendable {
     /// True when that surface is a wall that stays put, such as a gallery's;
     /// otherwise it follows the deepest card, so no shadow lands in front of one.
     public var fixedGround = false
+    /// Which works set the backdrop's mood, and how strongly, when the scene
+    /// knows better than the cards on screen (a work turning over in place).
+    /// Nil leaves it to the cards nearest the centre.
+    public var moodHints: [MoodHint]? = nil
     /// Strength of a mirror floor under the cards (0 = none).
     public var reflection: Float = 0
     /// World y of the reflecting floor.
@@ -205,6 +221,13 @@ public struct StageLook: Codable, Hashable, Sendable {
     public var cameraDrift: Float {
         get { drift ?? 0 }
         set { drift = newValue }
+    }
+    /// How far the backdrop's colours lean towards the work at the centre, 0…1;
+    /// stored optionally so older documents still open.
+    public var moodAmount: Float?
+    public var mood: Float {
+        get { moodAmount ?? 0 }
+        set { moodAmount = newValue }
     }
 
     public init() {}

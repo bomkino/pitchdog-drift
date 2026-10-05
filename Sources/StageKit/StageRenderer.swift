@@ -337,6 +337,8 @@ public final class StageRenderer {
         var mirror: SIMD4<Float>
         var color: SIMD4<Float>
         var extra: SIMD4<Float>
+        var crop: SIMD4<Float>
+        var band: SIMD4<Float>
     }
 
     func frameUniforms(frame: StageFrame, look: StageLook, aspect: Float, width: Int, height: Int) -> FrameUniforms {
@@ -367,7 +369,10 @@ public final class StageRenderer {
 
     func cardUniforms(_ c: CardPose, look: StageLook, mirror: SIMD4<Float>) -> CardUniforms {
         let model = Matrix.translation(c.position) * Matrix.rotationEuler(c.rotation)
-        let minSide = min(c.size.x, c.size.y)
+        // Corners belong to the whole card, even when this card is one slice of it.
+        let extent = SIMD2(max(c.crop.z - c.crop.x, 1e-5), max(c.crop.w - c.crop.y, 1e-5))
+        let parent = c.size / extent
+        let minSide = min(parent.x, parent.y)
         let corner = c.corner * (0.4 + 1.6 * look.corners) * minSide
         let bendKind: Float
         switch look.bend {
@@ -387,11 +392,13 @@ public final class StageRenderer {
             model: model,
             sizeCorner: SIMD4(c.size.x, c.size.y, corner, c.opacity),
             deform: SIMD4(c.curl * look.bendAmount, c.fold * look.bendAmount, c.foldPhase, bendKind),
-            media: SIMD4(c.fit == .fill ? 0 : 1, c.focal.x, c.focal.y, c.solid ? c.size.x / max(c.size.y, 0.0001) : c.mediaAspect),
+            media: SIMD4(c.fit == .fill ? 0 : 1, c.focal.x, c.focal.y, c.solid ? parent.x / max(parent.y, 0.0001) : c.mediaAspect),
             fx: SIMD4(c.glow, c.blur, c.shadow, c.solid ? 0 : surface),
             mirror: mirror,
             color: c.color,
-            extra: SIMD4(c.reveal, 0, 0, 0))
+            extra: SIMD4(c.reveal, 0, 0, 0),
+            crop: c.crop,
+            band: c.band)
     }
 }
 

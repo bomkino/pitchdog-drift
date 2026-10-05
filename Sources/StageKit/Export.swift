@@ -19,6 +19,8 @@ public struct Composition: @unchecked Sendable {
     public var videos: [Int: VideoClip] = [:]
     /// Words over the finished frame.
     public var overlay: TitleOverlay?
+    /// Each texture's own palette, for a backdrop that follows the work (`look.mood`).
+    public var itemPalettes: [Palette?] = []
 
     public init(scene: any StageScene, context: SceneContext, textures: [MTLTexture], backdrop: BackdropSettings,
                 look: StageLook, backdropLoop: Double? = nil, drawBackdrop: Bool = true, videos: [Int: VideoClip] = [:],
@@ -113,8 +115,13 @@ public final class Exporter: @unchecked Sendable {
         ctx.aspect = Float(output.width) / Float(max(output.height, 1))
         let shutter = Double(comp.look.shutter) / Double(max(fps, 1))
         let effectiveSamples = comp.look.shutter > 0.01 && comp.scene.allowsMotionBlur ? samples : 1
+        var backdrop = comp.backdrop
+        if comp.look.mood > 0.001, !comp.itemPalettes.isEmpty, comp.drawBackdrop {
+            backdrop.palette = Mood.palette(base: backdrop.palette, frame: comp.scene.frame(at: t, ctx),
+                                            itemPalettes: comp.itemPalettes, amount: comp.look.mood)
+        }
         var request = StageRenderer.Request(
-            width: output.width, height: output.height, backdrop: comp.backdrop,
+            width: output.width, height: output.height, backdrop: backdrop,
             backdropPhase: comp.backdropPhase(at: t), look: comp.look, samples: effectiveSamples,
             frameIndex: frameIndex, keepAlpha: transparent, drawBackdrop: comp.drawBackdrop && !transparent)
         request.backdropScale = backdropScale

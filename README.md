@@ -22,8 +22,11 @@ Everything loops seamlessly, previews exactly as it exports, and runs locally on
 
 - A new window opens on sample work, already playing. Drop your own files anywhere in the window and they replace the samples.
 - The scenes sit on the left at the shape you are making, each with a line on what happens in it. Rest the pointer on one to watch it on the stage; click to use it; the arrow keys step through them.
-- Drift's Stream comes in nine styles (Editorial, Noir, Sunstruck, Dread, Tender, Velvet, Celluloid, Night Run, Procession); pick one at the top of the inspector. Galileo's scenes are grouped by how the work is met: one at a time, walked past, in motion, or on a table.
+- Scenes that share a movement come as styles of one scene, picked at the top of the inspector. Drift: Stream in nine moods (Editorial, Noir, Sunstruck, Dread, Tender, Velvet, Celluloid, Night Run, Procession); Spotlight as Feed, Rail, Cascade or Focus; Wall as Tilted or Lanes; Contact as Marks or Assemble; plus Opening, Story, Shuffle, Vortex and Loom. Galileo groups its scenes by how the work is met: one at a time (Vitrine, Hang, Rail, Focus, Compare), walk-through (Corridor, Shelf, Wall), in motion (Flow as Calm or Cascade, Orbit, Vortex, Loom, Opening) and on the table (Scatter, Hand, Deck, Story, Contact).
+- Several scenes come from pitch.dog's carousel research: Loom (Unwoven: cards weave from threads and unravel), Lanes (a three-lane wave wall), Cascade (a progressive turn), Vortex (rings orbiting a central work), Rail (a depth-graded rail), Assemble (a radial assembly into a contact sheet) and Focus (an editorial strip with focus pulls).
+- **Follow work**, on the Colour page, leans the background's colours towards the work in the middle of the frame as it changes; it is on by default where one work leads.
 - The inspector has five pages: **Motion** (loop length in one click: 10, 15, 30 or 60 s), **Title**, **Colour**, **Sound** and **Finish**.
+- Scroll with two fingers over the stage to move through the loop the way the work flows; playback carries on when you let go. The ticks under the transport mark the moments the cards land: the playhead holds on one as you scrub past it (Option scrubs freely), and Command-[ and Command-] jump between them.
 - The toolbar switches between 9:16, 4:5, 1:1 and 16:9; Cinema and 4K are in the menu beside it. Every scene lays itself out for the shape, and in a tall frame the work flows up the screen.
 - Export writes MP4, HEVC, ProRes, ProRes 4444 with transparency, numbered PNG frames or a still, for one shape or several at once.
 
@@ -88,7 +91,7 @@ Builds the apps, then checks headlessly the interface type, Stream's styles and 
 bash scripts/motion-audit.sh /tmp/motion-audit path/to/deck.pdf
 ```
 
-Exports every Drift and Galileo look without motion blur, in landscape and reel, then checks each video tile by tile for one-frame pops and for the seam where the loop joins. Some intended motion also trips it (stepped poses, throws, feature exchanges, fast entrances); look at the flagged frames before calling them bugs.
+Exports every Drift and Galileo look without motion blur, in landscape and reel, then checks each video tile by tile for one-frame pops and for the seam where the loop joins. Some intended motion also trips it (stepped poses, throws, feature exchanges, fast entrances, an edge that clips a tile for one frame as it passes behind a card); look at the flagged frames before calling them bugs.
 
 ## Rights
 
