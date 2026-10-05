@@ -180,6 +180,11 @@ enum Worlds {
                       summary: "The slides fly in from depth, centre first, and settle into a contact sheet.",
                       backdrop: "paper", palette: "sumi", tweak: { b in b.accent = 0.85; b.vignette = 0.4 },
                       look: { l in l.surface = .original; l.bend = .rigid; l.shadow = 0.55; l.depthOfField = 0.25; l.finish.grain = 0.2 }),
+            formation(UnrollScene(summary: "The deck as a sheet unrolls into a strip, curls into a ring that turns once, and folds back."),
+                      id: "unroll", name: "Unroll", eyebrow: "Sheet · ring · sheet",
+                      summary: "The deck as a sheet unrolls into a strip, curls into a ring that turns once, and folds back.",
+                      backdrop: "studio", palette: "graphite", tweak: { b in b.vignette = 0.45; b.brightness = 0.9 },
+                      look: { l in l.mood = 0.3; l.surface = .print; l.bend = .rigid; l.shadow = 0.45; l.depthOfField = 0.2; l.finish.grain = 0.16 }),
             formation(FocusScene(summary: "A strip of slides glides along, then zooms in on one at a time and back out."),
                       id: "focus", name: "Focus", eyebrow: "Strip · zoom · detail",
                       summary: "A strip of slides glides along, then zooms in on one at a time and back out.",
@@ -226,8 +231,8 @@ enum Worlds {
                        wideSummary: "Slides weave together from threads as they cross, and come apart at the far edge.",
                        symbol: "line.3.horizontal.decrease", wideSymbol: "line.3.horizontal.decrease"),
             SceneGroup(id: "contact", name: "Contact",
-                       summary: "Every slide on one sheet: crop marks visit each, or the sheet assembles from depth.",
-                       symbol: "viewfinder", members: [f["contact"]!, f["assemble"]!]),
+                       summary: "Every slide on one sheet: crop marks visit each, the sheet assembles from depth, or it unrolls into a turning ring.",
+                       symbol: "viewfinder", members: [f["contact"]!, f["assemble"]!, f["unroll"]!]),
         ]
     }
 
@@ -255,7 +260,7 @@ enum Worlds {
     static let cameraDrift: [String: Float] = [
         "editorial": 0.5, "noir": 0.25, "sunstruck": 0.5, "dread": 0.4, "tender": 0.6, "velvet": 0.4, "celluloid": 0,
         "nightrun": 0.3, "procession": 0.35, "story": 0.3, "wall": 0, "spotlight": 0.45, "shuffle": 0.3, "opening": 0.25, "contact": 0.25,
-        "loom": 0.15, "lanes": 0.2, "cascade": 0.2, "vortex": 0.3, "rail": 0.3, "assemble": 0.2, "focus": 0,
+        "loom": 0.15, "lanes": 0.2, "cascade": 0.2, "vortex": 0.3, "rail": 0.3, "assemble": 0.2, "focus": 0, "unroll": 0.15,
     ]
 
     static let documentType = UTType(exportedAs: "dog.pitch.drift2.reel", conformingTo: .package)

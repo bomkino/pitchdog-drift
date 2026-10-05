@@ -50,6 +50,8 @@ struct CardVOut {
     float2 uv;
     float3 worldPos;
     float3 normal;
+    float3 tangent;     // along the card's width, in world space
+    float cavity;       // 0 flat … 1 deep in a fold facing the camera
     float viewDist;
 };
 
@@ -109,23 +111,35 @@ vertex CardVOut card_vertex(uint vid [[vertex_id]],
     float3 p = float3((g.x - 0.5) * w, (0.5 - g.y) * h, 0.0);
     float3 d = deformCard(p, g, c);
     const float e = 0.01;
-    float3 dx = deformCard(p + float3(e * w, 0, 0), g + float2(e, 0), c) - d;
-    float3 dy = deformCard(p + float3(0, -e * h, 0), g + float2(0, e), c) - d;
-    float3 n = normalize(cross(dx, -dy));
+    // Central differences: the surface's slope both ways, and from the same four
+    // points its curvature, which darkens the valleys of a fold.
+    float3 xp = deformCard(p + float3(e * w, 0, 0), g + float2(e, 0), c);
+    float3 xm = deformCard(p - float3(e * w, 0, 0), g - float2(e, 0), c);
+    float3 yp = deformCard(p + float3(0, -e * h, 0), g + float2(0, e), c);
+    float3 ym = deformCard(p - float3(0, -e * h, 0), g - float2(0, e), c);
+    float3 n = normalize(cross(xp - xm, ym - yp));
+    float lap = (xp.z + xm.z - 2.0 * d.z) / ((e * w) * (e * w)) + (yp.z + ym.z - 2.0 * d.z) / ((e * h) * (e * h));
     float4 world = c.model * float4(d, 1.0);
     float3 wn = normalize((c.model * float4(n, 0.0)).xyz);
     // The edge pass draws the card's back shell, pushed back by its thickness:
     // hidden behind the face when square-on, a lit edge when the card turns.
     if (c.extra.y > 0.5) world.xyz -= wn * c.extra.z;
+    float3 wt = normalize((c.model * float4(xp - xm, 0.0)).xyz);
     if (c.mirror.x > 0.5) {
         world.y = 2.0 * c.mirror.y - world.y;
         wn.y = -wn.y;
+        wt.y = -wt.y;
     }
     CardVOut o;
     o.position = f.viewProj * world;
     o.uv = g;
     o.worldPos = world.xyz;
     o.normal = wn;
+    o.tangent = wt;
+    // Paper's buckle is pinned near the edge, where its curvature gathers;
+    // the shade follows only where the surface is free to fold.
+    float pin = smoothstep(0.0, 0.18, sin(PI * g.x)) * smoothstep(0.0, 0.18, sin(PI * g.y));
+    o.cavity = clamp(lap * min(w, h) * 0.15, 0.0, 1.0) * pin;
     o.viewDist = length(world.xyz - f.eye.xyz);
     return o;
 }
@@ -181,16 +195,19 @@ inline float sliceDistance(float2 uv, constant CardU &c, thread float2 &parentUV
 }
 
 // Disc sample for defocus. radius in uv units.
-inline float4 sampleDefocus(texture2d<float> t, sampler s, float2 uv, float2 radius, float lod) {
-    if (radius.x < 1e-6 && radius.y < 1e-6) return t.sample(s, uv, level(lod));
+// Defocus by a disc of taps. Every tap is filtered with the card's own
+// screen-space gradients (widened with the defocus), so a card seen at a
+// slant keeps its type sharp along the slant instead of blurring both ways.
+inline float4 sampleDefocus(texture2d<float> t, sampler s, float2 uv, float2 radius, float2 gx, float2 gy) {
+    if (radius.x < 1e-6 && radius.y < 1e-6) return t.sample(s, uv, gradient2d(gx, gy));
     const float2 taps[8] = {
         float2( 0.7071,  0.7071), float2(-0.7071,  0.7071), float2( 0.7071, -0.7071), float2(-0.7071, -0.7071),
         float2( 1.0,     0.0   ), float2(-1.0,     0.0   ), float2( 0.0,     1.0   ), float2( 0.0,    -1.0   )
     };
-    float4 acc = t.sample(s, uv, level(lod)) * 2.0;
+    float4 acc = t.sample(s, uv, gradient2d(gx, gy)) * 2.0;
     for (int i = 0; i < 8; i++) {
         float r = (i < 4) ? 0.55 : 1.0;
-        acc += t.sample(s, uv + taps[i] * radius * r, level(lod));
+        acc += t.sample(s, uv + taps[i] * radius * r, gradient2d(gx, gy));
     }
     return acc / 10.0;
 }
@@ -200,11 +217,14 @@ inline float3 spectral(float x) {
     return clamp(float3(abs(x * 6.0 - 3.0) - 1.0, 2.0 - abs(x * 6.0 - 2.0), 2.0 - abs(x * 6.0 - 4.0)), 0.0, 1.0);
 }
 
-fragment float4 card_fragment(CardVOut in [[stage_in]], bool front [[front_facing]],
+fragment float4 card_fragment(CardVOut in [[stage_in]], bool facing [[front_facing]],
                               constant FrameU &f [[buffer(1)]],
                               constant CardU &c [[buffer(2)]],
                               texture2d<float> tex [[texture(0)]],
                               sampler s [[sampler(0)]]) {
+    // A reflection is drawn mirrored, which reverses its winding: its front
+    // arrives as a back face.
+    bool front = c.mirror.x > 0.5 ? !facing : facing;
     float w = c.sizeCorner.x, h = c.sizeCorner.y;
     float2 puv;
     float d = sliceDistance(in.uv, c, puv);
@@ -242,7 +262,8 @@ fragment float4 card_fragment(CardVOut in [[stage_in]], bool front [[front_facin
         float kind = c.extra.w;
         float3 edge = kind < 0.5 ? float3(0.13, 0.13, 0.14)
                     : (kind < 1.5 ? float3(0.78, 0.75, 0.70)
-                    : (kind < 2.5 ? float3(0.88, 0.88, 0.86) : float3(0.52, 0.52, 0.56)));
+                    : (kind < 2.5 ? float3(0.88, 0.88, 0.86)
+                    : (kind < 3.5 ? float3(0.52, 0.52, 0.56) : float3(0.80, 0.78, 0.74))));
         float ea = mask * c.sizeCorner.w * c.color.a;
         return float4(edge * shade * c.color.rgb * ea, ea);
     }
@@ -250,11 +271,16 @@ fragment float4 card_fragment(CardVOut in [[stage_in]], bool front [[front_facin
     float inside;
     float2 muv = mediaUV(puv, c, inside);
     float2 duv = fwidth(muv);
-    float2 texSize = float2(tex.get_width(), tex.get_height());
-    float texelsPerPixel = max(duv.x * texSize.x, duv.y * texSize.y);
-    float lod = log2(max(1.0, texelsPerPixel * (1.0 + coc * 0.35)));
+    float widen = 1.0 + coc * 0.35;
     float2 radius = duv * coc * 0.55;
-    float4 m = sampleDefocus(tex, s, muv, radius, lod);
+    // In focus, the footprint keeps the card's slant (sharp type along it);
+    // defocused, it rounds out to the wider axis, as the old filtering did.
+    float2 gx = dfdx(muv), gy = dfdy(muv);
+    float lx = length(gx), ly = length(gy), lw = max(lx, ly);
+    float rounding = smoothstep(0.5, 5.0, coc);
+    gx *= mix(1.0, lw / max(lx, 1e-8), rounding);
+    gy *= mix(1.0, lw / max(ly, 1e-8), rounding);
+    float4 m = sampleDefocus(tex, s, muv, radius, gx * widen, gy * widen);
     m *= inside;
 
     int surface = int(c.fx.w + 0.5);
@@ -290,10 +316,44 @@ fragment float4 card_fragment(CardVOut in [[stage_in]], bool front [[front_facin
             float softbox = smoothstep(0.55, 0.9, R.y) * smoothstep(-0.2, 0.25, R.z) * 0.10;
             rgb += spec + softbox + fres * 0.08;
         } else if (surface == 3) {
-            float angle = dot(N, V);
-            float3 foil = spectral(fract(angle * 1.6 + puv.x * 0.35 + puv.y * 0.2));
-            rgb = mix(rgb, rgb * 0.75 + foil * 0.45, 0.22 + fres * 0.4);
-            rgb += pow(max(dot(N, H), 0.0), 60.0) * 0.3;
+            // Foil: a thin film over the print. Its colour comes from light
+            // interfering in a film a few hundred nanometres thick, so it shifts
+            // as the card tilts, and it shows only where the print is light:
+            // ink covers foil, so type stays solid.
+            float c1 = clamp(dot(N, V), 0.0, 1.0);
+            const float nf = 1.38;
+            float c2 = sqrt(max(1.0 - (1.0 - c1 * c1) / (nf * nf), 0.0));
+            float thick = 0.5 + 0.5 * snoise3(float3(puv * 2.2, 3.7));
+            float dn = 400.0 + 260.0 * (thick - 0.5);
+            float3 film = 0.5 - 0.5 * cos(2.0 * PI * 2.0 * nf * dn * c2 / float3(650.0, 532.0, 450.0));
+            float cover = smoothstep(0.5, 0.92, dot(rgb, float3(0.2126, 0.7152, 0.0722)));
+            // Restrained square-on, richer as the card tilts away.
+            float3 tint = mix(float3(0.92), film, 0.55);
+            float amount = cover * (0.18 + 0.42 * (1.0 - c1));
+            rgb = mix(rgb, rgb * tint * 1.08, amount);
+            rgb += cover * pow(max(dot(N, H), 0.0), 120.0) * 0.1 * film;
+        } else if (surface == 4) {
+            // Satin: a woven sheen. A band of light runs across the weave, a soft
+            // sheen gathers where the cloth turns from the eye, and the valleys
+            // of folds fall into shade, all within what keeps type readable.
+            float3 T = normalize(in.tangent - N * dot(N, in.tangent));
+            float3 Tw = normalize(T + cross(N, T));
+            // How far this point turns from the card's own plane: the sheen lives
+            // in the folds and curls, and stays light on a flat card.
+            float3 Nc = normalize((c.model * float4(0.0, 0.0, 1.0, 0.0)).xyz);
+            if (c.mirror.x > 0.5) Nc.y = -Nc.y;
+            float bent = smoothstep(0.0, 0.12, 1.0 - abs(dot(N, Nc)));
+            float lum = dot(rgb, float3(0.2126, 0.7152, 0.0722));
+            float NL = clamp(dot(N, L), 0.0, 1.0), NV = clamp(dot(N, V), 0.0, 1.0), NH = clamp(dot(N, H), 0.0, 1.0);
+            float TH = dot(Tw, H);
+            float band = pow(sqrt(max(1.0 - TH * TH, 0.0)), 32.0) * NL;
+            const float a = 0.45 * 0.45;
+            float charlie = (2.0 + 1.0 / a) * pow(max(1.0 - NH * NH, 0.0078125), 0.5 / a) / (2.0 * PI);
+            float vis = clamp(1.0 / (4.0 * (NL + NV - NL * NV)), 0.0, 1.0);
+            // Dark artwork keeps its depth: the sheen is held back where the print is dark.
+            float keep = (0.3 + 0.7 * bent) * mix(0.35, 1.0, smoothstep(0.02, 0.4, lum));
+            rgb *= (1.0 - 0.28 * in.cavity) * 0.96;
+            rgb += keep * (0.09 * band + 0.75 * float3(1.0, 0.97, 0.94) * charlie * vis * NL);
         }
         // Edge catch light: a hairline along the rim facing the light.
         float edge = (1.0 - smoothstep(0.0, pxWorld * 2.2, abs(d + pxWorld * 1.2)));

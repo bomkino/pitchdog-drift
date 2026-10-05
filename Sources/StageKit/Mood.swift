@@ -50,7 +50,9 @@ public enum Mood {
         } else {
             for card in frame.cards where !card.solid && card.opacity > 0.02 {
                 let d = simd_length(SIMD2(card.position.x, card.position.y))
-                let facing = abs(cosf(card.rotation.x)) * abs(cosf(card.rotation.y))
+                // Only a face turned towards the eye counts: the back of a ring, or a
+                // card turned away, shows no work.
+                let facing = max(0, cosf(card.rotation.x) * cosf(card.rotation.y))
                 add(card.media, expf(-(d / sigma) * (d / sigma)) * card.opacity * card.size.x * card.size.y * facing)
             }
             // How far the room leans also follows how much work is near the centre.
