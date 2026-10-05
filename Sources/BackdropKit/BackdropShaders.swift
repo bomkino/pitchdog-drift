@@ -312,7 +312,19 @@ float4 bd_rays(BD_ARGS) {
     float3 bg = mixLab(pc(pal, u, 0), pc(pal, u, 1), sat(0.3 + p.y));
     float3 lc = pr(pal, u, 0.85);
     float3 c = bg + lc * rays * fall * 1.1 + lc * exp(-dist * 7.0) * 0.6;
-    float dust = step(0.9975, hash1(int2(floor((p + float2(0.0, u.phase * 0.2)) * 260.0)), uint(u.seed) + 4u));
+    // Dust: a mote in some cells, drifting up and fading over whole lives, so
+    // it moves smoothly and the loop closes.
+    float2 g = p * 60.0;
+    float2 cell = floor(g);
+    float2 hm = hash2(int2(cell), uint(u.seed) + 4u);
+    float aa = fwidth(g.x);
+    float dust = 0.0;
+    if (hm.x > 0.86) {
+        float life = fract(u.phase * 2.0 + hm.y * 7.0);
+        float2 pos = cell + 0.5 + (hash2(int2(cell) + int2(17, 3), uint(u.seed) + 5u) - 0.5) * 0.45 + float2(0.0, (0.5 - life) * 0.4);
+        float dd = length(g - pos);
+        dust = (1.0 - smoothstep(0.07 - aa, 0.07 + aa, dd)) * smoothstep(0.0, 0.25, life) * (1.0 - smoothstep(0.75, 1.0, life));
+    }
     c += lc * dust * rays * fall * 1.5;
     (void)n;
     return float4(max(c, 0.0), 1.0);
@@ -348,17 +360,27 @@ float4 bd_frost(BD_ARGS) {
     float3 c = back;
     float drops = 0.0;
     if (u.detail > 0.02) {
-        float2 dp = p * mix(10.0, 26.0, u.scale);
-        dp.y -= u.phase * 2.0;
-        float3 v = voronoi(dp, 0.9, 0.0, uint(u.seed) + 9u);
-        float size = hash1(int2(floor(v.z * 991.0), 1), 3u);
-        float rr = mix(0.10, 0.34, size) * u.detail;
-        float inside = 1.0 - smoothstep(rr * 0.8, rr, v.x);
+        // Two sets of drops sliding down the pane, each faded out before it
+        // starts again, so the loop never shows a drop jumping back.
+        float inside = 0.0, glint = 0.0;
+        for (int layer = 0; layer < 2; layer++) {
+            float life = fract(u.phase + 0.5 * float(layer));
+            float wl = sin(PI * life);
+            wl *= wl;
+            float2 dp = p * mix(10.0, 26.0, u.scale);
+            dp.y -= life * 2.0;
+            float3 v = voronoi(dp, 0.9, 0.0, uint(u.seed) + 9u + uint(layer) * 31u);
+            float size = hash1(int2(floor(v.z * 991.0), 1), 3u);
+            float rr = mix(0.10, 0.34, size) * u.detail;
+            float inl = 1.0 - smoothstep(rr * 0.8, rr, v.x);
+            inside += inl * wl;
+            glint += smoothstep(rr * 0.35, 0.0, length(float2(v.x - rr * 0.35, 0.0))) * inl * wl;
+        }
         drops = inside;
         float2 dir = float2(nx, ny);
         float3 refr = blobField((p - dir * 0.03) * 0.9, u, pal, mix(0.12, 0.28, u.scale), mix(0.05, 0.35, u.motion), 1.0, u.accent);
         c = mix(c, refr * 1.08, inside);
-        c += pr(pal, u, 1.0) * smoothstep(rr * 0.35, 0.0, length(float2(v.x - rr * 0.35, 0.0))) * inside * 0.10;
+        c += pr(pal, u, 1.0) * glint * 0.10;
     }
     c *= 1.0 + 0.03 * nx;
     (void)ph;
@@ -759,9 +781,9 @@ float4 bd_dotgrid(BD_ARGS) {
     float d = length(f);
     float ang = mix(0.0, 60.0, u.accent) * PI / 180.0;
     float2 dir = float2(cos(ang), sin(ang));
-    float S = 0.5 * (u.aspect * abs(cos(ang)) + abs(sin(ang))) + 3.0 * 0.35;
-    float s = -S + 2.0 * S * u.phase;
     float width = mix(0.18, 0.55, u.softness);
+    float S = 0.5 * (u.aspect * abs(cos(ang)) + abs(sin(ang))) + 3.0 * width;
+    float s = -S + 2.0 * S * u.phase;
     float L = exp(-pow((dot(p, dir) - s) / width, 2.0));
     float rad = mix(0.05, 0.10, u.scale) + mix(0.04, 0.14, u.scale) * L;
     float aa = fwidth(d);
@@ -772,6 +794,136 @@ float4 bd_dotgrid(BD_ARGS) {
     float3 c = mix(ground, mixLab(dim, lit, L), dotv);
     c += lit * L * 0.035;
     return float4(max(c, 0.0), 1.0);
+}
+
+// ─────────────────────────────────────────────── NEW IN 2.0
+
+// Caustics — sunlight through moving water, dancing on a pool floor. Two
+// layers of cells whose points circle on whole turns per loop, warped by
+// looping noise like a swell; light gathers along the cell edges (the gap
+// between nearest and second-nearest point), brightest where both layers'
+// lines cross, as real caustic networks do.
+float4 bd_caustics(BD_ARGS) {
+    float2 q = ctr(uv, u);
+    float2 p = q * mix(9.0, 3.8, u.scale);
+    float r = mix(0.12, 0.55, u.motion);
+    float2 w = float2(lnoise(p * 0.32, u.phase, r, u.seed), lnoise(p * 0.32 + 5.1, u.phase, r, u.seed + 2.0)) * mix(0.15, 0.5, u.motion);
+    // A finer ripple bends the cell edges into the curves of real caustics.
+    w += float2(lnoise(p * 1.1 + 9.7, u.phase, r, u.seed + 4.0), lnoise(p * 1.1 + 2.3, u.phase, r, u.seed + 6.0)) * 0.13;
+    float3 v1 = voronoi(p + w, 0.95, u.phase, uint(u.seed) + 21u);
+    float3 v2 = voronoi(p * 1.65 + w * 1.4 + 3.1, 0.95, u.phase * 2.0, uint(u.seed) + 47u);
+    float width = mix(0.035, 0.12, u.softness);
+    float l1 = exp(-(v1.y - v1.x) / width);
+    float l2 = exp(-(v2.y - v2.x) / (width * 0.85));
+    float light = l1 * 0.7 + l2 * 0.4 + l1 * l2 * 0.9;
+    light *= mix(0.6, 1.4, u.accent);
+    uint n = ncol(u);
+    // A pool floor sloping deeper towards the top: darker there, and the light
+    // brightest in the shallows.
+    float depth = sat(0.5 + q.y * 0.85);
+    float3 ground = mixLab(pc(pal, u, min(2u, n - 1u)), pc(pal, u, 0), depth);
+    float3 lit = mixLab(pc(pal, u, n > 1u ? n - 2u : 0u), pc(pal, u, n - 1u), sat(light - 0.3));
+    float3 col = ground + lit * light * mix(0.35, 0.9, u.detail) * (0.6 + 0.4 * (1.0 - depth));
+    return float4(max(col, 0.0), 1.0);
+}
+
+// Iridescence — a thin film on a slowly folding sheet, like the inside of a
+// shell. Colour comes from light interfering in the film, so it shifts as the
+// sheet turns; it stays a pearl sheen over the palette's lightest colours
+// rather than a rainbow.
+float4 bd_iris(BD_ARGS) {
+    float2 p = ctr(uv, u) * mix(0.45, 1.3, u.scale);
+    float r = mix(0.06, 0.4, u.motion);
+    float e = 0.008;
+    float h0 = fbm_loop(p, u.phase, r, u.seed, 2, 0.5);
+    float hx = fbm_loop(p + float2(e, 0.0), u.phase, r, u.seed, 2, 0.5);
+    float hy = fbm_loop(p + float2(0.0, e), u.phase, r, u.seed, 2, 0.5);
+    float3 nrm = normalize(float3((h0 - hx) / e, (h0 - hy) / e, mix(0.8, 2.2, u.softness)));
+    float c1 = sat(nrm.z);
+    const float nf = 1.33;
+    float c2 = sqrt(max(1.0 - (1.0 - c1 * c1) / (nf * nf), 0.0));
+    float d = 330.0 + mix(150.0, 450.0, u.detail) * (0.5 + 0.5 * h0);
+    float3 film = 0.5 - 0.5 * cos(TAU * 2.0 * nf * d * c2 / float3(650.0, 532.0, 450.0));
+    uint n = ncol(u);
+    float3 pearl = mixLab(pc(pal, u, n - 1u), pc(pal, u, n > 2u ? n - 3u : 0u), sat(0.3 - 0.6 * h0));
+    // The film tints the pearl; its chroma is held to a sheen.
+    float3 tinted = pearl * (0.55 + 0.6 * film);
+    float3 lab = linear_to_oklab(max(tinted, float3(1e-5)));
+    float3 base = linear_to_oklab(max(pearl, float3(1e-5)));
+    float2 ab = lab.yz - base.yz;
+    float cap = mix(0.03, 0.09, u.accent);
+    ab *= min(1.0, cap / max(length(ab), 1e-5));
+    lab.yz = base.yz + ab;
+    float3 col = max(oklab_to_linear(lab), float3(0.0));
+    float3 L = normalize(float3(-0.4, 0.6, 0.7));
+    float3 H = normalize(L + float3(0.0, 0.0, 1.0));
+    col += pearl * pow(max(dot(nrm, H), 0.0), 60.0) * 0.25;
+    return float4(max(col, 0.0), 1.0);
+}
+
+// Gradients. A stippled grain in logical pixels (the same size at any
+// resolution) breaks up banding on slow ramps; sway eases the gradient back
+// and forth within the loop.
+inline float bd_stipple(float2 uv, constant BDU &u, float amount) {
+    float2 lp = floor(uv * float2(u.width, u.height) * (1080.0 / max(min(u.width, u.height), 1.0)) / 1.6);
+    return amount * (hash1(int2(lp), 71u) + hash1(int2(lp) + int2(5, 9), 73u) - 1.0);
+}
+
+// Solid — one colour from the palette, with a slow breath of light.
+float4 bd_solid(BD_ARGS) {
+    float2 p = ctr(uv, u);
+    float ph = u.phase * TAU;
+    float3 c = pr(pal, u, u.accent);
+    float2 lp = float2(sin(ph) * 0.22, cos(ph) * 0.1) * u.motion;
+    float pool = exp(-dot(p - lp, p - lp) * 2.2);
+    // The pool of light drifts and swells, and is home again at the loop.
+    c *= 1.0 + (pool - 0.4) * 0.3 * u.motion * (0.75 + 0.25 * cos(ph));
+    c *= 1.0 + bd_stipple(uv, u, 0.03 * u.detail);
+    return float4(max(c, 0.0), 1.0);
+}
+
+// Linear — a straight gradient across the palette, at any angle.
+float4 bd_linear(BD_ARGS) {
+    float2 p = ctr(uv, u);
+    float ph = u.phase * TAU;
+    float ang = u.accent * TAU + sin(ph) * 0.2 * u.motion;
+    float2 dir = float2(sin(ang), -cos(ang));
+    float t = dot(p, dir) / (0.5 * (abs(dir.x) * u.aspect + abs(dir.y)) + 1e-3);
+    // Spread: a tight band across the middle at 0, the whole palette edge to edge at 1.
+    t = t * 0.5 / mix(0.3, 1.0, u.scale) + 0.5;
+    t = mix(t, smoothstep(0.0, 1.0, t), 1.0 - u.softness);
+    t += bd_stipple(uv, u, 0.06 * u.detail);
+    return float4(pr(pal, u, sat(t)), 1.0);
+}
+
+// Radial — light spreading from a point that drifts on a small orbit.
+float4 bd_radial(BD_ARGS) {
+    float2 p = ctr(uv, u);
+    float ph = u.phase * TAU;
+    float2 c = float2(0.0, mix(-0.32, 0.32, u.accent)) + float2(cos(ph), sin(ph)) * 0.07 * u.motion;
+    float2 d = (p - c) / float2(1.0, 1.0);
+    float t = 1.0 - length(d) / mix(0.35, 1.1, u.scale);
+    t = mix(t, smoothstep(0.0, 1.0, t), 1.0 - u.softness);
+    t += bd_stipple(uv, u, 0.06 * u.detail);
+    return float4(pr(pal, u, sat(t)), 1.0);
+}
+
+// Conic — colour swept round a point, rising and falling back so there is no
+// seam, swaying slowly within the loop.
+float4 bd_conic(BD_ARGS) {
+    float2 p = ctr(uv, u);
+    float ph = u.phase * TAU;
+    float2 c = float2(0.0, mix(-0.3, 0.3, u.accent));
+    float2 d = p - c;
+    // It sways back and forth, up to half a turn each way, and is home again at the loop.
+    float a = atan2(d.x, d.y + 1e-6) - sin(ph) * PI * u.motion;
+    float lobes = floor(mix(1.0, 3.99, u.scale));
+    float t = 0.5 + 0.5 * cos(a * lobes);
+    t = mix(t, smoothstep(0.0, 1.0, t), 1.0 - u.softness);
+    // Near the point every colour meets; it eases to the middle of the ramp.
+    t = mix(0.5, t, smoothstep(0.0, 0.18, length(d)));
+    t += bd_stipple(uv, u, 0.06 * u.detail);
+    return float4(pr(pal, u, sat(t)), 1.0);
 }
 """#
 
@@ -786,6 +938,7 @@ float4 bd_dotgrid(BD_ARGS) {
         "marble", "chrome", "lava",
         "cells", "halftone", "matrix",
         "softbloom", "aurora", "halo", "linefield", "smoke", "ridgelines", "dotgrid",
+        "caustics", "iris", "solid", "linear", "radial", "conic",
     ]
 
     static var entryPoints: String {

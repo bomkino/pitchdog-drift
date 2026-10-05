@@ -33,9 +33,9 @@ for APP in "${APPS[@]}"; do
   case "$APP" in
     # Versions carry on from each app's earlier releases: Drift 1 ended at 0.5,
     # Galileo Gallery at 2.4, so the rebuilt Galileo 2 is 3.0.
-    Drift)    BUNDLE_NAME="Drift 2";   BUNDLE_ID="dog.pitch.drift2";   UTI="dog.pitch.drift2.reel";      EXT="drift";    DOC_NAME="Drift Reel";      VERSION="2.2.0" ;;
-    Galileo)  BUNDLE_NAME="Galileo 2"; BUNDLE_ID="dog.pitch.galileo2"; UTI="dog.pitch.galileo2.gallery"; EXT="galileo";  DOC_NAME="Galileo Gallery"; VERSION="3.2.0" ;;
-    Backdrop) BUNDLE_NAME="Backdrop";  BUNDLE_ID="dog.pitch.backdrop"; UTI="dog.pitch.backdrop.look";    EXT="backdrop"; DOC_NAME="Backdrop Look";   VERSION="1.1.0" ;;
+    Drift)    BUNDLE_NAME="Drift 2";   BUNDLE_ID="dog.pitch.drift2";   UTI="dog.pitch.drift2.reel";      EXT="drift";    DOC_NAME="Drift Reel";      VERSION="2.3.0" ;;
+    Galileo)  BUNDLE_NAME="Galileo 2"; BUNDLE_ID="dog.pitch.galileo2"; UTI="dog.pitch.galileo2.gallery"; EXT="galileo";  DOC_NAME="Galileo Gallery"; VERSION="3.3.0" ;;
+    Backdrop) BUNDLE_NAME="Backdrop";  BUNDLE_ID="dog.pitch.backdrop"; UTI="dog.pitch.backdrop.look";    EXT="backdrop"; DOC_NAME="Backdrop Look";   VERSION="2.0.0" ;;
     *) echo "unknown app $APP"; exit 2 ;;
   esac
 
