@@ -143,7 +143,15 @@ public final class VideoPool {
         var fade = min(0.5, D * 0.2)
         var play = max(D - fade, 0.04)
         let x = loop / play
-        var n = [floor(x), ceil(x)].filter { $0 >= 1 }.min { abs(log($0 / x)) < abs(log($1 / x)) } ?? 1
+        // The whole number of plays nearest x in ratio, at least one.
+        let lower: Double = floor(x), upper: Double = ceil(x)
+        let offLower: Double = abs(log(lower / x)), offUpper: Double = abs(log(upper / x))
+        var n: Double = 1
+        if lower >= 1 {
+            n = offLower <= offUpper ? lower : upper
+        } else if upper >= 1 {
+            n = upper
+        }
         // Rather than rush a clip, play it one time fewer, a little slower.
         if n / x > 1.34, x >= 1 { n = floor(x) }
         var rate = n / x
