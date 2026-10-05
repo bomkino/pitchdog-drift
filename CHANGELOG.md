@@ -1,6 +1,19 @@
 # Changelog
 
-Notable user-visible and maintainer-facing changes will be recorded here. Drift is pre-1.0, and a changelog entry is not by itself evidence of a tag, GitHub Release, binary publication, or approval.
+Notable user-visible and maintainer-facing changes are recorded here. Drift 2 starts at 2.0.0; Drift 1 ended at 0.5.1.
+
+## [2.0.0] — 2026-10-05
+
+**Drift 2: a ground-up native rebuild, made for 9:16 first.** Drop a deck (a PDF, slide images or short clips) and it opens as a moving reel, previewed exactly as it exports.
+
+- Every scene lays itself out for 1080 × 1920, and slides flow up the screen. 4:5, 1:1 and 16:9 are one click away in the toolbar; Cinema and 4K are in the menu.
+- Scenes sit beside the stage at the shape you are making. Rest the pointer on one to watch it on the stage; click to use it; the arrow keys step through.
+- Stream comes in nine styles: Editorial, Noir, Sunstruck, Dread, Tender, Velvet, Celluloid, Night Run and Procession. Spotlight, Opening, Story, Shuffle, Wall and Contact complete the set.
+- Loop lengths in one click (10, 15, 30 or 60 s), titles in four macOS faces, recorded foley that follows the motion, a backdrop palette drawn from your own slides, and film finishes.
+- Exports MP4, HEVC, ProRes, ProRes 4444 with transparency, PNG frames or a still, for one shape or several at once.
+- Native SwiftUI and Metal on Apple silicon, macOS 14 or later. Opens on sample slides, already playing. Comes with Backdrop 1.0.0, the background studio whose library Drift reads.
+
+This release replaces the Drift 1 code on `main`; Drift 1 is kept at the tag `v1-final`. Drift 2 uses its own bundle identifier and `.drift` documents, so Drift 1 can stay installed beside it.
 
 ## [0.5.1] — 2026-09-23
 

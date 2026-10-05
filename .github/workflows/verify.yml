@@ -1,0 +1,23 @@
+# Builds every product of the package (Drift, Galileo, Backdrop and the
+# headless lab) on an Apple silicon runner with Xcode, for each pull request
+# and each change to main. The fuller headless checks in scripts/verify.sh
+# need a Mac with a GPU and a screen session; run them locally before a release.
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show the toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Build all products
+        run: swift build -c release
