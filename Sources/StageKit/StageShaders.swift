@@ -27,7 +27,23 @@ struct CardU {
     float4 mirror;      // enabled, floor y, strength, fade
     float4 color;       // linear rgb multiplier, alpha multiplier
     float4 extra;       // reveal, edge pass (1), thickness (world), surface for the edge
+    float4 crop;        // the slice of the whole card this card shows: u0, v0, u1, v1 (v down)
+    float4 band;        // loose thread: core, amount, side shade, core glint
 };
+
+// Distance from a band's centre line to its edge, 0…1, across its shorter side.
+inline float bandRim(float2 uv, constant CardU &c) {
+    return c.sizeCorner.x >= c.sizeCorner.y ? abs(uv.y - 0.5) * 2.0 : abs(uv.x - 0.5) * 2.0;
+}
+
+// The whole card's size, when this card is a slice of it.
+inline float2 parentSize(constant CardU &c) {
+    return c.sizeCorner.xy / max(c.crop.zw - c.crop.xy, float2(1e-5));
+}
+
+// Signed distance to this card's shape: the whole card's rounded outline,
+// cut to the slice. `uv` is this card's 0…1 coordinate (v down).
+inline float sliceDistance(float2 uv, constant CardU &c, thread float2 &parentUV);
 
 struct CardVOut {
     float4 position [[position]];
@@ -69,11 +85,13 @@ float3 deformCard(float3 p, float2 g, constant CardU &c) {
         // Paper: one broad travelling buckle.
         q.z += fold * 0.045 * scale * sin(7.2 * (g.y - 0.5) + ph + 1.6 * (g.x - 0.5)) * pin;
     } else if (kind == 3) {
-        // Silk: three travelling folds with a diagonal bias.
+        // Silk: three travelling folds with a diagonal bias. The phase advances
+        // by whole turns over a loop, so each fold moves at a whole multiple of
+        // it and the folds close with the loop.
         float y = g.y - 0.5, x = g.x - 0.5;
         float f = sin(8.8 * y - ph + 2.4 * x)
-                + 0.46 * sin(4.1 * y + 1.7 * ph - 6.4 * x)
-                + 0.32 * sin(5.3 * (x + y) + 0.8 * ph);
+                + 0.46 * sin(4.1 * y + 2.0 * ph - 6.4 * x)
+                + 0.32 * sin(5.3 * (x + y) + 1.0 * ph);
         q.z += fold * 0.06 * scale * f * env;
     } else if (kind == 1) {
         float x = g.x - 0.5, y = g.y - 0.5;
@@ -112,9 +130,10 @@ vertex CardVOut card_vertex(uint vid [[vertex_id]],
     return o;
 }
 
-// Maps card uv (0…1, y down) to media uv. Returns false outside fitted media.
+// Maps the whole card's uv (0…1, y down) to media uv. Returns false outside fitted media.
 inline float2 mediaUV(float2 uv, constant CardU &c, thread float &inside) {
-    float ca = c.sizeCorner.x / max(c.sizeCorner.y, 1e-5);
+    float2 ps = parentSize(c);
+    float ca = ps.x / max(ps.y, 1e-5);
     float ma = max(c.media.w, 1e-4);
     float2 focal = c.media.yz;
     inside = 1.0;
@@ -152,6 +171,15 @@ inline float sdCard(float2 p, float2 halfSize, float r) {
     return len + min(max(q.x, q.y), 0.0) - r;
 }
 
+inline float sliceDistance(float2 uv, constant CardU &c, thread float2 &parentUV) {
+    float2 ps = parentSize(c);
+    parentUV = mix(c.crop.xy, c.crop.zw, uv);
+    // Only the whole card's outline is antialiased. A slice's own cuts are the
+    // edges of its quad: slices that touch share them exactly, so a card cut
+    // into pieces stays watertight; a loose band softens itself by narrowing.
+    return sdCard((parentUV - 0.5) * ps, ps * 0.5, c.sizeCorner.z);
+}
+
 // Disc sample for defocus. radius in uv units.
 inline float4 sampleDefocus(texture2d<float> t, sampler s, float2 uv, float2 radius, float lod) {
     if (radius.x < 1e-6 && radius.y < 1e-6) return t.sample(s, uv, level(lod));
@@ -178,8 +206,10 @@ fragment float4 card_fragment(CardVOut in [[stage_in]], bool front [[front_facin
                               texture2d<float> tex [[texture(0)]],
                               sampler s [[sampler(0)]]) {
     float w = c.sizeCorner.x, h = c.sizeCorner.y;
-    float2 local = (in.uv - 0.5) * float2(w, h);
-    float d = sdCard(local, float2(w, h) * 0.5, c.sizeCorner.z);
+    float2 puv;
+    float d = sliceDistance(in.uv, c, puv);
+    float2 ps = parentSize(c);
+    float2 local = (puv - 0.5) * ps;
     float pxWorld = max(fwidth(d), 1e-6);
 
     // Defocus from depth, plus any per-card blur.
@@ -191,8 +221,14 @@ fragment float4 card_fragment(CardVOut in [[stage_in]], bool front [[front_facin
     coc += c.fx.y;
     float feather = pxWorld * (0.85 + coc * 0.9);
     float mask = 1.0 - smoothstep(-feather, feather, d);
+    float rim = bandRim(in.uv, c);
+    if (c.band.y > 0.0) {
+        float core = c.band.x;
+        float bandA = 1.0 - smoothstep(core - 0.10, core + 0.06, rim);
+        mask *= mix(1.0, bandA, c.band.y);
+    }
     if (c.extra.x < 0.9999) {
-        float edge = (in.uv.x - c.extra.x) * w;
+        float edge = (puv.x - c.extra.x) * ps.x;
         mask *= 1.0 - smoothstep(-pxWorld, pxWorld, edge);
     }
     if (mask <= 0.0) discard_fragment();
@@ -212,7 +248,7 @@ fragment float4 card_fragment(CardVOut in [[stage_in]], bool front [[front_facin
     }
 
     float inside;
-    float2 muv = mediaUV(in.uv, c, inside);
+    float2 muv = mediaUV(puv, c, inside);
     float2 duv = fwidth(muv);
     float2 texSize = float2(tex.get_width(), tex.get_height());
     float texelsPerPixel = max(duv.x * texSize.x, duv.y * texSize.y);
@@ -241,7 +277,7 @@ fragment float4 card_fragment(CardVOut in [[stage_in]], bool front [[front_facin
         float shade = mix(0.80, 1.06, wrap);
         rgb *= shade;
         if (surface == 1) {
-            float tooth = hash1(int2(floor(in.uv * float2(w, h) * 900.0)), 5u) - 0.5;
+            float tooth = hash1(int2(floor(puv * ps * 900.0)), 5u) - 0.5;
             rgb *= 1.0 + tooth * 0.03;
         }
         float3 H = normalize(L + V);
@@ -255,7 +291,7 @@ fragment float4 card_fragment(CardVOut in [[stage_in]], bool front [[front_facin
             rgb += spec + softbox + fres * 0.08;
         } else if (surface == 3) {
             float angle = dot(N, V);
-            float3 foil = spectral(fract(angle * 1.6 + in.uv.x * 0.35 + in.uv.y * 0.2 + f.eye.w * 0.2));
+            float3 foil = spectral(fract(angle * 1.6 + puv.x * 0.35 + puv.y * 0.2));
             rgb = mix(rgb, rgb * 0.75 + foil * 0.45, 0.22 + fres * 0.4);
             rgb += pow(max(dot(N, H), 0.0), 60.0) * 0.3;
         }
@@ -265,6 +301,12 @@ fragment float4 card_fragment(CardVOut in [[stage_in]], bool front [[front_facin
         rgb += edge * facing * 0.10;
     }
 
+    if (c.band.y > 0.0) {
+        // A loose thread's sides turn away from the light; its core catches it,
+        // both as far as the thread has come loose.
+        rgb *= 1.0 - c.band.y * c.band.z * rim * rim;
+        rgb += c.band.y * c.band.w * (1.0 - smoothstep(0.0, 0.45, rim));
+    }
     rgb *= c.color.rgb;
     rgb *= 1.0 + c.fx.x;
     float a = alpha * mask * c.sizeCorner.w * c.color.a;
@@ -317,7 +359,12 @@ fragment float4 shadow_fragment(ShadowVOut in [[stage_in]],
                                 constant CardU &c [[buffer(2)]],
                                 constant float4 &mode [[buffer(3)]]) {
     float w = c.sizeCorner.x, h = c.sizeCorner.y;
-    float d = sdCard(in.local, float2(w, h) * 0.5, c.sizeCorner.z);
+    // The slice's shape within the whole card, as for its face.
+    float2 ps = parentSize(c);
+    float2 centre = ((c.crop.xy + c.crop.zw) * 0.5 - 0.5) * ps;
+    float d = sdCard(in.local + centre, ps * 0.5, c.sizeCorner.z);
+    float2 b = abs(in.local) - float2(w, h) * 0.5;
+    d = max(d, max(b.x, b.y));
     float sigma = max(in.sigma, 1e-4);
     float outside = max(d, 0.0);
     float a = exp(-outside * outside / (2.0 * sigma * sigma));

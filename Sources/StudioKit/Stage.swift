@@ -87,6 +87,42 @@ public final class StagePreviewCoordinator: NSObject, MTKViewDelegate {
         lastDrawnTime = clock.time
     }
 
+    // MARK: Scrolling scrubs
+
+    /// The playing state to return to once a scroll over the stage ends.
+    private var resumeAfterScroll: Bool?
+    private var resume: DispatchWorkItem?
+
+    /// Two fingers over the stage move through the loop the way the work flows:
+    /// up a tall frame, across a wide one, with the trackpad's own momentum.
+    /// Playback holds while the stage is scrolled and carries on after.
+    func scrub(_ e: NSEvent, in view: NSView) {
+        let dx = e.scrollingDeltaX, dy = e.scrollingDeltaY
+        let delta = abs(dx) > abs(dy) ? dx : dy
+        if resumeAfterScroll == nil {
+            guard delta != 0 else { return }
+            resumeAfterScroll = clock.playing
+            clock.playing = false
+        }
+        resume?.cancel()
+        // A swipe the height of the stage moves through a fifth of the loop;
+        // a mouse wheel's coarse steps count for more.
+        let perPoint = clock.duration / 5 / Double(max(view.bounds.height, 100)) * (e.hasPreciseScrollingDeltas ? 1 : 8)
+        clock.time = wrap(clock.time - Double(delta) * perPoint, max(clock.duration, 0.1))
+        let fingersLifted = e.phase == .ended || e.phase == .cancelled
+        let coasted = e.momentumPhase == .ended || e.momentumPhase == .cancelled
+        let wheel = e.phase.isEmpty && e.momentumPhase.isEmpty
+        guard fingersLifted || coasted || wheel else { return }
+        // Momentum, if any, starts just after the fingers lift and cancels this.
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let playing = self.resumeAfterScroll else { return }
+            self.clock.playing = playing
+            self.resumeAfterScroll = nil
+        }
+        resume = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + (wheel ? 0.45 : 0.2), execute: work)
+    }
+
     /// Four samples read as blur; two show as double edges, so it is four,
     /// three or none, whichever keeps a frame near 10 ms of GPU time.
     private func adapt(gpuMs ms: Double, samples: Int) {
@@ -129,6 +165,16 @@ public final class StagePreviewCoordinator: NSObject, MTKViewDelegate {
     }
 }
 
+/// The live stage's view: hands scrolling to the coordinator instead of a
+/// scroll view above it.
+final class StageMTKView: MTKView {
+    var onScroll: ((NSEvent, NSView) -> Void)?
+
+    override func scrollWheel(with event: NSEvent) {
+        if let onScroll { onScroll(event, self) } else { super.scrollWheel(with: event) }
+    }
+}
+
 public struct StagePreview: NSViewRepresentable {
     let source: any StageSource
     let pixelSize: CGSize
@@ -153,7 +199,9 @@ public struct StagePreview: NSViewRepresentable {
     }
 
     public func makeNSView(context: Context) -> MTKView {
-        let v = MTKView(frame: .zero, device: GPU.shared.device)
+        let v = StageMTKView(frame: .zero, device: GPU.shared.device)
+        let coordinator = context.coordinator
+        v.onScroll = { [weak coordinator] event, view in coordinator?.scrub(event, in: view) }
         v.colorPixelFormat = .bgra8Unorm
         v.framebufferOnly = MainActor.assumeIsolated { StudioSnapshot.arg("--probe-preview") == nil }
         v.autoResizeDrawable = false
@@ -315,6 +363,8 @@ public struct TransportBar: View {
     }
     @State private var scrubbing = false
     @State private var wasPlaying = false
+    /// The moment the playhead is held on while scrubbing, if any.
+    @State private var heldMoment: Double?
 
     public var body: some View {
         HStack(spacing: 14) {
@@ -329,16 +379,20 @@ public struct TransportBar: View {
             GeometryReader { geo in
                 let w = geo.size.width
                 let f = CGFloat(clock.time / max(clock.duration, 0.001))
+                let beats = source.beats
+                let duration = max(clock.duration, 0.001)
                 ZStack(alignment: .leading) {
                     Capsule().fill(Theme.well).frame(height: 4)
                     Capsule().fill(Theme.accent).frame(width: max(0, min(w, f * w)), height: 4)
                     // The loop's moments, as quiet ticks under the track.
-                    let beats = source.beats
-                    let duration = max(clock.duration, 0.001)
                     Canvas { ctx, size in
                         for b in beats {
                             let x = CGFloat(b / duration) * size.width
-                            ctx.fill(Path(CGRect(x: x - 0.5, y: size.height / 2 + 4, width: 1, height: 4)), with: .color(.secondary.opacity(0.55)))
+                            if b == heldMoment {
+                                ctx.fill(Path(CGRect(x: x - 1, y: size.height / 2 + 3, width: 2, height: 6)), with: .color(Theme.accent))
+                            } else {
+                                ctx.fill(Path(CGRect(x: x - 0.5, y: size.height / 2 + 4, width: 1, height: 4)), with: .color(.secondary.opacity(0.55)))
+                            }
                         }
                     }
                     .frame(height: 20)
@@ -355,10 +409,21 @@ public struct TransportBar: View {
                     .onChanged { g in
                         if !scrubbing { scrubbing = true; wasPlaying = clock.playing; clock.playing = false }
                         let frac = max(0, min(1, g.location.x / max(w, 1)))
-                        clock.time = Double(frac) * clock.duration
+                        let time = Double(frac) * clock.duration
+                        // Moments are magnetic: within a few points the playhead holds on
+                        // one, with a tap on a Force Touch trackpad. Option scrubs freely.
+                        let nearest = NSEvent.modifierFlags.contains(.option) ? nil
+                            : beats.min(by: { abs($0 - time) < abs($1 - time) })
+                        let held = nearest.flatMap { abs(CGFloat(($0 - time) / duration) * w) <= 5 ? $0 : nil }
+                        if held != heldMoment {
+                            if held != nil { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
+                            heldMoment = held
+                        }
+                        clock.time = held ?? time
                     }
                     .onEnded { _ in
                         scrubbing = false
+                        heldMoment = nil
                         clock.playing = wasPlaying
                     })
             }

@@ -10,7 +10,9 @@ as SEAM.
 
 Intended motion can also trip the check: stepped poses (Celluloid Archive),
 throws (Shuffle, Deck) and feature exchanges (Deck Story) sweep a big edge
-through a tile in one frame. Look at the flagged frames before calling them bugs.
+through a tile in one frame, and an edge that clips the side of a tile for a
+single frame before passing behind another card looks like a pop too (Vortex
+in landscape). Look at the flagged frames before calling them bugs.
 
 Usage: motion-audit.py video.mp4 [more.mp4 ...]
 Needs ffmpeg, ffprobe and numpy.

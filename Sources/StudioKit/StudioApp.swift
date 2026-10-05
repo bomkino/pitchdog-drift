@@ -56,6 +56,12 @@ public struct StudioMenuCommands: Commands {
             .keyboardShortcut("p", modifiers: .command)
             Button("Go to Start") { session?.clock.time = 0; session?.touch() }
                 .keyboardShortcut(.leftArrow, modifiers: [.command])
+            Button("Previous Moment") { session?.jumpToMoment(-1) }
+                .keyboardShortcut("[", modifiers: [.command])
+                .disabled(session?.beats.isEmpty ?? true)
+            Button("Next Moment") { session?.jumpToMoment(1) }
+                .keyboardShortcut("]", modifiers: [.command])
+                .disabled(session?.beats.isEmpty ?? true)
             Divider()
             Button("New Variation") { session?.shuffle() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])

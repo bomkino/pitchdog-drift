@@ -557,6 +557,14 @@ struct BackdropSection: View {
             PalettePicker(selected: current.palette.id, palettes: (session.mediaPalette.map { [$0] } ?? []) + Palettes.all) { pal in
                 session.update("Palette") { $0.backdrop.palette = pal }
             }
+            ValueSlider("Follow work", value: Binding(
+                get: { session.project.look.mood },
+                set: { v in session.live { $0.look.mood = v } }),
+                defaultValue: presetMood,
+                onBegin: { session.beginEdit() }, onCommit: { session.commitEdit("Follow the Work") })
+                .padding(.top, 6)
+            Text("Leans the background's colours towards the work in the middle of the frame, as it changes.")
+                .textStyle(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
         Hairline().padding(.horizontal, 16)
         InspectorSection(info.name, accessory: {
@@ -589,6 +597,13 @@ struct BackdropSection: View {
                     onBegin: { session.beginEdit() }, onCommit: { session.commitEdit("Brightness") })
             }
         }
+    }
+
+    /// The look's own setting for following the work.
+    private var presetMood: Float {
+        var fresh = session.project
+        session.config.entry(fresh.scene).apply(&fresh)
+        return fresh.look.mood
     }
 
     private func previewSettings(_ style: BackdropStyle, _ current: BackdropSettings) -> BackdropSettings {

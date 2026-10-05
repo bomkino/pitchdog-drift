@@ -2,6 +2,16 @@
 
 Notable user-visible and maintainer-facing changes are recorded here. Drift 2 starts at 2.0.0; Drift 1 ended at 0.5.1.
 
+## [2.1.0] — 2026-10-05
+
+**Richer scenes from pitch.dog's carousel research, a background that follows the work, and scrubbing that keeps up with you.**
+
+- Two new scenes: **Loom**, where slides weave together from threads as they rise and come apart into threads at the top, and **Vortex**, where one slide holds the centre while rings of the others orbit around it and it turns over to the next on each beat.
+- New styles: Spotlight now comes as **Feed**, **Rail** (a depth-graded rail, neighbours tilting away), **Cascade** (each slide arrives turned away and peels flat) or **Focus** (an editorial strip that zooms in on one slide at a time); Wall as **Tilted** or **Lanes** (three lanes rising at different speeds on slow waves); Contact as **Marks** or **Assemble** (the slides fly in from depth and settle into a contact sheet).
+- **Follow work**, on the Colour page, leans the background's colours towards the slide in the middle of the frame as it changes. It is on by default where one slide leads.
+- Scroll with two fingers over the stage to move through the loop the way the slides flow, with the trackpad's own momentum; playback carries on when you let go. The playhead holds on the moments the cards land as you scrub past them (Option scrubs freely), and Command-[ and Command-] jump between them.
+- Fixed: the silk folds in Tender and Velvet jumped where the loop joins.
+
 ## [2.0.0] — 2026-10-05
 
 **Drift 2: a ground-up native rebuild, made for 9:16 first.** Drop a deck (a PDF, slide images or short clips) and it opens as a moving reel, previewed exactly as it exports.
