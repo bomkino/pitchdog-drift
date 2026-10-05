@@ -2,6 +2,16 @@
 
 Notable user-visible and maintainer-facing changes are recorded here. Drift 2 starts at 2.0.0; Drift 1 ended at 0.5.1.
 
+## [2.2.0] — 2026-10-05
+
+**A contact sheet that rolls into a turning ring, and new finishes from pitch.dog's HoloCloth research.**
+
+- **Unroll**, a new style of Contact: the deck's contact sheet slides into one strip, curls into a ring that turns once and shows its far side, then unrolls and folds back into the sheet. A drum in a wide frame, a reel-like wheel in a tall one. Ripple sets the lines off one after another.
+- **Satin**, a new surface on the Finish page: a woven sheen that gathers in folds and curls, with shade in their valleys, kept light on flat cards and off dark artwork.
+- **Foil** is now a thin film: its colour comes from light interfering in the film, shifts as the card tilts, and shows only on the light parts of a slide, so ink and type stay solid.
+- Type on tilted cards stays sharper: textures are filtered along the slant.
+- The background now follows only the work facing you: a card turned away, such as the far side of a ring, no longer tints the room.
+
 ## [2.1.0] — 2026-10-05
 
 **Richer scenes from pitch.dog's carousel research, a background that follows the work, and scrubbing that keeps up with you.**

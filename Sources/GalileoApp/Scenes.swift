@@ -50,6 +50,10 @@ enum GalleryCatalog {
              eyebrow: "Turn · peel · settle", backdrop: "studio", palette: "graphite",
              backdropTweak: { b in b.scale = 0.45; b.vignette = 0.4 },
              look: { l in l.mood = 0.4; l.surface = .print; l.bend = .rigid; l.shadow = 0.6; l.depthOfField = 0.1; l.finish.grain = 0.16 }),
+        Spec(scene: UnrollScene(summary: "The works as a sheet unroll into a strip, curl into a ring that turns once, and fold back."),
+             eyebrow: "Sheet · ring · sheet", backdrop: "studio", palette: "graphite",
+             backdropTweak: { b in b.vignette = 0.45; b.brightness = 0.9 },
+             look: { l in l.mood = 0.35; l.surface = .print; l.bend = .rigid; l.shadow = 0.45; l.depthOfField = 0.2; l.finish.grain = 0.16 }),
         Spec(scene: AssembleScene(summary: "The works fly in from depth, centre first, and settle into a contact sheet."),
              eyebrow: "Depth · converge · sheet", backdrop: "paper", palette: "sumi",
              backdropTweak: { b in b.accent = 0.85; b.vignette = 0.4 },
@@ -185,8 +189,8 @@ enum GalleryCatalog {
                        summary: "The set on a sheet, fanned into a hand, each work shown, then home.",
                        symbol: "book", section: table),
             SceneGroup(id: "contact", name: "Contact",
-                       summary: "Every work on one sheet: crop marks visit each, or the sheet assembles from depth.",
-                       symbol: "viewfinder", section: table, members: [e["contact"]!, e["assemble"]!]),
+                       summary: "Every work on one sheet: crop marks visit each, the sheet assembles from depth, or it unrolls into a turning ring.",
+                       symbol: "viewfinder", section: table, members: [e["contact"]!, e["assemble"]!, e["unroll"]!]),
         ]
     }
 
@@ -194,7 +198,7 @@ enum GalleryCatalog {
     /// Corridor's fixed camera, the Wall's own pan, Compare's registration.
     static let cameraDrift: [String: Float] = [
         "drift": 0.4, "corridor": 0, "vitrine": 0.5, "shelf": 0.3, "orbit": 0.35, "hand": 0.3, "scatter": 0.35, "story": 0.3,
-        "wall": 0, "deck": 0.3, "contact": 0.25, "compare": 0, "opening": 0.25, "hang": 0.4, "loom": 0.15, "lanes": 0.2, "cascade": 0.2, "vortex": 0.3, "rail": 0.25, "assemble": 0.2, "focus": 0,
+        "wall": 0, "deck": 0.3, "contact": 0.25, "compare": 0, "opening": 0.25, "hang": 0.4, "loom": 0.15, "lanes": 0.2, "cascade": 0.2, "vortex": 0.3, "rail": 0.25, "assemble": 0.2, "focus": 0, "unroll": 0.15,
     ]
 
     static let documentType = UTType(exportedAs: "dog.pitch.galileo2.gallery", conformingTo: .package)

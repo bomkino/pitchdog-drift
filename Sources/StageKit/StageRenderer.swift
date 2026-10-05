@@ -387,6 +387,7 @@ public final class StageRenderer {
         case .print: surface = 1
         case .gloss: surface = 2
         case .foil: surface = 3
+        case .satin: surface = 4
         }
         return CardUniforms(
             model: model,

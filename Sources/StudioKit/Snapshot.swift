@@ -59,6 +59,13 @@ public enum StudioSnapshot {
             let natural = fresh.look.finish
             session.update("Grade") { grade.apply(&$0.look.finish, natural: natural) }
         }
+        // Material checks: a surface and a bend for the scene's look.
+        if let name = arg("--surface"), let surface = SurfaceKind(rawValue: name) {
+            session.update("Surface") { $0.look.surface = surface }
+        }
+        if let name = arg("--bend"), let bend = BendKind(rawValue: name) {
+            session.update("Bend") { $0.look.bend = bend }
+        }
         if let f = arg("--feature"), let i = Int(f), i < session.project.items.count {
             session.toggleFeatured(session.project.items[i].id)
         }

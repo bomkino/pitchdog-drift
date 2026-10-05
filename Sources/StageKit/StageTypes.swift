@@ -149,6 +149,7 @@ public enum SurfaceKind: String, Codable, Sendable, CaseIterable, Identifiable {
     case original
     case print
     case gloss
+    case satin
     case foil
 
     public var id: String { rawValue }
@@ -157,6 +158,7 @@ public enum SurfaceKind: String, Codable, Sendable, CaseIterable, Identifiable {
         case .original: return "Original"
         case .print: return "Print"
         case .gloss: return "Gloss"
+        case .satin: return "Satin"
         case .foil: return "Foil"
         }
     }
@@ -165,7 +167,8 @@ public enum SurfaceKind: String, Codable, Sendable, CaseIterable, Identifiable {
         case .original: return "Artwork exactly as supplied."
         case .print: return "Matte stock catching soft light."
         case .gloss: return "A glossy print with a travelling highlight."
-        case .foil: return "A faint spectral sheen at grazing angles."
+        case .satin: return "Woven cloth: a sheen across the weave, shade in the folds."
+        case .foil: return "A thin film over the light parts of the print, its colour shifting as the card tilts."
         }
     }
 }
