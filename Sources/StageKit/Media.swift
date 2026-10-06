@@ -48,16 +48,38 @@ public enum MediaLoader {
     public static let movieTypes: [UTType] = [.movie, .mpeg4Movie, .quickTimeMovie]
 
     /// Expands a dropped file into media entries: PDFs become one entry per page.
-    public static func inspect(_ url: URL) -> [(kind: MediaKind, page: Int)] {
+    /// Each carries its aspect where the file says so cheaply (page boxes, image
+    /// headers), so cards have their real shape before anything is decoded.
+    public static func inspect(_ url: URL) -> [(kind: MediaKind, page: Int, aspect: Float?)] {
         let type = UTType(filenameExtension: url.pathExtension.lowercased())
         if type?.conforms(to: .pdf) == true, let doc = CGPDFDocument(url as CFURL) {
-            return (0..<doc.numberOfPages).map { (.pdfPage, $0) }
+            return (0..<doc.numberOfPages).map { i in (.pdfPage, i, doc.page(at: i + 1).flatMap(aspect(of:))) }
         }
-        if let type, type.conforms(to: .movie) || type.conforms(to: .audiovisualContent) {
-            return [(.video, 0)]
+        // Sound alone is not something to show.
+        if let type, type.conforms(to: .movie) || (type.conforms(to: .audiovisualContent) && !type.conforms(to: .audio)) {
+            return [(.video, 0, nil)]
         }
-        if let type, type.conforms(to: .image) { return [(.image, 0)] }
+        if let type, type.conforms(to: .image) { return [(.image, 0, imageAspect(url))] }
         return []
+    }
+
+    /// A PDF page's shape as it displays, rotation included.
+    static func aspect(of page: CGPDFPage) -> Float? {
+        let box = page.getBoxRect(.cropBox)
+        let rotated = ((page.rotationAngle % 360) + 360) % 180 != 0
+        let w = rotated ? box.height : box.width, h = rotated ? box.width : box.height
+        return w > 0 && h > 0 ? Float(w / h) : nil
+    }
+
+    /// An image's shape from its header, orientation included.
+    static func imageAspect(_ url: URL) -> Float? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.floatValue,
+              let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.floatValue, w > 0, h > 0 else { return nil }
+        // EXIF orientations 5 to 8 turn the image a quarter.
+        let turned = ((props[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1) >= 5
+        return turned ? h / w : w / h
     }
 
     public static func cgImage(url: URL, kind: MediaKind, page: Int = 0, maxSide: Int = maxTextureSide, at time: Double = 0) -> CGImage? {
@@ -152,7 +174,7 @@ public enum MediaLoader {
             tex.replace(region: MTLRegionMake2D(0, 0, n.width, n.height), mipmapLevel: 0,
                         withBytes: buf.baseAddress!, bytesPerRow: n.width * 4)
         }
-        if tex.mipmapLevelCount > 1, let cb = gpu.queue.makeCommandBuffer(), let blit = cb.makeBlitCommandEncoder() {
+        if tex.mipmapLevelCount > 1, let cb = (uploads ?? gpu.queue).makeCommandBuffer(), let blit = cb.makeBlitCommandEncoder() {
             blit.generateMipmaps(for: tex)
             blit.endEncoding()
             cb.commit()
@@ -162,12 +184,41 @@ public enum MediaLoader {
                             pixelSize: CGSize(width: n.width, height: n.height))
     }
 
+    /// The texture and a thumbnail from one decode, so a PDF page is rendered once.
+    public static func loadWithThumbnail(url: URL, kind: MediaKind, page: Int = 0, maxSide: Int = maxTextureSide,
+                                         thumbnailSide: Int) -> (MediaTexture?, CGImage?) {
+        guard let img = cgImage(url: url, kind: kind, page: page, maxSide: maxSide) else { return (nil, nil) }
+        return (try? texture(from: img), scaled(img, maxSide: thumbnailSide))
+    }
+
+    /// `image` no larger than `maxSide` on its longer side.
+    public static func scaled(_ image: CGImage, maxSide: Int) -> CGImage? {
+        let w = image.width, h = image.height
+        let s = Double(maxSide) / Double(max(w, h, 1))
+        if s >= 1 { return image }
+        let tw = max(1, Int((Double(w) * s).rounded())), th = max(1, Int((Double(h) * s).rounded()))
+        guard let ctx = CGContext(data: nil, width: tw, height: th, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: tw, height: th))
+        return ctx.makeImage()
+    }
+
+    /// Mipmaps are made on a queue of their own, so a load never waits behind
+    /// the stage's or an export's frames.
+    nonisolated(unsafe) static let uploads: MTLCommandQueue? = GPU.shared.device.makeCommandQueue()
+
     public static func load(url: URL, kind: MediaKind, page: Int = 0, maxSide: Int = maxTextureSide) throws -> MediaTexture {
         guard let img = cgImage(url: url, kind: kind, page: page, maxSide: maxSide) else {
             throw RenderError.io("Could not read \(url.lastPathComponent).")
         }
         return try texture(from: img)
     }
+
+    /// The neutral card shown while media loads or when a file is missing,
+    /// made once: every composition uses it.
+    public static let blank = placeholder()
 
     /// A tiny neutral texture used while media loads or when a file is missing.
     public static func placeholder(aspect: Float = 16.0 / 9.0) -> MediaTexture {

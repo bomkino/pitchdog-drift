@@ -8,6 +8,9 @@ neighbouring frames change less than 40 % as much. The step from the last
 frame back to the first is checked too, so a loop that does not close shows up
 as SEAM.
 
+A flagged change must also still be there two frames later, so an edge that
+touches a tile for a single frame at the turn of a swing is not a pop.
+
 Intended motion can also trip the check: stepped poses (Celluloid Archive),
 throws (Shuffle, Deck) and feature exchanges (Deck Story) sweep a big edge
 through a tile in one frame, and an edge that clips the side of a tile for a
@@ -44,6 +47,10 @@ def audit(path):
         prev, nxt = d[(i - 1) % n], d[(i + 1) % n]
         ref = np.median(d[[j % n for j in range(i - 8, i + 9) if abs(j - i) > 1]], axis=0)
         spike = (d[i] > 4 * np.maximum(ref, 0.2)) & (d[i] > ref + 2.0) & (prev < 0.4 * d[i]) & (nxt < 0.4 * d[i])
+        if spike.any():
+            # A pop leaves the tile changed; an edge that touches the tile for a
+            # frame at the turn of a swing leaves it as it was.
+            spike &= tiles(np.abs(f[(i + 3) % n] - f[i])) >= 0.5 * d[i]
         if spike.any():
             ty, tx = np.unravel_index(np.argmax(np.where(spike, d[i], 0)), spike.shape)
             flags.append((i, int(tx), int(ty), round(float(d[i][ty, tx]), 1), round(float(ref[ty, tx]), 1)))

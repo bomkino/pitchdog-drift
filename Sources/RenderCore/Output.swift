@@ -15,10 +15,15 @@ public final class PixelBufferTarget {
     public let height: Int
     private var pool: CVPixelBufferPool?
     private var cache: CVMetalTextureCache?
+    /// How each frame's colour relates to its alpha, written on every buffer
+    /// so the encoder labels the file truthfully; nil when there is no alpha.
+    public enum AlphaMode { case straight, premultiplied }
+    public let alpha: AlphaMode?
 
-    public init(width: Int, height: Int) {
+    public init(width: Int, height: Int, alpha: AlphaMode? = nil) {
         self.width = width
         self.height = height
+        self.alpha = alpha
         let attrs: [CFString: Any] = [
             kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey: width,
@@ -40,6 +45,11 @@ public final class PixelBufferTarget {
         CVBufferSetAttachment(buffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
         CVBufferSetAttachment(buffer, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
         CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
+        if let alpha {
+            CVBufferSetAttachment(buffer, kCVImageBufferAlphaChannelModeKey,
+                                  alpha == .straight ? kCVImageBufferAlphaChannelMode_StraightAlpha : kCVImageBufferAlphaChannelMode_PremultipliedAlpha,
+                                  .shouldPropagate)
+        }
         var cvTex: CVMetalTexture?
         CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, buffer, nil, .bgra8Unorm, width, height, 0, &cvTex)
         guard let cvTex, let texture = CVMetalTextureGetTexture(cvTex) else {
@@ -76,16 +86,16 @@ public enum ImageOutput {
         return cgImage(bgra: data, width: w, height: h, premultipliedAlpha: premultipliedAlpha)
     }
 
-    public static func cgImage(bgra data: [UInt8], width: Int, height: Int, premultipliedAlpha: Bool = true) -> CGImage? {
+    public static func cgImage(bgra data: [UInt8], width: Int, height: Int, premultipliedAlpha: Bool = true, straight: Bool = false) -> CGImage? {
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
-        let info = CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue |
-            (premultipliedAlpha ? CGImageAlphaInfo.premultipliedFirst.rawValue : CGImageAlphaInfo.noneSkipFirst.rawValue))
+        let alpha = straight ? CGImageAlphaInfo.first : (premultipliedAlpha ? CGImageAlphaInfo.premultipliedFirst : CGImageAlphaInfo.noneSkipFirst)
+        let info = CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue | alpha.rawValue)
         guard let provider = CGDataProvider(data: Data(data) as CFData) else { return nil }
         return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
                        space: cs, bitmapInfo: info, provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
-    public static func cgImage(pixelBuffer pb: CVPixelBuffer, keepAlpha: Bool) -> CGImage? {
+    public static func cgImage(pixelBuffer pb: CVPixelBuffer, keepAlpha: Bool, straight: Bool = false) -> CGImage? {
         CVPixelBufferLockBaseAddress(pb, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
@@ -95,7 +105,7 @@ public enum ImageOutput {
         for y in 0..<h {
             memcpy(&data[y * w * 4], base.advanced(by: y * rb), w * 4)
         }
-        return cgImage(bgra: data, width: w, height: h, premultipliedAlpha: keepAlpha)
+        return cgImage(bgra: data, width: w, height: h, premultipliedAlpha: keepAlpha, straight: keepAlpha && straight)
     }
 
     public static func writePNG(_ image: CGImage, to url: URL) throws {
@@ -120,6 +130,9 @@ public enum ImageOutput {
 public enum VideoCodec: String, Codable, CaseIterable, Identifiable, Sendable {
     case h264
     case hevc
+    /// HEVC that keeps transparency: a fraction of ProRes 4444's size; plays in
+    /// Final Cut Pro, Motion, Keynote, QuickTime and Safari.
+    case hevcAlpha
     case prores422
     case prores4444
 
@@ -129,6 +142,7 @@ public enum VideoCodec: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .h264: return "H.264"
         case .hevc: return "HEVC"
+        case .hevcAlpha: return "HEVC with transparency"
         case .prores422: return "ProRes 422 HQ"
         case .prores4444: return "ProRes 4444"
         }
@@ -138,12 +152,13 @@ public enum VideoCodec: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .h264: return "Plays everywhere"
         case .hevc: return "Smaller files, same quality"
+        case .hevcAlpha: return "Small files that keep transparency"
         case .prores422: return "For editing"
         case .prores4444: return "Keeps transparency"
         }
     }
 
-    public var supportsAlpha: Bool { self == .prores4444 }
+    public var supportsAlpha: Bool { self == .prores4444 || self == .hevcAlpha }
     public var fileExtension: String { self == .h264 || self == .hevc ? "mp4" : "mov" }
     public var fileType: AVFileType { self == .h264 || self == .hevc ? .mp4 : .mov }
 
@@ -151,6 +166,7 @@ public enum VideoCodec: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .h264: return .h264
         case .hevc: return .hevc
+        case .hevcAlpha: return .hevcWithAlpha
         case .prores422: return .proRes422HQ
         case .prores4444: return .proRes4444
         }
@@ -226,7 +242,7 @@ public final class VideoWriter {
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
             ],
         ]
-        if codec == .h264 || codec == .hevc {
+        if codec == .h264 || codec == .hevc || codec == .hevcAlpha {
             // Generous bitrates: gradients and grain need them.
             let pixels = Double(width * height)
             let bitsPerPixel: Double = codec == .h264 ? 0.22 : 0.14

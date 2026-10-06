@@ -26,7 +26,7 @@ public enum StudioCommands {
         panel.prompt = "Add"
         panel.begin { response in
             guard response == .OK else { return }
-            let urls = panel.urls
+            let urls = inNameOrder(panel.urls)
             MainActor.assumeIsolated { session.importMedia(urls) }
         }
     }
@@ -93,6 +93,7 @@ extension EnvironmentValues {
 public struct StudioRoot: View {
     @State private var session: StudioSession
     @Environment(\.undoManager) private var undoManager
+    @Environment(\.documentConfiguration) private var documentConfiguration
     @AppStorage("appearance") private var appearance = AppearanceChoice.dark.rawValue
 
     public init(document: StudioDocument, config: StudioConfiguration) {
@@ -112,6 +113,7 @@ public struct StudioRoot: View {
                 }
             }
             .onChange(of: undoManager) { _, um in session.undoManager = um }
+            .onChange(of: documentConfiguration?.fileURL, initial: true) { _, url in session.documentURL = url }
             .focusedSceneValue(\.studioSession, session)
             .preferredColorScheme(AppearanceChoice(rawValue: appearance)?.colorScheme)
     }

@@ -45,7 +45,12 @@ public struct LanesScene: StageScene {
         let crossSpan: Float = vertical ? ctx.aspect : 1
         // Three lanes with air between them; the outer ones run slightly past the
         // frame's sides, so the wall reads as larger than the frame.
-        let width = crossSpan * 0.31 * mix(0.82, 1.18, ctx.dials.size)
+        // Slides thinner along the lanes than 16:9 (a wide deck rising up a tall
+        // frame) get somewhat wider lanes; not much, since the outer lanes move
+        // out with them and must stay mostly in the frame.
+        let meanAspect = ctx.items.isEmpty ? 16 / 9 : ctx.items.reduce(Float(0)) { $0 + max($1.aspect, 0.05) } / Float(ctx.items.count)
+        let grow = vertical ? min(max((meanAspect / (16 / 9)).squareRoot(), 1), 1.1) : 1
+        let width = crossSpan * 0.31 * mix(0.82, 1.18, ctx.dials.size) * grow
         let lengths = ctx.items.map { item -> Float in
             let len = vertical ? width / max(item.aspect, 0.05) : width * item.aspect
             return min(len, width * 1.8)

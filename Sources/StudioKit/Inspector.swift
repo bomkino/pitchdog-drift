@@ -489,6 +489,15 @@ struct BackdropSection: View {
     private var content: some View {
         let current = session.project.backdrop
         let info = current.styleInfo
+        InspectorSection("Background") {
+            ChoiceRow([(false, "Backdrop"), (true, "Transparent")], selection: Binding(
+                get: { session.transparentBackground }, set: { session.setTransparentBackground($0) }))
+            Text(session.transparentBackground
+                 ? "ProRes 4444, HEVC and PNG exports leave the background out and keep the shadows; the stage shows a checkerboard in its place. MP4 and ProRes 422 still draw the look below."
+                 : "Transparent leaves the background out of ProRes 4444, HEVC and PNG exports, for laying the work over other footage.")
+                .textStyle(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+        }
+        Hairline().padding(.horizontal, 16)
         if let yours = session.mediaPalette {
             // The work's own colours, one click away, above the long list of looks.
             let inUse = current.palette.id == yours.id && current.palette.colors == yours.colors

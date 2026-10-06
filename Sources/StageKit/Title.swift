@@ -164,6 +164,23 @@ final class TitleCompositor {
         enc.endEncoding()
     }
 
+    /// Copies a premultiplied frame into `output` as straight colour, for
+    /// ProRes 4444: the words are laid over the frame first, premultiplied,
+    /// so their fades and edges composite like everything else.
+    func straighten(_ cb: MTLCommandBuffer, from input: MTLTexture, to output: MTLTexture) throws {
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = output
+        pass.colorAttachments[0].loadAction = .dontCare
+        pass.colorAttachments[0].storeAction = .store
+        guard let enc = cb.makeRenderCommandEncoder(descriptor: pass) else { return }
+        enc.label = "straight alpha"
+        enc.setRenderPipelineState(try GPU.shared.renderPipeline(.init(library: "title", vertex: "fs_vertex", fragment: "unpremultiply_fragment",
+                                                                       color: output.pixelFormat, blend: .opaque), library: library))
+        enc.setFragmentTexture(input, index: 0)
+        enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        enc.endEncoding()
+    }
+
     /// The drawn words at this size, kept until the words or the size change.
     private func texture(_ overlay: TitleOverlay, _ width: Int, _ height: Int) -> MTLTexture? {
         lock.lock()
@@ -182,6 +199,12 @@ final class TitleCompositor {
     }
 
     static let source = #"""
+// Premultiplied in, straight out.
+fragment float4 unpremultiply_fragment(FSOut in [[stage_in]], texture2d<float> src [[texture(0)]]) {
+    float4 c = src.read(uint2(in.position.xy));
+    return c.a > 1e-5 ? float4(clamp(c.rgb / c.a, 0.0, 1.0), c.a) : float4(0.0);
+}
+
 // The words, dropped `p.y` of the frame below their place, faded by `p.x`,
 // over a black dimming of `p.z`.
 fragment float4 title_fragment(FSOut in [[stage_in]], texture2d<float> words [[texture(0)]], sampler s [[sampler(0)]],

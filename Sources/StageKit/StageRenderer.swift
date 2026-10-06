@@ -85,7 +85,9 @@ public final class StageRenderer {
         let fmt = Self.hdrFormat
         let p = Pipelines(
             card: try gpu.renderPipeline(.init(library: "stage", vertex: "card_vertex", fragment: "card_fragment", color: fmt, blend: .over), library: library),
-            shadow: try gpu.renderPipeline(.init(library: "stage", vertex: "shadow_vertex", fragment: "shadow_fragment", color: fmt, blend: .darken), library: library),
+            // Black "over" the frame: over a backdrop it darkens exactly as a
+            // multiply would, and over transparency it leaves the shadow in the alpha.
+            shadow: try gpu.renderPipeline(.init(library: "stage", vertex: "shadow_vertex", fragment: "shadow_fragment", color: fmt, blend: .over), library: library),
             accumulate: try gpu.renderPipeline(.init(library: "stage", vertex: "fs_vertex", fragment: "accumulate_fragment", color: fmt, blend: .add), library: library),
             copy: try gpu.renderPipeline(.init(library: "stage", vertex: "fs_vertex", fragment: "copy_fragment", color: fmt), library: library))
         cached = p
@@ -117,6 +119,10 @@ public final class StageRenderer {
         public var samples: Int
         public var frameIndex: UInt32
         public var keepAlpha: Bool
+        /// With `keepAlpha`, write colour not multiplied by alpha (ProRes 4444).
+        public var straightAlpha = false
+        /// With `keepAlpha`, show the transparency over a checkerboard (previews).
+        public var checker = false
         /// Draw the background (false leaves transparency behind the cards).
         public var drawBackdrop: Bool
         /// Renders the background at a fraction of the output size (live playback only).
@@ -156,7 +162,7 @@ public final class StageRenderer {
             try encodeScene(cb, target: sceneTex, backdropTex: r.drawBackdrop ? backdropTex : nil, frame: frameAt(0),
                             look: r.look, textures: textures, pipelines: p, width: r.width, height: r.height)
             try finisher.encode(cb, input: sceneTex, output: output, settings: r.look.finish,
-                                frame: FinishFrame(frameIndex: r.frameIndex, keepAlpha: r.keepAlpha))
+                                frame: FinishFrame(frameIndex: r.frameIndex, keepAlpha: r.keepAlpha, straightAlpha: r.straightAlpha, checker: r.checker))
             return
         }
 
@@ -187,7 +193,7 @@ public final class StageRenderer {
             enc.endEncoding()
         }
         try finisher.encode(cb, input: accumTex, output: output, settings: r.look.finish,
-                            frame: FinishFrame(frameIndex: r.frameIndex, keepAlpha: r.keepAlpha))
+                            frame: FinishFrame(frameIndex: r.frameIndex, keepAlpha: r.keepAlpha, straightAlpha: r.straightAlpha, checker: r.checker))
     }
 
     // MARK: - Scene pass

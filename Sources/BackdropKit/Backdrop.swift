@@ -197,7 +197,7 @@ public enum BackdropCatalog {
           palette: "graphite", labels: .init(scale: "Width", motion: "Motion", detail: "Lines", softness: "Weight", accent: "Height"),
           cost: 1, scale: 0.5, motion: 0.35, detail: 0.55, softness: 0.35, accent: 0.5, vignette: 0.15),
         s("dunes", .lines, "Dunes", "Layered paper hills, cut and shadowed.",
-          palette: "terracotta", labels: .init(scale: "Height", motion: "Motion", detail: "Layers", softness: "Edge", accent: "Shadow"),
+          palette: "terracotta", labels: .init(scale: "Height", motion: nil, detail: "Layers", softness: "Edge", accent: "Shadow"),
           scale: 0.5, motion: 0.35, detail: 0.5, softness: 0.2, accent: 0.6, vignette: 0.15),
         // Flow
         s("smoke", .flow, "Smoke", "Slow smoke and silk, low contrast.",
@@ -220,7 +220,7 @@ public enum BackdropCatalog {
           palette: "ivory-ink", labels: .init(scale: "Field", motion: "Motion", detail: "Screen", softness: "Softness", accent: "Ink"),
           scale: 0.45, motion: 0.3, detail: 0.35, softness: 0.1, accent: 0.2, vignette: 0.1),
         s("dotgrid", .cells, "Dot Grid", "Engineering dots with a slow light passing over.",
-          palette: "graphite", labels: .init(scale: "Dot", motion: "Sweep", detail: "Density", softness: "Beam", accent: "Direction"),
+          palette: "graphite", labels: .init(scale: "Dot", motion: nil, detail: "Density", softness: "Beam", accent: "Direction"),
           scale: 0.45, motion: 0.4, detail: 0.45, softness: 0.5, accent: 0.3, vignette: 0.3),
         s("matrix", .cells, "Dot Matrix", "A field of lit points carrying a wave.",
           palette: "cobalt", labels: .init(scale: "Wave", motion: "Motion", detail: "Density", softness: "Softness", accent: "Glow"),

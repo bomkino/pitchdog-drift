@@ -144,6 +144,13 @@ case "decode":
     let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[3]))
     let project = try ProjectPackage.decode(data)
     print("items \(project.items.count) scene \(project.scene) format \(project.format.id) title \(project.title.map { "\($0.text) / \($0.kicker) / \($0.placement.rawValue) / \($0.timing.rawValue)" } ?? "none")")
+case "deck":
+    // The sample deck as PNGs at a given size: studio-lab deck <outdir> [2576x1080]
+    let (w, h) = parseSize(args.count > 3 ? args[3] : "2576x1080")
+    for (i, img) in sampleDeckSlides(width: w, height: h).enumerated() {
+        try ImageOutput.writePNG(img, to: outDir.appendingPathComponent(String(format: "slide-%02d.png", i + 1)))
+    }
+    print("deck \(w)x\(h) → \(outDir.path)")
 case "sceneprobe":
     // Prints what a scene draws at a moment: card count and positions.
     let scene: any StageScene = HangScene()

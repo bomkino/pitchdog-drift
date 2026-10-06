@@ -74,6 +74,8 @@ final class BackdropSession: StageSource {
     /// Whether the person picked the palette themselves, so it should stay
     /// when they switch looks. A new window's starting palette doesn't count.
     @ObservationIgnored private var paletteChosen = false
+    /// The value before the step being registered, when that step changed it.
+    @ObservationIgnored private var paletteChosenBefore: Bool?
     /// Saved looks, newest first, as the library holds them.
     private(set) var library: [SavedBackdrop] = []
     @ObservationIgnored private var pending: BackdropModel?
@@ -89,7 +91,15 @@ final class BackdropSession: StageSource {
     var fps: Int { 30 }
     var format: CanvasFormat { model.format }
     var loopDuration: Double { model.loopSeconds }
-    var exportName: String { "Backdrop " + model.settings.styleInfo.name }
+    /// The look, its palette and its loop, so two variations never share a name.
+    var exportName: String {
+        "Backdrop \(model.settings.styleInfo.name) \(model.settings.palette.name) \(Int(model.loopSeconds.rounded())) s"
+    }
+    /// The export sheet has the GPU to itself, and a still is the frame on screen.
+    var stageSuspended: Bool { showExport }
+    /// The background is the picture: nothing to leave out, nothing fast enough to blur.
+    var offersTransparency: Bool { false }
+    var offersMotionBlur: Bool { false }
     func touch() { version += 1 }
 
     func composition() -> Composition? { composition(for: model.format) }
@@ -106,7 +116,10 @@ final class BackdropSession: StageSource {
         return true
     }
 
-    func composition(for format: CanvasFormat) -> Composition? {
+    /// What exports: the background alone, whether or not a slide is shown on the stage.
+    func composition(for format: CanvasFormat) -> Composition? { composition(for: format, card: false) }
+
+    private func composition(for format: CanvasFormat, card showCard: Bool) -> Composition? {
         let items = showCard ? [SceneItem(media: 0, occurrence: 0, aspect: 16.0 / 9.0)] : []
         let ctx = SceneContext(items: items, aspect: Float(format.aspect), dials: SceneDials())
         var look = StageLook()
@@ -119,9 +132,9 @@ final class BackdropSession: StageSource {
                            backdropLoop: model.loopSeconds)
     }
 
-    /// The live stage shows the look being auditioned; exports never do.
+    /// The live stage shows the look being auditioned, and the sample slide; exports never do.
     func stageComposition() -> Composition? {
-        guard var comp = composition(for: model.format) else { return nil }
+        guard var comp = composition(for: model.format, card: showCard) else { return nil }
         if let id = previewStyle { comp.backdrop = settings(choosing: BackdropCatalog.style(id)) }
         return comp
     }
@@ -154,11 +167,16 @@ final class BackdropSession: StageSource {
     private func registerUndo(_ old: BackdropModel, _ name: String) {
         guard let um = undoManager else { return }
         let current = model
+        // Whether the palette counts as chosen goes back and forth with the step.
+        let chosenNow = paletteChosen, chosenBefore = paletteChosenBefore ?? paletteChosen
         um.registerUndo(withTarget: document) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.set(old)
+                self.paletteChosen = chosenBefore
+                self.paletteChosenBefore = chosenNow
                 self.registerUndo(current, name)
+                self.paletteChosenBefore = nil
             }
         }
         um.setActionName(name)
@@ -175,15 +193,25 @@ final class BackdropSession: StageSource {
     }
 
     func choosePalette(_ palette: Palette) {
-        paletteChosen = true
+        markPaletteChosen()
         update("Palette") { $0.settings.palette = palette }
+        paletteChosenBefore = nil
     }
 
     /// Tries a variation; one with another palette counts as choosing it.
     func useVariation(_ settings: BackdropSettings) {
-        if settings.palette != model.settings.palette { paletteChosen = true }
+        if settings.palette != model.settings.palette { markPaletteChosen() }
         update("Variation") { $0.settings = settings }
+        paletteChosenBefore = nil
     }
+
+    private func markPaletteChosen() {
+        paletteChosenBefore = paletteChosen
+        paletteChosen = true
+    }
+
+    /// A new seed for the look: another arrangement of the same idea.
+    func newVariation() { update("New Variation") { $0.settings.seed = $0.settings.seed &+ 97 } }
 
     func choose(_ style: BackdropStyle) {
         hoverTask?.cancel()
@@ -241,23 +269,28 @@ final class BackdropSession: StageSource {
 
     /// Brings a saved look back, with its film finish and loop length when it has them.
     func use(_ item: SavedBackdrop) {
-        paletteChosen = true
+        markPaletteChosen()
         update("Use \(item.name)") { m in
             m.settings = item.settings
             if let finish = item.finish { m.finish = finish }
             if let loop = item.loopSeconds { m.loopSeconds = loop }
         }
+        paletteChosenBefore = nil
     }
 
     func rename(_ item: SavedBackdrop, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != item.name else { return }
-        try? BackdropLibrary.rename(item, to: trimmed)
+        do { try BackdropLibrary.rename(item, to: trimmed) } catch {
+            savedMessage = "Could not rename “\(item.name)”: \(error.localizedDescription)"
+        }
         reloadLibrary()
     }
 
     func trash(_ item: SavedBackdrop) {
-        try? BackdropLibrary.trash(item.id)
+        do { try BackdropLibrary.trash(item.id) } catch {
+            savedMessage = "Could not move “\(item.name)” to the Trash: \(error.localizedDescription)"
+        }
         reloadLibrary()
     }
 }
@@ -276,6 +309,7 @@ struct BackdropRoot: View {
     var body: some View {
         BackdropWindow(session: session)
             .onAppear { session.undoManager = undoManager }
+            .focusedSceneValue(\.backdropSession, session)
             .onChange(of: undoManager) { _, um in session.undoManager = um }
             .preferredColorScheme(AppearanceChoice(rawValue: appearance)?.colorScheme)
             .modifier(BackdropSnapshotHost(session: session))
@@ -495,7 +529,9 @@ struct BackdropStage: View {
                     ? CGSize(width: avail.height * aspect, height: avail.height)
                     : CGSize(width: avail.width, height: avail.width / aspect)
                 let scale = NSScreen.main?.backingScaleFactor ?? 2
-                let k = min(1, 2400 / max(fitted.width, fitted.height) / scale)
+                // Never more pixels than the export has: the stage only shows it.
+                let canvas = CGFloat(max(session.model.format.width, session.model.format.height))
+                let k = min(1, min(2400, canvas) / max(fitted.width, fitted.height) / scale)
                 let px = CGSize(width: (fitted.width * scale * k).rounded(), height: (fitted.height * scale * k).rounded())
                 ZStack {
                     Theme.surround
@@ -656,7 +692,7 @@ struct BackdropInspector: View {
                     }
                     Hairline().padding(.horizontal, 16)
                     InspectorSection("Shape", accessory: {
-                        Button { session.update("Shuffle") { $0.settings.seed = $0.settings.seed &+ 97 } } label: {
+                        Button { session.newVariation() } label: {
                             Image(systemName: "shuffle").font(.system(size: 11, weight: .semibold))
                         }
                         .buttonStyle(.plain).foregroundStyle(.secondary).help("Shuffle")
@@ -745,6 +781,7 @@ struct BackdropSnapshotHost: ViewModifier {
                     session.update("Canvas") { $0.format = f }
                 }
                 if let id = StudioSnapshot.arg("--preview-look") { session.previewNow(id) }
+                if StudioSnapshot.arg("--card") != nil { session.showCard = true }
                 if let picture = StudioSnapshot.arg("--palette-from") {
                     let ok = session.borrowColours(from: URL(fileURLWithPath: picture))
                     print("palette \(ok ? session.model.settings.palette.colors.map(\.hex).joined(separator: " ") : "failed")")
@@ -758,6 +795,14 @@ struct BackdropSnapshotHost: ViewModifier {
                     }
                     if let path = StudioSnapshot.arg("--still"), let still {
                         try? ImageOutput.writePNG(still, to: URL(fileURLWithPath: path))
+                        exit(0)
+                    }
+                    // The frame an export writes, which never shows the sample slide.
+                    if let path = StudioSnapshot.arg("--export-frame"), let comp = session.composition() {
+                        let h = 1000.0
+                        if let frame = try? Exporter().still(comp, at: session.clock.time, width: Int(h * session.model.format.aspect), height: Int(h)) {
+                            try? ImageOutput.writePNG(frame, to: URL(fileURLWithPath: path))
+                        }
                         exit(0)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + (Double(StudioSnapshot.arg("--settle") ?? "") ?? 4)) {

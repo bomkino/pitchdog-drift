@@ -240,15 +240,15 @@ public struct TrainScene: StageScene {
         let depth = mix(0.0, 1.0, d.depth)
         let curv = curvature * mix(0.3, 1.7, d.depth)
 
-        // Card sizes follow each item's own aspect.
+        // Card sizes follow each item's own aspect. A card thinner along the
+        // travel than a 16:9 slide (a 2576 × 1080 slide rising up a tall frame)
+        // grows across it towards the area a 16:9 slide would have, so wide
+        // decks are not shown smaller than ordinary ones.
         func cardSize(_ item: SceneItem) -> SIMD2<Float> {
-            if vertical {
-                let w = cardCross
-                return SIMD2(w, w / max(item.aspect, 0.05))
-            } else {
-                let h = cardCross
-                return SIMD2(h * item.aspect, h)
-            }
+            let a = max(item.aspect, 0.05)
+            let ratio = vertical ? a / (16.0 / 9.0) : (16.0 / 9.0) / a
+            let grown = min(cardCross * min(max(ratio.squareRoot(), 1), 1.4), max(cardCross, cross * 0.94))
+            return vertical ? SIMD2(grown, grown / a) : SIMD2(grown * a, grown)
         }
         // Average advance keeps mixed aspect ratios evenly spaced.
         let meanAlong = ctx.items.reduce(Float(0)) { acc, it in

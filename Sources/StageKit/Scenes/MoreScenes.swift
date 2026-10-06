@@ -177,18 +177,22 @@ public struct PresenterScene: StageScene {
         let q = moving ? Ease.smoother(Float((local - h) / Self.exchange)) : 0
         let focus = Float(k) + q
         func size(_ item: SceneItem) -> SIMD2<Float> { GalleryKit.fit(item.aspect, maxW: ctx.aspect * 0.86, maxH: maxH) }
-        // Rows are spaced by the focused slide's height, so neighbours peek in.
-        let row = (size(ctx.items[k]).y + size(ctx.items[(k + 1) % n]).y) / 2 * 1.2
+        // Rows are spaced by the focused slides' heights, so neighbours peek in;
+        // the spacing follows the scroll, so it never jumps between slides of
+        // different heights.
+        func rowAt(_ j: Int) -> Float { (size(ctx.items[j % n]).y + size(ctx.items[(j + 1) % n]).y) / 2 * 1.2 }
+        let row = mix(rowAt(k), rowAt(k + 1), q)
         // The resting slide eases forward through its hold and back as it leaves,
         // so no slide changes size in a single frame.
         let push = 1 + 0.045 * ctx.dials.life * (moving ? (1 - q) : Float(local / h))
-        for i in 0..<n {
-            // Distance from the focus along the column, wrapped so the loop closes.
-            var d = Float(i) - focus
-            d -= Float(n) * (d / Float(n)).rounded()
-            guard abs(d) < 2.4 else { continue }
+        // The column repeats, so a short deck still fills it and the loop closes.
+        for j in (k - 5)...(k + 6) {
+            let i = ((j % n) + n) % n
+            let d = Float(j) - focus
+            // Everything that reaches into the frame, however short the slides.
+            guard abs(d) * row - size(ctx.items[i]).y / 2 < 0.7 else { continue }
             let near = min(abs(d), 1)
-            let scale = (1 - 0.2 * near) * (i == k ? push : 1)
+            let scale = (1 - 0.2 * near) * (j == k ? push : 1)
             let dim = 1 - 0.42 * near
             // A slight lean back while the column scrolls.
             let lean = -GalleryKit.deg(9) * sinf(.pi * q) * swing
@@ -243,6 +247,8 @@ public struct StackScene: StageScene {
         let u = Float(tau - floor(tau))
         let deepest = Float(min(n, 5) - 1)
         let maxH = mix(0.4, 0.62, ctx.dials.size)
+        // A tall frame is narrow, so the pile takes more of its width.
+        let maxW = ctx.aspect * (ctx.aspect < 0.9 ? 0.8 : 0.7)
         let loose = ctx.dials.life
         let advance = Ease.smoother((u - 0.35) / 0.4)
 
@@ -262,7 +268,7 @@ public struct StackScene: StageScene {
             let key = (top + d) % n
             let item = ctx.items[key]
             let slot = slotPose(Float(d) - advance, key)
-            let size = GalleryKit.fit(item.aspect, maxW: ctx.aspect * 0.7, maxH: maxH) * slot.scale
+            let size = GalleryKit.fit(item.aspect, maxW: maxW, maxH: maxH) * slot.scale
             var c = GalleryKit.card(item, center: slot.pos, size: size, rotation: SIMD3(0, 0, slot.roll))
             c.corner = 0.03
             c.shadow = slot.shadow
@@ -271,7 +277,7 @@ public struct StackScene: StageScene {
 
         // The top card: flick, throw clear of the pile, then tuck in underneath.
         let item = ctx.items[top]
-        let base = GalleryKit.fit(item.aspect, maxW: ctx.aspect * 0.7, maxH: maxH)
+        let base = GalleryKit.fit(item.aspect, maxW: maxW, maxH: maxH)
         let home = slotPose(0, top)
         let bottom = slotPose(Float(n - 1), top)
         var p = home.pos
