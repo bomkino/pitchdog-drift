@@ -38,7 +38,13 @@ Download the disk image from the repository's Releases page, open it and drag th
 
 The apps are signed ad hoc and not notarized, so the first time you open one, macOS stops it. Open System Settings › Privacy & Security, scroll down and click **Open Anyway** (Control-click › Open no longer works from macOS Sequoia on). Apps installed from Terminal (`curl` or `gh release download`) open straight away, because nothing marks them as downloaded from the web.
 
-They use their own bundle identifiers, so Drift 1 and Galileo Gallery stay installed and untouched beside them.
+**From Terminal, or by asking Codex or Claude to run it:** `docs/install-latest.sh` installs the latest Drift 2, Galileo 2 and Backdrop from their releases in one go. It checks every download's checksum and signature, moves older copies (and the v1 Drift and Galileo Gallery) to the Trash, and the apps open straight away. `DRY_RUN=1` tries it without installing anything.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bomkino/pitchdog-drift/main/docs/install-latest.sh | bash
+```
+
+Drift 2 and Galileo 2 use their own bundle identifiers, so Drift 1 and Galileo Gallery can stay installed beside them if you install by hand.
 
 ## Updates
 
