@@ -1,11 +1,14 @@
 import StudioKit
 import SwiftUI
+import Updates
 
 @main
 struct BackdropApp: App {
     @NSApplicationDelegateAdaptor(StudioAppDelegate.self) private var delegate
+    @StateObject private var updates: AppUpdates
 
     init() {
+        _updates = StateObject(wrappedValue: AppUpdates(start: !StudioSnapshot.isRequested))
         UserDefaults.standard.register(defaults: [
             "appearance": AppearanceChoice.dark.rawValue,
             // Open on a new window, ready to go, rather than on the Open panel.
@@ -24,6 +27,7 @@ struct BackdropApp: App {
         }
         .commands {
             BackdropCommands()
+            CheckForUpdatesCommand(updates: updates)
             CommandGroup(after: .toolbar) {
                 AppearanceMenu()
             }

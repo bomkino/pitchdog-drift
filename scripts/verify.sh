@@ -116,6 +116,17 @@ for scene in corridor hang vitrine scatter; do
 done
 
 # Backdrop renders a still.
+# In-app updates: each app carries Sparkle, its feed on its own repository's
+# latest release, the public key, and a signature that still verifies.
+for spec in "Drift 2:bomkino/pitchdog-drift" "Galileo 2:bomkino/galileo-gallery" "Backdrop:bomkino/backdrop"; do
+  name="${spec%%:*}"; repo="${spec#*:}"; app="../dist/$name.app"; plist="$app/Contents/Info.plist"
+  feed=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$plist" 2>/dev/null || true)
+  key=$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$plist" 2>/dev/null || true)
+  if [[ "$feed" == "https://github.com/$repo/releases/latest/download/appcast.xml" && -n "$key" \
+        && -d "$app/Contents/Frameworks/Sparkle.framework" && -f "$app/Contents/Resources/Licenses/Sparkle-LICENSE.txt" ]] \
+     && codesign -v --strict "$app" 2>/dev/null; then pass "updater ($name)"; else fail "updater ($name)" "$feed"; fi
+done
+
 "$BACKDROP" --still "$OUT/backdrop.png" --scene softbloom >/dev/null 2>&1
 [[ -s "$OUT/backdrop.png" ]] && pass "backdrop still" || fail "backdrop still"
 # The sample slide on Backdrop's stage never reaches an export.
