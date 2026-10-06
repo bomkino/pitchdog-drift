@@ -14,7 +14,7 @@ Three native Mac apps that turn your work into beautiful moving images, made for
 
 - **Drift 2** turns a deck (a PDF, slide images or short clips) into a reel. Pick a scene, press Export.
 - **Galileo 2** turns artwork, photographs and clips into a moving gallery. Pick a scene, press Export.
-- **Backdrop** makes moving backgrounds, and shares them with Drift and Galileo through its library.
+- **Backdrop** makes moving backgrounds, and shares them with Drift and Galileo through its library. It also lives in its own repository, [bomkino/backdrop](https://github.com/bomkino/backdrop).
 
 Everything loops seamlessly, previews exactly as it exports, and runs locally on Apple silicon. Drift and Galileo can add tactile sound: recorded foley placed on the moments the cards move, looping with the picture.
 
@@ -52,7 +52,7 @@ The script builds against the macOS 26.5 SDK because the macOS 27 SDK expands Sw
 | Module | Job |
 |---|---|
 | `Sources/RenderCore` | Metal context and caches, shader prelude (hashing, looping simplex noise, OKLab), palettes, finishing (bloom, grade, vignette, grain, dither), readback and video writing |
-| `Sources/BackdropKit` | 29 analytic background looks in 8 families, the backdrop renderer and the shared library |
+| `Sources/BackdropKit` | 35 analytic background looks in 8 families, the backdrop renderer and the shared library |
 | `Sources/StageKit` | Card renderer (curl and folds, continuous corners, surfaces, depth of field, analytic shadows, mirror floor, motion blur, stacking layers), the scenes, sound events and the loop mixer, media and video decoding, exporter |
 | `Sources/StudioKit` | Everything Drift and Galileo share: the window, scene browser and previews, stage, inspector, export sheet, document model, theme and type |
 | `Sources/DriftApp`, `GalileoApp`, `BackdropApp` | Each app's scenes and entry point |
@@ -93,6 +93,17 @@ bash scripts/motion-audit.sh /tmp/motion-audit path/to/deck.pdf
 ```
 
 Exports every Drift and Galileo look without motion blur, in landscape and reel, then checks each video tile by tile for one-frame pops and for the seam where the loop joins. Some intended motion also trips it (stepped poses, throws, feature exchanges, fast entrances, an edge that clips a tile for one frame as it passes behind a card); look at the flagged frames before calling them bugs.
+
+## Changing Backdrop
+
+Drift and Galileo draw Backdrop's looks behind their cards: each app builds its own copy of BackdropKit, saved documents store a look by its id with every setting, scene presets name looks by id, and the shared library (`~/Library/Application Support/pitch.dog/Backdrop Library`) passes saved looks between the apps. So a change to Backdrop reaches the other two at their next release, and these rules keep their documents and presets intact:
+
+- **Look ids are permanent.** An unknown id draws as Studio, silently. Add looks under new ids; never rename or remove one (Studio is the fallback).
+- **A shipped look keeps its pixels.** Presets, saved documents, Galileo's sample works and the app icons all use shipped looks. Redesign under a new id; only a genuine bug, such as a loop seam, changes an existing look.
+- **New stored fields are optional,** with defaults that reproduce today's picture, in `BackdropSettings`, `Palette`, `FinishSettings` and library items. A required field would stop older documents and library files from opening.
+- **The library only grows.** Same folder, same files, keys added, never changed.
+- **Every look must compile.** All looks compile together when an app starts; one error stops Drift, Galileo and Backdrop alike, so run the verify scripts, which render every look, before any release.
+- **Release the three together,** so the new looks appear in Drift's and Galileo's pickers and their libraries can draw everything Backdrop saves.
 
 ## Rights
 

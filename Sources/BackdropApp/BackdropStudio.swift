@@ -30,8 +30,13 @@ final class BackdropDocument: ReferenceFileDocument, @unchecked Sendable {
     static var readableContentTypes: [UTType] { [type] }
 
     @Published var model: BackdropModel
+    /// True for a document made fresh in this session, not opened from disk.
+    var isNew = false
 
-    init() { model = BackdropModel() }
+    init() {
+        model = BackdropModel()
+        isNew = true
+    }
 
     required init(configuration: ReadConfiguration) throws {
         guard let data = configuration.file.regularFileContents else { throw CocoaError(.fileReadCorruptFile) }
@@ -60,6 +65,17 @@ final class BackdropSession: StageSource {
     var showCard = false { didSet { version += 1 } }
     var showExport = false
     var savedMessage: String?
+    /// The look the pointer is resting on, shown on the stage until it moves on.
+    private(set) var previewStyle: String?
+    @ObservationIgnored private var hoverTask: Task<Void, Never>?
+    /// The row the pointer entered last, so a late exit from the row before
+    /// doesn't cancel it.
+    @ObservationIgnored private var hoverTarget: String?
+    /// Whether the person picked the palette themselves, so it should stay
+    /// when they switch looks. A new window's starting palette doesn't count.
+    @ObservationIgnored private var paletteChosen = false
+    /// Saved looks, newest first, as the library holds them.
+    private(set) var library: [SavedBackdrop] = []
     @ObservationIgnored private var pending: BackdropModel?
     @ObservationIgnored private lazy var cardTexture: MTLTexture? = try? MediaLoader.texture(from: SampleArt.make(index: 1)).texture
 
@@ -67,6 +83,7 @@ final class BackdropSession: StageSource {
         self.document = document
         self.model = document.model
         clock.duration = model.loopSeconds
+        paletteChosen = !document.isNew && model.settings.palette != model.settings.styleInfo.defaults.palette
     }
 
     var fps: Int { 30 }
@@ -85,7 +102,7 @@ final class BackdropSession: StageSource {
                                                                           kCGImageSourceThumbnailMaxPixelSize: 256] as CFDictionary),
               let palette = Palette.extract(from: [image], id: "from-picture", name: url.deletingPathExtension().lastPathComponent)
         else { return false }
-        update("Palette") { $0.settings.palette = palette }
+        choosePalette(palette)
         return true
     }
 
@@ -100,6 +117,13 @@ final class BackdropSession: StageSource {
         return Composition(scene: UnderlayScene(loop: model.loopSeconds, showCard: showCard), context: ctx,
                            textures: cardTexture.map { [$0] } ?? [], backdrop: model.settings, look: look,
                            backdropLoop: model.loopSeconds)
+    }
+
+    /// The live stage shows the look being auditioned; exports never do.
+    func stageComposition() -> Composition? {
+        guard var comp = composition(for: model.format) else { return nil }
+        if let id = previewStyle { comp.backdrop = settings(choosing: BackdropCatalog.style(id)) }
+        return comp
     }
 
     private func set(_ m: BackdropModel) {
@@ -140,22 +164,101 @@ final class BackdropSession: StageSource {
         um.setActionName(name)
     }
 
+    /// What choosing a look gives: its own defaults and the current seed, and
+    /// the palette too unless the person picked one themselves, which stays.
+    func settings(choosing style: BackdropStyle) -> BackdropSettings {
+        var s = style.defaults
+        let current = model.settings
+        s.seed = current.seed
+        if paletteChosen { s.palette = current.palette }
+        return s
+    }
+
+    func choosePalette(_ palette: Palette) {
+        paletteChosen = true
+        update("Palette") { $0.settings.palette = palette }
+    }
+
+    /// Tries a variation; one with another palette counts as choosing it.
+    func useVariation(_ settings: BackdropSettings) {
+        if settings.palette != model.settings.palette { paletteChosen = true }
+        update("Variation") { $0.settings = settings }
+    }
+
     func choose(_ style: BackdropStyle) {
-        update("Choose \(style.name)") { m in
-            let seed = m.settings.seed
-            m.settings = style.defaults
-            m.settings.seed = seed
+        hoverTask?.cancel()
+        if previewStyle != nil { previewStyle = nil; version += 1 }
+        let chosen = settings(choosing: style)
+        update("Choose \(style.name)") { $0.settings = chosen }
+    }
+
+    /// Rests on a look before the stage plays it, and waits a moment before
+    /// bringing the document back, so moving down the list goes from look to
+    /// look without flashing back in between.
+    func hoverEnter(_ style: BackdropStyle) {
+        hoverTarget = style.id
+        hoverTask?.cancel()
+        let wait = previewStyle != nil ? 90 : 260
+        hoverTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(wait))
+            guard let self, !Task.isCancelled else { return }
+            let next: String? = style.id == self.model.settings.style ? nil : style.id
+            if next != self.previewStyle { self.previewStyle = next; self.version += 1 }
+        }
+    }
+
+    /// Shows a look on the stage at once, as resting on it would (headless checks).
+    func previewNow(_ id: String) {
+        hoverTask?.cancel()
+        previewStyle = id == model.settings.style ? nil : id
+        version += 1
+    }
+
+    func hoverExit(_ style: BackdropStyle) {
+        guard style.id == hoverTarget else { return }
+        hoverTarget = nil
+        hoverTask?.cancel()
+        hoverTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(140))
+            guard let self, !Task.isCancelled, self.previewStyle != nil else { return }
+            self.previewStyle = nil
+            self.version += 1
         }
     }
 
     func saveToLibrary() {
         let name = "\(model.settings.styleInfo.name) · \(model.settings.palette.name)"
         do {
-            try BackdropLibrary.save(name: name, settings: model.settings)
+            try BackdropLibrary.save(name: name, settings: model.settings, finish: model.finish, loopSeconds: model.loopSeconds)
             savedMessage = "Saved “\(name)” to your library. Drift and Galileo can use it now."
+            reloadLibrary()
         } catch {
             savedMessage = "Could not save to the library: \(error.localizedDescription)"
         }
+    }
+
+    func reloadLibrary() { library = BackdropLibrary.all() }
+
+    /// Brings a saved look back, with its film finish and loop length when it has them.
+    func use(_ item: SavedBackdrop) {
+        paletteChosen = true
+        update("Use \(item.name)") { m in
+            m.settings = item.settings
+            if let finish = item.finish { m.finish = finish }
+            if let loop = item.loopSeconds { m.loopSeconds = loop }
+        }
+    }
+
+    func rename(_ item: SavedBackdrop, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != item.name else { return }
+        try? BackdropLibrary.rename(item, to: trimmed)
+        reloadLibrary()
+    }
+
+    func trash(_ item: SavedBackdrop) {
+        try? BackdropLibrary.trash(item.id)
+        reloadLibrary()
     }
 }
 
@@ -220,9 +323,10 @@ struct BackdropWindow: View {
                 }
                 .help("Preview a slide on top")
                 Button { session.saveToLibrary() } label: {
-                    Label("Save to Library", systemImage: "books.vertical")
+                    Label("Save to Library", systemImage: "square.and.arrow.down.on.square")
                 }
                 .help("Save this look for Drift and Galileo")
+                LibraryButton(session: session)
                 Button { session.showExport = true } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "square.and.arrow.up").font(.system(size: 12, weight: .semibold))
@@ -238,6 +342,71 @@ struct BackdropWindow: View {
             Button("OK") { session.savedMessage = nil }
         } message: { Text(session.savedMessage ?? "") }
         .frame(minWidth: 980, minHeight: 640)
+    }
+}
+
+// MARK: - Library
+
+/// The saved looks: use one, rename it, or move it to the Trash. Drift and
+/// Galileo list the same looks on their Colour pages.
+struct LibraryButton: View {
+    let session: BackdropSession
+    @State private var open = false
+
+    var body: some View {
+        Button { session.reloadLibrary(); open.toggle() } label: {
+            Label("Library", systemImage: "books.vertical")
+        }
+        .help("Your saved looks")
+        .popover(isPresented: $open, arrowEdge: .bottom) { LibraryList(session: session) }
+    }
+}
+
+struct LibraryList: View {
+    let session: BackdropSession
+    @State private var renaming: SavedBackdrop?
+    @State private var newName = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Library").textStyle(.label).foregroundStyle(.secondary)
+                .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 6)
+            if session.library.isEmpty {
+                Text("Looks you save appear here, and in Drift and Galileo.")
+                    .textStyle(.caption).foregroundStyle(.secondary)
+                    .frame(width: 260, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.bottom, 14)
+            } else {
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(session.library) { item in
+                            HStack(spacing: 10) {
+                                BackdropThumb(settings: item.settings, size: CGSize(width: 52, height: 34))
+                                Text(item.name).textStyle(.bodyCompact).lineLimit(1)
+                                Spacer(minLength: 8)
+                                Button("Use") { session.use(item) }.buttonStyle(QuietButtonStyle())
+                                Menu {
+                                    Button("Rename…") { newName = item.name; renaming = item }
+                                    Button("Move to Trash", role: .destructive) { session.trash(item) }
+                                } label: { Image(systemName: "ellipsis") }
+                                .menuStyle(.borderlessButton)
+                                .menuIndicator(.hidden)
+                                .fixedSize()
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 4)
+                        }
+                    }
+                }
+                .frame(width: 340)
+                .frame(maxHeight: 380)
+                .padding(.bottom, 8)
+            }
+        }
+        .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $newName)
+            Button("Rename") { if let item = renaming { session.rename(item, to: newName) }; renaming = nil }
+            Button("Cancel", role: .cancel) { renaming = nil }
+        }
     }
 }
 
@@ -267,6 +436,7 @@ struct LookBrowser: View {
                         .buttonStyle(.plain)
                         .help(style.summary)
                         .padding(.vertical, 2)
+                        .onHover { inside in inside ? session.hoverEnter(style) : session.hoverExit(style) }
                     }
                 } header: {
                     HStack(spacing: 6) {
@@ -338,10 +508,21 @@ struct BackdropStage: View {
                     }
                     .frame(width: fitted.width, height: fitted.height)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous)
+                        .strokeBorder(session.previewStyle != nil ? Theme.accent.opacity(0.55) : Theme.hairline, lineWidth: 1))
                     .shadow(color: .black.opacity(scheme == .dark ? 0.55 : 0.18), radius: scheme == .dark ? 28 : 14, y: 4)
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
+                .overlay(alignment: .top) {
+                    if let id = session.previewStyle {
+                        HStack(spacing: 8) {
+                            Circle().fill(Theme.accent).frame(width: 6, height: 6)
+                            Text("Previewing \(BackdropCatalog.style(id).name)").textStyle(.label).foregroundStyle(.primary)
+                            Text("Click to use it").textStyle(.caption).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 10)
+                    }
+                }
             }
             TransportBar(source: session, clock: session.clock)
         }
@@ -386,7 +567,7 @@ struct VariationColumn: View {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 12) {
                     ForEach(Array(backdropVariations(session.model.settings).enumerated()), id: \.offset) { _, v in
                         BackdropTile(settings: v.1, title: v.0, selected: false, size: CGSize(width: 96, height: 96 / max(aspect, 0.3))) {
-                            session.update("Variation") { $0.settings = v.1 }
+                            session.useVariation(v.1)
                         }
                     }
                 }
@@ -417,7 +598,7 @@ struct VariationStrip: View {
                 HStack(spacing: 10) {
                     ForEach(Array(variations.enumerated()), id: \.offset) { _, v in
                         BackdropTile(settings: v.1, title: v.0, selected: false, size: CGSize(width: 132, height: 132 / max(0.6, CGFloat(session.model.format.aspect)) > 110 ? 110 : 132 / CGFloat(session.model.format.aspect))) {
-                            session.update("Variation") { $0.settings = v.1 }
+                            session.useVariation(v.1)
                         }
                     }
                 }
@@ -462,7 +643,7 @@ struct BackdropInspector: View {
                         // A palette borrowed from a picture sits first while it is in use.
                         let borrowed = Palettes.all.contains { $0.id == s.palette.id } ? [] : [s.palette]
                         PalettePicker(selected: s.palette.id, palettes: borrowed + Palettes.all) { p in
-                            session.update("Palette") { $0.settings.palette = p }
+                            session.choosePalette(p)
                         }
                         Button { borrowColours() } label: { Label("From a picture…", systemImage: "eyedropper") }
                             .buttonStyle(QuietButtonStyle())
@@ -563,6 +744,7 @@ struct BackdropSnapshotHost: ViewModifier {
                 if let fmt = StudioSnapshot.arg("--format"), let f = CanvasFormat.presets.first(where: { $0.id == fmt }) {
                     session.update("Canvas") { $0.format = f }
                 }
+                if let id = StudioSnapshot.arg("--preview-look") { session.previewNow(id) }
                 if let picture = StudioSnapshot.arg("--palette-from") {
                     let ok = session.borrowColours(from: URL(fileURLWithPath: picture))
                     print("palette \(ok ? session.model.settings.palette.colors.map(\.hex).joined(separator: " ") : "failed")")
@@ -570,7 +752,7 @@ struct BackdropSnapshotHost: ViewModifier {
                 session.clock.playing = false
                 session.clock.time = Double(StudioSnapshot.arg("--time") ?? "") ?? 3
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    if let comp = session.composition() {
+                    if let comp = session.stageComposition() {
                         let h = 1000.0
                         still = try? Exporter().still(comp, at: session.clock.time, width: Int(h * session.model.format.aspect), height: Int(h))
                     }
