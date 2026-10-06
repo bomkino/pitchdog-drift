@@ -80,10 +80,17 @@ public struct ReelProject: Codable, Hashable, Sendable {
     public var seed: UInt32 = 1
     /// Seconds for one loop; nil uses the scene's natural length.
     public var loopOverride: Double?
+    /// The length chosen under Length (10, 15, 30 or 60 s). Pace is refitted to
+    /// it when the scene, the items or the frame change; nil once Pace is moved
+    /// away from it by hand.
+    public var length: Double?
     /// Tactile sound; nil is silent.
     public var sound: ReelSound?
     /// Words over the finished frame; nil or empty shows none.
     public var title: ReelTitle?
+    /// True when exports leave the background out (ProRes 4444, HEVC and PNG
+    /// can); the stage then shows a checkerboard in its place. Nil is a backdrop.
+    public var transparent: Bool?
 
     public init(app: String, scene: String, dials: SceneDials, backdrop: BackdropSettings, look: StageLook, format: CanvasFormat) {
         self.app = app

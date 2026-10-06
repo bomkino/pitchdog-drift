@@ -2,6 +2,30 @@
 
 Notable user-visible and maintainer-facing changes are recorded here. Drift 2 starts at 2.0.0; Drift 1 ended at 0.5.1.
 
+## 2.4.0 — 6 October 2026
+
+Made for how pitch.dog works: slides at 2576 × 1080, reels at 1080 × 1920, and most exports transparent, for editing over other footage.
+
+**Transparent exports, fixed and faster**
+- **Shadows now come through.** Transparent exports used to drop every card shadow; they now carry them as soft alpha, so cards sit on the footage beneath them.
+- **ProRes 4444 alpha fixed.** Files said "straight alpha" but held premultiplied colour, so soft edges, motion blur and glow came out too dark in editors. They now hold straight alpha, as ProRes should.
+- **PNG frames export about twice as fast** (a 24-second reel: 22 s instead of 51 s), compressed on several cores while the next frames render. Frames stay numbered in one folder for Premiere Pro's image-sequence import.
+- **HEVC can be transparent**: about a hundredth of ProRes 4444's size, for Final Cut Pro, Keynote, QuickTime and Safari.
+- **Background: Backdrop or Transparent**, at the top of the Colour page. Transparent shows the cards over a checkerboard on the stage and in the scene browser, exactly as they will export; new documents start the way the last one was set.
+
+**Wide decks in tall reels**
+- **New scene: Scan** (in Spotlight). Each slide large enough to read, the camera travelling along it from left edge to right, then on to the next; the slides above and below wait at their end and start, like lines of text.
+- **Wide slides are larger.** Stream's nine styles, Shuffle and Lanes give a wide slide about the area a 16:9 slide would have. Story's fanned hand fits inside a tall frame.
+- **The sample deck is 2576 × 1080**, so scenes are chosen against the shape of a real deck.
+- **Feed:** no slide pops in at the bottom edge with wide slides; short decks no longer jump.
+
+**Smoother to use**
+- A length chosen under Motion (10, 15, 30 or 60 s) is kept when you change scene, add, remove or feature slides.
+- Dropped files arrive in name order (slide 2 before slide 10), already at their real shape.
+- Export waits until every slide has loaded, so no frame shows a grey card; files that can't be read are named.
+- The stage holds still under the export sheet, so the export has the GPU to itself; video exports keep two frames in flight; slides load three at a time, each PDF page rendered once.
+- Exports are named after the document; loops that are not a whole number of frames step evenly across the join; memory is released when slides are removed.
+
 ## [2.3.0] — 2026-10-05
 
 **New backgrounds from Backdrop 2.0, and backgrounds that loop seamlessly everywhere.**

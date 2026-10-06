@@ -57,7 +57,9 @@ enum SampleDeck {
         let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         let W = CGFloat(width), H = CGFloat(height)
-        let s = W / 1920
+        // Type and spacing follow the shorter fit, so a wide deck (2576 × 1080) keeps
+        // its type size and gains room across, as wide decks are designed.
+        let s = min(W / 1920, H / 1080)
         let m = 140 * s
         func fill(_ c: CGColor, _ r: CGRect) { ctx.setFillColor(c); ctx.fill(r) }
         // y from the top, like a layout.
@@ -169,7 +171,8 @@ enum SampleDeck {
             let lineY = 600 * s
             fill(alpha(paper, 0.3), box(m, lineY, W - 2 * m, 3 * s))
             for (i, st) in stops.enumerated() {
-                let x = m + CGFloat(i) * (W - 2 * m - 60 * s) / 3
+                // The last stop leaves room for its label inside the margin.
+                let x = m + CGFloat(i) * (W - 2 * m - 300 * s) / 3
                 ctx.setFillColor(i == 0 ? amber : paper)
                 ctx.fillEllipse(in: box(x, lineY - 17 * s, 36 * s, 36 * s))
                 text(ctx, st.0, eyebrow(28 * s, 600), i == 0 ? amber : sky, x: x, top: lineY + 60 * s, width: 300 * s, height: H, tracking: 0.08)
@@ -185,4 +188,10 @@ enum SampleDeck {
         }
         return ctx.makeImage()!
     }
+}
+
+/// The sample deck at any size, to check scenes at a deck's own shape
+/// (studio-lab `deck`): pitch.dog's decks are mostly 2576 × 1080.
+public func sampleDeckSlides(width: Int, height: Int) -> [CGImage] {
+    (0..<SampleDeck.count).map { SampleDeck.slide(index: $0, width: width, height: height) }
 }

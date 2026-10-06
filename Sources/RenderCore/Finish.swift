@@ -53,11 +53,19 @@ public struct FinishFrame: Sendable {
     public var keepAlpha: Bool
     /// True when the destination stores sRGB-encoded values in a UNORM format.
     public var encodeSRGB: Bool
+    /// With `keepAlpha`: colour not multiplied by alpha, as ProRes 4444 stores it.
+    /// Otherwise colour is premultiplied, as PNG writing and HEVC with alpha expect.
+    public var straightAlpha: Bool
+    /// With `keepAlpha`: show the transparency over a checkerboard, opaque, as
+    /// previews of a transparent export do.
+    public var checker: Bool
 
-    public init(frameIndex: UInt32, keepAlpha: Bool = false, encodeSRGB: Bool = true) {
+    public init(frameIndex: UInt32, keepAlpha: Bool = false, encodeSRGB: Bool = true, straightAlpha: Bool = false, checker: Bool = false) {
         self.frameIndex = frameIndex
         self.keepAlpha = keepAlpha
         self.encodeSRGB = encodeSRGB
+        self.straightAlpha = straightAlpha
+        self.checker = checker
     }
 }
 
@@ -150,7 +158,7 @@ public final class Finisher {
             grain: settings.grain, grainSize: settings.grainSize,
             aberration: settings.aberration, frame: Float(frame.frameIndex % 100_000),
             keepAlpha: frame.keepAlpha ? 1 : 0, encodeSRGB: frame.encodeSRGB ? 1 : 0,
-            pad0: 0, pad1: 0)
+            straightAlpha: frame.keepAlpha && frame.straightAlpha ? 1 : 0, checker: frame.keepAlpha && frame.checker ? 1 : 0)
         enc.setFragmentBytes(&u, length: MemoryLayout<FinishUniforms>.stride, index: 0)
         enc.setFragmentTexture(input, index: 0)
         enc.setFragmentTexture(useBloom ? chain[0] : input, index: 1)
@@ -165,7 +173,7 @@ public final class Finisher {
         var bloom: Float, vignette: Float, grain: Float, grainSize: Float
         var aberration: Float, frame: Float
         var keepAlpha: Float, encodeSRGB: Float
-        var pad0: Float, pad1: Float
+        var straightAlpha: Float, checker: Float
     }
 
     static let source = #"""
@@ -175,7 +183,7 @@ struct FinishU {
     float bloom, vignette, grain, grainSize;
     float aberration, frame;
     float keepAlpha, encodeSRGB;
-    float pad0, pad1;
+    float straightAlpha, checker;
 };
 
 inline float3 down13(texture2d<float> t, sampler s, float2 uv, float2 tx) {
@@ -315,7 +323,13 @@ fragment float4 finish_composite(FSOut in [[stage_in]], constant FinishU &u [[bu
         outc += ditherTri(pix, frame);
     }
     outc = clamp(outc, 0.0, 1.0);
-    return float4(outc * a, a);
+    if (u.checker > 0.5) {
+        // Squares a fixed share of the frame, so the preview reads like the export.
+        float2 cell = floor(in.position.xy / max(u.height / 56.0, 3.0));
+        float3 ground = fmod(cell.x + cell.y, 2.0) < 0.5 ? float3(0.80) : float3(0.71);
+        return float4(outc * a + ground * (1.0 - a), 1.0);
+    }
+    return u.straightAlpha > 0.5 ? float4(outc, a) : float4(outc * a, a);
 }
 """#
 }

@@ -37,19 +37,26 @@ public struct LibraryPanel: View {
     }
 }
 
-/// Reads file URLs from dropped items, then hands them over on the main thread.
+/// Reads file URLs from dropped items, then hands them over on the main
+/// thread in name order, so slide-2 comes before slide-10 however the files
+/// were picked up and however quickly each one resolves.
 func loadDropped(_ providers: [NSItemProvider], _ done: @escaping @MainActor ([URL]) -> Void) {
     let group = DispatchGroup()
-    var urls: [URL] = []
+    var urls = [URL?](repeating: nil, count: providers.count)
     let lock = NSLock()
-    for p in providers {
+    for (i, p) in providers.enumerated() {
         group.enter()
         _ = p.loadObject(ofClass: URL.self) { url, _ in
-            if let url { lock.lock(); urls.append(url); lock.unlock() }
+            if let url { lock.lock(); urls[i] = url; lock.unlock() }
             group.leave()
         }
     }
-    group.notify(queue: .main) { MainActor.assumeIsolated { done(urls) } }
+    group.notify(queue: .main) { MainActor.assumeIsolated { done(inNameOrder(urls.compactMap { $0 })) } }
+}
+
+/// Files in the order Finder lists them by name.
+func inNameOrder(_ urls: [URL]) -> [URL] {
+    urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
 }
 
 /// The media in the reel, in order: drag to reorder, star to feature.
@@ -98,6 +105,10 @@ public struct MediaRail: View {
                 .buttonStyle(QuietButtonStyle())
                 Spacer()
                 if session.importing > 0 {
+                    if session.importBatch > 1 {
+                        Text("Loading \(session.importBatch - session.importing + 1) of \(session.importBatch)")
+                            .textStyle(.metadata).foregroundStyle(.tertiary).monospacedDigit()
+                    }
                     ProgressView().controlSize(.small)
                 } else if session.project.items.allSatisfy(\.isSample), !session.project.items.isEmpty {
                     Text("Samples").textStyle(.metadata).foregroundStyle(.tertiary)

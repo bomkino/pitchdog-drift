@@ -34,9 +34,9 @@ enum ExportPlan {
     }
 
     /// The file name for one format of a several-format export.
-    static func name(_ base: String, _ format: CanvasFormat, _ kind: ExportKind) -> String {
+    static func name(_ base: String, _ format: CanvasFormat, _ kind: ExportKind, transparent: Bool = false) -> String {
         let stem = "\(base) \(format.name)"
-        return kind == .png ? stem + " frames" : stem + "." + kind.fileExtension
+        return kind == .png ? stem + " frames" : stem + "." + kind.fileExtension(transparent: transparent && kind.supportsTransparency)
     }
 
     /// Jobs for `formats`. With one format, `destination` is the file itself;
@@ -51,12 +51,13 @@ enum ExportPlan {
             let duration = loop * Double(o.kind == .still ? 1 : o.loops)
             let (w, h) = size(format, scale: o.scale)
             var audio: AudioTrack?
+            let clear = o.transparent && o.kind.supportsTransparency
             if case .video = o.kind.format { audio = source.exportAudio(for: format, duration: duration) }
-            var settings = ExportSettings(width: w, height: h, fps: o.fps, duration: duration, format: o.kind.format,
-                                          samples: o.samples, transparent: o.transparent && o.kind.supportsTransparency, audio: audio)
+            var settings = ExportSettings(width: w, height: h, fps: o.fps, duration: duration, format: o.kind.format(transparent: clear),
+                                          samples: o.samples, transparent: clear, audio: audio)
             settings.stillTime = playhead * loop
             let url = formats.count == 1 ? destination
-                : unique(destination.appendingPathComponent(name(source.exportName, format, o.kind)), taken: &taken)
+                : unique(destination.appendingPathComponent(name(source.exportName, format, o.kind, transparent: clear)), taken: &taken)
             return ExportJob(format: format, url: url, composition: comp, settings: settings)
         }
     }

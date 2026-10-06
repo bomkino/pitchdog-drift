@@ -19,9 +19,9 @@ public enum ExportKind: String, CaseIterable, Identifiable, Sendable {
     public var detail: String {
         switch self {
         case .h264: return "Plays everywhere"
-        case .hevc: return "Smaller, same quality"
+        case .hevc: return "Small, can be transparent"
         case .prores: return "422 HQ, for editing"
-        case .prores4444: return "Keeps transparency"
+        case .prores4444: return "Transparent, for editing"
         case .png: return "Numbered frames"
         case .still: return "This frame as PNG"
         }
@@ -36,25 +36,31 @@ public enum ExportKind: String, CaseIterable, Identifiable, Sendable {
         case .still: return "photo"
         }
     }
-    var format: ExportFormat {
+    var format: ExportFormat { format(transparent: false) }
+
+    /// HEVC keeps transparency in a QuickTime movie when asked to.
+    func format(transparent: Bool) -> ExportFormat {
         switch self {
         case .h264: return .video(.h264)
-        case .hevc: return .video(.hevc)
+        case .hevc: return .video(transparent ? .hevcAlpha : .hevc)
         case .prores: return .video(.prores422)
         case .prores4444: return .video(.prores4444)
         case .png: return .pngSequence
         case .still: return .still
         }
     }
-    var fileExtension: String {
+    var fileExtension: String { fileExtension(transparent: false) }
+
+    func fileExtension(transparent: Bool) -> String {
         switch self {
-        case .h264, .hevc: return "mp4"
+        case .h264: return "mp4"
+        case .hevc: return transparent ? "mov" : "mp4"
         case .prores, .prores4444: return "mov"
         case .png: return ""
         case .still: return "png"
         }
     }
-    var supportsTransparency: Bool { self == .prores4444 || self == .png || self == .still }
+    var supportsTransparency: Bool { self == .prores4444 || self == .hevc || self == .png || self == .still }
 }
 
 @Observable
@@ -92,7 +98,8 @@ final class ExportModel {
 public struct ExportSheet: View {
     let source: any StageSource
     @Environment(\.dismiss) private var dismiss
-    // The last export's settings come back next time; transparency is chosen afresh.
+    // The last export's settings come back next time. Transparency belongs to
+    // the document (Colour › Background), so the stage shows it too.
     @AppStorage("export.kind") private var kind: ExportKind = .h264
     @AppStorage("export.scale") private var scale: Double = 1
     @AppStorage("export.fps") private var fps: Int = 30
@@ -100,7 +107,6 @@ public struct ExportSheet: View {
     @AppStorage("export.quality") private var quality: Int = 8
     @AppStorage("export.formats") private var lastFormats = ""
     @State private var formatIDs: Set<String>
-    @State private var transparent = false
     @State private var model = ExportModel()
 
     public init(source: any StageSource) {
@@ -131,6 +137,12 @@ public struct ExportSheet: View {
         ExportPlan.Options(kind: kind, scale: scale, fps: fps, loops: loops, samples: quality, transparent: transparent)
     }
 
+    private var transparent: Bool { source.offersTransparency && source.transparentBackground }
+
+    /// Transparency as this export will have it: chosen, and possible in the format.
+    private var isTransparent: Bool { transparent && kind.supportsTransparency
+    }
+
     private var carriesSound: Bool {
         if case .video = kind.format { return source.soundTitle != nil }
         return false
@@ -143,15 +155,16 @@ public struct ExportSheet: View {
 
     private var summary: String {
         let formats = chosen
+        let clear = isTransparent ? " · transparent" : ""
         if formats.count == 1, let f = formats.first {
             let (w, h) = ExportPlan.size(f, scale: scale)
-            if kind == .still { return "\(w) × \(h) · the frame at the playhead" }
+            if kind == .still { return "\(w) × \(h) · the frame at the playhead" + clear }
             let seconds = source.loopDuration(for: f) * Double(loops)
-            return "\(w) × \(h) · \(fps) fps · \(String(format: "%.1f", seconds)) s" + soundNote
+            return "\(w) × \(h) · \(fps) fps · \(String(format: "%.1f", seconds)) s" + clear + soundNote
         }
         let names = ListFormatter.localizedString(byJoining: formats.map(\.name))
-        if kind == .still { return names + " · the frame at the playhead" }
-        return names + " · \(fps) fps · \(loops == 1 ? "one loop" : "\(loops) loops") each" + soundNote
+        if kind == .still { return names + " · the frame at the playhead" + clear }
+        return names + " · \(fps) fps · \(loops == 1 ? "one loop" : "\(loops) loops") each" + clear + soundNote
     }
 
     public var body: some View {
@@ -177,7 +190,7 @@ public struct ExportSheet: View {
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ForEach(ExportKind.allCases) { k in
-                    Button { kind = k; if !k.supportsTransparency { transparent = false } } label: {
+                    Button { kind = k } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Image(systemName: k.symbol).font(.system(size: 16, weight: .regular))
                                 .foregroundStyle(kind == k ? Theme.accentInk : .secondary)
@@ -213,24 +226,31 @@ public struct ExportSheet: View {
                         Text("Length").textStyle(.bodyCompact).foregroundStyle(.secondary)
                         ChoiceRow([(1, "1 loop"), (2, "2 loops"), (3, "3 loops"), (4, "4 loops")], selection: $loops)
                     }
-                    GridRow {
-                        Text("Motion").textStyle(.bodyCompact).foregroundStyle(.secondary)
-                        ChoiceRow([(1, "Crisp"), (8, "Film blur"), (16, "Finest")], selection: $quality)
+                    if source.offersMotionBlur {
+                        GridRow {
+                            Text("Motion").textStyle(.bodyCompact).foregroundStyle(.secondary)
+                            ChoiceRow([(1, "Crisp"), (8, "Film blur"), (16, "Finest")], selection: $quality)
+                        }
                     }
                 }
-                if kind.supportsTransparency {
+                if kind.supportsTransparency && source.offersTransparency {
                     GridRow {
                         Text("Background").textStyle(.bodyCompact).foregroundStyle(.secondary)
-                        ChoiceRow([(false, "Backdrop"), (true, "Transparent")], selection: $transparent)
+                        ChoiceRow([(false, "Backdrop"), (true, "Transparent")], selection: Binding(
+                            get: { source.transparentBackground }, set: { source.setTransparentBackground($0) }))
                     }
                 }
             }
             HStack {
-                Text(chosen.count > 1 ? "Each format is laid out for its own frame." : "Loops meet seamlessly at the cut.")
-                    .textStyle(.caption).foregroundStyle(.tertiary)
+                Text(source.exportWaitNote ?? (transparent && !kind.supportsTransparency
+                        ? "\(kind.title) cannot be transparent, so the backdrop is drawn in."
+                        : chosen.count > 1 ? "Each format is laid out for its own frame." : "Loops meet seamlessly at the cut."))
+                    .textStyle(.caption).foregroundStyle(source.exportWaitNote == nil ? .tertiary : .secondary)
                 Spacer()
                 Button("Cancel") { dismiss() }.buttonStyle(QuietButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Export…") { chooseDestination() }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
+                    .disabled(source.exportWaitNote != nil)
+                    .opacity(source.exportWaitNote == nil ? 1 : 0.45)
             }
         }
         .padding(20)
@@ -324,8 +344,9 @@ public struct ExportSheet: View {
             panel.nameFieldStringValue = base + " frames"
             panel.canCreateDirectories = true
         } else {
-            panel.nameFieldStringValue = base + "." + kind.fileExtension
-            panel.allowedContentTypes = [kind == .still ? .png : (kind.fileExtension == "mov" ? .quickTimeMovie : .mpeg4Movie)]
+            let ext = kind.fileExtension(transparent: isTransparent)
+            panel.nameFieldStringValue = base + "." + ext
+            panel.allowedContentTypes = [kind == .still ? .png : (ext == "mov" ? .quickTimeMovie : .mpeg4Movie)]
         }
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }

@@ -18,6 +18,7 @@ public final class GPU: @unchecked Sendable {
     private var renderPipelines: [String: MTLRenderPipelineState] = [:]
     private var computePipelines: [String: MTLComputePipelineState] = [:]
     private var samplers: [String: MTLSamplerState] = [:]
+    private var compiling: [String: NSLock] = [:]
 
     private init() {
         guard let device = MTLCreateSystemDefaultDevice() else {
@@ -34,6 +35,16 @@ public final class GPU: @unchecked Sendable {
     /// Compiles (or returns the cached) library for a source string.
     public func library(named name: String, source: String) throws -> MTLLibrary {
         let key = name + "#" + String(source.hashValue)
+        lock.lock()
+        if let cached = libraries[key] { lock.unlock(); return cached }
+        // One compile per library: a second caller (the warm-up, the stage, the
+        // tiles at launch) waits for the first rather than compiling it again,
+        // so every caller shares one library and its cached pipelines.
+        let gate = compiling[key] ?? NSLock()
+        compiling[key] = gate
+        lock.unlock()
+        gate.lock()
+        defer { gate.unlock() }
         lock.lock()
         if let cached = libraries[key] { lock.unlock(); return cached }
         lock.unlock()

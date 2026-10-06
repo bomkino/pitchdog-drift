@@ -13,6 +13,7 @@ public final class StagePreviewCoordinator: NSObject, MTKViewDelegate {
     var clock: PlaybackClock
     var versionProvider: () -> Int
     var soundClock: (Bool, Double) -> Double? = { _, _ in nil }
+    var suspended: () -> Bool = { false }
     var quality: CGFloat = 1
     private var lastTime = CACurrentMediaTime()
     private var lastVersion = -1
@@ -42,6 +43,13 @@ public final class StagePreviewCoordinator: NSObject, MTKViewDelegate {
         let now = CACurrentMediaTime()
         let dt = min(now - lastTime, 0.1)
         lastTime = now
+        // Hold still under the export sheet, or while the window cannot be seen:
+        // the GPU goes to the export, and nothing is drawn that no one sees.
+        let hidden = view.window?.occlusionState.contains(.visible) == false && !MainActor.assumeIsolated { StudioSnapshot.isRequested }
+        if suspended() || hidden {
+            _ = soundClock(false, clock.time)
+            return
+        }
         // While sound plays it keeps the time; otherwise the display does.
         if let heard = soundClock(clock.playing, clock.time) {
             clock.time = heard
@@ -61,8 +69,10 @@ public final class StagePreviewCoordinator: NSObject, MTKViewDelegate {
             // Heavy looks render their background smaller while playing; paused frames are exact.
             let cost = comp.backdrop.styleInfo.cost
             let scale: Float = clock.playing ? (cost >= 3 ? 0.5 : (cost == 2 ? 0.75 : 1)) : 1
+            // A transparent project shows its cards over a checkerboard, as they will export.
             try? exporter.encode(cb, comp, at: clock.time, output: drawable.texture, samples: samples, fps: fps,
-                                 frameIndex: frameIndex, transparent: false, pool: pool, backdropScale: scale)
+                                 frameIndex: frameIndex, transparent: comp.transparent, pool: pool, backdropScale: scale,
+                                 checker: comp.transparent)
         } else {
             let pass = MTLRenderPassDescriptor()
             pass.colorAttachments[0].texture = drawable.texture
@@ -195,6 +205,7 @@ public struct StagePreview: NSViewRepresentable {
         coordinator.soundClock = { [weak src] playing, time in
             MainActor.assumeIsolated { src?.soundClock(playing: playing, time: time) }
         }
+        coordinator.suspended = { [weak src] in MainActor.assumeIsolated { src?.stageSuspended ?? false } }
         return coordinator
     }
 

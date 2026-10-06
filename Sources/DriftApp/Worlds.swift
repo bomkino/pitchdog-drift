@@ -138,6 +138,11 @@ enum Worlds {
                       summary: "One slide at a time, large and readable, with a composed swing between them.",
                       backdrop: "softbloom", palette: "nocturne", tweak: { b in b.accent = 0; b.brightness = 0.85 }, pace: 0.72,
                       look: { l in l.mood = 0.45; l.surface = .print; l.bend = .card; l.shadow = 0.7; l.depthOfField = 0.2; l.finish.grain = 0.18; l.finish.bloom = 0.12 }),
+            formation(ScanScene(),
+                      id: "scan", name: "Scan", eyebrow: "Read · travel · next",
+                      summary: "Each slide large enough to read, the camera travelling along it, then on to the next. Made for wide slides in a tall frame.",
+                      backdrop: "softbloom", palette: "graphite", tweak: { b in b.accent = 0; b.brightness = 0.82; b.vignette = 0.4 },
+                      look: { l in l.mood = 0.4; l.surface = .print; l.bend = .rigid; l.shadow = 0.55; l.depthOfField = 0; l.finish.grain = 0.16; l.finish.bloom = 0.1 }),
             formation(StackScene(id: "shuffle", name: "Shuffle", summary: "A neat pile of slides. The top one is thrown in an arc and tucked back underneath."),
                       id: "shuffle", name: "Shuffle", eyebrow: "Deck · throw · tuck",
                       summary: "A neat pile of slides. The top one is thrown in an arc and tucked back underneath.",
@@ -207,8 +212,8 @@ enum Worlds {
                        wideSummary: "Slides ride a path across the screen, one after another.",
                        symbol: "arrow.up", wideSymbol: "arrow.right", members: trainEntries),
             SceneGroup(id: "spotlight", name: "Spotlight",
-                       summary: "One slide at a time, big and readable: a feed, a tilting rail, a peeling cascade, or a strip that zooms in.",
-                       symbol: "rectangle.center.inset.filled", members: [f["spotlight"]!, f["rail"]!, f["cascade"]!, f["focus"]!]),
+                       summary: "One slide at a time, big and readable: a feed, a scan along each slide, a tilting rail, a peeling cascade, or a strip that zooms in.",
+                       symbol: "rectangle.center.inset.filled", members: [f["spotlight"]!, f["scan"]!, f["rail"]!, f["cascade"]!, f["focus"]!]),
             SceneGroup(single: f["opening"]!,
                        summary: "An opener. Each highlight grows as the strip rises; the last takes the stage.",
                        wideSummary: "An opener. Each highlight grows as the strip runs; the last takes the stage.",
@@ -260,7 +265,7 @@ enum Worlds {
     static let cameraDrift: [String: Float] = [
         "editorial": 0.5, "noir": 0.25, "sunstruck": 0.5, "dread": 0.4, "tender": 0.6, "velvet": 0.4, "celluloid": 0,
         "nightrun": 0.3, "procession": 0.35, "story": 0.3, "wall": 0, "spotlight": 0.45, "shuffle": 0.3, "opening": 0.25, "contact": 0.25,
-        "loom": 0.15, "lanes": 0.2, "cascade": 0.2, "vortex": 0.3, "rail": 0.3, "assemble": 0.2, "focus": 0, "unroll": 0.15,
+        "loom": 0.15, "lanes": 0.2, "cascade": 0.2, "vortex": 0.3, "rail": 0.3, "assemble": 0.2, "focus": 0, "unroll": 0.15, "scan": 0.1,
     ]
 
     static let documentType = UTType(exportedAs: "dog.pitch.drift2.reel", conformingTo: .package)

@@ -37,7 +37,8 @@ public final class TileRenderer: @unchecked Sendable {
         queue.async {
             let started = CACurrentMediaTime()
             if self.exporter == nil { self.exporter = try? Exporter() }
-            let img = try? self.exporter?.still(comp, at: time, width: Int(size.width), height: Int(size.height), samples: samples)
+            let img = try? self.exporter?.still(comp, at: time, width: Int(size.width), height: Int(size.height), samples: samples,
+                                                transparent: comp.transparent, checker: comp.transparent)
             if let img { self.store(key, img) }
             if LaunchProbe.enabled {
                 print(String(format: "launch-probe tile %dx%d in %.0f ms, done at %.0f ms", Int(size.width), Int(size.height),
@@ -83,6 +84,7 @@ func contentKey(_ p: ReelProject, scene: String? = nil) -> String {
     h.combine(p.backdrop)
     h.combine(p.look)
     h.combine(p.seed)
+    h.combine(p.transparent)
     return "\(scene ?? p.scene)|\(h.finalize())"
 }
 
@@ -355,12 +357,8 @@ struct LookThumbnail: View {
     }
 
     private var lookProject: ReelProject {
-        var p = session.project
-        if p.scene != sceneID {
-            p.scene = sceneID
-            session.config.entry(sceneID).apply(&p)
-        }
-        return p
+        let p = session.project
+        return p.scene == sceneID ? p : session.project(choosing: sceneID, from: p)
     }
 
     private func load() {
@@ -402,6 +400,7 @@ public struct BackdropTile: View {
     let action: () -> Void
     @State private var image: CGImage?
     @State private var hovering = false
+    @State private var pending: Task<Void, Never>?
 
     public init(settings: BackdropSettings, title: String, selected: Bool, size: CGSize, action: @escaping () -> Void) {
         self.settings = settings
@@ -433,7 +432,14 @@ public struct BackdropTile: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .onAppear(perform: load)
-        .onChange(of: settings) { _, _ in load() }
+        .onChange(of: settings) { _, _ in
+            // While a slider moves, render once it rests rather than on every step.
+            pending?.cancel()
+            pending = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(140))
+                if !Task.isCancelled { load() }
+            }
+        }
     }
 
     private func load() {

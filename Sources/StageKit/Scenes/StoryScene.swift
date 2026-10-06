@@ -75,6 +75,21 @@ public struct StoryScene: StageScene {
     /// A hand of cards. Each card lies on its left neighbour, so every title shows.
     /// Narrow canvases get a smaller hand, so it still fits the frame.
     func fan(_ i: Int, _ ctx: SceneContext) -> Pose {
+        let pose = fanPose(i, ctx)
+        // Wide slides make a wide hand: the whole hand shrinks until its outer
+        // corners are inside the frame's sides.
+        let reach = (0..<ctx.items.count).reduce(Float(0)) { r, j in
+            let q = fanPose(j, ctx)
+            let a = abs(q.r.z)
+            return max(r, abs(q.p.x) + q.s.x / 2 * cosf(a) + q.s.y / 2 * sinf(a))
+        }
+        let limit = ctx.aspect * 0.47
+        guard reach > limit else { return pose }
+        let k = limit / reach
+        return Pose(p: SIMD3(pose.p.x * k, pose.p.y * k, pose.p.z), r: pose.r, s: pose.s * k)
+    }
+
+    func fanPose(_ i: Int, _ ctx: SceneContext) -> Pose {
         let n = ctx.items.count
         // Narrow canvases and big decks get a smaller hand, so it still fits the frame.
         let crowd: Float = n > 12 ? (12 / Float(n)).squareRoot() : 1

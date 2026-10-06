@@ -12,6 +12,7 @@ public enum StudioSnapshot {
     public static var isRequested: Bool {
         CommandLine.arguments.contains("--snapshot") || CommandLine.arguments.contains("--still")
             || CommandLine.arguments.contains("--export") || CommandLine.arguments.contains("--probe-preview")
+            || CommandLine.arguments.contains("--export-frame")
     }
 
     /// One headless run per process, however many windows come up.
@@ -42,6 +43,8 @@ public enum StudioSnapshot {
         } else if !CommandLine.arguments.contains("--empty") && session.project.items.isEmpty {
             session.addSamples()
         }
+        // Deterministic whatever the last document chose; --background transparent asks for it.
+        session.update("Background") { $0.transparent = arg("--background") == "transparent" ? true : nil }
         if let name = arg("--sound"), let palette = SoundPalette(rawValue: name) {
             session.update("Sound") { $0.sound = ReelSound(palette: palette) }
         }
@@ -100,7 +103,31 @@ public enum StudioSnapshot {
                 let aspect = session.project.format.aspect
                 let h = 1100.0
                 image = try? Exporter().still(comp, at: session.clock.time, width: Int(h * aspect), height: Int(h),
-                                              samples: Int(arg("--samples") ?? "") ?? 6)
+                                              samples: Int(arg("--samples") ?? "") ?? 6, transparent: comp.transparent, checker: comp.transparent)
+            }
+            if arg("--length-test") != nil {
+                // A length chosen under Length holds through a change of scene and
+                // a featured slide, and lets go once Pace is moved away by hand.
+                session.fitLoop(to: 30)
+                let first = session.loopDuration
+                session.chooseScene("story")
+                let other = session.loopDuration
+                session.toggleFeatured(session.project.items[0].id)
+                let featured = session.loopDuration
+                let kept = abs(first - 30) < 0.5 && abs(other - 30) < 0.5 && abs(featured - 30) < 0.5
+                session.beginEdit()
+                session.live { $0.dials.pace = 0.98 }
+                session.commitEdit("Pace")
+                let released = session.project.length == nil
+                print(String(format: "length-test first:%.2f story:%.2f featured:%.2f", first, other, featured) + " kept:\(kept) released:\(released)")
+                exit(kept && released ? 0 : 1)
+            }
+            if arg("--name-order-test") != nil {
+                let names = ["slide-10.png", "slide-2.png", "Slide-1.png", "slide-03.png"]
+                let sorted = inNameOrder(names.map { URL(fileURLWithPath: "/tmp/" + $0) }).map(\.lastPathComponent)
+                let ok = sorted == ["Slide-1.png", "slide-2.png", "slide-03.png", "slide-10.png"]
+                print("name-order-test \(sorted.joined(separator: " ")) ok:\(ok)")
+                exit(ok ? 0 : 1)
             }
             if arg("--undo-test") != nil {
                 let um = session.undoManager
@@ -195,7 +222,7 @@ public enum StudioSnapshot {
                                                  transparent: arg("--transparent") != nil)
                 let folder = URL(fileURLWithPath: exportPath)
                 try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                let destination = formats.count == 1 ? folder.appendingPathComponent(ExportPlan.name(session.exportName, formats[0], kind)) : folder
+                let destination = formats.count == 1 ? folder.appendingPathComponent(ExportPlan.name(session.exportName, formats[0], kind, transparent: options.transparent)) : folder
                 let jobs = ExportPlan.jobs(session, formats: formats, options: options, destination: destination)
                 let started = Date()
                 Task.detached {
@@ -216,7 +243,8 @@ public enum StudioSnapshot {
                 let f = session.project.format
                 let transparent = arg("--transparent") != nil
                 let format: ExportFormat = exportPath.hasSuffix(".png") ? .still
-                    : .video(exportPath.hasSuffix(".mov") ? (transparent ? .prores4444 : .prores422) : (exportPath.hasSuffix(".hevc.mp4") ? .hevc : .h264))
+                    : .video(exportPath.hasSuffix(".hevc.mov") ? .hevcAlpha
+                             : exportPath.hasSuffix(".mov") ? (transparent ? .prores4444 : .prores422) : (exportPath.hasSuffix(".hevc.mp4") ? .hevc : .h264))
                 let duration = Double(arg("--seconds") ?? "") ?? session.loopDuration
                 var audio: AudioTrack?
                 if case .video = format { audio = session.exportAudio(duration: duration) }

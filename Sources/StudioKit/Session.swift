@@ -121,8 +121,12 @@ public struct StudioConfiguration: @unchecked Sendable {
         var p = ReelProject(app: appID, scene: defaultScene, dials: SceneDials(), backdrop: BackdropCatalog.defaultSettings,
                             look: StageLook(), format: defaultFormat)
         entry(defaultScene).apply(&p)
+        // New documents start the way the last one was set: most of pitch.dog's reels go over other footage.
+        if UserDefaults.standard.bool(forKey: Self.transparentKey) { p.transparent = true }
         return p
     }
+
+    static let transparentKey = "background.transparent"
 }
 
 /// Anything the live stage, transport and export sheet can play.
@@ -153,6 +157,18 @@ public protocol StageSource: AnyObject {
     var soundTitle: String? { get }
     /// Seconds into the loop where the choreography lands a moment, for the transport.
     var beats: [Double] { get }
+    /// What is still loading, or nil when everything an export needs is in place.
+    var exportWaitNote: String? { get }
+    /// True when exports leave the background out, where the format allows.
+    var transparentBackground: Bool { get }
+    func setTransparentBackground(_ on: Bool)
+    /// Whether exports can leave the background out (not when the background is the picture).
+    var offersTransparency: Bool { get }
+    /// Whether anything moves fast enough for motion blur to matter.
+    var offersMotionBlur: Bool { get }
+    /// True while the stage should hold still, such as under the export sheet,
+    /// so an export has the GPU to itself.
+    var stageSuspended: Bool { get }
 }
 
 public extension StageSource {
@@ -164,6 +180,12 @@ public extension StageSource {
     func loopDuration(for format: CanvasFormat) -> Double { loopDuration }
     var soundTitle: String? { nil }
     var beats: [Double] { [] }
+    var exportWaitNote: String? { nil }
+    var stageSuspended: Bool { false }
+    var transparentBackground: Bool { false }
+    func setTransparentBackground(_ on: Bool) {}
+    var offersTransparency: Bool { true }
+    var offersMotionBlur: Bool { true }
 }
 
 /// Playback position. Only the transport observes it every frame.
@@ -191,9 +213,21 @@ public final class StudioSession: StageSource {
     public var thumbnails: [UUID: CGImage] = [:]
     /// Each item's own palette, from its thumbnail, for a backdrop that follows the work.
     @ObservationIgnored private var itemPalettes: [UUID: Palette] = [:]
+    /// Items still loading, and how many the current batch started with.
     public var importing = 0
+    public private(set) var importBatch = 0
     public var showExport = false {
         didSet { if showExport { endPreview() } }
+    }
+    public var stageSuspended: Bool { showExport }
+
+    public var transparentBackground: Bool { project.transparent ?? false }
+
+    /// Backdrop or transparent, for this document and, as a starting point, the next new one.
+    public func setTransparentBackground(_ on: Bool) {
+        guard on != transparentBackground else { return }
+        update(on ? "Transparent Background" : "Backdrop") { $0.transparent = on ? true : nil }
+        UserDefaults.standard.set(on, forKey: StudioConfiguration.transparentKey)
     }
     public var message: String?
     /// Increments whenever anything visible changes; the stage redraws on change.
@@ -246,9 +280,45 @@ public final class StudioSession: StageSource {
         let before = project
         var after = project
         change(&after)
+        keepLength(&after, from: before)
         guard after != before else { return }
         set(after)
         registerUndo(from: before, name: actionName)
+    }
+
+    /// Holds a chosen length through changes that would move it: another
+    /// scene, items added or removed or featured, another frame. Pace moved
+    /// away from it by hand lets it go.
+    private func keepLength(_ p: inout ReelProject, from old: ReelProject) {
+        // A length just chosen is kept even when the scene cannot quite reach it,
+        // so the next scene that can will.
+        guard let target = p.length, p.length == old.length, p.loopOverride == nil else { return }
+        let far = { (q: ReelProject) in abs(self.loopDuration(of: q, format: q.format) - target) > 0.35 }
+        if p.scene != old.scene || p.format != old.format || p.items.map(\.id) != old.items.map(\.id)
+            || p.items.map(\.featured) != old.items.map(\.featured) {
+            p.dials.pace = pace(fitting: target, p)
+        } else if p.dials.pace != old.dials.pace {
+            if far(p) { p.length = nil }
+        } else if far(p) {
+            // Size, Gap and the like move the loop too; Pace follows.
+            p.dials.pace = pace(fitting: target, p)
+        }
+    }
+
+    /// Fits Pace to the chosen length again after something outside an edit
+    /// (a slide's real shape or a clip's length, read as it loads) moved the loop.
+    private func refitLength(_ p: inout ReelProject) {
+        guard let target = p.length, p.loopOverride == nil else { return }
+        p.dials.pace = pace(fitting: target, p)
+    }
+
+    /// `p` showing the look `id`, with its own settings and the chosen length kept.
+    public func project(choosing id: String, from p: ReelProject) -> ReelProject {
+        var q = p
+        q.scene = id
+        config.entry(id).apply(&q)
+        if let target = q.length, q.loopOverride == nil { q.dials.pace = pace(fitting: target, q) }
+        return q
     }
 
     /// Call at the start of a continuous gesture (slider drag, typing). A
@@ -265,6 +335,7 @@ public final class StudioSession: StageSource {
     public func live(_ change: (inout ReelProject) -> Void) {
         var p = project
         change(&p)
+        keepLength(&p, from: project)
         guard p != project else { return }
         set(p)
     }
@@ -320,9 +391,16 @@ public final class StudioSession: StageSource {
     public func touch() { version += 1 }
     public var fps: Int { project.fps }
     public var format: CanvasFormat { project.format }
+    /// Where this window's document is saved, or nil while it is untitled.
+    @ObservationIgnored public var documentURL: URL?
+
+    /// The saved document's name and the look, so exports of different
+    /// documents and looks never share a name.
     public var exportName: String {
         let g = group
-        return config.appName + " " + g.name + (g.hasStyles ? " " + entry.name : "")
+        let look = g.name + (g.hasStyles ? " " + entry.name : "")
+        if let url = documentURL { return url.deletingPathExtension().lastPathComponent + " " + look }
+        return config.appName + " " + look
     }
 
     // MARK: Scene and composition
@@ -331,8 +409,10 @@ public final class StudioSession: StageSource {
     public var group: SceneGroup { config.group(of: project.scene) }
     public var scene: any StageScene { entry.make(project) }
 
-    public var sceneItems: [SceneItem] {
-        project.items.enumerated().map { i, item in
+    public var sceneItems: [SceneItem] { sceneItems(of: project) }
+
+    private func sceneItems(of p: ReelProject) -> [SceneItem] {
+        p.items.enumerated().map { i, item in
             SceneItem(media: i, occurrence: i, aspect: textures[item.id]?.aspect ?? item.aspect, featured: item.featured)
         }
     }
@@ -343,7 +423,8 @@ public final class StudioSession: StageSource {
 
     private func loopDuration(of p: ReelProject, format: CanvasFormat) -> Double {
         if let o = p.loopOverride { return o }
-        let ctx = SceneContext(items: sceneItems.isEmpty ? samplePlaceholderItems : sceneItems,
+        let items = sceneItems(of: p)
+        let ctx = SceneContext(items: items.isEmpty ? samplePlaceholderItems : items,
                                aspect: Float(format.aspect), dials: p.dials, seed: p.seed)
         return max(0.5, config.entry(p.scene).make(p).loopDuration(ctx))
     }
@@ -358,13 +439,25 @@ public final class StudioSession: StageSource {
     /// Sets Pace so one loop lasts as close to `seconds` as the scene allows;
     /// a quicker pace makes a shorter loop.
     public func fitLoop(to seconds: Double) {
+        update("Loop Length") { p in
+            p.length = seconds
+            p.dials.pace = pace(fitting: seconds, p)
+        }
+    }
+
+    /// The Pace at which one loop of `p` lasts as close to `seconds` as its scene allows.
+    private func pace(fitting seconds: Double, _ p: ReelProject) -> Float {
+        func loop(_ pace: Float) -> Double {
+            var q = p
+            q.dials.pace = pace
+            return loopDuration(of: q, format: q.format)
+        }
         var slow: Float = 0, quick: Float = 1
         for _ in 0..<18 {
             let mid = (slow + quick) / 2
-            if loopDuration(pace: mid) > seconds { slow = mid } else { quick = mid }
+            if loop(mid) > seconds { slow = mid } else { quick = mid }
         }
-        let pace = abs(loopDuration(pace: slow) - seconds) < abs(loopDuration(pace: quick) - seconds) ? slow : quick
-        update("Loop Length") { $0.dials.pace = pace }
+        return abs(loop(slow) - seconds) < abs(loop(quick) - seconds) ? slow : quick
     }
 
     private var samplePlaceholderItems: [SceneItem] {
@@ -382,9 +475,9 @@ public final class StudioSession: StageSource {
     /// A composition of `p` laid out for `format`, for previews of other looks.
     /// Thumbnails leave the title out: their cache does not follow its words.
     public func composition(of p: ReelProject, format: CanvasFormat, title: Bool = true) -> Composition? {
-        let items = sceneItems
+        let items = sceneItems(of: p)
         guard !items.isEmpty else { return nil }
-        let placeholder = MediaLoader.placeholder()
+        let placeholder = MediaLoader.blank
         let textures = p.items.map { self.textures[$0.id]?.texture ?? placeholder.texture }
         let ctx = SceneContext(items: items, aspect: Float(format.aspect), dials: p.dials, seed: p.seed)
         var videos: [Int: VideoClip] = [:]
@@ -394,16 +487,19 @@ public final class StudioSession: StageSource {
         var comp = Composition(scene: config.entry(p.scene).make(p), context: ctx, textures: textures, backdrop: p.backdrop, look: p.look,
                                backdropLoop: 14, videos: videos, overlay: title ? titleOverlay(p) : nil)
         comp.itemPalettes = p.items.map { itemPalettes[$0.id] }
+        comp.transparent = p.transparent ?? false
         return comp
     }
 
     /// `p` with blank cards in place of media, to show a look before anything is added.
     public func placeholderComposition(of p: ReelProject) -> Composition? {
         let items = samplePlaceholderItems
-        let placeholder = MediaLoader.placeholder()
+        let placeholder = MediaLoader.blank
         let ctx = SceneContext(items: items, aspect: Float(p.format.aspect), dials: p.dials, seed: p.seed)
-        return Composition(scene: config.entry(p.scene).make(p), context: ctx, textures: items.map { _ in placeholder.texture },
-                           backdrop: p.backdrop, look: p.look, backdropLoop: 14)
+        var comp = Composition(scene: config.entry(p.scene).make(p), context: ctx, textures: items.map { _ in placeholder.texture },
+                               backdrop: p.backdrop, look: p.look, backdropLoop: 14)
+        comp.transparent = p.transparent ?? false
+        return comp
     }
 
     // MARK: Previewing a look
@@ -430,9 +526,7 @@ public final class StudioSession: StageSource {
         }
         guard previewID != id else { return }
         if previewReturn == nil { previewReturn = (clock.time, clock.playing) }
-        var p = project
-        p.scene = id
-        config.entry(id).apply(&p)
+        let p = project(choosing: id, from: project)
         previewProject = p
         previewID = id
         clock.time = 0
@@ -468,7 +562,9 @@ public final class StudioSession: StageSource {
         switch title.ink {
         case .light: return true
         case .dark: return false
-        case .auto: return title.placement == .centre || p.backdrop.palette.meanLightness * min(p.backdrop.brightness, 1.2) < 0.62
+        // Over footage nobody here can see, light ink with its shadow is the safe choice.
+        case .auto: return title.placement == .centre || p.transparent == true
+            || p.backdrop.palette.meanLightness * min(p.backdrop.brightness, 1.2) < 0.62
         }
     }
 
@@ -502,7 +598,7 @@ public final class StudioSession: StageSource {
             let base = url.deletingPathExtension().lastPathComponent
             for e in entries {
                 let name = entries.count > 1 ? "\(base) · \(e.page + 1)" : base
-                newItems.append(MediaItem(name: name, file: stored, kind: e.kind, page: e.page, aspect: 16.0 / 9.0))
+                newItems.append(MediaItem(name: name, file: stored, kind: e.kind, page: e.page, aspect: e.aspect ?? 16.0 / 9.0))
             }
         }
         guard !newItems.isEmpty else {
@@ -574,7 +670,7 @@ public final class StudioSession: StageSource {
         // Bump the version whenever the sample art changes.
         let cache = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("dog.pitch.studio-samples", isDirectory: true)
-            .appendingPathComponent((galileo ? "galileo" : "drift") + "-v3-\(count)", isDirectory: true)
+            .appendingPathComponent((galileo ? "galileo-v3" : "drift-v4") + "-\(count)", isDirectory: true)
         let manifest = cache.appendingPathComponent("samples.json")
         var entries = (try? Data(contentsOf: manifest)).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) } ?? []
         if entries.count != count || !entries.allSatisfy({ fm.fileExists(atPath: cache.appendingPathComponent($0.file).path) }) {
@@ -587,7 +683,8 @@ public final class StudioSession: StageSource {
                     img = SampleArt.painting(index: i) ?? SampleArt.make(index: i + 3, width: 1600, height: i % 3 == 1 ? 2000 : 900)
                     name = SampleArt.paintingName(index: i)
                 } else {
-                    img = SampleDeck.slide(index: i)
+                    // The shape of pitch.dog's own decks, so looks are chosen against it.
+                    img = SampleDeck.slide(index: i, width: 2576, height: 1080)
                     name = SampleDeck.titles[i % SampleDeck.titles.count]
                 }
                 let file = "\(i).png"
@@ -622,38 +719,86 @@ public final class StudioSession: StageSource {
     /// Whether every item's media has loaded or failed, so thumbnails can render.
     public var mediaSettled: Bool { importing == 0 && project.items.allSatisfy { settledMedia.contains($0.id) } }
 
-    /// Loads what is missing, or everything when the textures should shrink.
+    /// An export waits for every item, so no frame shows a blank card in place of one still loading.
+    public var exportWaitNote: String? {
+        if mediaSettled { return nil }
+        let waiting = max(importing, 1)
+        return "Waiting for \(waiting) \(config.itemNoun)\(waiting == 1 ? "" : "s") to load…"
+    }
+
+    /// Items being loaded now, so an import or undo meanwhile never queues them twice.
+    @ObservationIgnored private var inFlight: Set<UUID> = []
+    /// Names of items whose files could not be read in the current batch.
+    @ObservationIgnored private var unreadable: [String] = []
+    /// Items whose files could not be read; they are not tried again.
+    @ObservationIgnored private var failedMedia: Set<UUID> = []
+    /// Items loading at a size since abandoned; they load again when they finish.
+    @ObservationIgnored private var staleLoads: Set<UUID> = []
+    /// A few at a time, in rail order: each load holds a full-size raster, and
+    /// a 30-page PDF loaded all at once can take hundreds of megabytes.
+    @ObservationIgnored private lazy var loadQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 3
+        q.qualityOfService = .userInitiated
+        return q
+    }()
+
+    /// Loads what is missing, or everything when the textures should shrink,
+    /// and lets go of media no longer in the project.
     public func loadAllMedia() {
+        let ids = Set(project.items.map(\.id))
+        textures = textures.filter { ids.contains($0.key) }
+        thumbnails = thumbnails.filter { ids.contains($0.key) }
+        itemPalettes = itemPalettes.filter { ids.contains($0.key) }
+        settledMedia.formIntersection(ids)
+        failedMedia.formIntersection(ids)
         let side = MediaLoader.textureSide(forItems: project.items.count)
         if let loaded = loadedSide, Double(side) < Double(loaded) * 0.8 {
-            load(project.items)
+            staleLoads = inFlight
+            load(project.items.filter { !inFlight.contains($0.id) && !failedMedia.contains($0.id) })
+            loadedSide = side
             return
         }
-        let missing = project.items.filter { textures[$0.id] == nil }
+        let missing = project.items.filter { textures[$0.id] == nil && !inFlight.contains($0.id) && !failedMedia.contains($0.id) }
         if !missing.isEmpty { load(missing) }
     }
 
     private func load(_ items: [MediaItem]) {
+        guard !items.isEmpty else { return }
+        if importing == 0 { importBatch = 0; unreadable = [] }
         importing += items.count
+        importBatch += items.count
+        inFlight.formUnion(items.map(\.id))
         let store = document.media
         let side = MediaLoader.textureSide(forItems: project.items.count)
         loadedSide = items.count >= project.items.count ? side : max(loadedSide ?? side, side)
         for item in items {
             let url = store.url(for: item.file)
-            let kind = item.kind, page = item.page, id = item.id
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let tex = try? MediaLoader.load(url: url, kind: kind, page: page, maxSide: side)
-                let thumb = MediaLoader.cgImage(url: url, kind: kind, page: page, maxSide: 360)
+            let kind = item.kind, page = item.page, id = item.id, name = item.name
+            loadQueue.addOperation { [weak self] in
+                // One raster serves both: the texture, and the rail's thumbnail scaled from it.
+                let (tex, thumb) = MediaLoader.loadWithThumbnail(url: url, kind: kind, page: page, maxSide: side, thumbnailSide: 360)
                 let clipDuration: Double? = kind == .video ? AVURLAsset(url: url).duration.seconds : nil
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.importing = max(0, self.importing - 1)
+                    self.inFlight.remove(id)
                     self.settledMedia.insert(id)
+                    if tex == nil, self.project.items.contains(where: { $0.id == id }) {
+                        self.failedMedia.insert(id)
+                        self.unreadable.append(name)
+                    }
+                    if self.importing == 0, !self.unreadable.isEmpty {
+                        let names = ListFormatter.localizedString(byJoining: self.unreadable)
+                        self.message = "\(names) could not be read, so \(self.unreadable.count == 1 ? "it shows" : "they show") as a blank card. Try exporting the file again, or replace it."
+                        self.unreadable = []
+                    }
                     if let d = clipDuration, d.isFinite { self.knownDurations[id] = d }
                     if let d = clipDuration, d.isFinite, let idx = self.project.items.firstIndex(where: { $0.id == id }),
                        self.project.items[idx].duration != d {
                         var p = self.project
                         p.items[idx].duration = d
+                        self.refitLength(&p)
                         self.project = p
                         self.document.project = p
                     }
@@ -664,6 +809,7 @@ public final class StudioSession: StageSource {
                             // Record the true aspect without an undo step.
                             var p = self.project
                             p.items[idx].aspect = tex.aspect
+                            self.refitLength(&p)
                             self.project = p
                             self.document.project = p
                         }
@@ -674,6 +820,10 @@ public final class StudioSession: StageSource {
                     }
                     self.version += 1
                     self.clock.duration = self.stageLoopDuration
+                    // Loaded at a size since given up for a smaller one: load again.
+                    if self.staleLoads.remove(id) != nil, tex != nil, let item = self.project.items.first(where: { $0.id == id }) {
+                        self.load([item])
+                    }
                     if self.importing == 0 { LaunchProbe.mark("media-ready", finish: true) }
                 }
             }
@@ -701,10 +851,7 @@ public final class StudioSession: StageSource {
         let previewed = previewID == id
         let time = clock.time
         if previewed { endPreview(keepTime: true) }
-        update("Choose \(config.galleryTitle)") { p in
-            p.scene = id
-            config.entry(id).apply(&p)
-        }
+        update("Choose \(config.galleryTitle)") { p in p = project(choosing: id, from: p) }
         // A look chosen from its preview carries on where the preview was;
         // otherwise it starts from the top, so the opening is seen.
         clock.time = previewed ? min(time, max(clock.duration - 0.001, 0)) : 0
