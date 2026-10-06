@@ -6,6 +6,7 @@
 //   BackdropKit  generative background engine (Metal, analytic, loopable)
 //   StageKit     card renderer, scene engine, depth, light and export
 //   StudioKit    shared design language, controls and window chrome
+//   Updates      in-app updates from GitHub releases (Sparkle)
 //
 //   Backdrop     standalone background studio
 //   Drift        slides into cinematic reels
@@ -16,6 +17,11 @@ import PackageDescription
 
 let settings: [SwiftSetting] = [
     .swiftLanguageMode(.v5),
+]
+
+// The apps load Sparkle from Contents/Frameworks, where build-apps.sh puts it.
+let appLinker: [LinkerSetting] = [
+    .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
 ]
 
 let package = Package(
@@ -31,14 +37,19 @@ let package = Package(
         .executable(name: "Galileo", targets: ["GalileoApp"]),
         .executable(name: "studio-lab", targets: ["StudioLab"]),
     ],
+    dependencies: [
+        // In-app updates from GitHub releases (Updates module).
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+    ],
     targets: [
         .target(name: "RenderCore", swiftSettings: settings),
         .target(name: "BackdropKit", dependencies: ["RenderCore"], swiftSettings: settings),
         .target(name: "StageKit", dependencies: ["RenderCore", "BackdropKit"], swiftSettings: settings),
         .target(name: "StudioKit", dependencies: ["RenderCore", "BackdropKit", "StageKit"], swiftSettings: settings),
-        .executableTarget(name: "BackdropApp", dependencies: ["StudioKit"], swiftSettings: settings),
-        .executableTarget(name: "DriftApp", dependencies: ["StudioKit"], swiftSettings: settings),
-        .executableTarget(name: "GalileoApp", dependencies: ["StudioKit"], swiftSettings: settings),
+        .target(name: "Updates", dependencies: [.product(name: "Sparkle", package: "Sparkle")], swiftSettings: settings),
+        .executableTarget(name: "BackdropApp", dependencies: ["StudioKit", "Updates"], swiftSettings: settings, linkerSettings: appLinker),
+        .executableTarget(name: "DriftApp", dependencies: ["StudioKit", "Updates"], swiftSettings: settings, linkerSettings: appLinker),
+        .executableTarget(name: "GalileoApp", dependencies: ["StudioKit", "Updates"], swiftSettings: settings, linkerSettings: appLinker),
         .executableTarget(name: "StudioLab", dependencies: ["StudioKit"], swiftSettings: settings),
     ]
 )

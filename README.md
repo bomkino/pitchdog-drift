@@ -34,7 +34,21 @@ Everything loops seamlessly, previews exactly as it exports, and runs locally on
 
 ## Installing a release
 
-Download the disk image from the repository's Releases page, open it and drag the app to Applications. The apps are ad-hoc signed and not notarized, so the first time, Control-click the app and choose Open (or allow it under System Settings › Privacy & Security). They use their own bundle identifiers, so Drift 1 and Galileo Gallery stay installed and untouched beside them.
+Download the disk image from the repository's Releases page, open it and drag the app onto Applications. If macOS offers to install the app for you and then says "Could not install", click OK and drag it instead: macOS only installs that way for apps notarized by Apple. A ZIP of the app is on the release page too.
+
+The apps are signed ad hoc and not notarized, so the first time you open one, macOS stops it. Open System Settings › Privacy & Security, scroll down and click **Open Anyway** (Control-click › Open no longer works from macOS Sequoia on). Apps installed from Terminal (`curl` or `gh release download`) open straight away, because nothing marks them as downloaded from the web.
+
+**From Terminal, or by asking Codex or Claude to run it:** `docs/install-latest.sh` installs the latest Drift 2, Galileo 2 and Backdrop from their releases in one go. It checks every download's checksum and signature, moves older copies (and the v1 Drift and Galileo Gallery) to the Trash, and the apps open straight away. `DRY_RUN=1` tries it without installing anything.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bomkino/pitchdog-drift/main/docs/install-latest.sh | bash
+```
+
+Drift 2 and Galileo 2 use their own bundle identifiers, so Drift 1 and Galileo Gallery can stay installed beside them if you install by hand.
+
+## Updates
+
+From Drift 2.5, Galileo 2 3.5 and Backdrop 2.2, each app checks its GitHub releases once a day and offers new versions itself (**Check for Updates…** in the app menu checks now). An update installs and relaunches in a few seconds, with no second trip to Privacy & Security. Updates are signed with pitch.dog's own EdDSA key and the apps refuse anything not signed with it; no Apple developer account is involved. How releases are made and signed is in `docs/UPDATES.md`.
 
 ## Build
 
@@ -44,7 +58,7 @@ Needs the Command Line Tools (no Xcode) on macOS 14 or later.
 bash scripts/build-apps.sh release
 ```
 
-The apps land in `../dist/` as `Drift 2.app`, `Galileo 2.app` and `Backdrop.app`.
+The apps land in `../dist/` as `Drift 2.app`, `Galileo 2.app` and `Backdrop.app`. The first build fetches Sparkle 2.10.0 through Swift Package Manager. `bash scripts/make-release.sh <App> <folder> [notes.md]` then makes a release's disk image, update ZIP, signed `appcast.xml` and checksums (see `docs/UPDATES.md`).
 
 The script builds against the macOS 26.5 SDK because the macOS 27 SDK expands SwiftUI's `@State` with a macro plugin that only ships with Xcode.
 
