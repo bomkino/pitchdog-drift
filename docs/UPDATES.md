@@ -25,14 +25,24 @@ One EdDSA (Ed25519) key signs updates for every pitch.dog app.
 | | Where |
 |---|---|
 | Public key (goes in every app's `Info.plist`) | `P43E8I+FgVyAW3QkS4J9bnDRRhAnsS4y3dT2WDce1lQ=` |
-| Private key (signs releases) | `~/Library/Application Support/pitch.dog/Release Keys/sparkle-ed25519-private.key`, owner-only (`chmod 600`) |
+| Private key, for signing in CI | The `SPARKLE_PRIVATE_KEY` secret of each app repository's `release` environment, which only `main` may use |
+| Private key, on a Mac | `~/Library/Application Support/pitch.dog/Release Keys/sparkle-ed25519-private.key`, owner-only (`chmod 600`) |
 | Backup | In the team's password manager, as a secure note holding the file's one line |
 
 Rules:
 
-- **Never commit the private key, paste it into chat, or put it in a GitHub secret** unless CI is meant to sign releases (it isn't today).
+- **Never commit the private key, paste it into chat, or print it in a workflow.** It reaches GitHub only through `scripts/auto-signing-setup.sh` in [Deck Beat](https://github.com/bomkino/deck-beat), which hands the file to `gh secret set`.
 - **If it is lost:** installed apps can no longer update themselves. Make a new key, build the next version with the new public key, and install that version by hand once on each Mac. Updates work again from then on.
-- **If it leaks:** someone could sign a fake update, but they would also need to publish it as the Latest release of one of the repositories. Rotate anyway: release a version signed with the old key that carries the new public key. After that, sign only with the new key, and keep GitHub accounts secured with two-factor authentication.
+- **If it leaks, or you suspect a repository or the GitHub account was compromised:** delete the secret from every repository at once (`for r in deck-beat ooo pitchdog-drift galileo-gallery backdrop; do gh secret delete SPARKLE_PRIVATE_KEY --env release -R bomkino/$r; done`). Someone with the key could sign a fake update, but they would also need to publish it as the Latest release of one of the repositories. Rotate anyway: release a version signed with the old key that carries the new public key. After that, sign only with the new key, and keep GitHub accounts secured with two-factor authentication.
+
+### Signing in CI, and what that costs
+
+Since 6 October 2026 each app repository's release workflow signs its own releases (Deck Beat, OOO, Drift, Galileo, Backdrop), so nobody runs a command on a Mac to make an update reach people. Before that, the key never left the Mac. Keeping it as a GitHub secret is a trade:
+
+- **Gained:** a release is one click in the Actions tab (or one request to Claude), and it goes out already signed.
+- **Given up:** the key also lives on GitHub, in five repositories. GitHub stores it encrypted and masks it in logs, and only a workflow job that names the `release` environment, on `main`, is given it. So anyone who can push a workflow to `main` of one of those repositories, or who takes over the GitHub account, could sign an update for all five apps. Before, they would also have needed the Mac.
+
+The release job keeps its exposure small: it uses only GitHub's own `actions/checkout`, writes the key to a file only the runner can read, uses it once through Sparkle's `--ed-key-file`, and deletes it. To go back to signing on a Mac only, delete the secrets (the loop above); the release workflow then stops at its first step.
 
 The key was made with Apple's CryptoKit rather than Sparkle's `generate_keys`, so no Keychain prompt is needed. The file holds the base64 32-byte private seed, which is the format Sparkle's `--ed-key-file` reads. To make a fresh one (for a lost key, or a separate organisation):
 
@@ -43,7 +53,17 @@ print(key.rawRepresentation.base64EncodedString())          // private: into the
 print(key.publicKey.rawRepresentation.base64EncodedString()) // public: SUPublicEDKey
 ```
 
-## Setting up a Mac to make releases (once)
+## Turning on automatic signing (once)
+
+On the Mac that holds the key, with the GitHub CLI signed in and Deck Beat cloned in `~/deck-beat`:
+
+```bash
+cd ~/deck-beat && git pull && bash scripts/auto-signing-setup.sh
+```
+
+For each of the five app repositories it makes a `release` environment that only `main` may use, and sets the key in it as `SPARKLE_PRIVATE_KEY`. A new app repository goes in that script's list, and the script runs again; running it again is harmless.
+
+## Setting up a Mac to sign by hand (optional)
 
 1. Download Sparkle's tools from its official release and check the checksum against the one GitHub publishes:
    ```bash
@@ -56,27 +76,27 @@ print(key.publicKey.rawRepresentation.base64EncodedString()) // public: SUPublic
 
 ## Making a release
 
-From the studio repository:
+1. Raise `VERSION` for the app in `scripts/build-apps.sh` (`scripts/build.sh` in Backdrop), always upwards, and give it a section at the top of `CHANGELOG.md`, headed `## x.y.z — <date>`. Run `bash scripts/verify.sh` on a Mac with a screen (it needs a GPU and a window session, which CI lacks). Merge to `main`.
+2. Run **release** from the Actions tab of the app's own repository (`.github/workflows/release.yml`, the same file in all three) on `main`. It builds the app, packs the disk image and the ZIP, signs the update feed with the key (`make-release.sh` checks the signature with the public key inside the app, so a wrong key stops it before anything is published), and publishes all four files on the release tagged `vx.y.z`, marked Latest. The changelog section is the notes, on the release and in the update window. It waits until `releases/latest/download/appcast.xml` names the new version, then downloads the release before, opens it against the live feed with `STUDIO_UPDATE_TEST=1`, and waits for it to update itself (`scripts/test-live-update.sh`).
+
+**Rehearse**, a box in Run workflow, does everything except publish. It's the way to check the key and the workflow without releasing anything.
+
+By hand, on a Mac set up as above:
 
 ```bash
-# 1. Bump VERSION for the app in scripts/build-apps.sh (always upwards).
 bash scripts/build-apps.sh release Drift
 bash scripts/make-release.sh Drift ../release/drift notes.md
 #    → Drift-2.5.0-macOS-arm64.dmg, Drift-2.5.0-macOS-arm64.zip, appcast.xml, SHA256SUMS.txt
-# 2. Publish all four files on the release tagged v2.5.0, marked Latest:
 gh release create v2.5.0 -R bomkino/pitchdog-drift --target <main sha> --latest \
   --title "Drift 2.5.0 — Apple silicon Mac" --notes-file release-notes.md ../release/drift/*
-# 3. Check the feed now points at it:
 curl -sL https://github.com/bomkino/pitchdog-drift/releases/latest/download/appcast.xml | grep shortVersionString
 ```
-
-`notes.md` is the short Markdown shown in the app's update window. Keep it to a few lines. The full notes go on the GitHub release.
 
 Things that break updates:
 
 - **The asset must be called exactly `appcast.xml`**, and the release must be the **Latest** one. Drafts and pre-releases don't count, and GitHub's `latest` skips them.
 - **Versions only go up.** Sparkle compares `CFBundleVersion`, which `build-apps.sh` derives from the version: 2.5.0 → 20500. Never reuse or lower a version.
-- **Upload the ZIP that was signed.** If the ZIP is rebuilt, run `make-release.sh` again: a ZIP with a stale signature is refused, as it should be.
+- **Upload the ZIP that was signed.** The workflow publishes the ZIP it signed. If the ZIP is rebuilt by hand, run `make-release.sh` again: a ZIP with a stale signature is refused, as it should be.
 - Don't delete the newest release, or its `appcast.xml`, while people may still be updating.
 
 ## Testing an update before releasing
@@ -137,8 +157,11 @@ https://github.com/bomkino/pitchdog-drift/blob/main/docs/UPDATES.md ("Adding upd
 
 - This app's GitHub repository: OWNER/REPO. Feed: https://github.com/OWNER/REPO/releases/latest/download/appcast.xml
 - Public key (SUPublicEDKey): P43E8I+FgVyAW3QkS4J9bnDRRhAnsS4y3dT2WDce1lQ=
-- Private key: ~/Library/Application Support/pitch.dog/Release Keys/sparkle-ed25519-private.key.
-  Use it only through Sparkle's --ed-key-file. Never print it, copy it, or commit it.
+- Private key: signed in CI from the SPARKLE_PRIVATE_KEY secret of the repository's `release`
+  environment (main only), as bomkino/pitchdog-drift's .github/workflows/release.yml does; add the
+  repository to scripts/auto-signing-setup.sh in bomkino/deck-beat and ask me to run it once. On a Mac
+  it is ~/Library/Application Support/pitch.dog/Release Keys/sparkle-ed25519-private.key. Use it only
+  through Sparkle's --ed-key-file. Never print it, copy it, or commit it.
 - Sparkle 2.10.0 tools: ~/Library/Application Support/pitch.dog/Sparkle/2.10.0/bin
   (if missing, install them as the guide says and check the checksum).
 - Copy Sources/Updates/AppUpdates.swift from bomkino/pitchdog-drift. Put "Check for Updates…" in the

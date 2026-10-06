@@ -1,11 +1,13 @@
 #!/bin/bash
 # Packs a built app into a release: a disk image for people, a ZIP for the
-# in-app updater, the signed Sparkle appcast, and checksums.
+# in-app updater, the signed Sparkle appcast, and checksums. The signature is
+# checked with the public key inside the app, as Sparkle will check it.
 #
 #   bash scripts/make-release.sh <Drift|Galileo|Backdrop> <out-dir> [release-notes.md]
 #
-# Run after `bash scripts/build-apps.sh release <App>`. Upload everything in
-# <out-dir> to the GitHub release tagged v<version>; installed apps read the
+# Run after `bash scripts/build-apps.sh release <App>`. The release workflow
+# runs both, with the key from its secret, and publishes everything in
+# <out-dir> on the GitHub release tagged v<version>; installed apps read the
 # appcast.xml on the latest release and install the ZIP it points to.
 # See docs/UPDATES.md.
 #
@@ -40,7 +42,14 @@ rm -f "$OUT/$DMG" "$OUT/$ZIP" "$OUT/appcast.xml"
 stage="$(mktemp -d)"
 ditto "$SRC" "$stage/$BUNDLE.app"
 ln -s /Applications "$stage/Applications"
-hdiutil create -quiet -volname "$BUNDLE" -srcfolder "$stage" -ov -format UDZO -fs HFS+ "$OUT/$DMG"
+# hdiutil sometimes finds the volume busy on a fresh machine, as on CI's
+# runners; it gets three tries.
+for try in 1 2 3; do
+  hdiutil create -quiet -volname "$BUNDLE" -srcfolder "$stage" -ov -format UDZO -fs HFS+ "$OUT/$DMG" && break
+  [ "$try" = 3 ] && { echo "hdiutil couldn't make $DMG"; exit 1; }
+  echo "hdiutil: try $try failed, trying again"
+  sleep 5
+done
 rm -rf "$stage"
 # The updater takes a ZIP: nothing is mounted, so macOS never offers to
 # "install" a disk image in the middle of an update.
@@ -50,9 +59,36 @@ cast="$(mktemp -d)"
 cp "$OUT/$ZIP" "$cast/"
 # Release notes shown in the update window: a Markdown file named like the archive.
 if [ -n "$NOTES" ]; then cp "$NOTES" "$cast/${ZIP%.zip}.md"; fi
+feed="$(mktemp -d)"
 "$SPARKLE_BIN/generate_appcast" --ed-key-file "$SPARKLE_KEY" --download-url-prefix "$DOWNLOAD_URL" \
-  --link "https://github.com/$REPO/releases" --embed-release-notes --maximum-versions 1 -o "$OUT/appcast.xml" "$cast" >/dev/null
+  --link "https://github.com/$REPO/releases" --embed-release-notes --maximum-versions 1 -o "$feed/appcast.xml" "$cast" \
+  > "$feed/generate.log" || { cat "$feed/generate.log"; echo "generate_appcast failed"; exit 1; }
 rm -rf "$cast"
+grep -Eq "shortVersionString(>|=\")${VERSION}[<\"]" "$feed/appcast.xml" || { echo "appcast.xml doesn't name $VERSION"; exit 1; }
+grep -q "url=\"$DOWNLOAD_URL$ZIP\"" "$feed/appcast.xml" || { echo "appcast.xml doesn't point at $DOWNLOAD_URL$ZIP"; exit 1; }
+# A key the app doesn't trust stops here or at the check below, before any
+# feed is written. Sparkle signs only with the key whose public half is in the
+# app; with any other key it warns and leaves the feed unsigned.
+PUBLIC="$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$SRC/Contents/Info.plist")"
+SIG="$(sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p' "$feed/appcast.xml" | head -1)"
+if [ -z "$SIG" ]; then
+  grep -i "warning\|error" "$feed/generate.log" || true
+  echo "the app wouldn't accept this feed: Sparkle left it unsigned. Is the key the one whose public half is $PUBLIC?"; exit 1
+fi
+# The check Sparkle makes: the signature against the public key inside the app.
+cat > "$feed/verify.swift" <<'SWIFT'
+import CryptoKit
+import Foundation
+let a = CommandLine.arguments
+guard let key = Data(base64Encoded: a[1]), let sig = Data(base64Encoded: a[2]),
+      let file = FileManager.default.contents(atPath: a[3]),
+      let pub = try? Curve25519.Signing.PublicKey(rawRepresentation: key) else { exit(2) }
+exit(pub.isValidSignature(sig, for: file) ? 0 : 1)
+SWIFT
+swift "$feed/verify.swift" "$PUBLIC" "$SIG" "$OUT/$ZIP" \
+  || { echo "the app wouldn't accept this signature: is the key the one whose public half is $PUBLIC?"; exit 1; }
+mv "$feed/appcast.xml" "$OUT/appcast.xml"
+rm -rf "$feed"
 (cd "$OUT" && shasum -a 256 "$DMG" "$ZIP" > SHA256SUMS.txt)
 echo "$OUT/$DMG"
 echo "$OUT/$ZIP"

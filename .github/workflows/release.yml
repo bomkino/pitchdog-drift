@@ -1,0 +1,157 @@
+# Publishes a release of this repository's app from main, on demand (Actions ›
+# release › Run workflow): Drift 2 from pitchdog-drift, Galileo 2 from
+# galileo-gallery, Backdrop from backdrop. The same file serves all three.
+#
+# It builds the app at the version in the build script, packs the disk image
+# and the ZIP the in-app updater installs, signs the update feed with
+# pitch.dog's update key (make-release.sh checks the signature with the public
+# key inside the app), and publishes them on the release tagged v<version>,
+# marked Latest, with checksums and notes from CHANGELOG.md. Installed copies
+# are offered the new version as soon as it is out; the last step proves it
+# with a real copy of the release before.
+#
+# The key is the SPARKLE_PRIVATE_KEY secret of the `release` environment,
+# which only main may use (docs/UPDATES.md). It is written to a file only the
+# runner can read, used by Sparkle's generate_appcast, and deleted.
+#
+# Rehearse does everything but publish: build, pack, sign, check the signature
+# against the app, and update a copy of the release before Latest from the live feed.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      rehearse:
+        description: Rehearse (build, pack and sign, but don't publish)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REHEARSE: ${{ inputs.rehearse }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Which app, at which version
+        run: |
+          case "$GITHUB_REPOSITORY" in
+            bomkino/pitchdog-drift)  APP=Drift;    BUNDLE="Drift 2";   FIRST=2.5.0 ;;
+            bomkino/galileo-gallery) APP=Galileo;  BUNDLE="Galileo 2"; FIRST=3.5.0 ;;
+            bomkino/backdrop)        APP=Backdrop; BUNDLE="Backdrop";  FIRST=2.2.0 ;;
+            *) echo "::error::No app is released from $GITHUB_REPOSITORY"; exit 1 ;;
+          esac
+          BUILD_SCRIPT=scripts/build-apps.sh
+          [ -f "$BUILD_SCRIPT" ] || BUILD_SCRIPT=scripts/build.sh
+          VERSION="$(grep -E "^ *$APP\)" "$BUILD_SCRIPT" | sed -n 's/.*VERSION="\([0-9.]*\)".*/\1/p' | head -1)"
+          [ -n "$VERSION" ] || { echo "::error::No version for $APP in $BUILD_SCRIPT"; exit 1; }
+          if gh release view "v$VERSION" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ "$REHEARSE" = true ]; then
+              echo "v$VERSION is out already; rehearsing with it anyway"
+            else
+              echo "::error::v$VERSION is published already. Raise $APP's VERSION in $BUILD_SCRIPT (versions only go up)."; exit 1
+            fi
+          else
+            LATEST="$(gh release list -R "$GITHUB_REPOSITORY" --json tagName,isLatest --jq '.[] | select(.isLatest) | .tagName')"
+            build() { echo "$1" | awk -F. '{ printf "%d", $1 * 10000 + $2 * 100 + $3 }'; }
+            if [ -n "$LATEST" ] && [ "$(build "$VERSION")" -le "$(build "${LATEST#v}")" ]; then
+              echo "::error::$VERSION isn't newer than the Latest release, $LATEST."; exit 1
+            fi
+          fi
+          awk -v v="## $VERSION " 'index($0, v) == 1 { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md > changes.md
+          [ -s changes.md ] || { echo "::error::CHANGELOG.md has no section for $VERSION"; exit 1; }
+          { echo "APP=$APP"; echo "BUNDLE=$BUNDLE"; echo "FIRST=$FIRST"; echo "VERSION=$VERSION"; echo "BUILD_SCRIPT=$BUILD_SCRIPT"; } >> "$GITHUB_ENV"
+          echo "Releasing $BUNDLE $VERSION"
+      - name: Get Sparkle's tools and the update key
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          [ -n "$SPARKLE_PRIVATE_KEY" ] || { echo "::error::The release environment has no SPARKLE_PRIVATE_KEY secret. docs/UPDATES.md has the one-time command that sets it."; exit 1; }
+          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz
+          echo "c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c  $RUNNER_TEMP/sparkle.tar.xz" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/sparkle" && tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          umask 077
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | tr -d '[:space:]' > "$RUNNER_TEMP/update.key"
+          echo "SPARKLE_BIN=$RUNNER_TEMP/sparkle/bin" >> "$GITHUB_ENV"
+          echo "SPARKLE_KEY=$RUNNER_TEMP/update.key" >> "$GITHUB_ENV"
+      - name: Build the app
+        run: |
+          bash "$BUILD_SCRIPT" release "$APP"
+          PLIST="../dist/$BUNDLE.app/Contents/Info.plist"
+          [ "$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST")" = "$VERSION" ] \
+            || { echo "::error::$BUNDLE.app isn't $VERSION"; exit 1; }
+          [ "$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$PLIST")" = "P43E8I+FgVyAW3QkS4J9bnDRRhAnsS4y3dT2WDce1lQ=" ] \
+            || { echo "::error::$BUNDLE.app doesn't trust pitch.dog's update key"; exit 1; }
+          codesign -v --strict "../dist/$BUNDLE.app"
+      - name: Pack and sign the release
+        run: |
+          # The changelog section goes in the update window, and on the release.
+          bash scripts/make-release.sh "$APP" release changes.md
+          rm -f "$SPARKLE_KEY"
+          STEM="$(cd release && ls ./*-macOS-arm64.dmg | sed 's|^\./||; s|-macOS-arm64\.dmg$||')"
+          {
+            echo "**$BUNDLE $VERSION**"
+            echo
+            echo "### What's new"
+            echo
+            cat changes.md
+            echo
+            sed -e "s/@STEM@/$STEM/g; s/@BUNDLE@/$BUNDLE/g; s/@FIRST@/$FIRST/g" <<'NOTES'
+          ### Install
+
+          1. Download `@STEM@-macOS-arm64.dmg`, open it, and drag @BUNDLE@ onto **Applications**, replacing the older version. If macOS offers to install it for you and then says "Could not install", click OK and drag it instead. (That route only works for apps notarized by Apple.) `@STEM@-macOS-arm64.zip` is the same app, if you'd rather unzip it.
+          2. The first time you open it, macOS stops it. Open **System Settings › Privacy & Security**, scroll down, and click **Open Anyway**. (Control-click › Open no longer works on current macOS.)
+
+          It needs an Apple silicon Mac with macOS 14 or later. If you have @BUNDLE@ @FIRST@ or later, it offers this version itself (**Check for Updates…** in the app menu).
+
+          ### Files
+
+          - `@STEM@-macOS-arm64.dmg`: the app, to install by hand.
+          - `@STEM@-macOS-arm64.zip`: the same app; the in-app updater uses this one.
+          - `appcast.xml`: the update feed installed apps read.
+          - `SHA256SUMS.txt`: checksums.
+
+          ### Checked
+
+          Built from this commit by `release.yml` on GitHub's macOS 26 runner (Apple silicon). The update feed was signed by the workflow, and the signature checked with the public key inside the app before anything was published.
+          NOTES
+            echo
+            echo "Source: \`$GITHUB_SHA\` (main)."
+            echo
+            echo '```'
+            cat release/SHA256SUMS.txt
+            echo '```'
+          } > notes.md
+          cat notes.md
+          ls -l release
+      - name: Publish the release, marked Latest
+        if: ${{ !inputs.rehearse }}
+        run: |
+          gh release create "v$VERSION" release/* -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
+            --title "$BUNDLE $VERSION — Apple silicon Mac" --notes-file notes.md
+          for _ in $(seq 24); do
+            FEED="$(curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/appcast.xml" || true)"
+            if grep -Eq "shortVersionString(>|=\")${VERSION}[<\"]" <<< "$FEED"; then
+              echo "The feed offers $VERSION: installed copies will update to it."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::releases/latest/download/appcast.xml doesn't offer $VERSION"; exit 1
+      - name: Update a copy of the release before from the live feed
+        timeout-minutes: 10
+        run: bash scripts/test-live-update.sh "$APP"
+      - name: Forget the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/update.key"

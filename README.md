@@ -58,7 +58,7 @@ Needs the Command Line Tools (no Xcode) on macOS 14 or later.
 bash scripts/build-apps.sh release
 ```
 
-The apps land in `../dist/` as `Drift 2.app`, `Galileo 2.app` and `Backdrop.app`. The first build fetches Sparkle 2.10.0 through Swift Package Manager. `bash scripts/make-release.sh <App> <folder> [notes.md]` then makes a release's disk image, update ZIP, signed `appcast.xml` and checksums (see `docs/UPDATES.md`).
+The apps land in `../dist/` as `Drift 2.app`, `Galileo 2.app` and `Backdrop.app`. The first build fetches Sparkle 2.10.0 through Swift Package Manager. `bash scripts/make-release.sh <App> <folder> [notes.md]` then makes a release's disk image, update ZIP, signed `appcast.xml` and checksums. On `main`, the release workflow (Actions › release) does both, signs with the key from the repository's `release` environment and publishes the release (see `docs/UPDATES.md`).
 
 The script builds against the macOS 26.5 SDK because the macOS 27 SDK expands SwiftUI's `@State` with a macro plugin that only ships with Xcode.
 

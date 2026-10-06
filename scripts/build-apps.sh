@@ -30,7 +30,7 @@ DIST="$ROOT/../dist"
 mkdir -p "$DIST"
 
 # In-app updates (Sparkle): every app trusts updates signed with this key. The
-# private half never enters a repository; see docs/UPDATES.md.
+# private half is never committed; see docs/UPDATES.md.
 SPARKLE_PUBLIC_KEY="P43E8I+FgVyAW3QkS4J9bnDRRhAnsS4y3dT2WDce1lQ="
 
 for APP in "${APPS[@]}"; do
