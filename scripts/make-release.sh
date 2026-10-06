@@ -61,15 +61,21 @@ cp "$OUT/$ZIP" "$cast/"
 if [ -n "$NOTES" ]; then cp "$NOTES" "$cast/${ZIP%.zip}.md"; fi
 feed="$(mktemp -d)"
 "$SPARKLE_BIN/generate_appcast" --ed-key-file "$SPARKLE_KEY" --download-url-prefix "$DOWNLOAD_URL" \
-  --link "https://github.com/$REPO/releases" --embed-release-notes --maximum-versions 1 -o "$feed/appcast.xml" "$cast" >/dev/null
+  --link "https://github.com/$REPO/releases" --embed-release-notes --maximum-versions 1 -o "$feed/appcast.xml" "$cast" \
+  > "$feed/generate.log" || { cat "$feed/generate.log"; echo "generate_appcast failed"; exit 1; }
 rm -rf "$cast"
 grep -Eq "shortVersionString(>|=\")${VERSION}[<\"]" "$feed/appcast.xml" || { echo "appcast.xml doesn't name $VERSION"; exit 1; }
 grep -q "url=\"$DOWNLOAD_URL$ZIP\"" "$feed/appcast.xml" || { echo "appcast.xml doesn't point at $DOWNLOAD_URL$ZIP"; exit 1; }
-SIG="$(grep -o 'sparkle:edSignature="[^"]*"' "$feed/appcast.xml" | head -1 | cut -d'"' -f2)"
-[ -n "$SIG" ] || { echo "appcast.xml has no signature"; exit 1; }
-# The check Sparkle makes: the signature against the public key inside the app.
-# A key the app doesn't trust stops here, before any feed is written.
+# A key the app doesn't trust stops here or at the check below, before any
+# feed is written. Sparkle signs only with the key whose public half is in the
+# app; with any other key it warns and leaves the feed unsigned.
 PUBLIC="$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$SRC/Contents/Info.plist")"
+SIG="$(sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p' "$feed/appcast.xml" | head -1)"
+if [ -z "$SIG" ]; then
+  grep -i "warning\|error" "$feed/generate.log" || true
+  echo "the app wouldn't accept this feed: Sparkle left it unsigned. Is the key the one whose public half is $PUBLIC?"; exit 1
+fi
+# The check Sparkle makes: the signature against the public key inside the app.
 cat > "$feed/verify.swift" <<'SWIFT'
 import CryptoKit
 import Foundation
