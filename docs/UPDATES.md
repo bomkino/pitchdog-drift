@@ -127,6 +127,34 @@ For an app built with Swift Package Manager and the Command Line Tools, as these
 
 For an Xcode project, add the same package in Xcode (File › Add Package Dependencies…). Sparkle is then embedded automatically. The `Info.plist` keys, the key file and the release steps are the same.
 
+## Asking Codex or Claude to add updates to another app
+
+Open the other app's repository in Codex or Claude Code and paste this, with the repository filled in:
+
+```text
+Add in-app updates to this Mac app the way pitch.dog's Studio apps do it, following
+https://github.com/bomkino/pitchdog-drift/blob/main/docs/UPDATES.md ("Adding updates to another app").
+
+- This app's GitHub repository: OWNER/REPO. Feed: https://github.com/OWNER/REPO/releases/latest/download/appcast.xml
+- Public key (SUPublicEDKey): P43E8I+FgVyAW3QkS4J9bnDRRhAnsS4y3dT2WDce1lQ=
+- Private key: ~/Library/Application Support/pitch.dog/Release Keys/sparkle-ed25519-private.key.
+  Use it only through Sparkle's --ed-key-file. Never print it, copy it, or commit it.
+- Sparkle 2.10.0 tools: ~/Library/Application Support/pitch.dog/Sparkle/2.10.0/bin
+  (if missing, install them as the guide says and check the checksum).
+- Copy Sources/Updates/AppUpdates.swift from bomkino/pitchdog-drift. Put "Check for Updates…" in the
+  app menu. Don't start the updater in command-line or test runs.
+- Build: embed Sparkle.framework with ditto, add the Info.plist keys, set CFBundleVersion from the
+  version, sign without --deep, and ship Sparkle's LICENSE with a NOTICES entry.
+- Releases: a ZIP for the updater (never mount a disk image in scripts), a signed appcast.xml and
+  SHA256SUMS.txt, published as the Latest release. Version numbers only go up.
+- Before releasing, prove it: an older test copy (another name and bundle id) must update itself
+  from a local feed, and a ZIP with one changed byte must be refused.
+- Finish with the change merged to main, released as Latest, README and CHANGELOG updated, and tell me
+  that the first version with updates has to be installed by hand once on each Mac.
+- If this isn't a native Mac app built with Swift (Electron, Tauri, Flutter…), say so first, and use
+  that framework's own updater with the same rules: signed updates from GitHub releases, key kept out of the repo.
+```
+
 ## What we learned
 
 - **macOS now offers to "install" apps from disk images.** When any disk image with an app is opened or mounted, newer macOS asks "Install this app?". For apps not notarized by Apple, that fails with "Could not install"; dragging to Applications still works. So updates use a ZIP, which is never mounted, and release checks unzip the ZIP rather than mounting the disk image.
