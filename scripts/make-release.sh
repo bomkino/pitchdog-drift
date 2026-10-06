@@ -42,7 +42,14 @@ rm -f "$OUT/$DMG" "$OUT/$ZIP" "$OUT/appcast.xml"
 stage="$(mktemp -d)"
 ditto "$SRC" "$stage/$BUNDLE.app"
 ln -s /Applications "$stage/Applications"
-hdiutil create -quiet -volname "$BUNDLE" -srcfolder "$stage" -ov -format UDZO -fs HFS+ "$OUT/$DMG"
+# hdiutil sometimes finds the volume busy on a fresh machine, as on CI's
+# runners; it gets three tries.
+for try in 1 2 3; do
+  hdiutil create -quiet -volname "$BUNDLE" -srcfolder "$stage" -ov -format UDZO -fs HFS+ "$OUT/$DMG" && break
+  [ "$try" = 3 ] && { echo "hdiutil couldn't make $DMG"; exit 1; }
+  echo "hdiutil: try $try failed, trying again"
+  sleep 5
+done
 rm -rf "$stage"
 # The updater takes a ZIP: nothing is mounted, so macOS never offers to
 # "install" a disk image in the middle of an update.
